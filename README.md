@@ -51,10 +51,16 @@ docker compose up -d --build
 
 默认行为：
 
-- 服务地址：`http://127.0.0.1:36080`
-- 健康检查：`GET /api/health`
+- Web 入口：`http://127.0.0.1:36080`
+- 健康检查：`GET http://127.0.0.1:36080/api/health`
 - 示例媒体目录：宿主机 [`dev-media/`](dev-media/) 挂载到容器内 `/media`
 - 运行时数据目录：[`data/postgres/`](data/postgres/)、[`data/cache/`](data/cache/)
+
+启动后会同时拉起：
+
+- `mova-web`：构建前端并通过 Nginx 对外提供页面，同时反向代理 `/api/*` 到后端
+- `mova-server`：Rust API 服务，仅在 Docker 内部网络暴露给 `mova-web`
+- `database`：PostgreSQL
 
 可选：通过 `.env` 配置宿主机媒体根目录：
 

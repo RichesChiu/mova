@@ -26,6 +26,16 @@ pnpm dev
 MOVA_API_PROXY_TARGET=http://127.0.0.1:36080 pnpm dev
 ```
 
+## Docker
+
+根目录执行：
+
+```bash
+docker compose up -d --build
+```
+
+默认通过 `http://127.0.0.1:36080` 访问前端页面，`/api/*` 会由 Nginx 反向代理到 `mova-server`。
+
 ## 质量工具
 
 ```bash
