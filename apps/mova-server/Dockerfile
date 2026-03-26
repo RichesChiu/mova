@@ -15,26 +15,7 @@ WORKDIR /app
 
 COPY Cargo.toml ./
 COPY Cargo.lock ./
-COPY apps/mova-server/Cargo.toml ./apps/mova-server/Cargo.toml
-COPY crates/mova-db/Cargo.toml ./crates/mova-db/Cargo.toml
-COPY crates/mova-domain/Cargo.toml ./crates/mova-domain/Cargo.toml
-COPY crates/mova-application/Cargo.toml ./crates/mova-application/Cargo.toml
-COPY crates/mova-scan/Cargo.toml ./crates/mova-scan/Cargo.toml
-
-RUN mkdir -p apps/mova-server/src \
-    crates/mova-db/src \
-    crates/mova-domain/src \
-    crates/mova-application/src \
-    crates/mova-scan/src \
-    && printf 'fn main() {}\n' > apps/mova-server/src/main.rs \
-    && printf '\n' > crates/mova-db/src/lib.rs \
-    && printf '\n' > crates/mova-domain/src/lib.rs \
-    && printf '\n' > crates/mova-application/src/lib.rs \
-    && printf '\n' > crates/mova-scan/src/lib.rs
-
-RUN cargo build --locked --release -p mova-server
-
-COPY apps/mova-server ./apps/mova-server
+COPY apps ./apps
 COPY crates ./crates
 COPY migrations ./migrations
 
