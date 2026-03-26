@@ -1,3 +1,15 @@
+FROM node:22-bookworm AS web-builder
+WORKDIR /app
+
+COPY apps/mova-web/package.json ./apps/mova-web/package.json
+COPY apps/mova-web/pnpm-lock.yaml ./apps/mova-web/pnpm-lock.yaml
+
+RUN corepack enable && pnpm --dir apps/mova-web install --frozen-lockfile
+
+COPY apps/mova-web ./apps/mova-web
+
+RUN pnpm --dir apps/mova-web build
+
 FROM rust:1-bookworm AS builder
 WORKDIR /app
 
@@ -17,6 +29,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/mova-server /usr/local/bin/mova-server
+COPY --from=web-builder /app/apps/mova-web/dist /app/web
 
 EXPOSE 36080
 

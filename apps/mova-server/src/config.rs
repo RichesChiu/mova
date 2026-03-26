@@ -17,6 +17,7 @@ pub struct AppConfig {
     pub database: DatabaseSettings,
     pub api_time: ApiTimeSettings,
     pub cache_dir: PathBuf,
+    pub web_dist_dir: Option<PathBuf>,
     pub metadata_provider: MetadataProviderConfig,
 }
 
@@ -35,6 +36,7 @@ impl AppConfig {
             database: DatabaseSettings::from_env()?,
             api_time: ApiTimeSettings::from_env()?,
             cache_dir: cache_dir_from_env()?,
+            web_dist_dir: web_dist_dir_from_env()?,
             metadata_provider: embedded_metadata::metadata_provider_config()?,
         })
     }
@@ -72,6 +74,30 @@ fn cache_dir_from_env() -> Result<PathBuf> {
         Ok(env::current_dir()
             .context("failed to resolve current working directory for MOVA_CACHE_DIR")?
             .join(path))
+    }
+}
+
+fn web_dist_dir_from_env() -> Result<Option<PathBuf>> {
+    let configured = env::var("MOVA_WEB_DIST_DIR").unwrap_or_else(|_| "./apps/mova-web/dist".to_string());
+    let trimmed = configured.trim();
+
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    let path = PathBuf::from(trimmed);
+    let resolved = if path.is_absolute() {
+        path
+    } else {
+        env::current_dir()
+            .context("failed to resolve current working directory for MOVA_WEB_DIST_DIR")?
+            .join(path)
+    };
+
+    if resolved.is_dir() {
+        Ok(Some(resolved))
+    } else {
+        Ok(None)
     }
 }
 
@@ -143,7 +169,7 @@ fn parse_offset_part(value: &str) -> Result<i8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cache_dir_from_env, parse_timezone_offset};
+    use super::{cache_dir_from_env, parse_timezone_offset, web_dist_dir_from_env};
     use std::sync::{Mutex, OnceLock};
 
     fn env_lock() -> &'static Mutex<()> {
@@ -183,5 +209,20 @@ mod tests {
 
         let path = cache_dir_from_env().unwrap();
         assert!(path.ends_with("data/cache"));
+    }
+
+    #[test]
+    fn web_dist_dir_from_env_returns_none_when_directory_is_missing() {
+        let _guard = env_lock().lock().unwrap();
+        unsafe {
+            std::env::set_var("MOVA_WEB_DIST_DIR", "./definitely-missing-web-dist");
+        }
+
+        let path = web_dist_dir_from_env().unwrap();
+        assert!(path.is_none());
+
+        unsafe {
+            std::env::remove_var("MOVA_WEB_DIST_DIR");
+        }
     }
 }

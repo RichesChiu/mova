@@ -34,7 +34,7 @@ MOVA_API_PROXY_TARGET=http://127.0.0.1:36080 pnpm dev
 docker compose up -d --build
 ```
 
-默认通过 `http://127.0.0.1:36080` 访问前端页面，`/api/*` 会由 Nginx 反向代理到 `mova-server`。
+默认通过 `http://127.0.0.1:36080` 访问前端页面。构建后的前端静态文件会被打包进 `mova-server` 镜像，由后端直接托管；API 继续走同域 `/api/*`。
 
 ## 质量工具
 

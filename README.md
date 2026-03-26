@@ -58,9 +58,14 @@ docker compose up -d --build
 
 启动后会同时拉起：
 
-- `mova-web`：构建前端并通过 Nginx 对外提供页面，同时反向代理 `/api/*` 到后端
-- `mova-server`：Rust API 服务，仅在 Docker 内部网络暴露给 `mova-web`
+- `mova-server`：Rust API 服务，同时直接托管构建后的前端静态文件
 - `database`：PostgreSQL
+
+如果你的服务器地址是 `192.168.50.3`，启动完成后直接访问：
+
+```text
+http://192.168.50.3:36080
+```
 
 可选：通过 `.env` 配置宿主机媒体根目录：
 

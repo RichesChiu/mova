@@ -1,15 +1,4 @@
 services:
-  mova-web:
-    build:
-      context: .
-      dockerfile: apps/mova-web/Dockerfile
-    depends_on:
-      mova-server:
-        condition: service_started
-    ports:
-      - "36080:80"
-    restart: unless-stopped
-
   mova-server:
     build:
       context: .
@@ -17,8 +6,11 @@ services:
     depends_on:
       database:
         condition: service_healthy
+    ports:
+      - "36080:36080"
     environment:
       MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
+      MOVA_WEB_DIST_DIR: /app/web
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind

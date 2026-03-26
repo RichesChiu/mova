@@ -54,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
     };
     sync_runtime::initialize_library_sync(&state).await;
 
-    let app = app::build_router(state);
+    let app = app::build_router(state, config.web_dist_dir.clone());
     let addr = config.socket_addr()?;
     info!("mova-server listening on {}", addr);
 
