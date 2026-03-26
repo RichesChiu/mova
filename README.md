@@ -51,8 +51,9 @@ docker compose up -d --build
 
 默认行为：
 
-- Web 入口：`http://127.0.0.1:36080`
-- 健康检查：`GET http://127.0.0.1:36080/api/health`
+- 本机访问：`http://127.0.0.1:36080`
+- 远程服务器访问：`http://<服务器IP>:36080`
+- 健康检查：`GET http://<服务器IP>:36080/api/health`
 - 示例媒体目录：宿主机 [`dev-media/`](dev-media/) 挂载到容器内 `/media`
 - 运行时数据目录：[`data/postgres/`](data/postgres/)、[`data/cache/`](data/cache/)
 
@@ -70,14 +71,14 @@ http://192.168.50.3:36080
 可选：通过 `.env` 配置宿主机媒体根目录：
 
 ```env
-MOVA_MEDIA_ROOT=\\fn-vm\media\mainlan_tv
+MOVA_MEDIA_ROOT=/mnt/media
 ```
 
 说明：
 - `MOVA_MEDIA_ROOT` 是宿主机路径，Docker 会把它只读挂载到容器内固定目录 `/media`。
+- Linux 部署时，推荐先把 SMB / NFS 等网络共享挂到宿主机本地目录，例如 `/mnt/media`，再把 `MOVA_MEDIA_ROOT` 指向这个目录。
 - 前端创建媒体库时会直接展示 `/media` 下的递归目录树；你点击哪个文件夹，就把哪个文件夹作为库源路径。
 - 这样用户不需要手写 `/media/...` 路径，也不需要额外维护多套环境变量。
-- 如果 `MOVA_MEDIA_ROOT` 指向的是 Windows 盘符路径或 UNC 路径，是否可用取决于 Docker 引擎本身能否访问该目录。
 - 当前约定只保留一个宿主机媒体根目录；后续扩展优先通过这个根目录下的子目录来做，而不是再引入更多环境变量。
 
 说明：
