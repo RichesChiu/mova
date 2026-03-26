@@ -42,6 +42,8 @@ export const LibraryPage = () => {
     },
   })
 
+  const scanStatus = libraryQuery.data?.last_scan?.status
+
   const mediaItemsQuery = useQuery({
     enabled: Number.isFinite(libraryId),
     queryKey: ['library-media', libraryId, 'full'],
@@ -50,6 +52,7 @@ export const LibraryPage = () => {
         page: 1,
         pageSize: PAGE_SIZE,
       }),
+    refetchInterval: scanStatus === 'pending' || scanStatus === 'running' ? 3_000 : false,
   })
 
   if (!Number.isFinite(libraryId)) {
@@ -60,6 +63,7 @@ export const LibraryPage = () => {
   const mediaItems = mediaItemsQuery.data?.items ?? []
   const libraryDescription =
     currentLibrary?.description?.trim() || 'No library description provided yet.'
+  const currentScan = currentLibrary?.last_scan
   const movieItems = mediaItems.filter((item) => item.media_type === 'movie')
   const seriesItems = mediaItems.filter((item) => item.media_type === 'series')
   const isMixedLibrary = currentLibrary?.library_type === 'mixed'
@@ -113,6 +117,16 @@ export const LibraryPage = () => {
           {libraryQuery.error instanceof Error
             ? libraryQuery.error.message
             : 'Failed to load library'}
+        </p>
+      ) : null}
+
+      {currentScan && (currentScan.status === 'pending' || currentScan.status === 'running') ? (
+        <p className="callout">
+          当前正在扫描媒体库。
+          {currentScan.total_files > 0
+            ? ` 已处理 ${currentScan.scanned_files} / ${currentScan.total_files} 个文件。`
+            : ` 已发现 ${currentScan.scanned_files} 个文件。`}
+          {' '}当前首轮导入会在整批落库后显示媒体条目，大库时可能需要等待一段时间。
         </p>
       ) : null}
 
