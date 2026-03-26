@@ -49,6 +49,10 @@ Mova 是一个自托管媒体服务器项目，目标是把本地媒体目录整
 docker compose up -d --build
 ```
 
+说明：
+- 第一次在新机器上构建镜像会比较慢；需要下载 Rust / Node 基础镜像、安装 `ffmpeg`，并编译 `mova-server` 的 release 版本。
+- 当前 Dockerfile 已启用 BuildKit 缓存；同一台机器上的后续构建通常会明显更快。
+
 默认行为：
 
 - 本机访问：`http://127.0.0.1:36080`
