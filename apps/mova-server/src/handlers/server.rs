@@ -7,6 +7,7 @@ use serde::Serialize;
 use std::{collections::HashSet, env, fs, path::PathBuf};
 
 const ROOT_PATH_ENV_KEY: &str = "MOVA_LIBRARY_ROOTS";
+const LEGACY_ROOT_PATH_ENV_KEY: &str = "MOVA_MEDIA_ROOT";
 const COMPOSE_FILE_ENV_KEY: &str = "MOVA_COMPOSE_FILE";
 
 #[derive(Debug, Clone, Serialize)]
@@ -71,11 +72,20 @@ fn insert_options(
 }
 
 fn parse_root_paths_from_env() -> Vec<String> {
-    let configured = match env::var(ROOT_PATH_ENV_KEY) {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
-    };
+    let mut paths = Vec::new();
 
+    if let Ok(value) = env::var(ROOT_PATH_ENV_KEY) {
+        paths.extend(parse_env_root_path_list(&value));
+    }
+
+    if let Ok(value) = env::var(LEGACY_ROOT_PATH_ENV_KEY) {
+        paths.extend(parse_env_root_path_list(&value));
+    }
+
+    paths
+}
+
+fn parse_env_root_path_list(configured: &str) -> Vec<String> {
     configured
         .split(&[',', ';', '\n'][..])
         .filter_map(normalize_container_path)
@@ -325,7 +335,16 @@ fn trim_wrapping_quotes(raw: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_mountinfo_path, parse_compose_root_paths};
+    use super::{
+        decode_mountinfo_path, parse_compose_root_paths, parse_root_paths_from_env,
+        LEGACY_ROOT_PATH_ENV_KEY, ROOT_PATH_ENV_KEY,
+    };
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn parse_compose_short_volume_syntax() {
@@ -362,5 +381,47 @@ services:
     fn decode_mountinfo_path_supports_octal_escapes() {
         let decoded = decode_mountinfo_path("/media/dev\\040media");
         assert_eq!(decoded, "/media/dev media");
+    }
+
+    #[test]
+    fn parse_root_paths_from_env_supports_multi_path_configuration() {
+        let _guard = env_lock().lock().unwrap();
+        unsafe {
+            std::env::set_var(
+                ROOT_PATH_ENV_KEY,
+                "/media/movies;/media/anime\n/libraries/tv",
+            );
+            std::env::remove_var(LEGACY_ROOT_PATH_ENV_KEY);
+        }
+
+        let paths = parse_root_paths_from_env();
+
+        assert_eq!(
+            paths,
+            vec!["/media/movies", "/media/anime", "/libraries/tv",]
+        );
+
+        unsafe {
+            std::env::remove_var(ROOT_PATH_ENV_KEY);
+            std::env::remove_var(LEGACY_ROOT_PATH_ENV_KEY);
+        }
+    }
+
+    #[test]
+    fn parse_root_paths_from_env_supports_legacy_single_path_key() {
+        let _guard = env_lock().lock().unwrap();
+        unsafe {
+            std::env::remove_var(ROOT_PATH_ENV_KEY);
+            std::env::set_var(LEGACY_ROOT_PATH_ENV_KEY, "/media/legacy");
+        }
+
+        let paths = parse_root_paths_from_env();
+
+        assert_eq!(paths, vec!["/media/legacy"]);
+
+        unsafe {
+            std::env::remove_var(ROOT_PATH_ENV_KEY);
+            std::env::remove_var(LEGACY_ROOT_PATH_ENV_KEY);
+        }
     }
 }

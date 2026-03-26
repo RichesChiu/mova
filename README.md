@@ -56,6 +56,23 @@ docker compose up -d --build
 - 示例媒体目录：宿主机 [`dev-media/`](dev-media/) 挂载到容器内 `/media/dev-media`
 - 运行时数据目录：[`data/postgres/`](data/postgres/)、[`data/cache/`](data/cache/)
 
+可选：通过 `.env` 同时配置 Docker 挂载源路径和应用内可选媒体根路径：
+
+```env
+MOVA_MEDIA_BIND_SOURCE=\\fn-vm\media\mainlan_tv
+MOVA_MEDIA_BIND_TARGET=/media/mainlan_tv
+MOVA_LIBRARY_ROOTS=/media/mainlan_tv
+```
+
+说明：
+- `MOVA_MEDIA_BIND_SOURCE` 是宿主机路径，供 Docker bind mount 使用；这里可以是 Windows 路径或 UNC 路径。
+- `MOVA_MEDIA_BIND_TARGET` 是容器内路径，`mova-server` 真正看到和使用的是这个路径。
+- `MOVA_LIBRARY_ROOTS` 只接受容器内路径，支持用英文逗号、分号或换行分隔多个路径，例如 `/media/mainlan_tv;/media/anime`。
+- 不要把 `\\fn-vm\media\mainlan_tv` 直接写进 `MOVA_LIBRARY_ROOTS`；这类宿主机路径只应该出现在 `MOVA_MEDIA_BIND_SOURCE`。
+- 如果 Docker 引擎本身无法访问某个宿主机目录或网络共享，应用层配置正确也不会生效。
+- 未来如果要增加更多媒体目录，建议在 `docker-compose.yml` 或 `docker-compose.override.yml` 里新增挂载，再把对应容器路径追加到 `MOVA_LIBRARY_ROOTS`。
+- 旧的单路径变量 `MOVA_MEDIA_ROOT` 仍兼容，但只建议保留给历史配置。
+
 说明：
 - 当前开发阶段只维护 `migrations/0001_init.sql`。如果你在此之前已经启动过旧数据库，升级后建议重建 `data/postgres` 目录再启动，确保新表结构生效。
 - 这次用户体系改动直接修改了 `0001_init.sql`。如果你已经有旧库数据，需要先重建 `data/postgres` 再启动。

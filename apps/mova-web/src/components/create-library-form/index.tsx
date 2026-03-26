@@ -95,11 +95,11 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
   const rootPathHint =
     rootPathOptions.length > 0 ? (
       <p className="root-path-picker__hint">
-        已从服务器挂载目录中发现 {rootPathOptions.length} 个可选路径。
+        已从服务器配置中发现 {rootPathOptions.length} 个可选路径。
       </p>
     ) : (
       <p className="root-path-picker__hint">
-        暂未发现可用挂载目录，请确认 docker compose 已挂载媒体目录。
+        暂未发现可用路径，请确认 `.env` 已配置容器路径 `MOVA_LIBRARY_ROOTS=/media/...`，且 docker compose 已挂载对应目录。
       </p>
     )
 
