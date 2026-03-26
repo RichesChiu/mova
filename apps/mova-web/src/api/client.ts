@@ -18,7 +18,7 @@ import type {
   PlaybackProgress,
   ScanJob,
   Season,
-  ServerRootPathOption,
+  ServerMediaDirectoryNode,
   SubtitleFile,
   UserAccount,
   WatchHistoryItem,
@@ -135,8 +135,8 @@ export function deleteLibrary(libraryId: number) {
   })
 }
 
-export function listServerRootPaths() {
-  return requestJson<ServerRootPathOption[]>(withApiPrefix('/server/root-paths'))
+export function getServerMediaTree() {
+  return requestJson<ServerMediaDirectoryNode | null>(withApiPrefix('/server/media-tree'))
 }
 
 export function getLibrary(libraryId: number) {

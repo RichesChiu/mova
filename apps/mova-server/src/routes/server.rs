@@ -1,7 +1,7 @@
 use crate::handlers;
 use axum::{routing::get, Router};
 
-/// 服务器侧运行时信息（如可选媒体根目录）接口。
+/// 服务器侧运行时信息（如容器内媒体目录树）接口。
 pub fn router() -> Router<crate::state::AppState> {
-    Router::new().route("/server/root-paths", get(handlers::server::list_root_paths))
+    Router::new().route("/server/media-tree", get(handlers::server::get_media_tree))
 }

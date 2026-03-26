@@ -231,9 +231,10 @@ export interface CreateLibraryInput {
   is_enabled: boolean
 }
 
-export interface ServerRootPathOption {
+export interface ServerMediaDirectoryNode {
+  name: string
   path: string
-  source: string
+  children: ServerMediaDirectoryNode[]
 }
 
 export interface UserAccount {

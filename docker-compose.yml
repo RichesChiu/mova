@@ -10,13 +10,11 @@ services:
       - "36080:36080"
     environment:
       MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
-      MOVA_LIBRARY_ROOTS: ${MOVA_LIBRARY_ROOTS:-}
-      MOVA_MEDIA_ROOT: ${MOVA_MEDIA_ROOT:-}
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
-        source: ${MOVA_MEDIA_BIND_SOURCE:-./dev-media}
-        target: ${MOVA_MEDIA_BIND_TARGET:-/media/dev-media}
+        source: ${MOVA_MEDIA_ROOT:-./dev-media}
+        target: /media
         read_only: true
     restart: unless-stopped
 

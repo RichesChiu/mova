@@ -1,13 +1,24 @@
 import { useQuery } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useState } from 'react'
-import { listServerRootPaths } from '../../api/client'
-import type { CreateLibraryInput, LibraryType } from '../../api/types'
+import { getServerMediaTree } from '../../api/client'
+import type {
+  CreateLibraryInput,
+  LibraryType,
+  ServerMediaDirectoryNode,
+} from '../../api/types'
 import { GlassSelect, type GlassSelectOption } from '../glass-select'
 
 interface CreateLibraryFormProps {
   error: string | null
   isSubmitting: boolean
   onSubmit: (input: CreateLibraryInput) => Promise<unknown>
+}
+
+interface MediaTreeNodeProps {
+  depth: number
+  node: ServerMediaDirectoryNode
+  onSelect: (path: string) => void
+  selectedPath: string
 }
 
 const libraryTypeOptions: Array<{ value: LibraryType; label: string }> = [
@@ -21,7 +32,48 @@ const metadataLanguageOptions: GlassSelectOption[] = [
   { value: 'en-US', label: 'English (en-US)' },
 ]
 
-const NO_MAPPED_ROOT_PATH_VALUE = '__no_mapped_root_path__'
+const treeContainsPath = (node: ServerMediaDirectoryNode, path: string): boolean => {
+  if (node.path === path) {
+    return true
+  }
+
+  return node.children.some((child) => treeContainsPath(child, path))
+}
+
+const MediaTreeNode = ({ depth, node, onSelect, selectedPath }: MediaTreeNodeProps) => {
+  const isSelected = node.path === selectedPath
+  const buttonClassName = isSelected
+    ? 'media-tree__button media-tree__button--selected'
+    : 'media-tree__button'
+
+  return (
+    <li className="media-tree__item">
+      <button
+        className={buttonClassName}
+        onClick={() => onSelect(node.path)}
+        style={{ paddingLeft: `${depth * 18 + 14}px` }}
+        type="button"
+      >
+        <span className="media-tree__name">{node.name}</span>
+        <span className="media-tree__meta">{node.path}</span>
+      </button>
+
+      {node.children.length > 0 ? (
+        <ul className="media-tree__list">
+          {node.children.map((child) => (
+            <MediaTreeNode
+              depth={depth + 1}
+              key={child.path}
+              node={child}
+              onSelect={onSelect}
+              selectedPath={selectedPath}
+            />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  )
+}
 
 export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibraryFormProps) => {
   const [name, setName] = useState('Media')
@@ -30,25 +82,24 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
   const [metadataLanguage, setMetadataLanguage] = useState('zh-CN')
   const [rootPath, setRootPath] = useState('')
   const [isEnabled, setIsEnabled] = useState(true)
-  const rootPathQuery = useQuery({
-    queryKey: ['server-root-paths'],
-    queryFn: listServerRootPaths,
+  const mediaTreeQuery = useQuery({
+    queryKey: ['server-media-tree'],
+    queryFn: getServerMediaTree,
   })
 
   useEffect(() => {
-    const options = rootPathQuery.data ?? []
-    if (options.length === 0) {
+    const mediaTree = mediaTreeQuery.data
+    if (!mediaTree) {
       if (rootPath.length > 0) {
         setRootPath('')
       }
       return
     }
 
-    const hasCurrentPath = options.some((option) => option.path === rootPath)
-    if (!hasCurrentPath) {
-      setRootPath(options[0].path)
+    if (!treeContainsPath(mediaTree, rootPath)) {
+      setRootPath(mediaTree.path)
     }
-  }, [rootPathQuery.data, rootPath])
+  }, [mediaTreeQuery.data, rootPath])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -73,43 +124,11 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
     }
   }
 
-  const rootPathOptions = rootPathQuery.data ?? []
-  const hasMappedRootPaths = rootPathOptions.length > 0
-  const selectedRootPathValue = hasMappedRootPaths ? rootPath : NO_MAPPED_ROOT_PATH_VALUE
+  const mediaTree = mediaTreeQuery.data ?? null
   const libraryTypeSelectOptions: GlassSelectOption[] = libraryTypeOptions.map((option) => ({
     value: option.value,
     label: option.label,
   }))
-  const rootPathSelectOptions: GlassSelectOption[] = hasMappedRootPaths
-    ? rootPathOptions.map((option) => ({
-        value: option.path,
-        label: option.path,
-      }))
-    : [
-        {
-          value: NO_MAPPED_ROOT_PATH_VALUE,
-          label: 'No mapped path found',
-          disabled: true,
-        },
-      ]
-  const rootPathHint =
-    rootPathOptions.length > 0 ? (
-      <p className="root-path-picker__hint">
-        已从服务器配置中发现 {rootPathOptions.length} 个可选路径。
-      </p>
-    ) : (
-      <p className="root-path-picker__hint">
-        暂未发现可用路径，请确认 `.env` 已配置容器路径 `MOVA_LIBRARY_ROOTS=/media/...`，且 docker compose 已挂载对应目录。
-      </p>
-    )
-
-  const handleRootPathSelectChange = (value: string) => {
-    if (value === NO_MAPPED_ROOT_PATH_VALUE) {
-      return
-    }
-
-    setRootPath(value)
-  }
 
   return (
     <form className="stack" onSubmit={handleSubmit}>
@@ -155,26 +174,43 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
 
       <div className="field">
         <span>Root Path</span>
-        <div className="root-path-picker">
-          <GlassSelect
-            ariaLabel="Root path"
-            disabled={!hasMappedRootPaths || rootPathQuery.isLoading}
-            onChange={handleRootPathSelectChange}
-            options={rootPathSelectOptions}
-            value={selectedRootPathValue}
-          />
 
-          {rootPathHint}
-        </div>
+        {mediaTree ? (
+          <div className="root-path-picker">
+            <p className="root-path-picker__hint">
+              已读取容器内 `/media` 目录树。点击任意文件夹作为库源。
+            </p>
+            <div className="media-tree">
+              <div className="media-tree__selected">
+                <span className="media-tree__selected-label">Selected</span>
+                <code>{rootPath}</code>
+              </div>
 
-        {rootPathQuery.isLoading ? (
-          <p className="root-path-picker__hint">正在读取服务器挂载目录…</p>
+              <ul className="media-tree__list media-tree__list--root">
+                <MediaTreeNode
+                  depth={0}
+                  node={mediaTree}
+                  onSelect={setRootPath}
+                  selectedPath={rootPath}
+                />
+              </ul>
+            </div>
+          </div>
         ) : null}
-        {rootPathQuery.isError ? (
+
+        {mediaTreeQuery.isLoading ? (
+          <p className="root-path-picker__hint">正在读取容器内 `/media` 目录树…</p>
+        ) : null}
+        {mediaTreeQuery.isError ? (
           <p className="root-path-picker__hint">
-            {rootPathQuery.error instanceof Error
-              ? `读取目录失败：${rootPathQuery.error.message}`
-              : '读取目录失败，请检查服务端挂载配置'}
+            {mediaTreeQuery.error instanceof Error
+              ? `读取目录失败：${mediaTreeQuery.error.message}`
+              : '读取目录失败，请检查 docker 挂载配置'}
+          </p>
+        ) : null}
+        {!mediaTreeQuery.isLoading && !mediaTreeQuery.isError && !mediaTree ? (
+          <p className="root-path-picker__hint">
+            暂未检测到容器内 `/media` 目录，请确认 `.env` 已配置 `MOVA_MEDIA_ROOT`，并且已重新启动 docker compose。
           </p>
         ) : null}
       </div>
@@ -192,7 +228,7 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
 
       <button
         className="button button--primary"
-        disabled={isSubmitting || !hasMappedRootPaths || rootPath.trim().length === 0}
+        disabled={isSubmitting || !mediaTree || rootPath.trim().length === 0}
         type="submit"
       >
         {isSubmitting ? 'Creating…' : 'Create Library'}
