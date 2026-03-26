@@ -415,33 +415,37 @@ export const MediaItemPage = () => {
             </div>
           ) : null}
           <p className="detail-hero__overview">{heroOverview}</p>
-          {playbackTargetMediaItemId ? (
+          {playbackTargetMediaItemId || canMatchMetadata ? (
             <div className="detail-hero__actions">
-              <Link
-                className="button button--primary"
-                to={mediaItemPlayPath(playbackTargetMediaItemId)}
-              >
-                <span>Resume Playback</span>
-              </Link>
-              <Link
-                className="button button--toolbar"
-                to={mediaItemPlayPath(playbackTargetMediaItemId, { fromStart: true })}
-              >
-                <span>Play from Beginning</span>
-              </Link>
+              {playbackTargetMediaItemId ? (
+                <>
+                  <Link
+                    className="button button--primary"
+                    to={mediaItemPlayPath(playbackTargetMediaItemId)}
+                  >
+                    <span>Resume Playback</span>
+                  </Link>
+                  <Link
+                    className="button button--toolbar"
+                    to={mediaItemPlayPath(playbackTargetMediaItemId, { fromStart: true })}
+                  >
+                    <span>Play from Beginning</span>
+                  </Link>
+                </>
+              ) : null}
+              {canMatchMetadata ? (
+                <MetadataMatchPanel
+                  canOpen={canMatchMetadata}
+                  initialQuery={mediaItemQuery.data.source_title}
+                  initialYear={mediaItemQuery.data.year}
+                  mediaItemId={mediaItemQuery.data.id}
+                  mediaType={mediaItemQuery.data.media_type}
+                />
+              ) : null}
             </div>
           ) : null}
         </div>
       </section>
-
-      {canMatchMetadata ? (
-        <MetadataMatchPanel
-          initialQuery={mediaItemQuery.data.source_title}
-          initialYear={mediaItemQuery.data.year}
-          mediaItemId={mediaItemQuery.data.id}
-          mediaType={mediaItemQuery.data.media_type}
-        />
-      ) : null}
 
       {isSeriesView ? (
         <section className="page-stack">

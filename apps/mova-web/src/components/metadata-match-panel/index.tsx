@@ -1,16 +1,22 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ApiError, applyMediaItemMetadataMatch, searchMediaItemMetadata } from '../../api/client'
 import type { MetadataSearchResult } from '../../api/types'
 
 interface MetadataMatchPanelProps {
+  canOpen: boolean
   mediaItemId: number
   mediaType: string
   initialQuery: string
   initialYear: number | null
 }
 
+const renderResultTitle = (result: MetadataSearchResult) =>
+  result.year ? `${result.title} · ${result.year}` : result.title
+
 export const MetadataMatchPanel = ({
+  canOpen,
   mediaItemId,
   mediaType,
   initialQuery,
@@ -21,6 +27,7 @@ export const MetadataMatchPanel = ({
   const [query, setQuery] = useState(initialQuery)
   const [yearInput, setYearInput] = useState(initialYear ? String(initialYear) : '')
   const [results, setResults] = useState<MetadataSearchResult[]>([])
+  const [selectedProviderItemId, setSelectedProviderItemId] = useState<number | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
 
   useEffect(() => {
@@ -30,17 +37,43 @@ export const MetadataMatchPanel = ({
 
     setQuery(initialQuery)
     setYearInput(initialYear ? String(initialYear) : '')
+    setResults([])
+    setSelectedProviderItemId(null)
     setStatusMessage(null)
   }, [initialQuery, initialYear, isOpen])
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false)
+      }
+    }
+
+    // 打开弹窗时锁定 body 滚动，避免背景页面跟着滚动。
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen])
 
   const searchMutation = useMutation({
     mutationFn: (payload: { query: string; year?: number }) =>
       searchMediaItemMetadata(mediaItemId, payload),
     onMutate: () => {
       setStatusMessage(null)
+      setSelectedProviderItemId(null)
     },
     onSuccess: (searchResults) => {
       setResults(searchResults)
+      setSelectedProviderItemId(searchResults[0]?.provider_item_id ?? null)
       setStatusMessage(searchResults.length === 0 ? '未找到匹配结果。' : null)
     },
   })
@@ -59,8 +92,6 @@ export const MetadataMatchPanel = ({
         queryClient.invalidateQueries({ queryKey: ['libraries'] }),
       ])
       setIsOpen(false)
-      setResults([])
-      setStatusMessage('元数据已替换为所选结果。')
     },
   })
 
@@ -85,122 +116,194 @@ export const MetadataMatchPanel = ({
     })
   }
 
-  const renderResultTitle = (result: MetadataSearchResult) =>
-    result.year ? `${result.title} · ${result.year}` : result.title
+  const handleApply = async () => {
+    if (!selectedProviderItemId) {
+      setStatusMessage('请先选中一个匹配结果。')
+      return
+    }
+
+    await matchMutation.mutateAsync(selectedProviderItemId)
+  }
+
+  if (!canOpen) {
+    return null
+  }
 
   return (
-    <section className="season-card metadata-match-panel">
-      <div className="metadata-match-panel__header">
-        <div>
-          <p className="eyebrow">Admin</p>
-          <h3>Manual Metadata Match</h3>
-          <p className="muted">
-            手动输入{mediaType === 'series' ? '剧名' : '片名'}与年份，搜索后选中正确结果替换。
-          </p>
-        </div>
+    <>
+      <button
+        className="button button--toolbar metadata-match-trigger"
+        onClick={() => setIsOpen(true)}
+        type="button"
+      >
+        <span>Search / Replace Metadata</span>
+      </button>
 
-        <button
-          className="button button--toolbar"
-          onClick={() => setIsOpen((open) => !open)}
-          type="button"
-        >
-          {isOpen ? 'Close' : 'Re-match'}
-        </button>
-      </div>
-
-      {isOpen ? (
-        <>
-          <form className="metadata-match-panel__form" onSubmit={handleSearch}>
-            <label className="field">
-              <span>Title</span>
-              <input
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search title"
-                type="text"
-                value={query}
+      {isOpen
+        ? createPortal(
+            <div className="metadata-match-modal">
+              <button
+                aria-label="Close metadata match dialog"
+                className="metadata-match-modal__backdrop"
+                onClick={() => setIsOpen(false)}
+                type="button"
               />
-            </label>
-
-            <label className="field metadata-match-panel__year-field">
-              <span>Year</span>
-              <input
-                inputMode="numeric"
-                onChange={(event) => setYearInput(event.target.value)}
-                placeholder="Optional"
-                type="text"
-                value={yearInput}
-              />
-            </label>
-
-            <button
-              className="button button--primary"
-              disabled={searchMutation.isPending}
-              type="submit"
-            >
-              {searchMutation.isPending ? 'Searching…' : 'Search'}
-            </button>
-          </form>
-
-          {statusMessage ? <p className="muted">{statusMessage}</p> : null}
-          {searchMutation.isError ? (
-            <p className="callout callout--danger">
-              {searchMutation.error instanceof Error
-                ? searchMutation.error.message
-                : '搜索元数据失败'}
-            </p>
-          ) : null}
-          {matchMutation.isError ? (
-            <p className="callout callout--danger">
-              {matchMutation.error instanceof ApiError
-                ? matchMutation.error.message
-                : matchMutation.error instanceof Error
-                  ? matchMutation.error.message
-                  : '替换元数据失败'}
-            </p>
-          ) : null}
-
-          {results.length > 0 ? (
-            <div className="metadata-match-panel__results">
-              {results.map((result) => (
-                <article className="metadata-match-card" key={result.provider_item_id}>
-                  <div className="metadata-match-card__poster">
-                    {result.poster_path ? (
-                      <img alt={result.title} loading="lazy" src={result.poster_path} />
-                    ) : (
-                      <div className="media-card__placeholder">
-                        <span>{mediaType}</span>
-                      </div>
-                    )}
+              <div aria-modal="true" className="metadata-match-modal__surface" role="dialog">
+                <div className="metadata-match-modal__header">
+                  <div>
+                    <p className="eyebrow">Admin</p>
+                    <h3>Search and Replace Metadata</h3>
+                    <p className="muted">
+                      手动输入{mediaType === 'series' ? '剧名' : '片名'}
+                      与年份，搜索后选中正确结果覆盖当前元数据。
+                    </p>
                   </div>
 
-                  <div className="metadata-match-card__body">
-                    <div className="metadata-match-card__copy">
-                      <p className="metadata-match-card__title">{renderResultTitle(result)}</p>
-                      {result.original_title && result.original_title !== result.title ? (
-                        <p className="metadata-match-card__original-title">
-                          {result.original_title}
-                        </p>
-                      ) : null}
-                      <p className="metadata-match-card__overview">
-                        {result.overview ?? 'No overview available.'}
-                      </p>
-                    </div>
-
-                    <button
-                      className="button button--toolbar"
-                      disabled={matchMutation.isPending}
-                      onClick={() => matchMutation.mutate(result.provider_item_id)}
-                      type="button"
+                  <button
+                    aria-label="Close metadata match dialog"
+                    className="button button--icon metadata-match-modal__close"
+                    onClick={() => setIsOpen(false)}
+                    type="button"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      className="button__icon"
+                      fill="none"
+                      viewBox="0 0 24 24"
                     >
-                      {matchMutation.isPending ? 'Applying…' : 'Use This Match'}
-                    </button>
+                      <path
+                        d="M6 6L18 18M18 6L6 18"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="1.8"
+                      />
+                    </svg>
+                  </button>
+                </div>
+
+                <form className="metadata-match-modal__form" onSubmit={handleSearch}>
+                  <label className="field">
+                    <span>Title</span>
+                    <input
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Search title"
+                      type="text"
+                      value={query}
+                    />
+                  </label>
+
+                  <label className="field metadata-match-modal__year-field">
+                    <span>Year</span>
+                    <input
+                      inputMode="numeric"
+                      onChange={(event) => setYearInput(event.target.value)}
+                      placeholder="Optional"
+                      type="text"
+                      value={yearInput}
+                    />
+                  </label>
+
+                  <button
+                    className="button button--primary"
+                    disabled={searchMutation.isPending}
+                    type="submit"
+                  >
+                    {searchMutation.isPending ? 'Searching…' : 'Search'}
+                  </button>
+                </form>
+
+                {statusMessage ? <p className="muted">{statusMessage}</p> : null}
+                {searchMutation.isError ? (
+                  <p className="callout callout--danger">
+                    {searchMutation.error instanceof Error
+                      ? searchMutation.error.message
+                      : '搜索元数据失败'}
+                  </p>
+                ) : null}
+                {matchMutation.isError ? (
+                  <p className="callout callout--danger">
+                    {matchMutation.error instanceof ApiError
+                      ? matchMutation.error.message
+                      : matchMutation.error instanceof Error
+                        ? matchMutation.error.message
+                        : '替换元数据失败'}
+                  </p>
+                ) : null}
+
+                {results.length > 0 ? (
+                  <div className="metadata-match-modal__results">
+                    {results.map((result) => {
+                      const isSelected = selectedProviderItemId === result.provider_item_id
+
+                      return (
+                        <button
+                          className={
+                            isSelected
+                              ? 'metadata-match-card metadata-match-card--selected'
+                              : 'metadata-match-card'
+                          }
+                          key={result.provider_item_id}
+                          onClick={() => setSelectedProviderItemId(result.provider_item_id)}
+                          type="button"
+                        >
+                          <div className="metadata-match-card__poster">
+                            {result.poster_path ? (
+                              <img alt={result.title} loading="lazy" src={result.poster_path} />
+                            ) : (
+                              <div className="media-card__placeholder">
+                                <span>{mediaType}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="metadata-match-card__body">
+                            <div className="metadata-match-card__copy">
+                              <p className="metadata-match-card__title">
+                                {renderResultTitle(result)}
+                              </p>
+                              {result.original_title && result.original_title !== result.title ? (
+                                <p className="metadata-match-card__original-title">
+                                  {result.original_title}
+                                </p>
+                              ) : null}
+                              <p className="metadata-match-card__overview">
+                                {result.overview ?? 'No overview available.'}
+                              </p>
+                            </div>
+
+                            <span className="metadata-match-card__badge">
+                              {isSelected ? 'Selected' : 'Select'}
+                            </span>
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
-                </article>
-              ))}
-            </div>
-          ) : null}
-        </>
-      ) : null}
-    </section>
+                ) : null}
+
+                <div className="metadata-match-modal__footer">
+                  <button
+                    className="button button--toolbar"
+                    onClick={() => setIsOpen(false)}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="button button--primary"
+                    disabled={matchMutation.isPending || selectedProviderItemId === null}
+                    onClick={handleApply}
+                    type="button"
+                  >
+                    {matchMutation.isPending ? 'Applying…' : 'Apply Selected Match'}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   )
 }

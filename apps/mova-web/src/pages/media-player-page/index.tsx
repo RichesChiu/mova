@@ -109,6 +109,10 @@ export const MediaPlayerPage = () => {
 
   return (
     <div className="player-screen">
+      {/* 用顶部/底部热区触发工具栏，避免画面较小时必须先 hover 到视频本体。 */}
+      <div aria-hidden="true" className="player-screen__hotspot player-screen__hotspot--top" />
+      <div aria-hidden="true" className="player-screen__hotspot player-screen__hotspot--bottom" />
+
       <header className="player-screen__chrome">
         <button
           aria-label="Go back"

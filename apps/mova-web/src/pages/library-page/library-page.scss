@@ -1,3 +1,13 @@
+.library-page__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.library-page__home-link {
+  min-width: 0;
+}
+
 .library-hero {
   position: relative;
   display: grid;

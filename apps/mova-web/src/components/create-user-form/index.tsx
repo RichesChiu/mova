@@ -1,5 +1,6 @@
 import { type FormEvent, useMemo, useState } from 'react'
 import type { CreateUserInput, Library, UserRole } from '../../api/types'
+import { GlassSelect } from '../glass-select'
 
 interface CreateUserFormProps {
   error: string | null
@@ -79,13 +80,18 @@ export const CreateUserForm = ({
         />
       </label>
 
-      <label className="field">
+      <div className="field">
         <span>Role</span>
-        <select onChange={(event) => setRole(event.target.value as UserRole)} value={role}>
-          <option value="viewer">Viewer</option>
-          <option value="admin">Admin</option>
-        </select>
-      </label>
+        <GlassSelect
+          ariaLabel="User role"
+          onChange={(value) => setRole(value as UserRole)}
+          options={[
+            { label: 'Viewer', value: 'viewer' },
+            { label: 'Admin', value: 'admin' },
+          ]}
+          value={role}
+        />
+      </div>
 
       <label className="toggle">
         <input

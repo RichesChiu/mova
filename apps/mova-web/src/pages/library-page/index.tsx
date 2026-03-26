@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { getLibrary, listLibraryMediaItems } from '../../api/client'
 import type { MediaItem } from '../../api/types'
 import { MediaCard } from '../../components/media-card'
@@ -66,6 +66,12 @@ export const LibraryPage = () => {
 
   return (
     <div className="page-stack">
+      <div className="library-page__toolbar">
+        <Link className="button button--toolbar library-page__home-link" to="/">
+          <span>返回主页</span>
+        </Link>
+      </div>
+
       <section className="library-hero library-hero--compact">
         <div className="library-hero__content">
           <div className="library-hero__copy">

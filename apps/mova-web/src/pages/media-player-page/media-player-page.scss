@@ -16,6 +16,24 @@
   background: radial-gradient(circle at top, rgba(25, 39, 64, 0.22), transparent 42%), #020407;
 }
 
+.player-screen__hotspot {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 4;
+  pointer-events: auto;
+}
+
+.player-screen__hotspot--top {
+  top: 0;
+  height: 132px;
+}
+
+.player-screen__hotspot--bottom {
+  bottom: 0;
+  height: 170px;
+}
+
 .player-screen--state {
   justify-content: center;
   gap: 16px;
@@ -153,16 +171,16 @@
   overflow: hidden;
 }
 
-.player-screen:has(.player-stage__video:hover) .player-screen__chrome,
-.player-screen:has(.player-stage__video:focus-visible) .player-screen__chrome,
+.player-screen:has(.player-screen__hotspot--top:hover) .player-screen__chrome,
+.player-screen:has(.player-screen__hotspot--bottom:hover) .player-screen__chrome,
 .player-screen:has(.player-panel__overlay:hover) .player-screen__chrome,
 .player-screen:has(.player-panel__overlay:focus-within) .player-screen__chrome,
 .player-screen:has(.player-screen__chrome:hover) .player-screen__chrome,
 .player-screen:has(.player-screen__chrome:focus-within) .player-screen__chrome,
 .player-screen:has(.player-stage__controls:hover) .player-screen__chrome,
 .player-screen:has(.player-stage__controls:focus-within) .player-screen__chrome,
-.player-screen:has(.player-stage__video:hover) .player-stage__controls,
-.player-screen:has(.player-stage__video:focus-visible) .player-stage__controls,
+.player-screen:has(.player-screen__hotspot--top:hover) .player-stage__controls,
+.player-screen:has(.player-screen__hotspot--bottom:hover) .player-stage__controls,
 .player-screen:has(.player-panel__overlay:hover) .player-stage__controls,
 .player-screen:has(.player-panel__overlay:focus-within) .player-stage__controls,
 .player-screen:has(.player-screen__chrome:hover) .player-stage__controls,
