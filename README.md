@@ -51,7 +51,7 @@ docker compose up -d --build
 
 说明：
 - 第一次在新机器上构建镜像会比较慢；需要下载 Rust / Node 基础镜像、安装 `ffmpeg`，并编译 `mova-server` 的 release 版本。
-- 当前 Dockerfile 已启用 BuildKit 缓存；同一台机器上的后续构建通常会明显更快。
+- 当前 Dockerfile 已拆分前端依赖层和 Rust 依赖预热层；同一台机器上的后续构建通常会明显更快。
 
 默认行为：
 
