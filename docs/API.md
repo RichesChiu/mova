@@ -76,8 +76,10 @@
 | `PUT` | `/api/media-items/{id}/playback-progress` | 写入或更新播放进度 |
 | `GET` | `/api/playback-progress/continue-watching` | 查询继续观看列表 |
 | `GET` | `/api/watch-history` | 查询当前用户自己的观看历史 |
+| `GET` | `/api/media-files/{id}/subtitles` | 查询媒体文件可切换字幕列表 |
 | `GET` | `/api/media-files/{id}/stream` | 播放媒体文件 |
 | `HEAD` | `/api/media-files/{id}/stream` | 查询媒体文件播放头信息 |
+| `GET` | `/api/subtitle-files/{id}/stream` | 输出单条字幕轨道的 WebVTT 内容 |
 
 ## 1. 健康检查
 
@@ -1069,6 +1071,52 @@
 
 ## 6. 媒体流
 
+### `GET /api/media-files/{id}/subtitles`
+
+作用：
+- 查询某个媒体文件下当前可切换的字幕轨道列表
+
+路径参数：
+- `id`：`media_file_id`
+
+返回：
+- `200 OK`
+- 返回 `SubtitleFileResponse[]`
+
+关键字段：
+- `source_kind`：字幕来源，`external` 表示外挂字幕，`embedded` 表示媒体内嵌字幕
+- `language`：语言代码，例如 `zh-CN`、`en`
+- `subtitle_format`：原始字幕格式，例如 `srt`、`ass`、`ssa`、`vtt`
+- `label`：字幕标题或文件名尾部解析出的补充标记
+- `is_default`：是否默认字幕
+- `is_forced`：是否强制字幕
+
+说明：
+- 服务端会把外挂字幕和内嵌字幕统一列在这里，前端播放器只需要渲染一份字幕菜单
+- 外挂字幕当前支持：
+  - 同目录、同 stem 自动匹配
+  - 同目录、季集号一致且目录内唯一时自动匹配，例如 `show.S01E01.mkv` 可匹配 `xxxxx.S01E01.srt`
+- 如果同目录下同一个 `SxxEyy` 存在多个视频版本，服务端不会只靠季集号盲猜绑定
+
+### `GET /api/subtitle-files/{id}/stream`
+
+作用：
+- 把单条字幕轨道统一转换成浏览器可直接挂载的 `WebVTT`
+
+路径参数：
+- `id`：`subtitle_file_id`
+
+返回：
+- `200 OK`
+- `Content-Type: text/vtt; charset=utf-8`
+- 响应体为字幕文本，不是 JSON
+
+说明：
+- `srt` 会在服务端直接转换成 `WebVTT`
+- `ass/ssa` 会借助 `ffmpeg` 转成 `WebVTT`
+- 内嵌字幕会按流索引抽取后再转成 `WebVTT`
+- 前端播放器切换字幕时，应只激活一条字幕轨道，避免外挂和内嵌字幕同时显示造成重影
+
 ### `GET /api/media-files/{id}/stream`
 
 作用：
@@ -1137,12 +1185,18 @@
   - 来自 `/api/media-items/{id}/files`
   - 用于媒体流播放和播放进度上报
 
+- `subtitle_file_id`
+  - 来自 `/api/media-files/{id}/subtitles`
+  - 用于播放器加载单条字幕轨道内容
+
 推荐前端流转：
 
 1. 调 `GET /api/libraries/{library_id}/media-items`
 2. 取某条记录的 `media_item_id`
 3. 调 `GET /api/media-items/{media_item_id}/files`
 4. 取文件列表中的 `media_file_id`
+5. 如需字幕菜单，再调 `GET /api/media-files/{media_file_id}/subtitles`
+6. 选中字轨后，用 `subtitle_file_id` 请求 `/api/subtitle-files/{subtitle_file_id}/stream`
 5. 播放时：
    - `<video src="/api/media-files/{media_file_id}/stream" />`
    - `PUT /api/media-items/{media_item_id}/playback-progress`

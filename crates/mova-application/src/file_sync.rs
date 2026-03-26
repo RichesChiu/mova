@@ -252,6 +252,23 @@ fn build_media_entry(
         width: file.width,
         height: file.height,
         bitrate: file.bitrate,
+        // 扫描阶段已经把外挂/内嵌字幕归属到当前媒体文件，这里直接带入落库。
+        subtitle_tracks: file
+            .subtitle_tracks
+            .into_iter()
+            .map(|subtitle| mova_db::CreateSubtitleTrackParams {
+                source_kind: subtitle.source_kind,
+                file_path: subtitle
+                    .file_path
+                    .map(|path| path.to_string_lossy().to_string()),
+                stream_index: subtitle.stream_index,
+                language: subtitle.language,
+                subtitle_format: subtitle.subtitle_format,
+                label: subtitle.label,
+                is_default: subtitle.is_default,
+                is_forced: subtitle.is_forced,
+            })
+            .collect(),
     }))
 }
 

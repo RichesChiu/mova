@@ -22,9 +22,10 @@ pub use libraries::{
 pub use media_cast::{invalidate_media_item_cast_cache, list_media_item_cast};
 pub use media_classification::{LIBRARY_TYPE_MIXED, LIBRARY_TYPE_MOVIE, LIBRARY_TYPE_SERIES};
 pub use media_items::{
-    get_media_file, get_media_item, get_season, list_episodes_for_season,
+    get_media_file, get_media_item, get_season, get_subtitle_file, list_episodes_for_season,
     list_media_files_for_media_item, list_media_items_for_library, list_seasons_for_series,
-    refresh_media_item_metadata, series_episode_outline_for_media_item,
+    list_subtitle_files_for_media_file, refresh_media_item_metadata,
+    series_episode_outline_for_media_item,
     ListMediaItemsForLibraryInput, ListMediaItemsForLibraryOutput, SeriesEpisodeOutline,
     SeriesEpisodeOutlineEpisode, SeriesEpisodeOutlineSeason,
 };

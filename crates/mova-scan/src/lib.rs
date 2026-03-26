@@ -2,6 +2,7 @@ mod discover;
 mod parse;
 mod probe;
 mod sidecar;
+mod subtitle;
 
 pub use discover::{
     discover_media_files, discover_media_files_with_progress,
@@ -10,6 +11,18 @@ pub use discover::{
 pub use parse::is_likely_episode_path;
 
 use std::path::PathBuf;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredSubtitleTrack {
+    pub source_kind: String,
+    pub file_path: Option<PathBuf>,
+    pub stream_index: Option<i32>,
+    pub language: Option<String>,
+    pub subtitle_format: String,
+    pub label: Option<String>,
+    pub is_default: bool,
+    pub is_forced: bool,
+}
 
 /// 扫描目录时发现的单个视频文件。
 #[derive(Debug, Clone)]
@@ -40,6 +53,7 @@ pub struct DiscoveredMediaFile {
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub bitrate: Option<i64>,
+    pub subtitle_tracks: Vec<DiscoveredSubtitleTrack>,
 }
 
 #[cfg(test)]

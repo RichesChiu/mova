@@ -40,6 +40,12 @@ pub(crate) fn humanize_file_stem(path: &Path) -> String {
     normalized.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct EpisodeIdentity {
+    pub season_number: i32,
+    pub episode_number: i32,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ParsedMediaMetadata {
     pub title: String,
@@ -184,6 +190,13 @@ fn parse_episode_identity(path: &Path) -> Option<ParsedEpisodeIdentity> {
         season_number,
         episode_number,
         episode_title,
+    })
+}
+
+pub(crate) fn episode_identity_for_path(path: &Path) -> Option<EpisodeIdentity> {
+    parse_episode_identity(path).map(|identity| EpisodeIdentity {
+        season_number: identity.season_number,
+        episode_number: identity.episode_number,
     })
 }
 

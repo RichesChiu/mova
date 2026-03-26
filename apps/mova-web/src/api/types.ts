@@ -178,6 +178,21 @@ export interface MediaFile {
   updated_at: string
 }
 
+export interface SubtitleFile {
+  id: number
+  media_file_id: number
+  source_kind: string
+  file_path: string | null
+  stream_index: number | null
+  language: string | null
+  subtitle_format: string
+  label: string | null
+  is_default: boolean
+  is_forced: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface ContinueWatchingItem {
   media_item: MediaItem
   playback_progress: PlaybackProgress

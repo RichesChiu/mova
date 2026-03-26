@@ -1,6 +1,7 @@
 use crate::{
     parse::{extension_lowercase, parse_media_metadata},
     probe::{probe_media_file, ProbeAvailability},
+    subtitle::discover_subtitle_tracks,
     DiscoveredMediaFile,
 };
 use std::{
@@ -180,6 +181,7 @@ fn build_discovered_media_file(
         width: probe.width,
         height: probe.height,
         bitrate: probe.bitrate,
+        subtitle_tracks: discover_subtitle_tracks(&path, &probe.subtitle_streams),
         file_path: path,
         file_size,
     }

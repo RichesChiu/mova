@@ -332,8 +332,8 @@ pub(super) async fn insert_media_file(
     tx: &mut Transaction<'_, Postgres>,
     media_item_id: i64,
     entry: &CreateMediaEntryParams,
-) -> Result<()> {
-    sqlx::query(
+) -> Result<i64> {
+    let row = sqlx::query(
         r#"
         insert into media_files (
             library_id,
@@ -350,6 +350,7 @@ pub(super) async fn insert_media_file(
             scan_hash
         )
         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, null)
+        returning id
         "#,
     )
     .bind(entry.library_id)
@@ -363,11 +364,14 @@ pub(super) async fn insert_media_file(
     .bind(entry.width)
     .bind(entry.height)
     .bind(entry.bitrate)
-    .execute(&mut **tx)
+    .fetch_one(&mut **tx)
     .await
     .context("failed to insert media file")?;
 
-    Ok(())
+    let media_file_id = row.get("id");
+    replace_subtitle_files_for_media_file_tx(tx, media_file_id, &entry.subtitle_tracks).await?;
+
+    Ok(media_file_id)
 }
 
 pub(super) async fn update_media_file_from_entry(
@@ -405,6 +409,58 @@ pub(super) async fn update_media_file_from_entry(
     .execute(&mut **tx)
     .await
     .context("failed to update media file during library sync")?;
+
+    replace_subtitle_files_for_media_file_tx(tx, media_file_id, &entry.subtitle_tracks).await?;
+
+    Ok(())
+}
+
+async fn replace_subtitle_files_for_media_file_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    media_file_id: i64,
+    subtitles: &[super::CreateSubtitleTrackParams],
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        delete from subtitle_files
+        where media_file_id = $1
+        "#,
+    )
+    .bind(media_file_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to delete subtitle files during media sync")?;
+
+    for subtitle in subtitles {
+        sqlx::query(
+            r#"
+            insert into subtitle_files (
+                media_file_id,
+                source_kind,
+                file_path,
+                stream_index,
+                language,
+                subtitle_format,
+                label,
+                is_default,
+                is_forced
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "#,
+        )
+        .bind(media_file_id)
+        .bind(&subtitle.source_kind)
+        .bind(&subtitle.file_path)
+        .bind(subtitle.stream_index)
+        .bind(&subtitle.language)
+        .bind(&subtitle.subtitle_format)
+        .bind(&subtitle.label)
+        .bind(subtitle.is_default)
+        .bind(subtitle.is_forced)
+        .execute(&mut **tx)
+        .await
+        .context("failed to insert subtitle file during media sync")?;
+    }
 
     Ok(())
 }

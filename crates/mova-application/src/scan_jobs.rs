@@ -395,6 +395,23 @@ fn build_media_entries(
             width: file.width,
             height: file.height,
             bitrate: file.bitrate,
+            // 全量扫库时同样带上已经解析好的字幕轨道，后续播放器直接从数据库读取即可。
+            subtitle_tracks: file
+                .subtitle_tracks
+                .into_iter()
+                .map(|subtitle| mova_db::CreateSubtitleTrackParams {
+                    source_kind: subtitle.source_kind,
+                    file_path: subtitle
+                        .file_path
+                        .map(|path| path.to_string_lossy().to_string()),
+                    stream_index: subtitle.stream_index,
+                    language: subtitle.language,
+                    subtitle_format: subtitle.subtitle_format,
+                    label: subtitle.label,
+                    is_default: subtitle.is_default,
+                    is_forced: subtitle.is_forced,
+                })
+                .collect(),
         });
     }
 

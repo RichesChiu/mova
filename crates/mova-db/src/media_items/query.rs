@@ -1,10 +1,11 @@
 use super::{
-    LibraryMediaTypeCounts, ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult,
-    MediaItemPlaybackHeader, SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams,
-    UpdateMediaItemMetadataParams, UpsertSeriesEpisodeOutlineCacheParams,
+    CreateSubtitleTrackParams, LibraryMediaTypeCounts, ListMediaItemsForLibraryParams,
+    ListMediaItemsForLibraryResult, MediaItemPlaybackHeader, SeriesEpisodeOutlineCacheEntry,
+    UpdateMediaFileMetadataParams, UpdateMediaItemMetadataParams,
+    UpsertSeriesEpisodeOutlineCacheParams,
 };
 use anyhow::{Context, Result};
-use mova_domain::{Episode, MediaFile, MediaItem, Season};
+use mova_domain::{Episode, MediaFile, MediaItem, Season, SubtitleFile};
 use sqlx::{
     postgres::{PgPool, PgRow},
     Row,
@@ -344,6 +345,131 @@ pub async fn list_media_files_for_media_item(
     Ok(rows.into_iter().map(map_media_file_row).collect())
 }
 
+/// 读取某个媒体文件可切换的字幕轨道列表。
+pub async fn list_subtitle_files_for_media_file(
+    pool: &PgPool,
+    media_file_id: i64,
+) -> Result<Vec<SubtitleFile>> {
+    let rows = sqlx::query(
+        r#"
+        select
+            id,
+            media_file_id,
+            source_kind,
+            file_path,
+            stream_index,
+            language,
+            subtitle_format,
+            label,
+            is_default,
+            is_forced,
+            created_at,
+            updated_at
+        from subtitle_files
+        where media_file_id = $1
+        order by
+            is_default desc,
+            is_forced desc,
+            coalesce(language, '') asc,
+            id asc
+        "#,
+    )
+    .bind(media_file_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to list subtitle files for media file")?;
+
+    Ok(rows.into_iter().map(map_subtitle_file_row).collect())
+}
+
+/// 通过主键读取单条字幕轨道。
+pub async fn get_subtitle_file(pool: &PgPool, subtitle_file_id: i64) -> Result<Option<SubtitleFile>> {
+    let row = sqlx::query(
+        r#"
+        select
+            id,
+            media_file_id,
+            source_kind,
+            file_path,
+            stream_index,
+            language,
+            subtitle_format,
+            label,
+            is_default,
+            is_forced,
+            created_at,
+            updated_at
+        from subtitle_files
+        where id = $1
+        "#,
+    )
+    .bind(subtitle_file_id)
+    .fetch_optional(pool)
+    .await
+    .context("failed to get subtitle file")?;
+
+    Ok(row.map(map_subtitle_file_row))
+}
+
+/// 每次扫描后直接整体替换某个媒体文件的字幕清单，避免做复杂 diff。
+pub async fn replace_subtitle_files_for_media_file(
+    pool: &PgPool,
+    media_file_id: i64,
+    subtitles: &[CreateSubtitleTrackParams],
+) -> Result<()> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start subtitle replacement transaction")?;
+
+    sqlx::query(
+        r#"
+        delete from subtitle_files
+        where media_file_id = $1
+        "#,
+    )
+    .bind(media_file_id)
+    .execute(&mut *tx)
+    .await
+    .context("failed to delete existing subtitle files")?;
+
+    for subtitle in subtitles {
+        sqlx::query(
+            r#"
+            insert into subtitle_files (
+                media_file_id,
+                source_kind,
+                file_path,
+                stream_index,
+                language,
+                subtitle_format,
+                label,
+                is_default,
+                is_forced
+            ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "#,
+        )
+        .bind(media_file_id)
+        .bind(&subtitle.source_kind)
+        .bind(&subtitle.file_path)
+        .bind(subtitle.stream_index)
+        .bind(&subtitle.language)
+        .bind(&subtitle.subtitle_format)
+        .bind(&subtitle.label)
+        .bind(subtitle.is_default)
+        .bind(subtitle.is_forced)
+        .execute(&mut *tx)
+        .await
+        .context("failed to insert subtitle file")?;
+    }
+
+    tx.commit()
+        .await
+        .context("failed to commit subtitle replacement transaction")?;
+
+    Ok(())
+}
+
 pub async fn list_seasons_for_series(pool: &PgPool, series_id: i64) -> Result<Vec<Season>> {
     let rows = sqlx::query(
         r#"
@@ -671,6 +797,23 @@ fn map_media_file_row(row: PgRow) -> MediaFile {
         height: row.get("height"),
         bitrate: row.get("bitrate"),
         scan_hash: row.get("scan_hash"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
+fn map_subtitle_file_row(row: PgRow) -> SubtitleFile {
+    SubtitleFile {
+        id: row.get("id"),
+        media_file_id: row.get("media_file_id"),
+        source_kind: row.get("source_kind"),
+        file_path: row.get("file_path"),
+        stream_index: row.get("stream_index"),
+        language: row.get("language"),
+        subtitle_format: row.get("subtitle_format"),
+        label: row.get("label"),
+        is_default: row.get("is_default"),
+        is_forced: row.get("is_forced"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }

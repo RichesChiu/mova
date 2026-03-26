@@ -258,6 +258,7 @@ fn parse_ffprobe_output_extracts_media_probe_fields() {
             width: Some(1920),
             height: Some(1080),
             bitrate: Some(4_500_000),
+            subtitle_streams: Vec::new(),
         }
     );
 }

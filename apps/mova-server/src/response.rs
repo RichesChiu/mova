@@ -4,7 +4,7 @@ use mova_application::{
 };
 use mova_domain::{
     ContinueWatchingItem, Episode, Library, LibraryDetail, MediaCastMember, MediaFile, MediaItem,
-    PlaybackProgress, ScanJob, Season, UserProfile, WatchHistory, WatchHistoryItem,
+    PlaybackProgress, ScanJob, Season, SubtitleFile, UserProfile, WatchHistory, WatchHistoryItem,
 };
 use serde::Serialize;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
@@ -215,6 +215,22 @@ pub struct MediaFileResponse {
     pub height: Option<i32>,
     pub bitrate: Option<i64>,
     pub scan_hash: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SubtitleFileResponse {
+    pub id: i64,
+    pub media_file_id: i64,
+    pub source_kind: String,
+    pub file_path: Option<String>,
+    pub stream_index: Option<i32>,
+    pub language: Option<String>,
+    pub subtitle_format: String,
+    pub label: Option<String>,
+    pub is_default: bool,
+    pub is_forced: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -652,6 +668,25 @@ impl MediaFileResponse {
             scan_hash: media_file.scan_hash,
             created_at: format_datetime(media_file.created_at, offset),
             updated_at: format_datetime(media_file.updated_at, offset),
+        }
+    }
+}
+
+impl SubtitleFileResponse {
+    pub fn from_domain(subtitle_file: SubtitleFile, offset: UtcOffset) -> Self {
+        Self {
+            id: subtitle_file.id,
+            media_file_id: subtitle_file.media_file_id,
+            source_kind: subtitle_file.source_kind,
+            file_path: subtitle_file.file_path,
+            stream_index: subtitle_file.stream_index,
+            language: subtitle_file.language,
+            subtitle_format: subtitle_file.subtitle_format,
+            label: subtitle_file.label,
+            is_default: subtitle_file.is_default,
+            is_forced: subtitle_file.is_forced,
+            created_at: format_datetime(subtitle_file.created_at, offset),
+            updated_at: format_datetime(subtitle_file.updated_at, offset),
         }
     }
 }

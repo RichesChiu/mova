@@ -9,6 +9,7 @@ pub fn build_router(state: AppState) -> Router {
         .merge(routes::libraries())
         .merge(routes::server())
         .merge(routes::media_files())
+        .merge(routes::subtitle_files())
         .merge(routes::media_items())
         .merge(routes::seasons())
         .merge(routes::playback_progress())

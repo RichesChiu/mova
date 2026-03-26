@@ -19,6 +19,7 @@ import type {
   ScanJob,
   Season,
   ServerRootPathOption,
+  SubtitleFile,
   UserAccount,
   WatchHistoryItem,
 } from './types'
@@ -249,6 +250,10 @@ export function listMediaItemFiles(mediaItemId: number) {
   return requestJson<MediaFile[]>(withApiPrefix(`/media-items/${mediaItemId}/files`))
 }
 
+export function listMediaFileSubtitles(mediaFileId: number) {
+  return requestJson<SubtitleFile[]>(withApiPrefix(`/media-files/${mediaFileId}/subtitles`))
+}
+
 export function listMediaItemSeasons(mediaItemId: number) {
   return requestJson<Season[]>(withApiPrefix(`/media-items/${mediaItemId}/seasons`))
 }
@@ -269,6 +274,10 @@ export function refreshMediaItemMetadata(mediaItemId: number) {
 
 export function mediaFileStreamUrl(mediaFileId: number) {
   return withApiPrefix(`/media-files/${mediaFileId}/stream`)
+}
+
+export function subtitleFileStreamUrl(subtitleFileId: number) {
+  return withApiPrefix(`/subtitle-files/${subtitleFileId}/stream`)
 }
 
 export { ApiError }

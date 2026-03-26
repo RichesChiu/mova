@@ -6,7 +6,7 @@ use crate::{
     media_enrichment::MetadataEnrichmentContext,
     metadata::{MetadataLookup, MetadataProvider, RemoteSeriesEpisodeOutline},
 };
-use mova_domain::{Episode, MediaFile, MediaItem, PlaybackProgress, Season};
+use mova_domain::{Episode, MediaFile, MediaItem, PlaybackProgress, Season, SubtitleFile};
 use sqlx::postgres::PgPool;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -159,6 +159,29 @@ pub async fn list_media_files_for_media_item(
     mova_db::list_media_files_for_media_item(pool, media_item_id)
         .await
         .map_err(ApplicationError::from)
+}
+
+/// 读取某个媒体文件可切换的字幕轨道。
+/// 播放器切换字幕时按媒体文件维度查询，避免多版本文件误共享字幕列表。
+pub async fn list_subtitle_files_for_media_file(
+    pool: &PgPool,
+    media_file_id: i64,
+) -> ApplicationResult<Vec<SubtitleFile>> {
+    get_media_file(pool, media_file_id).await?;
+
+    mova_db::list_subtitle_files_for_media_file(pool, media_file_id)
+        .await
+        .map_err(ApplicationError::from)
+}
+
+pub async fn get_subtitle_file(
+    pool: &PgPool,
+    subtitle_file_id: i64,
+) -> ApplicationResult<SubtitleFile> {
+    mova_db::get_subtitle_file(pool, subtitle_file_id)
+        .await
+        .map_err(ApplicationError::from)?
+        .ok_or_else(|| ApplicationError::NotFound(format!("subtitle file not found: {}", subtitle_file_id)))
 }
 
 pub async fn list_seasons_for_series(

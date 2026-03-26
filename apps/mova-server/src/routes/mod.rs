@@ -6,6 +6,7 @@ mod media_items;
 mod playback_progress;
 mod seasons;
 mod server;
+mod subtitle_files;
 mod users;
 mod watch_history;
 
@@ -33,6 +34,10 @@ pub fn media_items() -> Router<crate::state::AppState> {
 /// 注册媒体文件相关路由。
 pub fn media_files() -> Router<crate::state::AppState> {
     media_files::router()
+}
+
+pub fn subtitle_files() -> Router<crate::state::AppState> {
+    subtitle_files::router()
 }
 
 pub fn seasons() -> Router<crate::state::AppState> {

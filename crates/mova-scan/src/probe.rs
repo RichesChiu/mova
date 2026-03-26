@@ -9,6 +9,17 @@ pub(crate) struct MediaProbe {
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub bitrate: Option<i64>,
+    pub subtitle_streams: Vec<EmbeddedSubtitleStream>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EmbeddedSubtitleStream {
+    pub stream_index: i32,
+    pub language: Option<String>,
+    pub subtitle_format: String,
+    pub label: Option<String>,
+    pub is_default: bool,
+    pub is_forced: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,17 +57,34 @@ struct FfprobeOutput {
 
 #[derive(Debug, Deserialize)]
 struct FfprobeStream {
+    index: Option<i32>,
     codec_type: Option<String>,
     codec_name: Option<String>,
     width: Option<i32>,
     height: Option<i32>,
     bit_rate: Option<String>,
+    disposition: Option<FfprobeDisposition>,
+    tags: Option<FfprobeStreamTags>,
 }
 
 #[derive(Debug, Deserialize)]
 struct FfprobeFormat {
     duration: Option<String>,
     bit_rate: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FfprobeDisposition {
+    #[serde(default)]
+    default: i32,
+    #[serde(default)]
+    forced: i32,
+}
+
+#[derive(Debug, Deserialize)]
+struct FfprobeStreamTags {
+    language: Option<String>,
+    title: Option<String>,
 }
 
 pub(crate) fn probe_media_file(
@@ -96,7 +124,9 @@ fn run_ffprobe(path: &Path) -> Result<MediaProbe, ProbeError> {
         .arg("-v")
         .arg("error")
         .arg("-show_entries")
-        .arg("format=duration,bit_rate:stream=codec_type,codec_name,width,height,bit_rate")
+        .arg(
+            "format=duration,bit_rate:stream=index,codec_type,codec_name,width,height,bit_rate:stream_tags=language,title:stream_disposition=default,forced",
+        )
         .arg("-of")
         .arg("json")
         .arg(path)
@@ -135,6 +165,12 @@ pub(crate) fn parse_ffprobe_output(output: &[u8]) -> Result<MediaProbe, ProbeErr
         .streams
         .iter()
         .find(|stream| stream.codec_type.as_deref() == Some("audio"));
+    let subtitle_streams = parsed
+        .streams
+        .iter()
+        .filter(|stream| stream.codec_type.as_deref() == Some("subtitle"))
+        .filter_map(map_embedded_subtitle_stream)
+        .collect::<Vec<_>>();
 
     Ok(MediaProbe {
         duration_seconds: parsed
@@ -156,7 +192,55 @@ pub(crate) fn parse_ffprobe_output(output: &[u8]) -> Result<MediaProbe, ProbeErr
                     .and_then(|stream| stream.bit_rate.as_deref())
                     .and_then(parse_i64_field)
             }),
+        subtitle_streams,
     })
+}
+
+fn map_embedded_subtitle_stream(stream: &FfprobeStream) -> Option<EmbeddedSubtitleStream> {
+    let stream_index = stream.index?;
+    let subtitle_format = normalize_subtitle_codec(stream.codec_name.as_deref()?)?;
+
+    Some(EmbeddedSubtitleStream {
+        stream_index,
+        language: stream
+            .tags
+            .as_ref()
+            .and_then(|tags| tags.language.as_ref())
+            .and_then(|language| normalize_language_token(language)),
+        subtitle_format,
+        label: stream
+            .tags
+            .as_ref()
+            .and_then(|tags| tags.title.as_ref())
+            .map(|title| title.trim().to_string())
+            .filter(|title| !title.is_empty()),
+        is_default: stream
+            .disposition
+            .as_ref()
+            .map(|disposition| disposition.default > 0)
+            .unwrap_or(false),
+        is_forced: stream
+            .disposition
+            .as_ref()
+            .map(|disposition| disposition.forced > 0)
+            .unwrap_or(false),
+    })
+}
+
+fn normalize_subtitle_codec(codec_name: &str) -> Option<String> {
+    match codec_name.to_ascii_lowercase().as_str() {
+        "subrip" | "srt" => Some("srt".to_string()),
+        "ass" => Some("ass".to_string()),
+        "ssa" => Some("ssa".to_string()),
+        "webvtt" => Some("vtt".to_string()),
+        "mov_text" => Some("mov_text".to_string()),
+        _ => None,
+    }
+}
+
+fn normalize_language_token(token: &str) -> Option<String> {
+    let normalized = token.trim().replace('_', "-").to_ascii_lowercase();
+    (!normalized.is_empty()).then_some(normalized)
 }
 
 fn parse_duration_seconds(value: &str) -> Option<i32> {
