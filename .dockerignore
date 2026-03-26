@@ -1,0 +1,10 @@
+target
+.git
+.vscode
+.idea
+node_modules
+apps/mova-web/node_modules
+apps/mova-web/dist
+.env
+.env.*
+data

@@ -1,0 +1,14 @@
+target/
+.vscode/
+.idea/
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+coverage/
+node_modules/
+dist/
+
+# Local runtime state for Docker-based development.
+data/

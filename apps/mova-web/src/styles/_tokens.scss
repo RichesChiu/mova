@@ -1,0 +1,153 @@
+:root,
+:root[data-theme='glass-noir'] {
+  color-scheme: dark;
+  --text: #eef2f7;
+  --text-muted: #98a2b2;
+  --text-soft: #6e7989;
+  --text-dim: #56606f;
+  --accent: #c9d7ff;
+  --accent-strong: #f4f7ff;
+  --accent-soft: rgba(198, 214, 255, 0.16);
+  --danger: #ff9aa5;
+  --danger-soft: rgba(255, 130, 142, 0.16);
+
+  --body-background: #040608;
+  --body-glow-primary: rgba(18, 24, 36, 0.12);
+  --body-glow-secondary: rgba(10, 16, 25, 0.1);
+
+  --shell-border: rgba(255, 255, 255, 0.1);
+  --shell-background: rgba(10, 15, 22, 0.78);
+  --shell-shadow: 0 24px 62px rgba(0, 0, 0, 0.48);
+  --shell-specular: rgba(244, 248, 255, 0.2);
+  --shell-specular-soft: rgba(166, 195, 245, 0.2);
+
+  --panel-border: rgba(255, 255, 255, 0.11);
+  --panel-background: rgba(12, 18, 27, 0.56);
+  --panel-background-strong: rgba(12, 18, 27, 0.62);
+  --panel-background-soft: rgba(12, 18, 27, 0.48);
+  --panel-overlay-top: rgba(255, 255, 255, 0.045);
+  --panel-overlay-angle: rgba(198, 222, 255, 0);
+  --panel-separator: rgba(255, 255, 255, 0.12);
+  --panel-shadow: 0 18px 34px rgba(0, 0, 0, 0.34);
+  --panel-inset:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+  --panel-reflection: rgba(243, 248, 255, 0.08);
+  --panel-reflection-soft: rgba(177, 206, 255, 0.04);
+  --panel-edge-light: rgba(248, 251, 255, 0.08);
+  --panel-edge-accent: rgba(184, 211, 255, 0.04);
+  --panel-rim-highlight: rgba(255, 255, 255, 0.05);
+
+  --floating-border: rgba(255, 255, 255, 0.11);
+  --floating-surface: rgba(14, 21, 31, 0.58);
+  --floating-surface-strong: rgba(15, 24, 35, 0.66);
+  --floating-shadow: 0 12px 24px rgba(0, 0, 0, 0.28);
+  --floating-shadow-strong: 0 16px 34px rgba(0, 0, 0, 0.34);
+
+  --input-background: rgba(10, 12, 15, 0.72);
+  --input-placeholder: #5e6675;
+  --input-border: rgba(255, 255, 255, 0.08);
+  --input-focus-border: rgba(205, 218, 248, 0.22);
+  --input-focus-ring: rgba(157, 171, 204, 0.1);
+
+  --button-background: rgba(14, 21, 31, 0.62);
+  --button-border: rgba(255, 255, 255, 0.08);
+  --button-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 24px rgba(0, 0, 0, 0.24);
+  --button-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 14px 28px rgba(0, 0, 0, 0.3);
+  --button-primary-background: rgba(18, 26, 38, 0.74);
+  --button-primary-border: rgba(208, 220, 247, 0.18);
+
+  --pill-background: rgba(16, 18, 22, 0.52);
+  --pill-border: rgba(255, 255, 255, 0.08);
+  --pill-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  --status-success-background: rgba(44, 54, 76, 0.34);
+  --status-danger-background: rgba(107, 42, 54, 0.34);
+
+  --card-poster-background: rgba(14, 19, 27, 0.78);
+  --card-poster-overlay: rgba(8, 9, 11, 0.24);
+
+  --hero-background: rgba(12, 18, 27, 0.56);
+  --hero-border: rgba(255, 255, 255, 0.08);
+  --hero-overlay: none;
+}
+
+:root[data-theme='glass-frost'] {
+  color-scheme: light;
+  --text: #2e384b;
+  --text-muted: #718097;
+  --text-soft: #8793a7;
+  --text-dim: #98a6bb;
+  --accent: #5978c5;
+  --accent-strong: #4a68b0;
+  --accent-soft: rgba(89, 120, 197, 0.14);
+  --danger: #b25f62;
+  --danger-soft: rgba(198, 99, 110, 0.12);
+
+  --body-background:
+    radial-gradient(circle at 12% 10%, rgba(255, 255, 255, 0.9), transparent 22%),
+    radial-gradient(circle at 88% 8%, rgba(243, 229, 246, 0.72), transparent 22%),
+    radial-gradient(circle at 70% 100%, rgba(196, 226, 248, 0.68), transparent 28%),
+    linear-gradient(180deg, #dfe8f5 0%, #ecf2fa 100%);
+  --body-glow-primary: rgba(255, 255, 255, 0.85);
+  --body-glow-secondary: rgba(201, 220, 249, 0.78);
+
+  --shell-border: rgba(255, 255, 255, 0.58);
+  --shell-background: rgba(255, 255, 255, 0.26);
+  --shell-shadow: 0 28px 80px rgba(123, 142, 179, 0.2);
+
+  --panel-border: rgba(255, 255, 255, 0.62);
+  --panel-background: rgba(255, 255, 255, 0.5);
+  --panel-background-strong: rgba(255, 255, 255, 0.72);
+  --panel-background-soft: rgba(255, 255, 255, 0.34);
+  --panel-overlay-top: rgba(255, 255, 255, 0.48);
+  --panel-overlay-angle: rgba(255, 255, 255, 0.14);
+  --panel-separator: rgba(255, 255, 255, 0.52);
+  --panel-shadow: 0 18px 50px rgba(141, 161, 194, 0.24);
+  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --panel-edge-light: rgba(255, 255, 255, 0.82);
+  --panel-edge-accent: rgba(154, 181, 228, 0.42);
+  --panel-rim-highlight: rgba(255, 255, 255, 0.68);
+
+  --floating-border: rgba(255, 255, 255, 0.56);
+  --floating-surface: rgba(255, 255, 255, 0.38);
+  --floating-surface-strong: rgba(255, 255, 255, 0.54);
+  --floating-shadow: 0 12px 26px rgba(133, 154, 191, 0.1);
+  --floating-shadow-strong: 0 14px 32px rgba(121, 146, 188, 0.16);
+
+  --input-background: rgba(255, 255, 255, 0.52);
+  --input-placeholder: #98a6bb;
+  --input-border: rgba(255, 255, 255, 0.6);
+  --input-focus-border: rgba(89, 120, 197, 0.45);
+  --input-focus-ring: rgba(89, 120, 197, 0.12);
+
+  --button-background: rgba(255, 255, 255, 0.56);
+  --button-border: rgba(255, 255, 255, 0.56);
+  --button-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 10px 24px rgba(141, 157, 190, 0.12);
+  --button-shadow-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 14px 28px rgba(141, 157, 190, 0.16);
+  --button-primary-background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(235, 242, 255, 0.62)),
+    rgba(255, 255, 255, 0.52);
+  --button-primary-border: rgba(109, 140, 211, 0.32);
+
+  --pill-background: rgba(255, 255, 255, 0.5);
+  --pill-border: rgba(255, 255, 255, 0.6);
+  --pill-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --status-success-background: rgba(233, 244, 255, 0.72);
+  --status-danger-background: rgba(255, 243, 244, 0.78);
+
+  --card-poster-background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(220, 230, 245, 0.38)),
+    linear-gradient(135deg, rgba(180, 200, 231, 0.44), rgba(244, 248, 255, 0.54));
+  --card-poster-overlay: linear-gradient(180deg, transparent 55%, rgba(224, 235, 248, 0.28));
+
+  --hero-background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(239, 246, 255, 0.52)),
+    rgba(255, 255, 255, 0.32);
+  --hero-border: rgba(255, 255, 255, 0.58);
+  --hero-overlay:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.4), transparent 38%),
+    linear-gradient(135deg, rgba(225, 236, 252, 0.36), transparent 56%);
+}

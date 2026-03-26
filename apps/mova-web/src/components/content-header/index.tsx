@@ -1,0 +1,150 @@
+import { useEffect, useRef, useState } from 'react'
+import { Link, NavLink } from 'react-router-dom'
+import type { UserAccount } from '../../api/types'
+import { SettingsGearIcon } from '../settings-gear-icon'
+
+interface ContentHeaderProps {
+  currentUser: UserAccount
+  canManageServer: boolean
+  isSigningOut: boolean
+  onSignOut: () => void
+}
+
+export const ContentHeader = ({
+  currentUser,
+  canManageServer,
+  isSigningOut,
+  onSignOut,
+}: ContentHeaderProps) => {
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
+  const userMenuRef = useRef<HTMLFieldSetElement | null>(null)
+  const userInitial = currentUser.username.slice(0, 1).toUpperCase()
+
+  useEffect(() => {
+    if (!isUserMenuOpen) {
+      return
+    }
+
+    // Keep the header menu lightweight: hover can open it, but outside click and Escape
+    // must always close it so the sticky header never leaves floating UI behind.
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        userMenuRef.current &&
+        event.target instanceof Node &&
+        !userMenuRef.current.contains(event.target)
+      ) {
+        setIsUserMenuOpen(false)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsUserMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isUserMenuOpen])
+
+  return (
+    <header className="content-header">
+      <Link
+        aria-label="Go to home"
+        className="brand-lockup content-header__brand"
+        title="Mova home"
+        to="/"
+      >
+        <img alt="Mova logo" className="brand-mark" src="/mova-logo.png" />
+        <h1 className="brand-title">Mova</h1>
+      </Link>
+
+      <div className="content-header__actions">
+        <fieldset
+          className="toolbar-user"
+          onBlur={(event) => {
+            if (
+              event.relatedTarget instanceof Node &&
+              userMenuRef.current?.contains(event.relatedTarget)
+            ) {
+              return
+            }
+            setIsUserMenuOpen(false)
+          }}
+          // Hover keeps the menu fast for desktop use; click state still exists so menu items can
+          // close deterministically after navigation or sign-out.
+          onMouseEnter={() => setIsUserMenuOpen(true)}
+          onMouseLeave={() => setIsUserMenuOpen(false)}
+          ref={userMenuRef}
+        >
+          <button
+            aria-expanded={isUserMenuOpen}
+            aria-haspopup="menu"
+            className="toolbar-user__trigger"
+            onClick={() => setIsUserMenuOpen((open) => !open)}
+            type="button"
+          >
+            <div className="toolbar-user__identity">
+              <strong>{currentUser.username}</strong>
+            </div>
+            <span aria-hidden="true" className="toolbar-user__avatar">
+              {userInitial}
+            </span>
+          </button>
+
+          <div
+            className={
+              isUserMenuOpen ? 'toolbar-user__menu toolbar-user__menu--open' : 'toolbar-user__menu'
+            }
+            role="menu"
+          >
+            {canManageServer ? (
+              <NavLink
+                className={({ isActive }) =>
+                  isActive
+                    ? 'toolbar-user__menu-item toolbar-user__menu-item--active'
+                    : 'toolbar-user__menu-item'
+                }
+                onClick={() => setIsUserMenuOpen(false)}
+                role="menuitem"
+                to="/settings"
+              >
+                <SettingsGearIcon className="toolbar-user__menu-icon" />
+                <span>Server Settings</span>
+              </NavLink>
+            ) : null}
+
+            <Link
+              className="toolbar-user__menu-item"
+              onClick={() => setIsUserMenuOpen(false)}
+              role="menuitem"
+              to="/profile"
+            >
+              <span className="toolbar-user__menu-icon toolbar-user__menu-icon--text">P</span>
+              <span>Personal Settings</span>
+            </Link>
+
+            <button
+              className="toolbar-user__menu-item toolbar-user__menu-item--danger"
+              disabled={isSigningOut}
+              onClick={() => {
+                setIsUserMenuOpen(false)
+                onSignOut()
+              }}
+              role="menuitem"
+              type="button"
+            >
+              <span className="toolbar-user__menu-icon toolbar-user__menu-icon--text">⏻</span>
+              <span>{isSigningOut ? 'Signing out…' : 'Sign Out'}</span>
+            </button>
+          </div>
+        </fieldset>
+      </div>
+    </header>
+  )
+}

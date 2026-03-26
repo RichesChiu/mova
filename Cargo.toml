@@ -1,0 +1,40 @@
+[workspace]
+members = [
+    "apps/mova-server",
+    "crates/mova-db",
+    "crates/mova-domain",
+    "crates/mova-application",
+    "crates/mova-scan",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Riches"]
+
+[workspace.dependencies]
+anyhow = "1"
+argon2 = "0.5"
+async-trait = "0.1"
+axum = "0.8"
+axum-extra = { version = "0.10", features = ["cookie"] }
+dotenvy = "0.15"
+mova-db = { path = "crates/mova-db" }
+mova-domain = { path = "crates/mova-domain" }
+mova-application = { path = "crates/mova-application" }
+mova-scan = { path = "crates/mova-scan" }
+notify = "8"
+rand_core = { version = "0.6", features = ["std"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "time", "migrate", "macros"] }
+thiserror = "2"
+time = { version = "0.3", features = ["serde", "formatting"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = { version = "1", features = ["serde", "v4"] }

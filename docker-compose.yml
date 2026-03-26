@@ -1,0 +1,35 @@
+services:
+  mova-server:
+    build:
+      context: .
+      dockerfile: apps/mova-server/Dockerfile
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "36080:36080"
+    environment:
+      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
+    volumes:
+      - ./data/cache:/app/data/cache
+      - ./dev-media:/media/dev-media:ro
+    restart: unless-stopped
+
+  database:
+    image: postgres:18
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: mova
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mova
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - ./data/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mova -d mova"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    shm_size: 256mb
+    restart: unless-stopped

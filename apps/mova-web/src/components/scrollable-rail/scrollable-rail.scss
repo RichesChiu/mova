@@ -1,0 +1,59 @@
+.scrollable-rail {
+  display: grid;
+  gap: 16px;
+}
+
+.scrollable-rail__frame {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.scrollable-rail__nav {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--floating-border);
+  border-radius: 999px;
+  background: var(--floating-surface);
+  box-shadow: var(--panel-inset), var(--floating-shadow);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.scrollable-rail__nav span {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.scrollable-rail__nav:hover:not(:disabled) {
+  border-color: var(--button-primary-border);
+  background: var(--floating-surface-strong);
+  transform: translateY(-1px);
+}
+
+.scrollable-rail__nav:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.scrollable-rail__hint {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-soft);
+}
+
+.scrollable-rail__viewport {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 304px;
+  gap: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 2px 10px;
+  scroll-snap-type: x proximity;
+}

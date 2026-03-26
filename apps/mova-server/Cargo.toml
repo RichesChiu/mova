@@ -1,0 +1,24 @@
+[package]
+name = "mova-server"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+tokio.workspace = true
+axum.workspace = true
+axum-extra.workspace = true
+serde.workspace = true
+dotenvy.workspace = true
+sqlx.workspace = true
+time.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tokio-util.workspace = true
+notify.workspace = true
+
+mova-db = { path = "../../crates/mova-db" }
+mova-domain = { path = "../../crates/mova-domain" }
+mova-application = { path = "../../crates/mova-application" }

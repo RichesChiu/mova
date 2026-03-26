@@ -1,0 +1,8 @@
+@use './libraries-section/libraries-section';
+@use './continue-watching-section/continue-watching-section';
+@use './library-content-sections/library-content-sections';
+
+.home-shell {
+  display: grid;
+  gap: 18px;
+}

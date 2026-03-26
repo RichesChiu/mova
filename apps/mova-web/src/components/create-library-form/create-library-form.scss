@@ -1,0 +1,10 @@
+.root-path-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.root-path-picker__hint {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}

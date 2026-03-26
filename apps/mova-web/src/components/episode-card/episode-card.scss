@@ -1,0 +1,164 @@
+.episode-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 148px;
+  padding: 10px;
+  border: 1px solid var(--floating-border);
+  border-radius: 18px;
+  background: var(--floating-surface);
+  box-shadow: var(--panel-inset), var(--floating-shadow);
+  scroll-snap-align: start;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.episode-card__artwork {
+  width: 96px;
+  min-width: 96px;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 80%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--floating-surface) 75%, black);
+}
+
+.episode-card__artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.episode-card__placeholder {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  font-family: 'SFMono-Regular', 'JetBrains Mono', monospace;
+  font-weight: 700;
+}
+
+.episode-card__content {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  align-content: space-between;
+}
+
+.episode-card__status-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--floating-surface) 88%, transparent);
+  box-shadow: var(--panel-inset);
+}
+
+.episode-card__status-badge::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-soft) 72%, transparent);
+}
+
+.episode-card--progress .episode-card__status-badge::before {
+  background: rgba(176, 190, 218, 0.82);
+}
+
+.episode-card--complete .episode-card__status-badge::before {
+  width: 11px;
+  height: 11px;
+  background: none;
+  border-radius: 0;
+  border-right: 2px solid rgba(176, 190, 218, 0.92);
+  border-bottom: 2px solid rgba(176, 190, 218, 0.92);
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.episode-card__body {
+  display: grid;
+  gap: 5px;
+  align-content: start;
+  min-width: 0;
+  padding-right: 30px;
+}
+
+.episode-card__meta,
+.episode-card__title,
+.episode-card__description {
+  margin: 0;
+}
+
+.episode-card__meta {
+  color: var(--accent);
+  font-family: 'SFMono-Regular', 'JetBrains Mono', monospace;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.episode-card__title {
+  color: var(--text);
+  font-size: 0.96rem;
+  font-weight: 700;
+  line-height: 1.3;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.episode-card__description {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.38;
+  min-height: calc(1.38em * 2);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.episode-card__progress {
+  align-self: end;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.episode-card__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: rgba(176, 190, 218, 0.62);
+}
+
+.episode-card--available {
+  border-color: var(--button-primary-border);
+}
+
+.episode-card--available:hover {
+  border-color: var(--button-primary-border);
+  background: var(--floating-surface-strong);
+  transform: translateY(-2px);
+}
+
+.episode-card--missing {
+  opacity: 0.72;
+  color: var(--text-soft);
+  border-color: var(--input-border);
+  background: var(--panel-background-soft);
+  cursor: not-allowed;
+}
