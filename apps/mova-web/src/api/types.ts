@@ -49,6 +49,7 @@ export interface MediaItem {
   library_id: number
   media_type: MediaType
   title: string
+  source_title: string
   original_title: string | null
   sort_title: string | null
   year: number | null

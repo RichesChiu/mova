@@ -747,6 +747,7 @@ pub async fn refresh_media_item_metadata(
         media_item_id,
         mova_db::UpdateMediaItemMetadataParams {
             title: discovered_file.title,
+            source_title: discovered_file.source_title,
             original_title: discovered_file.original_title,
             sort_title: discovered_file.sort_title,
             metadata_provider: media_item.metadata_provider.clone(),

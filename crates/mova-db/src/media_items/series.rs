@@ -81,7 +81,7 @@ async fn upsert_series_item_from_entry(
     entry: &CreateMediaEntryParams,
 ) -> Result<i64> {
     if let Some(series_id) =
-        find_existing_series_item(tx, entry.library_id, &entry.title, entry.year).await?
+        find_existing_series_item(tx, entry.library_id, &entry.source_title, entry.year).await?
     {
         update_series_item_from_entry(tx, series_id, entry).await?;
         Ok(series_id)
@@ -102,7 +102,7 @@ async fn find_existing_series_item(
         from media_items
         where library_id = $1
           and media_type = 'series'
-          and title = $2
+          and source_title = $2
           and (
                 ($3::int is null and year is null)
                 or year = $3
@@ -138,6 +138,7 @@ async fn insert_series_item_from_entry(
             library_id,
             media_type,
             title,
+            source_title,
             original_title,
             sort_title,
             year,
@@ -145,12 +146,13 @@ async fn insert_series_item_from_entry(
             poster_path,
             backdrop_path
         )
-        values ($1, 'series', $2, $3, $4, $5, $6, $7, $8)
+        values ($1, 'series', $2, $3, $4, $5, $6, $7, $8, $9)
         returning id
         "#,
     )
     .bind(entry.library_id)
     .bind(&entry.title)
+    .bind(&entry.source_title)
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
     .bind(entry.year)
@@ -183,18 +185,20 @@ async fn update_series_item_from_entry(
         update media_items
         set
             title = $2,
-            original_title = $3,
-            sort_title = $4,
-            year = $5,
-            overview = $6,
-            poster_path = $7,
-            backdrop_path = $8,
+            source_title = $3,
+            original_title = $4,
+            sort_title = $5,
+            year = $6,
+            overview = $7,
+            poster_path = $8,
+            backdrop_path = $9,
             updated_at = now()
         where id = $1
         "#,
     )
     .bind(series_id)
     .bind(&entry.title)
+    .bind(&entry.source_title)
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
     .bind(entry.year)
@@ -273,6 +277,7 @@ async fn insert_episode_media_item(
             library_id,
             media_type,
             title,
+            source_title,
             original_title,
             sort_title,
             year,
@@ -280,12 +285,19 @@ async fn insert_episode_media_item(
             poster_path,
             backdrop_path
         )
-        values ($1, 'episode', $2, null, null, null, $3, $4, $5)
+        values ($1, 'episode', $2, $3, null, null, null, $4, $5, $6)
         returning id
         "#,
     )
     .bind(entry.library_id)
     .bind(episode_title_for_entry(entry, episode_number))
+    .bind(
+        entry
+            .episode_title
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| entry.source_title.clone()),
+    )
     .bind(&entry.overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
@@ -310,18 +322,26 @@ async fn update_episode_media_item_from_entry(
         update media_items
         set
             title = $2,
+            source_title = $3,
             original_title = null,
             sort_title = null,
             year = null,
-            overview = $3,
-            poster_path = $4,
-            backdrop_path = $5,
+            overview = $4,
+            poster_path = $5,
+            backdrop_path = $6,
             updated_at = now()
         where id = $1
         "#,
     )
     .bind(media_item_id)
     .bind(episode_title_for_entry(entry, episode_number))
+    .bind(
+        entry
+            .episode_title
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| entry.source_title.clone()),
+    )
     .bind(&entry.overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)

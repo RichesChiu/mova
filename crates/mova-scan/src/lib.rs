@@ -16,6 +16,7 @@ use std::path::PathBuf;
 pub struct DiscoveredMediaFile {
     pub file_path: PathBuf,
     pub title: String,
+    pub source_title: String,
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
     pub year: Option<i32>,

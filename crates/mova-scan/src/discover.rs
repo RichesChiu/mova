@@ -157,6 +157,7 @@ fn build_discovered_media_file(
 
     DiscoveredMediaFile {
         title: parsed.title,
+        source_title: parsed.source_title,
         original_title: parsed.original_title,
         sort_title: parsed.sort_title,
         year: parsed.year,

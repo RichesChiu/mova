@@ -60,6 +60,7 @@ create table if not exists media_items (
                                            library_id bigint not null references libraries(id) on delete cascade,
     media_type varchar(32) not null, -- movie / series / episode
     title varchar(512) not null,
+    source_title varchar(512) not null,
     original_title varchar(512),
     sort_title varchar(512),
     metadata_provider varchar(32),

@@ -573,6 +573,8 @@
 - 不是 `library_id`
 
 关键字段：
+- `title`：当前前端默认展示名；TMDB 命中后优先使用当前媒体库语言对应的标题
+- `source_title`：文件名解析出的原始资源名，主要用于后续元数据匹配和问题排查，不建议直接作为前端展示名
 - `overview`：简介，可来自本地 sidecar `.nfo` 或 TMDB
 - `poster_path`：海报可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/poster`
 - `backdrop_path`：背景图可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/backdrop`
@@ -586,6 +588,7 @@
   "library_id": 1,
   "media_type": "series",
   "title": "Arcane",
+  "source_title": "Arcane",
   "original_title": "Arcane",
   "sort_title": null,
   "year": 2021,
@@ -755,6 +758,7 @@
 说明：
 - 当前只支持对 `movie` 和 `series` 做人工匹配；`episode` 不支持单独匹配
 - 搜索时会沿用当前媒体库配置的 `metadata_language`
+- 如果当前条目已经有 `source_title`，前端通常应优先用它预填搜索框，而不是直接用当前展示标题
 - 搜索类型会跟随当前媒体条目的媒体类型：
   - 电影只搜电影
   - 剧只搜剧

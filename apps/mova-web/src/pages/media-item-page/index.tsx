@@ -436,7 +436,7 @@ export const MediaItemPage = () => {
 
       {canMatchMetadata ? (
         <MetadataMatchPanel
-          initialQuery={mediaItemQuery.data.original_title ?? mediaItemQuery.data.title}
+          initialQuery={mediaItemQuery.data.source_title}
           initialYear={mediaItemQuery.data.year}
           mediaItemId={mediaItemQuery.data.id}
           mediaType={mediaItemQuery.data.media_type}

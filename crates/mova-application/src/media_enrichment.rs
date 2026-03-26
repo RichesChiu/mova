@@ -54,7 +54,8 @@ impl MetadataEnrichmentContext {
 
     pub async fn enrich_file(&mut self, lookup_type: &str, file: &mut DiscoveredMediaFile) {
         let lookup = MetadataLookup {
-            title: file.title.clone(),
+            // 元数据匹配应优先使用文件名解析出的原始标题，而不是已经被远端覆盖过的展示标题。
+            title: file.source_title.clone(),
             year: file.year,
             library_type: lookup_type.to_string(),
             language: Some(self.metadata_language.clone()),

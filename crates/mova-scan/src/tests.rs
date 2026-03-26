@@ -30,6 +30,7 @@ fn parse_media_metadata_extracts_movie_title_and_year() {
         parse_media_metadata(path),
         ParsedMediaMetadata {
             title: "The Matrix".to_string(),
+            source_title: "The Matrix".to_string(),
             original_title: None,
             sort_title: None,
             year: Some(1999),
@@ -57,6 +58,7 @@ fn parse_media_metadata_extracts_parenthesized_year() {
         parse_media_metadata(path),
         ParsedMediaMetadata {
             title: "创：战神".to_string(),
+            source_title: "创：战神".to_string(),
             original_title: None,
             sort_title: None,
             year: Some(2025),
@@ -84,6 +86,7 @@ fn parse_media_metadata_trims_trailing_separator_before_year() {
         parse_media_metadata(path),
         ParsedMediaMetadata {
             title: "新驯龙高手".to_string(),
+            source_title: "新驯龙高手".to_string(),
             original_title: None,
             sort_title: None,
             year: Some(2025),
@@ -111,6 +114,7 @@ fn parse_media_metadata_stops_before_series_token() {
         parse_media_metadata(path),
         ParsedMediaMetadata {
             title: "Planet Earth".to_string(),
+            source_title: "Planet Earth".to_string(),
             original_title: None,
             sort_title: None,
             year: None,
@@ -138,6 +142,7 @@ fn parse_media_metadata_extracts_episode_numbers_and_title() {
         parse_media_metadata(path),
         ParsedMediaMetadata {
             title: "Arcane".to_string(),
+            source_title: "Arcane".to_string(),
             original_title: None,
             sort_title: None,
             year: None,
@@ -365,6 +370,7 @@ fn discover_media_files_reads_sidecar_metadata_and_artwork() {
 
     let file = &files[0];
     assert_eq!(file.title, "Spirited Away");
+    assert_eq!(file.source_title, "Spirited Away");
     assert_eq!(
         file.original_title.as_deref(),
         Some("Sen to Chihiro no Kamikakushi")
@@ -412,6 +418,7 @@ fn inspect_media_file_reads_sidecar_metadata_and_artwork() {
 
     let file = result.unwrap();
     assert_eq!(file.title, "Spirited Away");
+    assert_eq!(file.source_title, "Spirited Away");
     assert_eq!(
         file.original_title.as_deref(),
         Some("Sen to Chihiro no Kamikakushi")

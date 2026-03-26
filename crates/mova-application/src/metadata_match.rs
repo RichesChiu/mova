@@ -81,12 +81,7 @@ pub async fn apply_media_item_metadata_match(
     let lookup_type = metadata_lookup_type_for_media_item(&media_item)?;
     let library = get_library(pool, media_item.library_id).await?;
     let lookup = MetadataLookup {
-        title: media_item
-            .original_title
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or(media_item.title.as_str())
-            .to_string(),
+        title: media_item.source_title.clone(),
         year: media_item.year,
         library_type: lookup_type.to_string(),
         language: Some(library.metadata_language),
@@ -112,6 +107,7 @@ pub async fn apply_media_item_metadata_match(
         media_item_id,
         mova_db::UpdateMediaItemMetadataParams {
             title: remote_metadata.title.unwrap_or(media_item.title),
+            source_title: media_item.source_title,
             original_title: remote_metadata.original_title.or(media_item.original_title),
             // 手动匹配目前不会单独生成 sort title，因此保留现有值避免意外清空。
             sort_title: media_item.sort_title,
@@ -215,6 +211,7 @@ mod tests {
             library_id: 1,
             media_type: media_type.to_string(),
             title: "Sample".to_string(),
+            source_title: "Sample".to_string(),
             original_title: None,
             sort_title: None,
             metadata_provider: None,

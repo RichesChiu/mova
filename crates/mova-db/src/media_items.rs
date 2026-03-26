@@ -22,6 +22,7 @@ pub struct CreateMediaEntryParams {
     pub library_id: i64,
     pub media_type: String,
     pub title: String,
+    pub source_title: String,
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
     pub year: Option<i32>,
@@ -52,6 +53,7 @@ pub struct CreateMediaEntryParams {
 #[derive(Debug, Clone)]
 pub struct UpdateMediaItemMetadataParams {
     pub title: String,
+    pub source_title: String,
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
     pub metadata_provider: Option<String>,

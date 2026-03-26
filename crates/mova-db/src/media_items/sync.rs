@@ -260,6 +260,7 @@ async fn insert_media_item(
             library_id,
             media_type,
             title,
+            source_title,
             original_title,
             sort_title,
             year,
@@ -267,13 +268,14 @@ async fn insert_media_item(
             poster_path,
             backdrop_path
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         returning id
         "#,
     )
     .bind(entry.library_id)
     .bind(&entry.media_type)
     .bind(&entry.title)
+    .bind(&entry.source_title)
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
     .bind(entry.year)
@@ -298,12 +300,13 @@ async fn update_media_item_from_entry(
         set
             media_type = $2,
             title = $3,
-            original_title = $4,
-            sort_title = $5,
-            year = $6,
-            overview = $7,
-            poster_path = $8,
-            backdrop_path = $9,
+            source_title = $4,
+            original_title = $5,
+            sort_title = $6,
+            year = $7,
+            overview = $8,
+            poster_path = $9,
+            backdrop_path = $10,
             updated_at = now()
         where id = $1
         "#,
@@ -311,6 +314,7 @@ async fn update_media_item_from_entry(
     .bind(media_item_id)
     .bind(&entry.media_type)
     .bind(&entry.title)
+    .bind(&entry.source_title)
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
     .bind(entry.year)

@@ -43,6 +43,7 @@ pub(crate) fn humanize_file_stem(path: &Path) -> String {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ParsedMediaMetadata {
     pub title: String,
+    pub source_title: String,
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
     pub year: Option<i32>,
@@ -68,7 +69,11 @@ pub(crate) fn parse_media_metadata(path: &Path) -> ParsedMediaMetadata {
     let backdrop_path = find_local_artwork(path, ArtworkKind::Backdrop).or(sidecar.backdrop_path);
 
     ParsedMediaMetadata {
-        title: sidecar.title.unwrap_or(parsed_name.title),
+        title: sidecar
+            .title
+            .clone()
+            .unwrap_or_else(|| parsed_name.title.clone()),
+        source_title: parsed_name.title,
         original_title: sidecar.original_title,
         sort_title: sidecar.sort_title,
         year: sidecar.year.or(parsed_name.year),

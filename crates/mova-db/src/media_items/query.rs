@@ -25,6 +25,7 @@ pub async fn list_media_items_for_library(
           and (
                 $2::text is null
                 or title ilike '%' || $2 || '%'
+                or source_title ilike '%' || $2 || '%'
                 or coalesce(original_title, '') ilike '%' || $2 || '%'
               )
           and ($3::int is null or year = $3)
@@ -44,6 +45,7 @@ pub async fn list_media_items_for_library(
             library_id,
             media_type,
             title,
+            source_title,
             original_title,
             sort_title,
             metadata_provider,
@@ -60,6 +62,7 @@ pub async fn list_media_items_for_library(
           and (
                 $2::text is null
                 or title ilike '%' || $2 || '%'
+                or source_title ilike '%' || $2 || '%'
                 or coalesce(original_title, '') ilike '%' || $2 || '%'
               )
           and ($3::int is null or year = $3)
@@ -92,6 +95,7 @@ pub async fn get_media_item(pool: &PgPool, media_item_id: i64) -> Result<Option<
             library_id,
             media_type,
             title,
+            source_title,
             original_title,
             sort_title,
             metadata_provider,
@@ -169,14 +173,15 @@ pub async fn update_media_item_metadata(
         update media_items
         set
             title = $2,
-            original_title = $3,
-            sort_title = $4,
-            metadata_provider = $5,
-            metadata_provider_item_id = $6,
-            year = $7,
-            overview = $8,
-            poster_path = $9,
-            backdrop_path = $10,
+            source_title = $3,
+            original_title = $4,
+            sort_title = $5,
+            metadata_provider = $6,
+            metadata_provider_item_id = $7,
+            year = $8,
+            overview = $9,
+            poster_path = $10,
+            backdrop_path = $11,
             updated_at = now()
         where id = $1
         returning
@@ -184,6 +189,7 @@ pub async fn update_media_item_metadata(
             library_id,
             media_type,
             title,
+            source_title,
             original_title,
             sort_title,
             metadata_provider,
@@ -198,6 +204,7 @@ pub async fn update_media_item_metadata(
     )
     .bind(media_item_id)
     .bind(&params.title)
+    .bind(&params.source_title)
     .bind(&params.original_title)
     .bind(&params.sort_title)
     .bind(&params.metadata_provider)
@@ -590,6 +597,7 @@ fn map_media_item_row(row: PgRow) -> MediaItem {
         library_id: row.get("library_id"),
         media_type: row.get("media_type"),
         title: row.get("title"),
+        source_title: row.get("source_title"),
         original_title: row.get("original_title"),
         sort_title: row.get("sort_title"),
         metadata_provider: row.get("metadata_provider"),

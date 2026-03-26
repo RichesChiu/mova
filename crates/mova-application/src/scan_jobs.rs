@@ -370,6 +370,7 @@ fn build_media_entries(
             library_id: library.id,
             media_type,
             title: file.title,
+            source_title: file.source_title,
             original_title: file.original_title,
             sort_title: file.sort_title,
             year: file.year,

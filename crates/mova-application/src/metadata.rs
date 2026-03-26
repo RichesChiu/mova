@@ -730,7 +730,7 @@ impl MetadataProvider for TmdbMetadataProvider {
 }
 
 /// 把远程元数据补到本地扫描结果里。
-/// 当前策略是“只补空字段”，不覆盖 sidecar 或文件名已经推断出的值。
+/// 展示标题会优先使用远端返回的本地化标题；原始文件名标题则单独存到 `source_title`。
 pub fn apply_remote_metadata(
     metadata: Option<RemoteMetadata>,
     title: &mut String,
@@ -744,10 +744,8 @@ pub fn apply_remote_metadata(
         return;
     };
 
-    if title.trim().is_empty() {
-        if let Some(remote_title) = metadata.title {
-            *title = remote_title;
-        }
+    if let Some(remote_title) = metadata.title {
+        *title = remote_title;
     }
 
     if original_title.is_none() {
@@ -1137,7 +1135,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_remote_metadata_only_fills_missing_fields() {
+    fn apply_remote_metadata_uses_remote_title_for_display() {
         let mut title = "Spirited Away".to_string();
         let mut original_title = None;
         let mut year = Some(2001);
@@ -1162,7 +1160,7 @@ mod tests {
             &mut backdrop_path,
         );
 
-        assert_eq!(title, "Spirited Away");
+        assert_eq!(title, "Sen to Chihiro no Kamikakushi");
         assert_eq!(
             original_title.as_deref(),
             Some("Sen to Chihiro no Kamikakushi")
