@@ -7,13 +7,14 @@ interface MediaCardProps {
 }
 
 export const MediaCard = ({ item }: MediaCardProps) => {
+  const title = item.title.trim() || item.source_title.trim() || 'Untitled'
   const subtitle = item.overview ?? item.original_title ?? 'No summary yet'
 
   return (
     <Link className="media-card" to={mediaItemPrimaryPath(item)}>
       <div className="media-card__poster">
         {item.poster_path ? (
-          <img alt={`${item.title} poster`} loading="lazy" src={item.poster_path} />
+          <img alt={`${title} poster`} loading="lazy" src={item.poster_path} />
         ) : (
           <div className="media-card__placeholder">
             <span>{item.media_type}</span>
@@ -26,7 +27,7 @@ export const MediaCard = ({ item }: MediaCardProps) => {
           <span className="chip">{item.media_type}</span>
           {item.year ? <span className="muted">{item.year}</span> : null}
         </div>
-        <h3>{item.title}</h3>
+        <h3>{title}</h3>
         <p className="muted clamp-3">{subtitle}</p>
       </div>
     </Link>

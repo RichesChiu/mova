@@ -98,8 +98,8 @@
 - 扫描时会基于文件名提取清洗后的标题。
 - 常见电影文件名里的四位年份会写入 `media_items.year`。
 - 扫描时会读取本地 sidecar 元数据，包括 `movie.nfo` / `<video>.nfo`、`poster.jpg`、`fanart.jpg` 等常见文件。
-- 在 [`apps/mova-server/src/embedded_metadata.rs`](/Users/riches/Desktop/mova/apps/mova-server/src/embedded_metadata.rs) 内置 token 后，扫描会额外查询 TMDB，补齐缺失的 `overview`、`poster_path`、`backdrop_path`、`original_title`、`year`。
-- TMDB 配置当前固定从源码里的单一位置读取，开发和发布都走同一条构建链路。
+- 设置 `MOVA_TMDB_ACCESS_TOKEN` 后，扫描会额外查询 TMDB，补齐缺失的 `overview`、`poster_path`、`backdrop_path`、`original_title`、`year`。
+- TMDB 配置当前从运行时环境变量读取，媒体库仍可单独配置元数据语言。
 - 扫描命中 TMDB 图片时，会优先把海报和背景图下载到本地缓存目录，再写入媒体记录。
 - `overview`、`original_title`、`sort_title`、`poster_path`、`backdrop_path` 已可通过现有详情接口返回。
 - 当环境里有 `ffprobe` 时，扫描还会填充 `media_files` 的时长、编码、分辨率和码率。

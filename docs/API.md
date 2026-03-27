@@ -47,7 +47,7 @@
   - `404 Not Found`：资源不存在
   - `416 Range Not Satisfiable`：媒体流的 `Range` 请求越界
   - `500 Internal Server Error`：服务内部错误
-- TMDB token 仍固定从 [`apps/mova-server/src/embedded_metadata.rs`](/Users/riches/Desktop/mova/apps/mova-server/src/embedded_metadata.rs) 读取；但每个媒体库可以单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。
+- TMDB provider 现在从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取；但每个媒体库仍可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。
 
 ## 接口总览
 

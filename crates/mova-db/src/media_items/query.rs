@@ -67,7 +67,7 @@ pub async fn list_media_items_for_library(
                 or coalesce(original_title, '') ilike '%' || $2 || '%'
               )
           and ($3::int is null or year = $3)
-        order by lower(title) asc, id asc
+        order by lower(coalesce(nullif(title, ''), source_title)) asc, id asc
         limit $4
         offset $5
         "#,

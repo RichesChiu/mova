@@ -744,7 +744,7 @@ pub fn apply_remote_metadata(
         return;
     };
 
-    if let Some(remote_title) = metadata.title {
+    if let Some(remote_title) = normalize_optional_value(metadata.title) {
         *title = remote_title;
     }
 
@@ -1172,6 +1172,35 @@ mod tests {
             Some("https://images.example.com/poster.jpg")
         );
         assert_eq!(backdrop_path.as_deref(), Some("/local/backdrop.jpg"));
+    }
+
+    #[test]
+    fn apply_remote_metadata_ignores_empty_remote_title() {
+        let mut title = "Local Title".to_string();
+        let mut original_title = None;
+        let mut year = None;
+        let mut overview = None;
+        let mut poster_path = None;
+        let mut backdrop_path = None;
+
+        apply_remote_metadata(
+            Some(RemoteMetadata {
+                title: Some("   ".to_string()),
+                original_title: None,
+                year: None,
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            }),
+            &mut title,
+            &mut original_title,
+            &mut year,
+            &mut overview,
+            &mut poster_path,
+            &mut backdrop_path,
+        );
+
+        assert_eq!(title, "Local Title");
     }
 
     #[test]

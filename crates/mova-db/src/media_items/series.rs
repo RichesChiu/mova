@@ -1,7 +1,7 @@
 use super::{
     sync::{
-        delete_media_item, insert_media_file, update_media_file_from_entry,
-        ExistingLibraryMediaFileRecord,
+        delete_media_item, display_title_for_entry, insert_media_file,
+        update_media_file_from_entry, ExistingLibraryMediaFileRecord,
     },
     CreateMediaEntryParams,
 };
@@ -124,6 +124,7 @@ async fn insert_series_item_from_entry(
     tx: &mut Transaction<'_, Postgres>,
     entry: &CreateMediaEntryParams,
 ) -> Result<i64> {
+    let title = display_title_for_entry(entry);
     let poster_path = entry
         .series_poster_path
         .as_ref()
@@ -151,7 +152,7 @@ async fn insert_series_item_from_entry(
         "#,
     )
     .bind(entry.library_id)
-    .bind(&entry.title)
+    .bind(title)
     .bind(&entry.source_title)
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
@@ -171,6 +172,7 @@ async fn update_series_item_from_entry(
     series_id: i64,
     entry: &CreateMediaEntryParams,
 ) -> Result<()> {
+    let title = display_title_for_entry(entry);
     let poster_path = entry
         .series_poster_path
         .as_ref()
@@ -197,7 +199,7 @@ async fn update_series_item_from_entry(
         "#,
     )
     .bind(series_id)
-    .bind(&entry.title)
+    .bind(title)
     .bind(&entry.source_title)
     .bind(&entry.original_title)
     .bind(&entry.sort_title)

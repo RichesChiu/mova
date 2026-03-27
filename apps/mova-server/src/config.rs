@@ -1,4 +1,4 @@
-use crate::embedded_metadata;
+use crate::metadata_provider_config;
 use anyhow::{anyhow, Context, Result};
 use mova_application::MetadataProviderConfig;
 use mova_db::DatabaseSettings;
@@ -37,7 +37,7 @@ impl AppConfig {
             api_time: ApiTimeSettings::from_env()?,
             cache_dir: cache_dir_from_env()?,
             web_dist_dir: web_dist_dir_from_env()?,
-            metadata_provider: embedded_metadata::metadata_provider_config()?,
+            metadata_provider: metadata_provider_config::metadata_provider_config_from_env()?,
         })
     }
 

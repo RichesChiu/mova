@@ -3,6 +3,11 @@ services:
     build:
       context: .
       dockerfile: apps/mova-server/Dockerfile
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        ALL_PROXY: ${ALL_PROXY:-}
     depends_on:
       database:
         condition: service_healthy
@@ -11,6 +16,15 @@ services:
     environment:
       MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
       MOVA_WEB_DIST_DIR: /app/web
+      MOVA_TMDB_ACCESS_TOKEN: ${MOVA_TMDB_ACCESS_TOKEN:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-}
+      ALL_PROXY: ${ALL_PROXY:-}
+      http_proxy: ${HTTP_PROXY:-}
+      https_proxy: ${HTTPS_PROXY:-}
+      no_proxy: ${NO_PROXY:-}
+      all_proxy: ${ALL_PROXY:-}
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind

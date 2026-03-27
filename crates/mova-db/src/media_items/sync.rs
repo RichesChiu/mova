@@ -154,6 +154,21 @@ pub(super) async fn upsert_media_entry(
     }
 }
 
+pub(super) fn display_title_for_entry(entry: &CreateMediaEntryParams) -> String {
+    // 远端 metadata 缺失或返回异常标题时，列表仍然要能稳定展示本地资源。
+    let title = entry.title.trim();
+    if !title.is_empty() {
+        return title.to_string();
+    }
+
+    let source_title = entry.source_title.trim();
+    if !source_title.is_empty() {
+        return source_title.to_string();
+    }
+
+    "Untitled".to_string()
+}
+
 async fn upsert_movie_media_entry(
     tx: &mut Transaction<'_, Postgres>,
     entry: &CreateMediaEntryParams,
@@ -254,6 +269,7 @@ async fn insert_media_item(
     tx: &mut Transaction<'_, Postgres>,
     entry: &CreateMediaEntryParams,
 ) -> Result<i64> {
+    let title = display_title_for_entry(entry);
     let row = sqlx::query(
         r#"
         insert into media_items (
@@ -274,7 +290,7 @@ async fn insert_media_item(
     )
     .bind(entry.library_id)
     .bind(&entry.media_type)
-    .bind(&entry.title)
+    .bind(title)
     .bind(&entry.source_title)
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
@@ -294,6 +310,8 @@ async fn update_media_item_from_entry(
     media_item_id: i64,
     entry: &CreateMediaEntryParams,
 ) -> Result<()> {
+    let title = display_title_for_entry(entry);
+
     sqlx::query(
         r#"
         update media_items
@@ -313,7 +331,7 @@ async fn update_media_item_from_entry(
     )
     .bind(media_item_id)
     .bind(&entry.media_type)
-    .bind(&entry.title)
+    .bind(title)
     .bind(&entry.source_title)
     .bind(&entry.original_title)
     .bind(&entry.sort_title)

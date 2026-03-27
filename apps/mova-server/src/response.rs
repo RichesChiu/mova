@@ -400,11 +400,13 @@ impl LibraryDetailResponse {
 
 impl MediaItemResponse {
     pub fn from_domain(media_item: MediaItem, offset: UtcOffset) -> Self {
+        let title = display_media_item_title(&media_item);
+
         Self {
             id: media_item.id,
             library_id: media_item.library_id,
             media_type: media_item.media_type,
-            title: media_item.title,
+            title,
             source_title: media_item.source_title,
             original_title: media_item.original_title,
             sort_title: media_item.sort_title,
@@ -444,11 +446,13 @@ impl MediaItemDetailResponse {
         cast: Vec<MediaCastMember>,
         offset: UtcOffset,
     ) -> Self {
+        let title = display_media_item_title(&media_item);
+
         Self {
             id: media_item.id,
             library_id: media_item.library_id,
             media_type: media_item.media_type,
-            title: media_item.title,
+            title,
             source_title: media_item.source_title,
             original_title: media_item.original_title,
             sort_title: media_item.sort_title,
@@ -823,6 +827,19 @@ fn format_datetime(datetime: OffsetDateTime, offset: UtcOffset) -> String {
     localized
         .format(&Rfc3339)
         .unwrap_or_else(|_| localized.unix_timestamp().to_string())
+}
+
+fn display_media_item_title(media_item: &MediaItem) -> String {
+    // 列表和详情首要目标是把条目展示出来，所以远端标题缺失或异常时要回退到本地解析标题。
+    if !media_item.title.trim().is_empty() {
+        return media_item.title.clone();
+    }
+
+    if !media_item.source_title.trim().is_empty() {
+        return media_item.source_title.clone();
+    }
+
+    "Untitled".to_string()
 }
 
 fn format_optional_datetime(datetime: Option<OffsetDateTime>, offset: UtcOffset) -> Option<String> {

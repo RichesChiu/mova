@@ -16,7 +16,7 @@ Mova 是一个自托管媒体服务器项目，目标是把本地媒体目录整
 - TanStack Query
 - `notify` 文件系统 watcher
 - `ffmpeg` / `ffprobe`
-- TMDB 元数据补全
+- TMDB 元数据补全（运行时可选）
 - Biome
 - Docker Compose
 
@@ -72,10 +72,14 @@ docker compose up -d --build
 http://192.168.50.3:36080
 ```
 
-可选：通过 `.env` 配置宿主机媒体根目录：
+可选：通过 `.env` 配置宿主机媒体根目录、TMDB token 和代理：
 
 ```env
 MOVA_MEDIA_ROOT=/mnt/media
+MOVA_TMDB_ACCESS_TOKEN=
+HTTP_PROXY=
+HTTPS_PROXY=
+NO_PROXY=localhost,127.0.0.1,database
 ```
 
 说明：
@@ -83,17 +87,15 @@ MOVA_MEDIA_ROOT=/mnt/media
 - Linux 部署时，推荐先把 SMB / NFS 等网络共享挂到宿主机本地目录，例如 `/mnt/media`，再把 `MOVA_MEDIA_ROOT` 指向这个目录。
 - 前端创建媒体库时会直接展示 `/media` 下的递归目录树；你点击哪个文件夹，就把哪个文件夹作为库源路径。
 - 这样用户不需要手写 `/media/...` 路径，也不需要额外维护多套环境变量。
+- `MOVA_TMDB_ACCESS_TOKEN` 不配置时，TMDB 元数据补全会自动关闭，但本地扫描、入库和播放仍然可用。
+- 代理变量会同时传给 Docker 构建阶段和 `mova-server` 运行时，便于在受限网络里拉镜像依赖和请求 TMDB。
 - 当前约定只保留一个宿主机媒体根目录；后续扩展优先通过这个根目录下的子目录来做，而不是再引入更多环境变量。
 
 说明：
 - 当前开发阶段只维护 `migrations/0001_init.sql`。如果你在此之前已经启动过旧数据库，升级后建议重建 `data/postgres` 目录再启动，确保新表结构生效。
 - 这次用户体系改动直接修改了 `0001_init.sql`。如果你已经有旧库数据，需要先重建 `data/postgres` 再启动。
 
-如果要修改内置的 TMDB token，编辑 [`apps/mova-server/src/embedded_metadata.rs`](apps/mova-server/src/embedded_metadata.rs)，然后重新构建：
-
-```bash
-docker compose up -d --build
-```
+如果要启用 TMDB，只需要设置 `MOVA_TMDB_ACCESS_TOKEN` 后重新构建或重启容器。
 
 ## 文档
 
@@ -101,3 +103,7 @@ docker compose up -d --build
 - 功能现状与开发路线：[docs/ROADMAP.md](docs/ROADMAP.md)
 - 工程结构与重构建议：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 前端原型说明：[apps/mova-web/README.md](apps/mova-web/README.md)
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).

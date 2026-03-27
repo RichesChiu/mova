@@ -1,9 +1,9 @@
 mod app;
 mod auth;
 mod config;
-mod embedded_metadata;
 mod error;
 mod handlers;
+mod metadata_provider_config;
 mod response;
 mod routes;
 mod state;
