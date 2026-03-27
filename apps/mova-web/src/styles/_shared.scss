@@ -33,6 +33,12 @@
   gap: 12px;
 }
 
+.catalog-block__title-row {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
 .section-heading,
 .catalog-block__header {
   align-items: center;

@@ -1,7 +1,8 @@
 use crate::auth::{require_admin, require_library_access, require_user};
 use crate::error::ApiError;
 use crate::response::{
-    LibraryDetailResponse, LibraryResponse, MediaItemListResponse, ScanJobResponse,
+    accepted, created, ok, ok_message, with_status, ApiJson, LibraryDetailResponse,
+    LibraryResponse, MediaItemListResponse, ScanJobResponse,
 };
 use crate::state::{AppState, BeginDeleteError, RegisterScanError};
 use crate::sync_runtime;
@@ -47,19 +48,17 @@ pub struct ListLibraryMediaItemsQuery {
 pub async fn list_libraries(
     State(state): State<AppState>,
     jar: CookieJar,
-) -> Result<Json<Vec<LibraryResponse>>, ApiError> {
+) -> Result<ApiJson<Vec<LibraryResponse>>, ApiError> {
     let user = require_user(&state, &jar).await?;
     let libraries = mova_application::list_libraries(&state.db)
         .await
         .map_err(ApiError::from)?;
 
-    Ok(Json(
-        libraries
-            .into_iter()
-            .filter(|library| user.can_access_library(library.id))
-            .map(|library| LibraryResponse::from_domain(library, state.api_time_offset))
-            .collect(),
-    ))
+    Ok(ok(libraries
+        .into_iter()
+        .filter(|library| user.can_access_library(library.id))
+        .map(|library| LibraryResponse::from_domain(library, state.api_time_offset))
+        .collect()))
 }
 
 /// 查询单个媒体库详情。
@@ -68,14 +67,14 @@ pub async fn get_library(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(library_id): Path<i64>,
-) -> Result<Json<LibraryDetailResponse>, ApiError> {
+) -> Result<ApiJson<LibraryDetailResponse>, ApiError> {
     let user = require_user(&state, &jar).await?;
     require_library_access(&state, &user, library_id).await?;
     let detail = mova_application::get_library_detail(&state.db, library_id)
         .await
         .map_err(ApiError::from)?;
 
-    Ok(Json(LibraryDetailResponse::from_domain(
+    Ok(ok(LibraryDetailResponse::from_domain(
         detail,
         state.api_time_offset,
     )))
@@ -87,7 +86,7 @@ pub async fn create_library(
     State(state): State<AppState>,
     jar: CookieJar,
     Json(request): Json<CreateLibraryRequest>,
-) -> Result<(StatusCode, Json<LibraryResponse>), ApiError> {
+) -> Result<(StatusCode, ApiJson<LibraryResponse>), ApiError> {
     require_admin(&state, &jar).await?;
     // 把 HTTP 请求对象转换成应用层命令对象，避免业务层依赖传输协议细节。
     let input = mova_application::CreateLibraryInput {
@@ -106,10 +105,10 @@ pub async fn create_library(
     maybe_enqueue_initial_library_scan(&state, library.id, library.is_enabled).await;
     sync_runtime::start_library_watcher(&state, library.clone()).await;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(LibraryResponse::from_domain(library, state.api_time_offset)),
-    ))
+    Ok(created(LibraryResponse::from_domain(
+        library,
+        state.api_time_offset,
+    )))
 }
 
 /// 更新媒体库基础配置。
@@ -119,7 +118,7 @@ pub async fn update_library(
     jar: CookieJar,
     Path(library_id): Path<i64>,
     Json(request): Json<UpdateLibraryRequest>,
-) -> Result<Json<LibraryResponse>, ApiError> {
+) -> Result<ApiJson<LibraryResponse>, ApiError> {
     require_admin(&state, &jar).await?;
     if state.scan_registry.is_deleting(library_id) {
         return Err(ApiError::Conflict(format!(
@@ -136,7 +135,7 @@ pub async fn update_library(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(Json(LibraryResponse::from_domain(
+    Ok(ok(LibraryResponse::from_domain(
         updated_library,
         state.api_time_offset,
     )))
@@ -148,7 +147,7 @@ pub async fn delete_library(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(library_id): Path<i64>,
-) -> Result<StatusCode, ApiError> {
+) -> Result<ApiJson<()>, ApiError> {
     require_admin(&state, &jar).await?;
     mova_application::get_library(&state.db, library_id)
         .await
@@ -186,7 +185,7 @@ pub async fn delete_library(
         .map_err(ApiError::from)?;
     state.library_sync_registry.clear_library(library_id);
 
-    Ok(StatusCode::NO_CONTENT)
+    Ok(ok_message("library deleted", ()))
 }
 
 /// 查询某个媒体库下已经扫描出的媒体条目。
@@ -195,7 +194,7 @@ pub async fn list_library_media_items(
     jar: CookieJar,
     Path(library_id): Path<i64>,
     Query(query): Query<ListLibraryMediaItemsQuery>,
-) -> Result<Json<MediaItemListResponse>, ApiError> {
+) -> Result<ApiJson<MediaItemListResponse>, ApiError> {
     let user = require_user(&state, &jar).await?;
     require_library_access(&state, &user, library_id).await?;
     let media_items = mova_application::list_media_items_for_library(
@@ -211,7 +210,7 @@ pub async fn list_library_media_items(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(Json(MediaItemListResponse::from_domain(
+    Ok(ok(MediaItemListResponse::from_domain(
         media_items,
         state.api_time_offset,
     )))
@@ -223,18 +222,16 @@ pub async fn list_library_scan_jobs(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(library_id): Path<i64>,
-) -> Result<Json<Vec<ScanJobResponse>>, ApiError> {
+) -> Result<ApiJson<Vec<ScanJobResponse>>, ApiError> {
     require_admin(&state, &jar).await?;
     let scan_jobs = mova_application::list_scan_jobs_for_library(&state.db, library_id)
         .await
         .map_err(ApiError::from)?;
 
-    Ok(Json(
-        scan_jobs
-            .into_iter()
-            .map(|scan_job| ScanJobResponse::from_domain(scan_job, state.api_time_offset))
-            .collect(),
-    ))
+    Ok(ok(scan_jobs
+        .into_iter()
+        .map(|scan_job| ScanJobResponse::from_domain(scan_job, state.api_time_offset))
+        .collect()))
 }
 
 /// 查询某个媒体库下的单个扫描任务详情。
@@ -243,13 +240,13 @@ pub async fn get_library_scan_job(
     State(state): State<AppState>,
     jar: CookieJar,
     Path((library_id, scan_job_id)): Path<(i64, i64)>,
-) -> Result<Json<ScanJobResponse>, ApiError> {
+) -> Result<ApiJson<ScanJobResponse>, ApiError> {
     require_admin(&state, &jar).await?;
     let scan_job = mova_application::get_scan_job_for_library(&state.db, library_id, scan_job_id)
         .await
         .map_err(ApiError::from)?;
 
-    Ok(Json(ScanJobResponse::from_domain(
+    Ok(ok(ScanJobResponse::from_domain(
         scan_job,
         state.api_time_offset,
     )))
@@ -261,7 +258,7 @@ pub async fn scan_library(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(library_id): Path<i64>,
-) -> Result<(StatusCode, Json<ScanJobResponse>), ApiError> {
+) -> Result<(StatusCode, ApiJson<ScanJobResponse>), ApiError> {
     require_admin(&state, &jar).await?;
     if state.scan_registry.is_deleting(library_id) {
         return Err(ApiError::Conflict(format!(
@@ -290,17 +287,12 @@ pub async fn scan_library(
         }
     }
 
-    Ok((
-        if enqueue_result.created {
-            StatusCode::ACCEPTED
-        } else {
-            StatusCode::OK
-        },
-        Json(ScanJobResponse::from_domain(
-            enqueue_result.scan_job,
-            state.api_time_offset,
-        )),
-    ))
+    let response = ScanJobResponse::from_domain(enqueue_result.scan_job, state.api_time_offset);
+    Ok(if enqueue_result.created {
+        accepted(response)
+    } else {
+        with_status(StatusCode::OK, "ok", response)
+    })
 }
 
 async fn maybe_enqueue_initial_library_scan(state: &AppState, library_id: i64, is_enabled: bool) {

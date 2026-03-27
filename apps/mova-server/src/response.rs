@@ -1,3 +1,4 @@
+use axum::{http::StatusCode, Json};
 use mova_application::{
     MediaItemPlaybackHeader, MetadataMatchCandidate, SeriesEpisodeOutline,
     SeriesEpisodeOutlineEpisode, SeriesEpisodeOutlineSeason,
@@ -8,6 +9,55 @@ use mova_domain::{
 };
 use serde::Serialize;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
+
+/// 所有 JSON 业务接口统一包裹成 code/message/data，便于前端和第三方客户端稳定消费。
+#[derive(Debug, Serialize)]
+pub struct ApiEnvelope<T> {
+    pub code: u16,
+    pub message: String,
+    pub data: T,
+}
+
+pub type ApiJson<T> = Json<ApiEnvelope<T>>;
+
+pub fn ok<T>(data: T) -> ApiJson<T> {
+    Json(ApiEnvelope {
+        code: StatusCode::OK.as_u16(),
+        message: "ok".to_string(),
+        data,
+    })
+}
+
+pub fn ok_message<T>(message: impl Into<String>, data: T) -> ApiJson<T> {
+    Json(ApiEnvelope {
+        code: StatusCode::OK.as_u16(),
+        message: message.into(),
+        data,
+    })
+}
+
+pub fn with_status<T>(
+    status: StatusCode,
+    message: impl Into<String>,
+    data: T,
+) -> (StatusCode, ApiJson<T>) {
+    (
+        status,
+        Json(ApiEnvelope {
+            code: status.as_u16(),
+            message: message.into(),
+            data,
+        }),
+    )
+}
+
+pub fn created<T>(data: T) -> (StatusCode, ApiJson<T>) {
+    with_status(StatusCode::CREATED, "created", data)
+}
+
+pub fn accepted<T>(data: T) -> (StatusCode, ApiJson<T>) {
+    with_status(StatusCode::ACCEPTED, "accepted", data)
+}
 
 /// 面向 HTTP 接口返回的媒体库对象。
 /// 时间字段会在这里按配置时区格式化成可读字符串。

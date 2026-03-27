@@ -1,5 +1,6 @@
 import { EpisodeCard } from '../../../components/episode-card'
 import { ScrollableRail } from '../../../components/scrollable-rail'
+import { SectionHelp } from '../../../components/section-help'
 import type { ContinueWatchingCardData } from '../types'
 
 interface ContinueWatchingSectionProps {
@@ -15,24 +16,27 @@ export const ContinueWatchingSection = ({
 }: ContinueWatchingSectionProps) => (
   <section className="catalog-block continue-watching-section">
     <div className="catalog-block__header">
-      <div>
+      <div className="catalog-block__title-row">
         <h3>Continue Watching</h3>
-        <p className="muted">最近观看记录会优先出现在这里。</p>
+        <SectionHelp
+          detail="Resume unfinished movies and episodes. The latest in-progress item stays here."
+          title="About continue watching"
+        />
       </div>
       <span className="counter-badge">{items.length}</span>
     </div>
 
-    {isLoading ? <p className="muted">Loading recent watching…</p> : null}
+    {isLoading ? <p className="muted">Loading…</p> : null}
     {errorMessage ? <p className="callout callout--danger">{errorMessage}</p> : null}
 
     {!isLoading && !errorMessage && items.length === 0 ? (
       <div className="catalog-block__empty">
-        <p className="muted">还没有最近观看内容。开始播放后，这里会自动出现记录。</p>
+        <p className="muted">Nothing here yet.</p>
       </div>
     ) : null}
 
     {items.length > 0 ? (
-      <ScrollableRail hint="Drag or click arrows to scroll continue watching items horizontally.">
+      <ScrollableRail hint="Scroll horizontally.">
         {items.map((item) => (
           <EpisodeCard
             artworkAlt={item.artworkAlt}

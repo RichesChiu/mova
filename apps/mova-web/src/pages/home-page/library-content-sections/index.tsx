@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { MediaCard } from '../../../components/media-card'
 import { ScrollableRail } from '../../../components/scrollable-rail'
+import { SectionHelp } from '../../../components/section-help'
 import type { HomeLibraryModuleData } from '../types'
 
 interface LibraryContentSectionsProps {
@@ -12,12 +13,15 @@ export const LibraryContentSections = ({ libraryModules }: LibraryContentSection
     {libraryModules.map(({ library, shelfError, shelfItems, shelfLoading }) => (
       <section className="catalog-block library-content-sections__block" key={library.id}>
         <div className="catalog-block__header">
-          <div>
+          <div className="catalog-block__title-row">
             <h3>{library.name}</h3>
-            <p className="muted">默认展示 20 条内容，点击标题卡片可以进入对应媒体库。</p>
+            <SectionHelp
+              detail="This shelf shows a quick preview from the library. Open it for the full list."
+              title={`About ${library.name}`}
+            />
           </div>
           <Link className="library-content-sections__link" to={`/libraries/${library.id}`}>
-            <span>Open Library</span>
+            <span>Open</span>
             <span aria-hidden="true" className="library-content-sections__link-icon">
               <svg
                 aria-hidden="true"
@@ -44,7 +48,7 @@ export const LibraryContentSections = ({ libraryModules }: LibraryContentSection
 
         {!shelfLoading && !shelfError && shelfItems.length === 0 ? (
           <div className="catalog-block__empty">
-            <p className="muted">这个媒体库当前还没有可展示的内容。</p>
+            <p className="muted">No items yet.</p>
           </div>
         ) : null}
 
@@ -52,7 +56,7 @@ export const LibraryContentSections = ({ libraryModules }: LibraryContentSection
           // Reuse the shared rail so library shelves, continue watching, and episodes all expose
           // the same desktop scrolling affordances.
           <ScrollableRail
-            hint="Drag or click arrows to scroll library items horizontally."
+            hint="Scroll horizontally."
             viewportClassName="library-content-sections__viewport"
           >
             {shelfItems.map((item) => (

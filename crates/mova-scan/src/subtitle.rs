@@ -3,11 +3,7 @@ use crate::{
     probe::EmbeddedSubtitleStream,
     DiscoveredSubtitleTrack,
 };
-use std::{
-    collections::HashMap,
-    fs,
-    path::Path,
-};
+use std::{collections::HashMap, fs, path::Path};
 
 #[derive(Debug, Clone)]
 struct ParsedSubtitleSidecar {
@@ -91,7 +87,10 @@ fn collect_video_episode_identity_counts(directory: &Path) -> HashMap<(i32, i32)
     };
 
     let mut counts = HashMap::new();
-    for path in entries.filter_map(|entry| entry.ok()).map(|entry| entry.path()) {
+    for path in entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+    {
         if !path.is_file() || !is_supported_video(&path) {
             continue;
         }
@@ -128,7 +127,10 @@ fn subtitle_matches_video(
     }
 
     identity_counts
-        .get(&(video_episode_identity.season_number, video_episode_identity.episode_number))
+        .get(&(
+            video_episode_identity.season_number,
+            video_episode_identity.episode_number,
+        ))
         .copied()
         .unwrap_or(0)
         <= 1
@@ -168,7 +170,10 @@ fn parse_subtitle_sidecar(path: &Path) -> ParsedSubtitleSidecar {
             continue;
         }
 
-        if matches!(lowered.as_str(), "sdh" | "cc" | "sub" | "subs" | "subtitle" | "subtitles") {
+        if matches!(
+            lowered.as_str(),
+            "sdh" | "cc" | "sub" | "subs" | "subtitle" | "subtitles"
+        ) {
             label_tokens.push(token);
             tokens.pop();
             continue;
@@ -212,7 +217,10 @@ fn normalize_language_suffix(token: &str) -> Option<String> {
 }
 
 fn is_supported_subtitle(path: &Path) -> bool {
-    matches!(extension_lowercase(path).as_deref(), Some("srt" | "ass" | "ssa" | "vtt"))
+    matches!(
+        extension_lowercase(path).as_deref(),
+        Some("srt" | "ass" | "ssa" | "vtt")
+    )
 }
 
 fn is_supported_video(path: &Path) -> bool {

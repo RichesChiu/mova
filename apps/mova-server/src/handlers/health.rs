@@ -1,5 +1,9 @@
-use crate::state::AppState;
-use axum::{extract::State, http::StatusCode, Json};
+use crate::{
+    error::ApiError,
+    response::{ok, ApiJson},
+    state::AppState,
+};
+use axum::extract::State;
 use mova_db::ping;
 use serde::Serialize;
 
@@ -9,10 +13,10 @@ pub struct HealthResponse {
 }
 
 /// 在返回健康状态前顺便探测数据库，确保服务依赖也是可用的。
-pub async fn health(State(state): State<AppState>) -> Result<Json<HealthResponse>, StatusCode> {
+pub async fn health(State(state): State<AppState>) -> Result<ApiJson<HealthResponse>, ApiError> {
     ping(&state.db)
         .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        .map_err(|_| ApiError::ServiceUnavailable("database unavailable".to_string()))?;
 
-    Ok(Json(HealthResponse { status: "ok" }))
+    Ok(ok(HealthResponse { status: "ok" }))
 }

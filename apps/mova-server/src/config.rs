@@ -78,7 +78,8 @@ fn cache_dir_from_env() -> Result<PathBuf> {
 }
 
 fn web_dist_dir_from_env() -> Result<Option<PathBuf>> {
-    let configured = env::var("MOVA_WEB_DIST_DIR").unwrap_or_else(|_| "./apps/mova-web/dist".to_string());
+    let configured =
+        env::var("MOVA_WEB_DIST_DIR").unwrap_or_else(|_| "./apps/mova-web/dist".to_string());
     let trimmed = configured.trim();
 
     if trimmed.is_empty() {

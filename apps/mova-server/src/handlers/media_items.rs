@@ -1,8 +1,9 @@
 use crate::auth::{require_admin, require_media_item_access, require_user};
 use crate::error::ApiError;
 use crate::response::{
-    MediaFileResponse, MediaItemDetailResponse, MediaItemPlaybackHeaderResponse, MediaItemResponse,
-    MetadataMatchCandidateResponse, SeasonResponse, SeriesEpisodeOutlineResponse,
+    ok, ApiJson, MediaFileResponse, MediaItemDetailResponse, MediaItemPlaybackHeaderResponse,
+    MediaItemResponse, MetadataMatchCandidateResponse, SeasonResponse,
+    SeriesEpisodeOutlineResponse,
 };
 use crate::state::AppState;
 use axum::{
@@ -34,7 +35,7 @@ pub async fn get_media_item(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
-) -> Result<Json<MediaItemDetailResponse>, ApiError> {
+) -> Result<ApiJson<MediaItemDetailResponse>, ApiError> {
     let user = require_user(&state, &jar).await?;
     let media_item = require_media_item_access(&state, &user, media_item_id).await?;
     let cast = mova_application::list_media_item_cast(
@@ -45,7 +46,7 @@ pub async fn get_media_item(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(Json(MediaItemDetailResponse::from_domain(
+    Ok(ok(MediaItemDetailResponse::from_domain(
         media_item,
         cast,
         state.api_time_offset,
@@ -56,7 +57,7 @@ pub async fn get_media_item_playback_header(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
-) -> Result<Json<MediaItemPlaybackHeaderResponse>, ApiError> {
+) -> Result<ApiJson<MediaItemPlaybackHeaderResponse>, ApiError> {
     let user = require_user(&state, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let playback_header =
@@ -64,7 +65,7 @@ pub async fn get_media_item_playback_header(
             .await
             .map_err(ApiError::from)?;
 
-    Ok(Json(MediaItemPlaybackHeaderResponse::from_domain(
+    Ok(ok(MediaItemPlaybackHeaderResponse::from_domain(
         playback_header,
     )))
 }
@@ -74,19 +75,17 @@ pub async fn list_media_item_files(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
-) -> Result<Json<Vec<MediaFileResponse>>, ApiError> {
+) -> Result<ApiJson<Vec<MediaFileResponse>>, ApiError> {
     let user = require_user(&state, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let media_files = mova_application::list_media_files_for_media_item(&state.db, media_item_id)
         .await
         .map_err(ApiError::from)?;
 
-    Ok(Json(
-        media_files
-            .into_iter()
-            .map(|media_file| MediaFileResponse::from_domain(media_file, state.api_time_offset))
-            .collect(),
-    ))
+    Ok(ok(media_files
+        .into_iter()
+        .map(|media_file| MediaFileResponse::from_domain(media_file, state.api_time_offset))
+        .collect()))
 }
 
 /// 查询某个剧集媒体条目下的季列表。
@@ -94,19 +93,17 @@ pub async fn list_media_item_seasons(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
-) -> Result<Json<Vec<SeasonResponse>>, ApiError> {
+) -> Result<ApiJson<Vec<SeasonResponse>>, ApiError> {
     let user = require_user(&state, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let seasons = mova_application::list_seasons_for_series(&state.db, media_item_id)
         .await
         .map_err(ApiError::from)?;
 
-    Ok(Json(
-        seasons
-            .into_iter()
-            .map(|season| SeasonResponse::from_domain(season, state.api_time_offset))
-            .collect(),
-    ))
+    Ok(ok(seasons
+        .into_iter()
+        .map(|season| SeasonResponse::from_domain(season, state.api_time_offset))
+        .collect()))
 }
 
 /// 查询剧集媒体条目的“全集大纲 + 本地可用性”。
@@ -115,7 +112,7 @@ pub async fn get_media_item_episode_outline(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
-) -> Result<Json<SeriesEpisodeOutlineResponse>, ApiError> {
+) -> Result<ApiJson<SeriesEpisodeOutlineResponse>, ApiError> {
     let user = require_user(&state, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let outline = mova_application::series_episode_outline_for_media_item(
@@ -127,7 +124,7 @@ pub async fn get_media_item_episode_outline(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(Json(SeriesEpisodeOutlineResponse::from_domain(outline)))
+    Ok(ok(SeriesEpisodeOutlineResponse::from_domain(outline)))
 }
 
 /// 管理员手动搜索单条媒体的候选元数据。
@@ -137,7 +134,7 @@ pub async fn search_media_item_metadata(
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
     Query(query): Query<SearchMediaItemMetadataQuery>,
-) -> Result<Json<Vec<MetadataMatchCandidateResponse>>, ApiError> {
+) -> Result<ApiJson<Vec<MetadataMatchCandidateResponse>>, ApiError> {
     let user = require_admin(&state, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let results = mova_application::search_media_item_metadata_matches(
@@ -152,12 +149,10 @@ pub async fn search_media_item_metadata(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(Json(
-        results
-            .into_iter()
-            .map(MetadataMatchCandidateResponse::from_domain)
-            .collect(),
-    ))
+    Ok(ok(results
+        .into_iter()
+        .map(MetadataMatchCandidateResponse::from_domain)
+        .collect()))
 }
 
 /// 管理员确认候选后，把选中的外部元数据绑定到当前媒体条目。
@@ -166,7 +161,7 @@ pub async fn apply_media_item_metadata_match(
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
     Json(request): Json<ApplyMediaItemMetadataMatchRequest>,
-) -> Result<Json<MediaItemResponse>, ApiError> {
+) -> Result<ApiJson<MediaItemResponse>, ApiError> {
     let user = require_admin(&state, &jar).await?;
     let media_item = require_media_item_access(&state, &user, media_item_id).await?;
     ensure_metadata_mutation_allowed(&state, media_item.library_id)?;
@@ -182,7 +177,7 @@ pub async fn apply_media_item_metadata_match(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(Json(MediaItemResponse::from_domain(
+    Ok(ok(MediaItemResponse::from_domain(
         matched,
         state.api_time_offset,
     )))
@@ -194,7 +189,7 @@ pub async fn refresh_media_item_metadata(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
-) -> Result<Json<MediaItemResponse>, ApiError> {
+) -> Result<ApiJson<MediaItemResponse>, ApiError> {
     let user = require_admin(&state, &jar).await?;
     let media_item = require_media_item_access(&state, &user, media_item_id).await?;
     ensure_metadata_mutation_allowed(&state, media_item.library_id)?;
@@ -208,7 +203,7 @@ pub async fn refresh_media_item_metadata(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(Json(MediaItemResponse::from_domain(
+    Ok(ok(MediaItemResponse::from_domain(
         refreshed,
         state.api_time_offset,
     )))

@@ -1,6 +1,7 @@
 import type {
   BootstrapAdminInput,
   BootstrapStatus,
+  ChangeOwnPasswordInput,
   ContinueWatchingItem,
   CreateLibraryInput,
   CreateUserInput,
@@ -20,6 +21,7 @@ import type {
   Season,
   ServerMediaDirectoryNode,
   SubtitleFile,
+  UpdateUserInput,
   UserAccount,
   WatchHistoryItem,
 } from './types'
@@ -32,6 +34,12 @@ interface ListMediaItemsParams {
 }
 
 const API_PREFIX = '/api'
+
+interface ApiEnvelope<T> {
+  code: number
+  data: T
+  message: string
+}
 
 function withApiPrefix(path: string) {
   return `${API_PREFIX}${path}`
@@ -47,6 +55,16 @@ class ApiError extends Error {
   }
 }
 
+function isApiEnvelope<T>(value: unknown): value is ApiEnvelope<T> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'code' in value &&
+    'message' in value &&
+    'data' in value
+  )
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     credentials: 'same-origin',
@@ -57,16 +75,29 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   })
 
+  let payload: unknown = null
+
+  if (response.status !== 204) {
+    try {
+      payload = await response.json()
+    } catch {
+      payload = null
+    }
+  }
+
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`
 
-    try {
-      const payload = (await response.json()) as { error?: string }
-      if (payload.error) {
-        message = payload.error
-      }
-    } catch {
-      // Ignore non-JSON error bodies.
+    if (isApiEnvelope(payload)) {
+      message = payload.message
+    } else if (
+      typeof payload === 'object' &&
+      payload !== null &&
+      'error' in payload &&
+      typeof payload.error === 'string'
+    ) {
+      // Keep the old parser during the transition so stale backend processes still surface errors.
+      message = payload.error
     }
 
     throw new ApiError(response.status, message)
@@ -76,7 +107,11 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     return undefined as T
   }
 
-  return (await response.json()) as T
+  if (isApiEnvelope<T>(payload)) {
+    return (payload.data === null ? undefined : payload.data) as T
+  }
+
+  return payload as T
 }
 
 export function getBootstrapStatus() {
@@ -107,6 +142,13 @@ export function getCurrentUser() {
   return requestJson<UserAccount>(withApiPrefix('/auth/me'))
 }
 
+export function changeOwnPassword(input: ChangeOwnPasswordInput) {
+  return requestJson<UserAccount>(withApiPrefix('/auth/password'), {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
 export function listLibraries() {
   return requestJson<Library[]>(withApiPrefix('/libraries'))
 }
@@ -126,6 +168,19 @@ export function createUser(input: CreateUserInput) {
   return requestJson<UserAccount>(withApiPrefix('/users'), {
     method: 'POST',
     body: JSON.stringify(input),
+  })
+}
+
+export function updateUser(userId: number, input: UpdateUserInput) {
+  return requestJson<UserAccount>(withApiPrefix(`/users/${userId}`), {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
+export function deleteUser(userId: number) {
+  return requestJson<void>(withApiPrefix(`/users/${userId}`), {
+    method: 'DELETE',
   })
 }
 

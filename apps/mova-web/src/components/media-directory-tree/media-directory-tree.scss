@@ -1,0 +1,142 @@
+.media-tree {
+  display: grid;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--panel-border) 56%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel-background-soft) 54%, transparent);
+  padding: 10px;
+}
+
+.media-tree__selected {
+  display: grid;
+  gap: 4px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--input-border) 74%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--input-background) 80%, transparent);
+}
+
+.media-tree__selected-label {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.media-tree__selected code {
+  color: var(--accent-strong);
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.media-tree__list {
+  display: grid;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.media-tree__list--root {
+  gap: 2px;
+}
+
+.media-tree__item {
+  display: block;
+}
+
+.media-tree__row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 1px 0;
+  border-radius: 8px;
+  transition: background 140ms ease;
+}
+
+.media-tree__row--selected {
+  background: color-mix(in srgb, var(--button-primary-background) 10%, transparent);
+}
+
+.media-tree__toggle,
+.media-tree__leaf-spacer {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+.media-tree__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.media-tree__toggle:hover {
+  background: color-mix(in srgb, var(--button-primary-background) 14%, transparent);
+  color: var(--accent-strong);
+}
+
+.media-tree__toggle-icon {
+  width: 12px;
+  height: 12px;
+  transition: transform 160ms ease;
+}
+
+.media-tree__toggle-icon--open {
+  transform: rotate(90deg);
+}
+
+.media-tree__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 6px 8px;
+  text-align: left;
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.media-tree__button:hover {
+  background: color-mix(in srgb, var(--button-primary-background) 10%, transparent);
+}
+
+.media-tree__row--selected .media-tree__button {
+  background: color-mix(in srgb, var(--button-primary-background) 14%, transparent);
+}
+
+.media-tree__folder-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: color-mix(in srgb, var(--accent-strong) 76%, var(--text-muted));
+}
+
+.media-tree__folder-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.media-tree__name {
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.25;
+}

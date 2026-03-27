@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { ScrollableRail } from '../../../components/scrollable-rail'
+import { SectionHelp } from '../../../components/section-help'
 import type { HomeLibraryModuleData } from '../types'
 
 interface LibrariesSectionProps {
@@ -9,22 +10,22 @@ interface LibrariesSectionProps {
 export const LibrariesSection = ({ libraryModules }: LibrariesSectionProps) => (
   <section className="catalog-block libraries-section">
     <div className="catalog-block__header">
-      <div>
+      <div className="catalog-block__title-row">
         <h3>Libraries</h3>
-        <p className="muted">点击任意媒体库进入当前库的详情页。</p>
+        <SectionHelp
+          detail="Browse every library from here. Open one to see the full catalog view."
+          title="About libraries"
+        />
       </div>
       <span className="counter-badge">{libraryModules.length}</span>
     </div>
 
     {libraryModules.length === 0 ? (
       <div className="catalog-block__empty">
-        <p className="muted">还没有媒体库。请先到服务器设置页创建媒体库。</p>
+        <p className="muted">No libraries yet.</p>
       </div>
     ) : (
-      <ScrollableRail
-        hint="Drag or click arrows to scroll libraries horizontally."
-        viewportClassName="libraries-section__viewport"
-      >
+      <ScrollableRail hint="Scroll horizontally." viewportClassName="libraries-section__viewport">
         {libraryModules.map(({ detail, library, shelfItems }) => {
           // Use the first few posters as a lightweight library backdrop so a new library card still
           // feels alive before it gets custom artwork or richer metadata.

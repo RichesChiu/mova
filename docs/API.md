@@ -6,19 +6,35 @@
 
 - Base URL：默认 `http://127.0.0.1:36080`
 - 响应格式：
-  - 普通业务接口默认返回 JSON
+  - 普通业务接口默认返回 JSON，并统一包裹成 `code / message / data`
   - 媒体流和图片资源接口返回文件流，不返回 JSON
 - 鉴权：
   - `GET /api/health`、`GET /api/auth/bootstrap-status`、`POST /api/auth/bootstrap-admin`、`POST /api/auth/login` 可匿名访问
   - 其他接口都要求登录态 session cookie
   - 管理类接口（用户管理、建库、删库、触发扫描、服务器根目录等）要求 `admin`
+- 成功格式：
+
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": {
+    "...": "..."
+  }
+}
+```
+
 - 错误格式：
 
 ```json
 {
-  "error": "error message"
+  "code": 404,
+  "message": "resource not found",
+  "data": null
 }
 ```
+
+- 文档中后续字段示例多数只展示 `data` 内部结构，真实响应会额外包一层统一 envelope。
 
 - 常见状态码：
   - `200 OK`：请求成功

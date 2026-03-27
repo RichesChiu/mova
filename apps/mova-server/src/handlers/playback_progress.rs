@@ -1,6 +1,6 @@
 use crate::auth::{require_media_item_access, require_user};
 use crate::error::ApiError;
-use crate::response::{ContinueWatchingItemResponse, PlaybackProgressResponse};
+use crate::response::{ok, ApiJson, ContinueWatchingItemResponse, PlaybackProgressResponse};
 use crate::state::AppState;
 use axum::{
     extract::{Path, Query, State},
@@ -29,19 +29,17 @@ pub async fn list_continue_watching(
     State(state): State<AppState>,
     jar: CookieJar,
     Query(query): Query<ContinueWatchingQuery>,
-) -> Result<Json<Vec<ContinueWatchingItemResponse>>, ApiError> {
+) -> Result<ApiJson<Vec<ContinueWatchingItemResponse>>, ApiError> {
     let user = require_user(&state, &jar).await?;
     let items = mova_application::list_continue_watching(&state.db, user.user.id, query.limit)
         .await
         .map_err(ApiError::from)?;
 
-    Ok(Json(
-        items
-            .into_iter()
-            .filter(|item| user.can_access_library(item.media_item.library_id))
-            .map(|item| ContinueWatchingItemResponse::from_domain(item, state.api_time_offset))
-            .collect(),
-    ))
+    Ok(ok(items
+        .into_iter()
+        .filter(|item| user.can_access_library(item.media_item.library_id))
+        .map(|item| ContinueWatchingItemResponse::from_domain(item, state.api_time_offset))
+        .collect()))
 }
 
 /// 读取某个媒体条目的最近播放进度。
@@ -49,7 +47,7 @@ pub async fn get_media_item_playback_progress(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
-) -> Result<Json<Option<PlaybackProgressResponse>>, ApiError> {
+) -> Result<ApiJson<Option<PlaybackProgressResponse>>, ApiError> {
     let user = require_user(&state, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let progress = mova_application::get_playback_progress_for_media_item(
@@ -60,7 +58,7 @@ pub async fn get_media_item_playback_progress(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(Json(progress.map(|value| {
+    Ok(ok(progress.map(|value| {
         PlaybackProgressResponse::from_domain(value, state.api_time_offset)
     })))
 }
@@ -71,7 +69,7 @@ pub async fn update_media_item_playback_progress(
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
     Json(request): Json<UpdatePlaybackProgressRequest>,
-) -> Result<Json<PlaybackProgressResponse>, ApiError> {
+) -> Result<ApiJson<PlaybackProgressResponse>, ApiError> {
     let user = require_user(&state, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let progress = mova_application::update_playback_progress_for_media_item(
@@ -88,7 +86,7 @@ pub async fn update_media_item_playback_progress(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(Json(PlaybackProgressResponse::from_domain(
+    Ok(ok(PlaybackProgressResponse::from_domain(
         progress,
         state.api_time_offset,
     )))

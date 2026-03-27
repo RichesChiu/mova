@@ -268,3 +268,15 @@ export interface CreateUserInput {
   is_enabled: boolean
   library_ids: number[]
 }
+
+export interface UpdateUserInput {
+  username?: string
+  role?: UserRole
+  is_enabled?: boolean
+  library_ids?: number[]
+}
+
+export interface ChangeOwnPasswordInput {
+  current_password: string
+  new_password: string
+}

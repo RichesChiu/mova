@@ -5,13 +5,15 @@
 @use '../components/app-shell/app-shell';
 @use '../components/content-header/content-header';
 @use '../components/create-library-form/create-library-form';
-@use '../components/create-user-form/create-user-form';
 @use '../components/episode-card/episode-card';
 @use '../components/glass-select/glass-select';
 @use '../components/media-card/media-card';
+@use '../components/media-directory-tree/media-directory-tree';
 @use '../components/metadata-match-panel/metadata-match-panel';
 @use '../components/media-player-panel/media-player-panel';
 @use '../components/scrollable-rail/scrollable-rail';
+@use '../components/section-help/section-help';
+@use '../components/user-editor-modal/user-editor-modal';
 
 @use '../pages/home-page/home-page';
 @use '../pages/library-page/library-page';

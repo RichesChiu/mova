@@ -1,6 +1,6 @@
 use crate::auth::{require_media_file_access, require_user};
 use crate::error::ApiError;
-use crate::response::SubtitleFileResponse;
+use crate::response::{ok, ApiJson, SubtitleFileResponse};
 use crate::state::AppState;
 use axum::{
     body::Body,
@@ -9,7 +9,6 @@ use axum::{
         header::{self, HeaderValue},
         Response, StatusCode,
     },
-    Json,
 };
 use axum_extra::extract::cookie::CookieJar;
 use std::path::PathBuf;
@@ -20,19 +19,17 @@ pub async fn list_media_file_subtitles(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(media_file_id): Path<i64>,
-) -> Result<Json<Vec<SubtitleFileResponse>>, ApiError> {
+) -> Result<ApiJson<Vec<SubtitleFileResponse>>, ApiError> {
     let user = require_user(&state, &jar).await?;
     require_media_file_access(&state, &user, media_file_id).await?;
     let subtitles = mova_application::list_subtitle_files_for_media_file(&state.db, media_file_id)
         .await
         .map_err(ApiError::from)?;
 
-    Ok(Json(
-        subtitles
-            .into_iter()
-            .map(|subtitle| SubtitleFileResponse::from_domain(subtitle, state.api_time_offset))
-            .collect(),
-    ))
+    Ok(ok(subtitles
+        .into_iter()
+        .map(|subtitle| SubtitleFileResponse::from_domain(subtitle, state.api_time_offset))
+        .collect()))
 }
 
 /// 把外挂/内嵌字幕统一转换成 WebVTT，供浏览器自定义播放器挂载。
@@ -56,12 +53,15 @@ pub async fn stream_subtitle_file(
         materialize_subtitle_vtt(&subtitle_file, &media_file.file_path, &cached_path).await?;
     }
 
-    let payload = fs::read(&cached_path).await.map_err(|error| match error.kind() {
-        std::io::ErrorKind::NotFound => {
-            ApiError::NotFound(format!("subtitle cache not found: {}", cached_path.display()))
-        }
-        _ => ApiError::Internal,
-    })?;
+    let payload = fs::read(&cached_path)
+        .await
+        .map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => ApiError::NotFound(format!(
+                "subtitle cache not found: {}",
+                cached_path.display()
+            )),
+            _ => ApiError::Internal,
+        })?;
 
     let mut response = Response::new(Body::from(payload));
     *response.status_mut() = StatusCode::OK;
@@ -84,7 +84,10 @@ async fn materialize_subtitle_vtt(
 ) -> Result<(), ApiError> {
     if subtitle_file.source_kind == "external" {
         let source_path = subtitle_file.file_path.as_deref().ok_or_else(|| {
-            ApiError::NotFound(format!("subtitle file path missing for {}", subtitle_file.id))
+            ApiError::NotFound(format!(
+                "subtitle file path missing for {}",
+                subtitle_file.id
+            ))
         })?;
 
         match subtitle_file.subtitle_format.as_str() {
@@ -106,10 +109,7 @@ async fn materialize_subtitle_vtt(
             }
             "ass" | "ssa" => {
                 run_ffmpeg_subtitle_conversion(
-                    vec![
-                        "-i".to_string(),
-                        source_path.to_string(),
-                    ],
+                    vec!["-i".to_string(), source_path.to_string()],
                     output_path,
                     "external subtitle conversion",
                 )
@@ -170,7 +170,11 @@ async fn run_ffmpeg_subtitle_conversion(
         tracing::error!(operation, stderr, "ffmpeg subtitle conversion failed");
         return Err(ApiError::BadRequest(format!(
             "failed to convert subtitle for web playback: {}",
-            if stderr.is_empty() { "ffmpeg conversion failed" } else { &stderr }
+            if stderr.is_empty() {
+                "ffmpeg conversion failed"
+            } else {
+                &stderr
+            }
         )));
     }
 

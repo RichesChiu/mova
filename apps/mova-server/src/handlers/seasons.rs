@@ -1,6 +1,6 @@
 use crate::auth::{require_season_access, require_user};
 use crate::error::ApiError;
-use crate::response::EpisodeResponse;
+use crate::response::{ok, ApiJson, EpisodeResponse};
 use crate::state::AppState;
 use axum::{
     body::Body,
@@ -9,7 +9,6 @@ use axum::{
         header::{self, HeaderValue},
         Response, StatusCode,
     },
-    Json,
 };
 use axum_extra::extract::cookie::CookieJar;
 use std::{io::ErrorKind, path::Path as FsPath};
@@ -19,19 +18,17 @@ pub async fn list_season_episodes(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(season_id): Path<i64>,
-) -> Result<Json<Vec<EpisodeResponse>>, ApiError> {
+) -> Result<ApiJson<Vec<EpisodeResponse>>, ApiError> {
     let user = require_user(&state, &jar).await?;
     require_season_access(&state, &user, season_id).await?;
     let episodes = mova_application::list_episodes_for_season(&state.db, season_id)
         .await
         .map_err(ApiError::from)?;
 
-    Ok(Json(
-        episodes
-            .into_iter()
-            .map(|episode| EpisodeResponse::from_domain(episode, state.api_time_offset))
-            .collect(),
-    ))
+    Ok(ok(episodes
+        .into_iter()
+        .map(|episode| EpisodeResponse::from_domain(episode, state.api_time_offset))
+        .collect()))
 }
 
 /// 返回某一季的封面图内容。

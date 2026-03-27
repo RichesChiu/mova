@@ -181,7 +181,9 @@ pub async fn get_subtitle_file(
     mova_db::get_subtitle_file(pool, subtitle_file_id)
         .await
         .map_err(ApplicationError::from)?
-        .ok_or_else(|| ApplicationError::NotFound(format!("subtitle file not found: {}", subtitle_file_id)))
+        .ok_or_else(|| {
+            ApplicationError::NotFound(format!("subtitle file not found: {}", subtitle_file_id))
+        })
 }
 
 pub async fn list_seasons_for_series(

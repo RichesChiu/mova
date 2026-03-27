@@ -1,14 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import { createLibrary, createUser, deleteLibrary, listUsers, scanLibrary } from '../../api/client'
+import {
+  createLibrary,
+  createUser,
+  deleteLibrary,
+  deleteUser,
+  listUsers,
+  scanLibrary,
+  updateUser,
+} from '../../api/client'
+import type { UserAccount } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import { CreateLibraryForm } from '../../components/create-library-form'
-import { CreateUserForm } from '../../components/create-user-form'
 import { SettingsGearIcon } from '../../components/settings-gear-icon'
+import { UserEditorModal } from '../../components/user-editor-modal'
+
+const userAvatarInitial = (username: string) => username.trim().charAt(0).toUpperCase() || 'U'
 
 export const SettingsPage = () => {
   const { currentUser, libraries } = useOutletContext<AppShellOutletContext>()
   const queryClient = useQueryClient()
+  const [isCreateUserOpen, setIsCreateUserOpen] = useState(false)
+  const [editingUser, setEditingUser] = useState<UserAccount | null>(null)
   const usersQuery = useQuery({
     enabled: currentUser.role === 'admin',
     queryKey: ['users'],
@@ -52,9 +66,35 @@ export const SettingsPage = () => {
     },
   })
 
+  const updateUserMutation = useMutation({
+    mutationFn: ({ userId, input }: { userId: number; input: Parameters<typeof updateUser>[1] }) =>
+      updateUser(userId, input),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['users'] }),
+        queryClient.invalidateQueries({ queryKey: ['current-user'] }),
+      ])
+    },
+  })
+
+  const deleteUserMutation = useMutation({
+    mutationFn: (userId: number) => deleteUser(userId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
+  })
+
   if (currentUser.role !== 'admin') {
     return <p className="callout callout--danger">Admin permission required.</p>
   }
+
+  const activeUserModalError = isCreateUserOpen
+    ? createUserMutation.error instanceof Error
+      ? createUserMutation.error.message
+      : null
+    : editingUser && updateUserMutation.error instanceof Error
+      ? updateUserMutation.error.message
+      : null
 
   return (
     <div className="settings-shell">
@@ -72,60 +112,19 @@ export const SettingsPage = () => {
         </div>
       </section>
 
-      <section className="settings-grid">
-        <article className="settings-card">
-          <div className="settings-card__header">
-            <span className="summary-card__label">User Management</span>
-            <span className="chip">Live</span>
-          </div>
-          <h3>Users & Roles</h3>
-          <p className="muted">管理员默认拥有全部媒体库访问权；普通用户只看被分配到的库。</p>
-          <div className="settings-card__list">
-            <span>{usersQuery.data?.length ?? 0} accounts</span>
-            <span>Admin / Viewer</span>
-            <span>Per-library access</span>
-          </div>
-        </article>
-
-        <article className="settings-card">
-          <div className="settings-card__header">
-            <span className="summary-card__label">Metadata</span>
-            <span className="chip">Planned</span>
-          </div>
-          <h3>Metadata Providers</h3>
-          <p className="muted">
-            配置 metadata provider、语言、图片缓存策略，以及后续的手动重绑定和匹配修正。
-          </p>
-          <div className="settings-card__list">
-            <span>TMDB provider</span>
-            <span>Image cache</span>
-            <span>Fallback rules</span>
-          </div>
-        </article>
-
-        <article className="settings-card">
-          <div className="settings-card__header">
-            <span className="summary-card__label">Operations</span>
-            <span className="chip">Live</span>
-          </div>
-          <h3>Scanning & Jobs</h3>
-          <p className="muted">
-            扫描和建库操作已经从浏览页移到这里，后续 watcher、周期校准和后台任务也会在这里聚合。
-          </p>
-          <div className="settings-card__list">
-            <span>Scan jobs</span>
-            <span>Watcher health</span>
-            <span>Background workers</span>
-          </div>
-        </article>
-      </section>
-
       <section className="settings-section">
         <div className="section-heading">
           <div>
             <h3>User Management</h3>
-            <p className="muted">创建管理员或普通用户。普通用户必须手动分配可见媒体库。</p>
+            <p className="muted">用头像卡片管理用户，创建和编辑都在弹窗里完成。</p>
           </div>
+          <button
+            className="button button--primary button--toolbar"
+            onClick={() => setIsCreateUserOpen(true)}
+            type="button"
+          >
+            <span>Create User</span>
+          </button>
         </div>
 
         {usersQuery.isError ? (
@@ -133,47 +132,130 @@ export const SettingsPage = () => {
             {usersQuery.error instanceof Error ? usersQuery.error.message : 'Failed to load users'}
           </p>
         ) : null}
+        {updateUserMutation.isError && !editingUser ? (
+          <p className="callout callout--danger">
+            {updateUserMutation.error instanceof Error
+              ? updateUserMutation.error.message
+              : 'Failed to update user'}
+          </p>
+        ) : null}
+        {deleteUserMutation.isError ? (
+          <p className="callout callout--danger">
+            {deleteUserMutation.error instanceof Error
+              ? deleteUserMutation.error.message
+              : 'Failed to delete user'}
+          </p>
+        ) : null}
 
-        <div className="settings-user-grid">
-          <div className="settings-create-block">
-            <CreateUserForm
-              error={
-                createUserMutation.error instanceof Error ? createUserMutation.error.message : null
-              }
-              isSubmitting={createUserMutation.isPending}
-              libraries={libraries}
-              onSubmit={(input) => createUserMutation.mutateAsync(input)}
-            />
-          </div>
+        <div className="settings-user-list">
+          {usersQuery.isLoading ? <p className="muted">Loading users…</p> : null}
 
-          <div className="settings-user-list">
-            {usersQuery.isLoading ? <p className="muted">Loading users…</p> : null}
+          {usersQuery.data?.map((user) => {
+            const libraryNames =
+              user.role === 'admin'
+                ? ['All libraries']
+                : libraries
+                    .filter((library) => user.library_ids.includes(library.id))
+                    .map((library) => library.name)
 
-            {usersQuery.data?.map((user) => {
-              const libraryNames =
-                user.role === 'admin'
-                  ? ['All libraries']
-                  : libraries
-                      .filter((library) => user.library_ids.includes(library.id))
-                      .map((library) => library.name)
+            return (
+              <article className="settings-user-card" key={user.id}>
+                <button
+                  aria-label={`Edit ${user.username}`}
+                  className="settings-user-card__avatar"
+                  onClick={() => setEditingUser(user)}
+                  type="button"
+                >
+                  <span>{userAvatarInitial(user.username)}</span>
+                </button>
 
-              return (
-                <article className="settings-library-card" key={user.id}>
-                  <div className="settings-library-card__body">
-                    <span className="summary-card__label">{user.role}</span>
-                    <strong>{user.username}</strong>
-                    <p className="muted">
-                      {user.is_enabled ? 'Account enabled' : 'Account disabled'}
-                    </p>
-                    <p className="muted">
-                      Access:{' '}
-                      {libraryNames.length > 0 ? libraryNames.join(', ') : 'No libraries assigned'}
-                    </p>
+                <div className="settings-user-card__body">
+                  <div className="settings-user-card__header">
+                    <div>
+                      <strong>{user.username}</strong>
+                      <p className="muted">{user.role === 'admin' ? 'Administrator' : 'Viewer'}</p>
+                    </div>
+
+                    <div className="settings-user-card__controls">
+                      {user.role === 'viewer' ? (
+                        <label className="settings-user-card__switch">
+                          <input
+                            checked={user.is_enabled}
+                            disabled={updateUserMutation.isPending}
+                            onChange={(event) =>
+                              updateUserMutation.mutate({
+                                userId: user.id,
+                                input: { is_enabled: event.target.checked },
+                              })
+                            }
+                            type="checkbox"
+                          />
+                          <span className="settings-user-card__switch-track" />
+                        </label>
+                      ) : null}
+
+                      <button
+                        aria-label={`Edit ${user.username}`}
+                        className="settings-user-card__edit-icon"
+                        onClick={() => setEditingUser(user)}
+                        type="button"
+                      >
+                        <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24">
+                          <path
+                            d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="1.7"
+                          />
+                          <path
+                            d="M12.75 7.05L16.95 11.25"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="1.7"
+                          />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
-                </article>
-              )
-            })}
-          </div>
+
+                  <p className="settings-user-card__access">
+                    {user.role === 'admin'
+                      ? 'Access: All libraries'
+                      : libraryNames.length > 0
+                        ? `Access: ${libraryNames.join(', ')}`
+                        : 'Access: No libraries assigned'}
+                  </p>
+                </div>
+
+                <div className="settings-user-card__actions">
+                  {user.id !== currentUser.id ? (
+                    <button
+                      className="button button--danger settings-user-card__delete"
+                      disabled={deleteUserMutation.isPending}
+                      onClick={() => {
+                        const confirmed = window.confirm(
+                          `Delete user "${user.username}"? This removes their access, sessions, and playback records.`,
+                        )
+
+                        if (!confirmed) {
+                          return
+                        }
+
+                        deleteUserMutation.mutate(user.id)
+                      }}
+                      type="button"
+                    >
+                      {deleteUserMutation.isPending && deleteUserMutation.variables === user.id
+                        ? 'Deleting…'
+                        : 'Delete'}
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            )
+          })}
         </div>
       </section>
 
@@ -181,7 +263,7 @@ export const SettingsPage = () => {
         <div className="section-heading">
           <div>
             <h3>Library Management</h3>
-            <p className="muted">建库和扫描统一集中到这里，普通浏览页不再直接提供这些管理操作。</p>
+            <p className="muted">用卡片方式管理媒体库，扫描和删除都集中在这里处理。</p>
           </div>
         </div>
 
@@ -205,23 +287,30 @@ export const SettingsPage = () => {
           ) : (
             libraries.map((library) => (
               <article className="settings-library-card" key={library.id}>
-                <div className="settings-library-card__body">
-                  <span className="summary-card__label">{library.library_type}</span>
-                  <strong>{library.name}</strong>
-                  <p className="muted">{library.description ?? 'No description'}</p>
-                  <p className="muted">Path: {library.root_path}</p>
+                <div aria-hidden="true" className="settings-library-card__backdrop">
+                  <span className="settings-library-card__backdrop-glow" />
                 </div>
 
-                <div className="settings-library-card__meta">
-                  <span
-                    className={
-                      library.is_enabled
-                        ? 'status-pill status-pill--success'
-                        : 'status-pill status-pill--neutral'
-                    }
-                  >
-                    {library.is_enabled ? 'enabled' : 'disabled'}
-                  </span>
+                <div className="settings-library-card__body">
+                  <div className="settings-library-card__header">
+                    <span className="settings-library-card__type">{library.library_type}</span>
+                    <span className="settings-library-card__language">
+                      {library.metadata_language}
+                    </span>
+                  </div>
+
+                  <strong className="settings-library-card__title">{library.name}</strong>
+                  <p className="settings-library-card__description">
+                    {library.description ?? 'No description'}
+                  </p>
+
+                  <div className="settings-library-card__path-block">
+                    <span className="settings-library-card__path-label">Root path</span>
+                    <code className="settings-library-card__path">{library.root_path}</code>
+                  </div>
+                </div>
+
+                <div className="settings-library-card__actions">
                   <button
                     className="button"
                     disabled={scanMutation.isPending}
@@ -231,7 +320,7 @@ export const SettingsPage = () => {
                     {scanMutation.isPending ? 'Triggering…' : 'Scan Library'}
                   </button>
                   <button
-                    className="button button--danger"
+                    className="button button--danger settings-library-card__delete"
                     disabled={deleteLibraryMutation.isPending || scanMutation.isPending}
                     onClick={() => {
                       const confirmed = window.confirm(
@@ -276,6 +365,24 @@ export const SettingsPage = () => {
           />
         </div>
       </section>
+
+      <UserEditorModal
+        currentUserId={currentUser.id}
+        error={activeUserModalError}
+        isOpen={isCreateUserOpen || editingUser !== null}
+        isSubmitting={createUserMutation.isPending || updateUserMutation.isPending}
+        libraries={libraries}
+        mode={isCreateUserOpen ? 'create' : 'edit'}
+        onClose={() => {
+          setIsCreateUserOpen(false)
+          setEditingUser(null)
+          createUserMutation.reset()
+          updateUserMutation.reset()
+        }}
+        onCreate={(input) => createUserMutation.mutateAsync(input)}
+        onUpdate={(userId, input) => updateUserMutation.mutateAsync({ userId, input })}
+        user={editingUser}
+      />
     </div>
   )
 }

@@ -1,4 +1,9 @@
-use crate::{auth::require_admin, error::ApiError, response::UserResponse, state::AppState};
+use crate::{
+    auth::require_admin,
+    error::ApiError,
+    response::{created, ok, ok_message, ApiJson, UserResponse},
+    state::AppState,
+};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -37,26 +42,24 @@ pub struct ResetUserPasswordRequest {
 pub async fn list_users(
     State(state): State<AppState>,
     jar: CookieJar,
-) -> Result<Json<Vec<UserResponse>>, ApiError> {
+) -> Result<ApiJson<Vec<UserResponse>>, ApiError> {
     require_admin(&state, &jar).await?;
 
     let users = mova_application::list_users(&state.db)
         .await
         .map_err(ApiError::from)?;
 
-    Ok(Json(
-        users
-            .into_iter()
-            .map(|user| UserResponse::from_domain(user, state.api_time_offset))
-            .collect(),
-    ))
+    Ok(ok(users
+        .into_iter()
+        .map(|user| UserResponse::from_domain(user, state.api_time_offset))
+        .collect()))
 }
 
 pub async fn create_user(
     State(state): State<AppState>,
     jar: CookieJar,
     Json(request): Json<CreateUserRequest>,
-) -> Result<(StatusCode, Json<UserResponse>), ApiError> {
+) -> Result<(StatusCode, ApiJson<UserResponse>), ApiError> {
     require_admin(&state, &jar).await?;
 
     let user = mova_application::create_user(
@@ -72,10 +75,10 @@ pub async fn create_user(
     .await
     .map_err(ApiError::from)?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(UserResponse::from_domain(user, state.api_time_offset)),
-    ))
+    Ok(created(UserResponse::from_domain(
+        user,
+        state.api_time_offset,
+    )))
 }
 
 pub async fn update_user(
@@ -83,7 +86,7 @@ pub async fn update_user(
     jar: CookieJar,
     Path(user_id): Path<i64>,
     Json(request): Json<UpdateUserRequest>,
-) -> Result<Json<UserResponse>, ApiError> {
+) -> Result<ApiJson<UserResponse>, ApiError> {
     let current_user = require_admin(&state, &jar).await?;
 
     let user = mova_application::update_user(
@@ -100,7 +103,7 @@ pub async fn update_user(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(Json(UserResponse::from_domain(user, state.api_time_offset)))
+    Ok(ok(UserResponse::from_domain(user, state.api_time_offset)))
 }
 
 pub async fn update_user_library_access(
@@ -108,7 +111,7 @@ pub async fn update_user_library_access(
     jar: CookieJar,
     Path(user_id): Path<i64>,
     Json(request): Json<UpdateUserLibraryAccessRequest>,
-) -> Result<Json<UserResponse>, ApiError> {
+) -> Result<ApiJson<UserResponse>, ApiError> {
     require_admin(&state, &jar).await?;
 
     let user = mova_application::replace_user_library_access(
@@ -121,7 +124,7 @@ pub async fn update_user_library_access(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(Json(UserResponse::from_domain(user, state.api_time_offset)))
+    Ok(ok(UserResponse::from_domain(user, state.api_time_offset)))
 }
 
 pub async fn reset_user_password(
@@ -129,7 +132,7 @@ pub async fn reset_user_password(
     jar: CookieJar,
     Path(user_id): Path<i64>,
     Json(request): Json<ResetUserPasswordRequest>,
-) -> Result<StatusCode, ApiError> {
+) -> Result<ApiJson<()>, ApiError> {
     let current_user = require_admin(&state, &jar).await?;
 
     mova_application::reset_user_password(
@@ -143,19 +146,19 @@ pub async fn reset_user_password(
     .await
     .map_err(ApiError::from)?;
 
-    Ok(StatusCode::NO_CONTENT)
+    Ok(ok_message("password reset", ()))
 }
 
 pub async fn delete_user(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(user_id): Path<i64>,
-) -> Result<StatusCode, ApiError> {
+) -> Result<ApiJson<()>, ApiError> {
     let current_user = require_admin(&state, &jar).await?;
 
     mova_application::delete_user(&state.db, current_user.user.id, user_id)
         .await
         .map_err(ApiError::from)?;
 
-    Ok(StatusCode::NO_CONTENT)
+    Ok(ok_message("user deleted", ()))
 }

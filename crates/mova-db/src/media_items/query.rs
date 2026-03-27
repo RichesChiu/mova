@@ -383,7 +383,10 @@ pub async fn list_subtitle_files_for_media_file(
 }
 
 /// 通过主键读取单条字幕轨道。
-pub async fn get_subtitle_file(pool: &PgPool, subtitle_file_id: i64) -> Result<Option<SubtitleFile>> {
+pub async fn get_subtitle_file(
+    pool: &PgPool,
+    subtitle_file_id: i64,
+) -> Result<Option<SubtitleFile>> {
     let row = sqlx::query(
         r#"
         select

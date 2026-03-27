@@ -1,3 +1,18 @@
 .profile-page {
   align-content: start;
 }
+
+.profile-page__password-block,
+.profile-page__password-form {
+  display: grid;
+  gap: 14px;
+}
+
+.profile-page__password-form {
+  max-width: 540px;
+}
+
+.profile-page__password-actions {
+  display: flex;
+  justify-content: flex-start;
+}

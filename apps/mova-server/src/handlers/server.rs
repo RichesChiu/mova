@@ -1,7 +1,10 @@
 use crate::auth::require_admin;
-use crate::{error::ApiError, state::AppState};
+use crate::{
+    error::ApiError,
+    response::{ok, ApiJson},
+    state::AppState,
+};
 use axum::extract::State;
-use axum::Json;
 use axum_extra::extract::cookie::CookieJar;
 use serde::Serialize;
 use std::{fs, io::ErrorKind, path::Path};
@@ -20,7 +23,7 @@ pub struct MediaDirectoryNodeResponse {
 pub async fn get_media_tree(
     State(state): State<AppState>,
     jar: CookieJar,
-) -> Result<Json<Option<MediaDirectoryNodeResponse>>, ApiError> {
+) -> Result<ApiJson<Option<MediaDirectoryNodeResponse>>, ApiError> {
     require_admin(&state, &jar).await?;
 
     let tree = tokio::task::spawn_blocking(discover_media_tree)
@@ -31,8 +34,8 @@ pub async fn get_media_tree(
         })?;
 
     match tree {
-        Ok(tree) => Ok(Json(tree)),
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(Json(None)),
+        Ok(tree) => Ok(ok(tree)),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(ok(None)),
         Err(error) => {
             tracing::error!(error = ?error, "failed to read media directory tree");
             Err(ApiError::Internal)

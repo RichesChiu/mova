@@ -25,9 +25,9 @@ pub use media_items::{
     get_media_file, get_media_item, get_season, get_subtitle_file, list_episodes_for_season,
     list_media_files_for_media_item, list_media_items_for_library, list_seasons_for_series,
     list_subtitle_files_for_media_file, refresh_media_item_metadata,
-    series_episode_outline_for_media_item,
-    ListMediaItemsForLibraryInput, ListMediaItemsForLibraryOutput, SeriesEpisodeOutline,
-    SeriesEpisodeOutlineEpisode, SeriesEpisodeOutlineSeason,
+    series_episode_outline_for_media_item, ListMediaItemsForLibraryInput,
+    ListMediaItemsForLibraryOutput, SeriesEpisodeOutline, SeriesEpisodeOutlineEpisode,
+    SeriesEpisodeOutlineSeason,
 };
 pub use metadata::{
     apply_remote_metadata, build_metadata_provider, normalize_base_url,

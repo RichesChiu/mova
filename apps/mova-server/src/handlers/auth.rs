@@ -1,7 +1,7 @@
 use crate::{
     auth::{attach_session_cookie, clear_session_cookie, require_user, SESSION_TTL},
     error::ApiError,
-    response::{BootstrapStatusResponse, UserResponse},
+    response::{created, ok, ok_message, ApiJson, BootstrapStatusResponse, UserResponse},
     state::AppState,
 };
 use axum::{extract::State, http::StatusCode, Json};
@@ -28,19 +28,19 @@ pub struct ChangePasswordRequest {
 
 pub async fn get_bootstrap_status(
     State(state): State<AppState>,
-) -> Result<Json<BootstrapStatusResponse>, ApiError> {
+) -> Result<ApiJson<BootstrapStatusResponse>, ApiError> {
     let bootstrap_required = mova_application::bootstrap_required(&state.db)
         .await
         .map_err(ApiError::from)?;
 
-    Ok(Json(BootstrapStatusResponse { bootstrap_required }))
+    Ok(ok(BootstrapStatusResponse { bootstrap_required }))
 }
 
 pub async fn bootstrap_admin(
     State(state): State<AppState>,
     jar: CookieJar,
     Json(request): Json<BootstrapAdminRequest>,
-) -> Result<(StatusCode, CookieJar, Json<UserResponse>), ApiError> {
+) -> Result<(StatusCode, CookieJar, ApiJson<UserResponse>), ApiError> {
     let session = mova_application::bootstrap_admin(
         &state.db,
         mova_application::BootstrapAdminInput {
@@ -53,22 +53,19 @@ pub async fn bootstrap_admin(
     .map_err(ApiError::from)?;
 
     let jar = attach_session_cookie(jar, &session.token, session.expires_at);
+    let (status, payload) = created(UserResponse::from_domain(
+        session.user,
+        state.api_time_offset,
+    ));
 
-    Ok((
-        StatusCode::CREATED,
-        jar,
-        Json(UserResponse::from_domain(
-            session.user,
-            state.api_time_offset,
-        )),
-    ))
+    Ok((status, jar, payload))
 }
 
 pub async fn login(
     State(state): State<AppState>,
     jar: CookieJar,
     Json(request): Json<LoginRequest>,
-) -> Result<(CookieJar, Json<UserResponse>), ApiError> {
+) -> Result<(CookieJar, ApiJson<UserResponse>), ApiError> {
     let session = mova_application::login(
         &state.db,
         mova_application::LoginInput {
@@ -84,7 +81,7 @@ pub async fn login(
 
     Ok((
         jar,
-        Json(UserResponse::from_domain(
+        ok(UserResponse::from_domain(
             session.user,
             state.api_time_offset,
         )),
@@ -94,30 +91,30 @@ pub async fn login(
 pub async fn logout(
     State(state): State<AppState>,
     jar: CookieJar,
-) -> Result<(CookieJar, StatusCode), ApiError> {
+) -> Result<(CookieJar, ApiJson<()>), ApiError> {
     if let Some(cookie) = jar.get("mova_session") {
         mova_application::logout(&state.db, cookie.value_trimmed())
             .await
             .map_err(ApiError::from)?;
     }
 
-    Ok((clear_session_cookie(jar), StatusCode::NO_CONTENT))
+    Ok((clear_session_cookie(jar), ok_message("logged out", ())))
 }
 
 pub async fn current_user(
     State(state): State<AppState>,
     jar: CookieJar,
-) -> Result<Json<UserResponse>, ApiError> {
+) -> Result<ApiJson<UserResponse>, ApiError> {
     let user = require_user(&state, &jar).await?;
 
-    Ok(Json(UserResponse::from_domain(user, state.api_time_offset)))
+    Ok(ok(UserResponse::from_domain(user, state.api_time_offset)))
 }
 
 pub async fn change_password(
     State(state): State<AppState>,
     jar: CookieJar,
     Json(request): Json<ChangePasswordRequest>,
-) -> Result<(CookieJar, Json<UserResponse>), ApiError> {
+) -> Result<(CookieJar, ApiJson<UserResponse>), ApiError> {
     let current_user = require_user(&state, &jar).await?;
     let session = mova_application::change_own_password(
         &state.db,
@@ -135,9 +132,9 @@ pub async fn change_password(
 
     Ok((
         jar,
-        Json(UserResponse::from_domain(
-            session.user,
-            state.api_time_offset,
-        )),
+        ok_message(
+            "password updated",
+            UserResponse::from_domain(session.user, state.api_time_offset),
+        ),
     ))
 }

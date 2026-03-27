@@ -1,9 +1,9 @@
+use crate::response::ApiEnvelope;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
-use serde::Serialize;
 
 /// 把应用层错误统一映射成稳定的 HTTP 响应格式。
 #[derive(Debug)]
@@ -13,13 +13,9 @@ pub enum ApiError {
     Unauthorized(String),
     Forbidden(String),
     NotFound(String),
+    ServiceUnavailable(String),
     RangeNotSatisfiable { message: String, file_size: u64 },
     Internal,
-}
-
-#[derive(Debug, Serialize)]
-struct ApiErrorBody {
-    error: String,
 }
 
 impl From<mova_application::ApplicationError> for ApiError {
@@ -49,10 +45,15 @@ impl IntoResponse for ApiError {
             Self::Unauthorized(message) => (StatusCode::UNAUTHORIZED, message),
             Self::Forbidden(message) => (StatusCode::FORBIDDEN, message),
             Self::NotFound(message) => (StatusCode::NOT_FOUND, message),
+            Self::ServiceUnavailable(message) => (StatusCode::SERVICE_UNAVAILABLE, message),
             Self::RangeNotSatisfiable { message, file_size } => {
                 let mut response = (
                     StatusCode::RANGE_NOT_SATISFIABLE,
-                    Json(ApiErrorBody { error: message }),
+                    Json(ApiEnvelope {
+                        code: StatusCode::RANGE_NOT_SATISFIABLE.as_u16(),
+                        message,
+                        data: (),
+                    }),
                 )
                     .into_response();
 
@@ -70,6 +71,14 @@ impl IntoResponse for ApiError {
             ),
         };
 
-        (status, Json(ApiErrorBody { error: message })).into_response()
+        (
+            status,
+            Json(ApiEnvelope {
+                code: status.as_u16(),
+                message,
+                data: (),
+            }),
+        )
+            .into_response()
     }
 }

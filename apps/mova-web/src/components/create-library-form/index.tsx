@@ -1,24 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useState } from 'react'
 import { getServerMediaTree } from '../../api/client'
-import type {
-  CreateLibraryInput,
-  LibraryType,
-  ServerMediaDirectoryNode,
-} from '../../api/types'
+import type { CreateLibraryInput, LibraryType, ServerMediaDirectoryNode } from '../../api/types'
 import { GlassSelect, type GlassSelectOption } from '../glass-select'
+import { MediaDirectoryTree } from '../media-directory-tree'
 
 interface CreateLibraryFormProps {
   error: string | null
   isSubmitting: boolean
   onSubmit: (input: CreateLibraryInput) => Promise<unknown>
-}
-
-interface MediaTreeNodeProps {
-  depth: number
-  node: ServerMediaDirectoryNode
-  onSelect: (path: string) => void
-  selectedPath: string
 }
 
 const libraryTypeOptions: Array<{ value: LibraryType; label: string }> = [
@@ -38,41 +28,6 @@ const treeContainsPath = (node: ServerMediaDirectoryNode, path: string): boolean
   }
 
   return node.children.some((child) => treeContainsPath(child, path))
-}
-
-const MediaTreeNode = ({ depth, node, onSelect, selectedPath }: MediaTreeNodeProps) => {
-  const isSelected = node.path === selectedPath
-  const buttonClassName = isSelected
-    ? 'media-tree__button media-tree__button--selected'
-    : 'media-tree__button'
-
-  return (
-    <li className="media-tree__item">
-      <button
-        className={buttonClassName}
-        onClick={() => onSelect(node.path)}
-        style={{ paddingLeft: `${depth * 18 + 14}px` }}
-        type="button"
-      >
-        <span className="media-tree__name">{node.name}</span>
-        <span className="media-tree__meta">{node.path}</span>
-      </button>
-
-      {node.children.length > 0 ? (
-        <ul className="media-tree__list">
-          {node.children.map((child) => (
-            <MediaTreeNode
-              depth={depth + 1}
-              key={child.path}
-              node={child}
-              onSelect={onSelect}
-              selectedPath={selectedPath}
-            />
-          ))}
-        </ul>
-      ) : null}
-    </li>
-  )
 }
 
 export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibraryFormProps) => {
@@ -186,14 +141,7 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
                 <code>{rootPath}</code>
               </div>
 
-              <ul className="media-tree__list media-tree__list--root">
-                <MediaTreeNode
-                  depth={0}
-                  node={mediaTree}
-                  onSelect={setRootPath}
-                  selectedPath={rootPath}
-                />
-              </ul>
+              <MediaDirectoryTree onSelect={setRootPath} selectedPath={rootPath} tree={mediaTree} />
             </div>
           </div>
         ) : null}
@@ -210,7 +158,8 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
         ) : null}
         {!mediaTreeQuery.isLoading && !mediaTreeQuery.isError && !mediaTree ? (
           <p className="root-path-picker__hint">
-            暂未检测到容器内 `/media` 目录，请确认 `.env` 已配置 `MOVA_MEDIA_ROOT`，并且已重新启动 docker compose。
+            暂未检测到容器内 `/media` 目录，请确认 `.env` 已配置 `MOVA_MEDIA_ROOT`，并且已重新启动
+            docker compose。
           </p>
         ) : null}
       </div>
