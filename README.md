@@ -46,6 +46,12 @@ Mova 是一个自托管媒体服务器项目，目标是把本地媒体目录整
 当前只保留一种推荐启动方式：
 
 ```bash
+cp .env.example .env
+```
+
+然后按需填写 `.env` 里的媒体目录、TMDB token 和代理配置，再执行：
+
+```bash
 docker compose up -d --build
 ```
 
@@ -72,7 +78,7 @@ docker compose up -d --build
 http://192.168.50.3:36080
 ```
 
-可选：通过 `.env` 配置宿主机媒体根目录、TMDB token 和代理：
+推荐先从 `.env.example` 复制一份，再通过 `.env` 配置宿主机媒体根目录、TMDB token 和代理：
 
 ```env
 MOVA_MEDIA_ROOT=/mnt/media
