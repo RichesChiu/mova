@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, getMediaItemEpisodeOutline, getMediaItemPlaybackHeader } from '../../api/client'
+import { GlassSelect } from '../../components/glass-select'
 import { MediaPlayerPanel } from '../../components/media-player-panel'
 import { mediaItemDetailPath, mediaItemPlayPath } from '../../lib/media-routes'
 import {
@@ -106,6 +107,15 @@ export const MediaPlayerPage = () => {
   const currentSeason = outlineSeasons.find(
     (season) => season.season_number === playbackHeaderQuery.data.season_number,
   )
+  const seasonOptions = outlineSeasons.map((season) => ({
+    label: `S${String(season.season_number).padStart(2, '0')}`,
+    value: String(season.season_number),
+  }))
+  const episodeOptions =
+    currentSeason?.episodes.map((episode) => ({
+      label: `E${String(episode.episode_number).padStart(2, '0')} · ${episode.title}`,
+      value: String(episode.media_item_id),
+    })) ?? []
 
   return (
     <div className="player-screen">
@@ -152,48 +162,42 @@ export const MediaPlayerPage = () => {
 
         {playbackHeaderQuery.data.media_type === 'episode' && outlineSeasons.length > 0 ? (
           <div className="player-screen__navigator">
-            <label className="player-screen__select-field">
-              <span>Season</span>
-              <select
-                onChange={(event) => {
+            <div className="player-screen__select-field">
+              <span className="player-screen__select-label">Season</span>
+              <GlassSelect
+                ariaLabel="Select season"
+                onChange={(value) => {
                   const targetSeason = outlineSeasons.find(
-                    (season) => season.season_number === Number(event.target.value),
+                    (season) => season.season_number === Number(value),
                   )
                   const firstEpisode = targetSeason?.episodes[0]
                   if (firstEpisode?.media_item_id) {
                     navigate(mediaItemPlayPath(firstEpisode.media_item_id))
                   }
                 }}
-                value={playbackHeaderQuery.data.season_number ?? ''}
-              >
-                {outlineSeasons.map((season) => (
-                  <option key={season.season_number} value={season.season_number}>
-                    S{String(season.season_number).padStart(2, '0')}
-                  </option>
-                ))}
-              </select>
-            </label>
+                options={seasonOptions}
+                value={String(
+                  playbackHeaderQuery.data.season_number ?? outlineSeasons[0]?.season_number ?? '',
+                )}
+              />
+            </div>
 
-            <label className="player-screen__select-field">
-              <span>Episode</span>
-              <select
-                onChange={(event) => {
+            <div className="player-screen__select-field">
+              <span className="player-screen__select-label">Episode</span>
+              <GlassSelect
+                ariaLabel="Select episode"
+                onChange={(value) => {
                   const selectedEpisode = currentSeason?.episodes.find(
-                    (episode) => episode.media_item_id === Number(event.target.value),
+                    (episode) => episode.media_item_id === Number(value),
                   )
                   if (selectedEpisode?.media_item_id) {
                     navigate(mediaItemPlayPath(selectedEpisode.media_item_id))
                   }
                 }}
-                value={playbackHeaderQuery.data.media_item_id}
-              >
-                {currentSeason?.episodes.map((episode) => (
-                  <option key={episode.media_item_id} value={episode.media_item_id ?? undefined}>
-                    E{String(episode.episode_number).padStart(2, '0')} · {episode.title}
-                  </option>
-                ))}
-              </select>
-            </label>
+                options={episodeOptions}
+                value={String(playbackHeaderQuery.data.media_item_id)}
+              />
+            </div>
           </div>
         ) : null}
       </header>

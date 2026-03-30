@@ -5,6 +5,7 @@ import {
   getMediaItem,
   getMediaItemEpisodeOutline,
   getMediaItemPlaybackHeader,
+  getMediaItemPlaybackProgress,
 } from '../../api/client'
 import type { EpisodeOutlineSeason, MediaCastMember } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
@@ -68,6 +69,17 @@ const playbackStatus = (
 
   return 'idle' as const
 }
+
+const isResumableProgress = (
+  progress:
+    | {
+        position_seconds: number
+        duration_seconds: number | null
+        is_finished: boolean
+      }
+    | null
+    | undefined,
+) => Boolean(progress && !progress.is_finished && progress.position_seconds > 0)
 
 const SeasonBlock = ({ season }: { season: EpisodeOutlineSeason }) => {
   return (
@@ -156,6 +168,13 @@ export const MediaItemPage = () => {
     queryFn: () => getMediaItemEpisodeOutline(mediaItemId),
     staleTime: SERIES_OUTLINE_QUERY_STALE_TIME_MS,
   })
+  const moviePlaybackProgressQuery = useQuery({
+    gcTime: MEDIA_QUERY_GC_TIME_MS,
+    enabled: mediaItemQuery.data?.media_type === 'movie',
+    queryKey: ['media-item-playback-progress', mediaItemId],
+    queryFn: () => getMediaItemPlaybackProgress(mediaItemId),
+    staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
+  })
   const playbackHeaderQuery = useQuery({
     gcTime: MEDIA_QUERY_GC_TIME_MS,
     enabled: mediaItemQuery.data?.media_type === 'episode',
@@ -215,10 +234,23 @@ export const MediaItemPage = () => {
   const isSeriesView = mediaItemQuery.data?.media_type === 'series'
   const canMatchMetadata =
     canManageLibraries(currentUser) && mediaItemQuery.data?.media_type !== 'episode'
+  // 剧集详情页优先把按钮落到当前季里已有断点的那一集；如果当前季还没播过，再回退到第一集。
+  const selectedSeasonPlayableEpisode =
+    selectedSeason?.episodes.find(
+      (episode) =>
+        episode.is_available &&
+        episode.media_item_id &&
+        isResumableProgress(episode.playback_progress),
+    ) ??
+    selectedSeason?.episodes.find((episode) => episode.is_available && episode.media_item_id) ??
+    null
   const playbackTargetMediaItemId = isSeriesView
-    ? (selectedSeason?.episodes.find((episode) => episode.is_available && episode.media_item_id)
-        ?.media_item_id ?? null)
+    ? (selectedSeasonPlayableEpisode?.media_item_id ?? null)
     : (mediaItemQuery.data?.id ?? null)
+  const shouldResumePlayback = isSeriesView
+    ? isResumableProgress(selectedSeasonPlayableEpisode?.playback_progress)
+    : isResumableProgress(moviePlaybackProgressQuery.data)
+  const playbackActionLabel = shouldResumePlayback ? 'Resume Playback' : 'Play'
   const heroPosterPath =
     isSeriesView && selectedSeason
       ? (selectedSeason.poster_path ?? mediaItemQuery.data?.poster_path ?? null)
@@ -418,20 +450,12 @@ export const MediaItemPage = () => {
           {playbackTargetMediaItemId || canMatchMetadata ? (
             <div className="detail-hero__actions">
               {playbackTargetMediaItemId ? (
-                <>
-                  <Link
-                    className="button button--primary"
-                    to={mediaItemPlayPath(playbackTargetMediaItemId)}
-                  >
-                    <span>Resume Playback</span>
-                  </Link>
-                  <Link
-                    className="button button--toolbar"
-                    to={mediaItemPlayPath(playbackTargetMediaItemId, { fromStart: true })}
-                  >
-                    <span>Play from Beginning</span>
-                  </Link>
-                </>
+                <Link
+                  className="button button--primary"
+                  to={mediaItemPlayPath(playbackTargetMediaItemId)}
+                >
+                  <span>{playbackActionLabel}</span>
+                </Link>
               ) : null}
               {canMatchMetadata ? (
                 <MetadataMatchPanel

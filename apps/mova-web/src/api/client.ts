@@ -41,9 +41,14 @@ interface ApiEnvelope<T> {
   message: string
 }
 
-function withApiPrefix(path: string) {
-  return `${API_PREFIX}${path}`
+type PlaybackProgressUpdateInput = {
+  media_file_id: number
+  position_seconds: number
+  duration_seconds?: number
+  is_finished?: boolean
 }
+
+const withApiPrefix = (path: string) => `${API_PREFIX}${path}`
 
 class ApiError extends Error {
   status: number
@@ -55,17 +60,14 @@ class ApiError extends Error {
   }
 }
 
-function isApiEnvelope<T>(value: unknown): value is ApiEnvelope<T> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'code' in value &&
-    'message' in value &&
-    'data' in value
-  )
-}
+const isApiEnvelope = <T>(value: unknown): value is ApiEnvelope<T> =>
+  typeof value === 'object' &&
+  value !== null &&
+  'code' in value &&
+  'message' in value &&
+  'data' in value
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+const requestJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(path, {
     credentials: 'same-origin',
     headers: {
@@ -114,91 +116,73 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T
 }
 
-export function getBootstrapStatus() {
-  return requestJson<BootstrapStatus>(withApiPrefix('/auth/bootstrap-status'))
-}
+export const getBootstrapStatus = () =>
+  requestJson<BootstrapStatus>(withApiPrefix('/auth/bootstrap-status'))
 
-export function bootstrapAdmin(input: BootstrapAdminInput) {
-  return requestJson<UserAccount>(withApiPrefix('/auth/bootstrap-admin'), {
+export const bootstrapAdmin = (input: BootstrapAdminInput) =>
+  requestJson<UserAccount>(withApiPrefix('/auth/bootstrap-admin'), {
     method: 'POST',
     body: JSON.stringify(input),
   })
-}
 
-export function login(input: LoginInput) {
-  return requestJson<UserAccount>(withApiPrefix('/auth/login'), {
+export const login = (input: LoginInput) =>
+  requestJson<UserAccount>(withApiPrefix('/auth/login'), {
     method: 'POST',
     body: JSON.stringify(input),
   })
-}
 
-export function logout() {
-  return requestJson<void>(withApiPrefix('/auth/logout'), {
+export const logout = () =>
+  requestJson<void>(withApiPrefix('/auth/logout'), {
     method: 'POST',
   })
-}
 
-export function getCurrentUser() {
-  return requestJson<UserAccount>(withApiPrefix('/auth/me'))
-}
+export const getCurrentUser = () => requestJson<UserAccount>(withApiPrefix('/auth/me'))
 
-export function changeOwnPassword(input: ChangeOwnPasswordInput) {
-  return requestJson<UserAccount>(withApiPrefix('/auth/password'), {
+export const changeOwnPassword = (input: ChangeOwnPasswordInput) =>
+  requestJson<UserAccount>(withApiPrefix('/auth/password'), {
     method: 'PUT',
     body: JSON.stringify(input),
   })
-}
 
-export function listLibraries() {
-  return requestJson<Library[]>(withApiPrefix('/libraries'))
-}
+export const listLibraries = () => requestJson<Library[]>(withApiPrefix('/libraries'))
 
-export function createLibrary(input: CreateLibraryInput) {
-  return requestJson<Library>(withApiPrefix('/libraries'), {
+export const createLibrary = (input: CreateLibraryInput) =>
+  requestJson<Library>(withApiPrefix('/libraries'), {
     method: 'POST',
     body: JSON.stringify(input),
   })
-}
 
-export function listUsers() {
-  return requestJson<UserAccount[]>(withApiPrefix('/users'))
-}
+export const listUsers = () => requestJson<UserAccount[]>(withApiPrefix('/users'))
 
-export function createUser(input: CreateUserInput) {
-  return requestJson<UserAccount>(withApiPrefix('/users'), {
+export const createUser = (input: CreateUserInput) =>
+  requestJson<UserAccount>(withApiPrefix('/users'), {
     method: 'POST',
     body: JSON.stringify(input),
   })
-}
 
-export function updateUser(userId: number, input: UpdateUserInput) {
-  return requestJson<UserAccount>(withApiPrefix(`/users/${userId}`), {
+export const updateUser = (userId: number, input: UpdateUserInput) =>
+  requestJson<UserAccount>(withApiPrefix(`/users/${userId}`), {
     method: 'PATCH',
     body: JSON.stringify(input),
   })
-}
 
-export function deleteUser(userId: number) {
-  return requestJson<void>(withApiPrefix(`/users/${userId}`), {
+export const deleteUser = (userId: number) =>
+  requestJson<void>(withApiPrefix(`/users/${userId}`), {
     method: 'DELETE',
   })
-}
 
-export function deleteLibrary(libraryId: number) {
-  return requestJson<void>(withApiPrefix(`/libraries/${libraryId}`), {
+export const deleteLibrary = (libraryId: number) =>
+  requestJson<void>(withApiPrefix(`/libraries/${libraryId}`), {
     method: 'DELETE',
   })
-}
 
-export function getServerMediaTree() {
-  return requestJson<ServerMediaDirectoryNode | null>(withApiPrefix('/server/media-tree'))
-}
+export const getServerMediaTree = () =>
+  requestJson<ServerMediaDirectoryNode | null>(withApiPrefix('/server/media-tree'))
 
-export function getLibrary(libraryId: number) {
-  return requestJson<LibraryDetail>(withApiPrefix(`/libraries/${libraryId}`))
-}
+export const getLibrary = (libraryId: number) =>
+  requestJson<LibraryDetail>(withApiPrefix(`/libraries/${libraryId}`))
 
-export function listLibraryMediaItems(libraryId: number, params: ListMediaItemsParams) {
+export const listLibraryMediaItems = (libraryId: number, params: ListMediaItemsParams) => {
   const searchParams = new URLSearchParams({
     page: String(params.page),
     page_size: String(params.pageSize),
@@ -217,13 +201,12 @@ export function listLibraryMediaItems(libraryId: number, params: ListMediaItemsP
   )
 }
 
-export function scanLibrary(libraryId: number) {
-  return requestJson<ScanJob>(withApiPrefix(`/libraries/${libraryId}/scan`), {
+export const scanLibrary = (libraryId: number) =>
+  requestJson<ScanJob>(withApiPrefix(`/libraries/${libraryId}/scan`), {
     method: 'POST',
   })
-}
 
-export function listContinueWatching(limit = 12) {
+export const listContinueWatching = (limit = 12) => {
   const searchParams = new URLSearchParams({
     limit: String(limit),
   })
@@ -233,7 +216,7 @@ export function listContinueWatching(limit = 12) {
   )
 }
 
-export function listWatchHistory(limit = 50) {
+export const listWatchHistory = (limit = 50) => {
   const searchParams = new URLSearchParams({
     limit: String(limit),
   })
@@ -241,21 +224,15 @@ export function listWatchHistory(limit = 50) {
   return requestJson<WatchHistoryItem[]>(withApiPrefix(`/watch-history?${searchParams.toString()}`))
 }
 
-export function getMediaItemPlaybackProgress(mediaItemId: number) {
-  return requestJson<PlaybackProgress | null>(
+export const getMediaItemPlaybackProgress = (mediaItemId: number) =>
+  requestJson<PlaybackProgress | null>(
     withApiPrefix(`/media-items/${mediaItemId}/playback-progress`),
   )
-}
 
-export function updateMediaItemPlaybackProgress(
+export const updateMediaItemPlaybackProgress = (
   mediaItemId: number,
-  input: {
-    media_file_id: number
-    position_seconds: number
-    duration_seconds?: number
-    is_finished?: boolean
-  },
-) {
+  input: PlaybackProgressUpdateInput,
+) => {
   return requestJson<PlaybackProgress>(
     withApiPrefix(`/media-items/${mediaItemId}/playback-progress`),
     {
@@ -265,14 +242,40 @@ export function updateMediaItemPlaybackProgress(
   )
 }
 
-export function getMediaItem(mediaItemId: number) {
-  return requestJson<MediaItemDetail>(withApiPrefix(`/media-items/${mediaItemId}`))
+export const flushMediaItemPlaybackProgress = (
+  mediaItemId: number,
+  input: PlaybackProgressUpdateInput,
+) => {
+  const path = withApiPrefix(`/media-items/${mediaItemId}/playback-progress`)
+  const body = JSON.stringify(input)
+
+  // 页面关闭或切后台时，优先用 beacon/keepalive 把最后一笔进度发出去，
+  // 避免只依赖暂停事件导致离场进度丢失。
+  if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+    const sent = navigator.sendBeacon(path, new Blob([body], { type: 'application/json' }))
+    if (sent) {
+      return
+    }
+  }
+
+  void fetch(path, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body,
+    keepalive: true,
+  })
 }
 
-export function searchMediaItemMetadata(
+export const getMediaItem = (mediaItemId: number) =>
+  requestJson<MediaItemDetail>(withApiPrefix(`/media-items/${mediaItemId}`))
+
+export const searchMediaItemMetadata = (
   mediaItemId: number,
   params: { query: string; year?: number },
-) {
+) => {
   const searchParams = new URLSearchParams({
     query: params.query,
   })
@@ -286,53 +289,41 @@ export function searchMediaItemMetadata(
   )
 }
 
-export function applyMediaItemMetadataMatch(mediaItemId: number, providerItemId: number) {
-  return requestJson<MediaItem>(withApiPrefix(`/media-items/${mediaItemId}/metadata-match`), {
+export const applyMediaItemMetadataMatch = (mediaItemId: number, providerItemId: number) =>
+  requestJson<MediaItem>(withApiPrefix(`/media-items/${mediaItemId}/metadata-match`), {
     method: 'POST',
     body: JSON.stringify({
       provider_item_id: providerItemId,
     }),
   })
-}
 
-export function getMediaItemPlaybackHeader(mediaItemId: number) {
-  return requestJson<MediaItemPlaybackHeader>(
-    withApiPrefix(`/media-items/${mediaItemId}/playback-header`),
-  )
-}
+export const getMediaItemPlaybackHeader = (mediaItemId: number) =>
+  requestJson<MediaItemPlaybackHeader>(withApiPrefix(`/media-items/${mediaItemId}/playback-header`))
 
-export function listMediaItemFiles(mediaItemId: number) {
-  return requestJson<MediaFile[]>(withApiPrefix(`/media-items/${mediaItemId}/files`))
-}
+export const listMediaItemFiles = (mediaItemId: number) =>
+  requestJson<MediaFile[]>(withApiPrefix(`/media-items/${mediaItemId}/files`))
 
-export function listMediaFileSubtitles(mediaFileId: number) {
-  return requestJson<SubtitleFile[]>(withApiPrefix(`/media-files/${mediaFileId}/subtitles`))
-}
+export const listMediaFileSubtitles = (mediaFileId: number) =>
+  requestJson<SubtitleFile[]>(withApiPrefix(`/media-files/${mediaFileId}/subtitles`))
 
-export function listMediaItemSeasons(mediaItemId: number) {
-  return requestJson<Season[]>(withApiPrefix(`/media-items/${mediaItemId}/seasons`))
-}
+export const listMediaItemSeasons = (mediaItemId: number) =>
+  requestJson<Season[]>(withApiPrefix(`/media-items/${mediaItemId}/seasons`))
 
-export function getMediaItemEpisodeOutline(mediaItemId: number) {
-  return requestJson<EpisodeOutline>(withApiPrefix(`/media-items/${mediaItemId}/episode-outline`))
-}
+export const getMediaItemEpisodeOutline = (mediaItemId: number) =>
+  requestJson<EpisodeOutline>(withApiPrefix(`/media-items/${mediaItemId}/episode-outline`))
 
-export function listSeasonEpisodes(seasonId: number) {
-  return requestJson<Episode[]>(withApiPrefix(`/seasons/${seasonId}/episodes`))
-}
+export const listSeasonEpisodes = (seasonId: number) =>
+  requestJson<Episode[]>(withApiPrefix(`/seasons/${seasonId}/episodes`))
 
-export function refreshMediaItemMetadata(mediaItemId: number) {
-  return requestJson<MediaItem>(withApiPrefix(`/media-items/${mediaItemId}/refresh-metadata`), {
+export const refreshMediaItemMetadata = (mediaItemId: number) =>
+  requestJson<MediaItem>(withApiPrefix(`/media-items/${mediaItemId}/refresh-metadata`), {
     method: 'POST',
   })
-}
 
-export function mediaFileStreamUrl(mediaFileId: number) {
-  return withApiPrefix(`/media-files/${mediaFileId}/stream`)
-}
+export const mediaFileStreamUrl = (mediaFileId: number) =>
+  withApiPrefix(`/media-files/${mediaFileId}/stream`)
 
-export function subtitleFileStreamUrl(subtitleFileId: number) {
-  return withApiPrefix(`/subtitle-files/${subtitleFileId}/stream`)
-}
+export const subtitleFileStreamUrl = (subtitleFileId: number) =>
+  withApiPrefix(`/subtitle-files/${subtitleFileId}/stream`)
 
 export { ApiError }

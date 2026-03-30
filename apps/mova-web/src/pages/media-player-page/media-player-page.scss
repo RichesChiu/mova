@@ -134,33 +134,50 @@
 }
 
 .player-screen__select-field {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  display: grid;
+  gap: 4px;
   min-width: 0;
-  padding: 5px 9px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  width: 150px;
 }
 
-.player-screen__select-field span {
+.player-screen__select-label {
   color: rgba(223, 229, 239, 0.74);
-  font-size: 0.7rem;
+  font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.player-screen__select-field select {
+.player-screen__select-field .glass-select {
   min-width: 0;
-  max-width: 220px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
+}
+
+.player-screen__select-field .glass-select__trigger {
+  min-height: 34px;
+  border-color: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 7px 11px;
+  box-shadow: none;
+}
+
+.player-screen__select-field .glass-select__trigger:hover:enabled {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
+}
+
+.player-screen__select-field .glass-select__value {
   font-size: 0.8rem;
   font-weight: 600;
-  outline: none;
+}
+
+.player-screen__select-field .glass-select__menu {
+  top: calc(100% + 6px);
+  border-radius: 14px;
+  background: rgba(5, 9, 14, 0.92);
+  box-shadow:
+    0 18px 34px rgba(0, 0, 0, 0.44),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .player-screen__viewport {

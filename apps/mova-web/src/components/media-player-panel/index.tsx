@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import {
+  flushMediaItemPlaybackProgress,
   getMediaItemPlaybackProgress,
   listMediaFileSubtitles,
   listMediaItemFiles,
@@ -297,6 +298,8 @@ export const MediaPlayerPanel = ({
   const stageRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null)
+  const selectedMediaFileRef = useRef<MediaFile | null>(null)
+  const durationSecondsRef = useRef<number | null>(null)
   const restoredForFileRef = useRef<number | null>(null)
   const lastReportedSecondsRef = useRef(-1)
   const hasSubmittedProgressRef = useRef(false)
@@ -345,6 +348,14 @@ export const MediaPlayerPanel = ({
   const selectedMediaFileDuration = selectedMediaFile?.duration_seconds ?? null
   const selectedSubtitle =
     subtitleFiles.find((subtitle) => subtitle.id === selectedSubtitleId) ?? null
+
+  useEffect(() => {
+    selectedMediaFileRef.current = selectedMediaFile
+  }, [selectedMediaFile])
+
+  useEffect(() => {
+    durationSecondsRef.current = durationSeconds
+  }, [durationSeconds])
 
   useEffect(() => {
     if (mediaFiles.length === 0) {
@@ -497,7 +508,60 @@ export const MediaPlayerPanel = ({
   }, [])
 
   useEffect(() => {
+    const flushPlaybackProgress = () => {
+      const video = videoRef.current
+      const mediaFile = selectedMediaFileRef.current
+      if (!video || !mediaFile) {
+        return
+      }
+
+      const measuredDuration =
+        Number.isFinite(video.duration) && video.duration > 0
+          ? Math.round(video.duration)
+          : (durationSecondsRef.current ?? mediaFile.duration_seconds ?? undefined)
+      const measuredPosition = Math.max(
+        0,
+        Math.round(
+          measuredDuration ? Math.min(video.currentTime, measuredDuration) : video.currentTime,
+        ),
+      )
+
+      if (
+        measuredPosition <= 0 ||
+        Math.abs(measuredPosition - lastReportedSecondsRef.current) < 1
+      ) {
+        return
+      }
+
+      hasSubmittedProgressRef.current = true
+      lastReportedSecondsRef.current = measuredPosition
+      flushMediaItemPlaybackProgress(mediaItemId, {
+        media_file_id: mediaFile.id,
+        position_seconds: measuredPosition,
+        duration_seconds: measuredDuration,
+        is_finished: false,
+      })
+    }
+
+    // 页面切路由、切后台、直接关闭时都在这里补一次强制上报，避免“没点暂停就丢进度”。
+    const handlePageHide = () => {
+      flushPlaybackProgress()
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushPlaybackProgress()
+      }
+    }
+
+    window.addEventListener('pagehide', handlePageHide)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
+      window.removeEventListener('pagehide', handlePageHide)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      flushPlaybackProgress()
+
       if (hasSubmittedProgressRef.current) {
         void queryClient.invalidateQueries({ queryKey: ['continue-watching'] })
         void queryClient.invalidateQueries({ queryKey: ['watch-history'] })
@@ -575,9 +639,11 @@ export const MediaPlayerPanel = ({
       return
     }
 
-    const safeResumePosition = Math.max(0, playbackProgress.position_seconds - 2)
-    video.currentTime = safeResumePosition
-    setPositionSeconds(Math.round(safeResumePosition))
+    // 详情页和接口展示都应以持久化进度为准，这里直接精确恢复到上次同步秒数，
+    // 避免 UI 显示时间与后端记录出现 2 秒偏差。
+    const resumePosition = Math.max(0, playbackProgress.position_seconds)
+    video.currentTime = resumePosition
+    setPositionSeconds(Math.round(resumePosition))
     lastReportedSecondsRef.current = playbackProgress.position_seconds
     restoredForFileRef.current = selectedMediaFile.id
   }
