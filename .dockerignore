@@ -1,10 +1,54 @@
+# Build outputs and dependency caches.
 target
-.git
-.vscode
-.idea
 node_modules
 apps/mova-web/node_modules
 apps/mova-web/dist
+coverage
+logs
+*.log
+.eslintcache
+.sass-cache
+
+# VCS and local environment files.
+.git
 .env
 .env.*
+.direnv
+
+# Editor and IDE noise.
+.vscode
+.vscode-test
+.idea
+.fleet
+.history
+.ropeproject
+*.iml
+*.suo
+*.user
+*.userossc
+*.rsuser
+*.sln.docstates
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+\#*\#
+.project
+.classpath
+.cproject
+.settings
+
+# OS-generated files.
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN
+.Spotlight-V100
+.Trashes
+._*
+
+# Local runtime state and sample media that should not enter the build context.
 data
+media
+dev-media
