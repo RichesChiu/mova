@@ -5,6 +5,7 @@ import { ApiError, getCurrentUser, listLibraries, logout } from '../../api/clien
 import type { Library, UserAccount } from '../../api/types'
 import { canManageServer } from '../../lib/viewer'
 import { ContentHeader } from '../content-header'
+import { useServerEvents } from './use-server-events'
 
 export interface AppShellOutletContext {
   libraries: Library[]
@@ -34,6 +35,8 @@ export const AppShell = () => {
       navigate('/login', { replace: true })
     },
   })
+
+  useServerEvents({ enabled: currentUserQuery.isSuccess })
 
   useEffect(() => {
     if (!location.pathname) {

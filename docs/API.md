@@ -12,6 +12,7 @@
   - `GET /api/health`、`GET /api/auth/bootstrap-status`、`POST /api/auth/bootstrap-admin`、`POST /api/auth/login` 可匿名访问
   - 其他接口都要求登录态 session cookie
   - 管理类接口（用户管理、建库、删库、触发扫描、服务器根目录等）要求 `admin`
+  - `GET /api/events` 返回 `text/event-stream`，不使用统一 JSON envelope
 - 成功格式：
 
 ```json
@@ -59,6 +60,7 @@
 | `POST` | `/api/auth/login` | 登录 |
 | `POST` | `/api/auth/logout` | 登出 |
 | `GET` | `/api/auth/me` | 查询当前用户 |
+| `GET` | `/api/events` | 订阅服务端实时事件流（SSE） |
 | `PUT` | `/api/auth/password` | 当前用户修改自己的密码 |
 | `GET` | `/api/users` | 查询用户列表（管理员） |
 | `POST` | `/api/users` | 创建用户（管理员） |
@@ -187,6 +189,18 @@
 返回：
 - `200 OK`
 - 返回字段包括 `id`、`username`、`role`、`is_enabled`、`library_ids`
+
+### `GET /api/events`
+
+作用：
+- 订阅服务端实时事件流，当前用于把扫描任务状态变化主动推送给在线客户端
+
+说明：
+- 需要登录态 session cookie
+- 返回类型为 `text/event-stream`
+- 当前已实现事件：
+  - `scan.job.updated`
+  - `scan.job.finished`
 
 ### `PUT /api/auth/password`
 

@@ -50,7 +50,7 @@ pub use playback_progress::{
 pub use scan_jobs::{
     enqueue_library_scan, execute_scan_job, execute_scan_job_with_cancellation,
     get_scan_job_for_library, list_scan_jobs_for_library, EnqueueLibraryScanResult,
-    ExecuteScanJobOutcome,
+    ExecuteScanJobOutcome, ScanJobEvent,
 };
 pub use users::{
     bootstrap_admin, bootstrap_required, change_own_password, create_user, delete_user, get_user,

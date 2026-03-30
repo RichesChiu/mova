@@ -4,6 +4,7 @@ mod config;
 mod error;
 mod handlers;
 mod metadata_provider_config;
+mod realtime;
 mod response;
 mod routes;
 mod state;
@@ -51,6 +52,7 @@ async fn main() -> anyhow::Result<()> {
         metadata_provider,
         scan_registry: state::ScanRegistry::default(),
         library_sync_registry: state::LibrarySyncRegistry::default(),
+        realtime_hub: state::RealtimeHub::default(),
     };
     sync_runtime::initialize_library_sync(&state).await;
 

@@ -4,6 +4,7 @@ mod libraries;
 mod media_files;
 mod media_items;
 mod playback_progress;
+mod realtime;
 mod seasons;
 mod server;
 mod subtitle_files;
@@ -46,6 +47,10 @@ pub fn seasons() -> Router<crate::state::AppState> {
 
 pub fn server() -> Router<crate::state::AppState> {
     server::router()
+}
+
+pub fn realtime() -> Router<crate::state::AppState> {
+    realtime::router()
 }
 
 /// 注册播放进度相关路由。

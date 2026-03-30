@@ -1,9 +1,13 @@
-use crate::state::{AppState, RegisterScanError};
+use crate::{
+    realtime::RealtimeEvent,
+    state::{AppState, RegisterScanError},
+};
 use mova_domain::Library;
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use tokio::{
     sync::{mpsc, watch},
@@ -132,7 +136,17 @@ pub fn spawn_library_scan_job(
     let metadata_provider = state.metadata_provider.clone();
     let scan_registry = state.scan_registry.clone();
     let library_sync_registry = state.library_sync_registry.clone();
+    let realtime_hub = state.realtime_hub.clone();
     let cancellation_flag = active_scan.cancellation_flag();
+    let scan_event_listener: Arc<dyn Fn(mova_application::ScanJobEvent) + Send + Sync> =
+        Arc::new(move |event| match event {
+            mova_application::ScanJobEvent::Updated(scan_job) => {
+                realtime_hub.publish(RealtimeEvent::ScanJobUpdated { scan_job });
+            }
+            mova_application::ScanJobEvent::Finished(scan_job) => {
+                realtime_hub.publish(RealtimeEvent::ScanJobFinished { scan_job });
+            }
+        });
 
     tokio::spawn(async move {
         let result = mova_application::execute_scan_job_with_cancellation(
@@ -142,6 +156,7 @@ pub fn spawn_library_scan_job(
             cancellation_flag,
             artwork_cache_dir,
             metadata_provider,
+            scan_event_listener,
         )
         .await;
 
@@ -177,7 +192,7 @@ pub async fn handle_scan_registration_rejected(
 ) {
     match error {
         RegisterScanError::DeleteInProgress => {
-            if let Err(finalize_error) = mova_db::finalize_scan_job(
+            match mova_db::finalize_scan_job(
                 &state.db,
                 scan_job_id,
                 "failed",
@@ -187,12 +202,20 @@ pub async fn handle_scan_registration_rejected(
             )
             .await
             {
-                tracing::warn!(
-                    library_id,
-                    scan_job_id,
-                    error = ?finalize_error,
-                    "failed to finalize scan job rejected during library deletion"
-                );
+                Ok(Some(scan_job)) => {
+                    state
+                        .realtime_hub
+                        .publish(RealtimeEvent::ScanJobFinished { scan_job });
+                }
+                Ok(None) => {}
+                Err(finalize_error) => {
+                    tracing::warn!(
+                        library_id,
+                        scan_job_id,
+                        error = ?finalize_error,
+                        "failed to finalize scan job rejected during library deletion"
+                    );
+                }
             }
         }
     }

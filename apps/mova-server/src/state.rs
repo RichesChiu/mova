@@ -10,6 +10,8 @@ use std::{
 use time::UtcOffset;
 use tokio::sync::{watch, Notify};
 
+pub use crate::realtime::RealtimeHub;
+
 /// 通过 Axum state 注入到各个 handler 的共享依赖。
 #[derive(Clone)]
 pub struct AppState {
@@ -19,6 +21,7 @@ pub struct AppState {
     pub metadata_provider: Arc<dyn mova_application::MetadataProvider>,
     pub scan_registry: ScanRegistry,
     pub library_sync_registry: LibrarySyncRegistry,
+    pub realtime_hub: RealtimeHub,
 }
 
 /// 记录当前进程内活跃扫描任务和正在删除的媒体库。

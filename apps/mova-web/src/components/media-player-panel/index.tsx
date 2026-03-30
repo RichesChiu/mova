@@ -12,7 +12,7 @@ import {
 import type { MediaFile, SubtitleFile } from '../../api/types'
 import { formatDuration } from '../../lib/format'
 
-const PROGRESS_SYNC_INTERVAL_SECONDS = 10
+const PROGRESS_SYNC_INTERVAL_SECONDS = 5
 
 interface MediaPlayerPanelProps {
   episodeSwitchOptions?: Array<{

@@ -31,6 +31,12 @@ pub enum ExecuteScanJobOutcome {
     Cancelled,
 }
 
+#[derive(Debug, Clone)]
+pub enum ScanJobEvent {
+    Updated(ScanJob),
+    Finished(ScanJob),
+}
+
 #[derive(Debug)]
 enum DiscoverMediaFilesOutcome {
     Completed(Vec<DiscoveredMediaFile>),
@@ -106,6 +112,7 @@ pub async fn execute_scan_job(
     metadata_provider: Arc<dyn MetadataProvider>,
 ) -> ApplicationResult<ScanJob> {
     let cancellation_flag = Arc::new(AtomicBool::new(false));
+    let event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync> = Arc::new(|_| {});
 
     match execute_scan_job_with_cancellation(
         pool,
@@ -114,6 +121,7 @@ pub async fn execute_scan_job(
         cancellation_flag,
         artwork_cache_dir,
         metadata_provider,
+        event_listener,
     )
     .await?
     {
@@ -134,9 +142,12 @@ pub async fn execute_scan_job_with_cancellation(
     cancellation_flag: Arc<AtomicBool>,
     artwork_cache_dir: PathBuf,
     metadata_provider: Arc<dyn MetadataProvider>,
+    event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> ApplicationResult<ExecuteScanJobOutcome> {
     if is_cancelled(&cancellation_flag) {
-        finalize_cancelled_scan(pool, scan_job_id, 0, 0).await;
+        if let Some(scan_job) = finalize_cancelled_scan(pool, scan_job_id, 0, 0).await {
+            event_listener(ScanJobEvent::Finished(scan_job));
+        }
         return Ok(ExecuteScanJobOutcome::Cancelled);
     }
 
@@ -146,30 +157,44 @@ pub async fn execute_scan_job_with_cancellation(
             return Ok(ExecuteScanJobOutcome::Cancelled);
         }
         Err(error) => {
-            finalize_failed_scan(pool, scan_job_id, 0, 0, &error.to_string()).await;
+            if let Some(scan_job) =
+                finalize_failed_scan(pool, scan_job_id, 0, 0, &error.to_string()).await
+            {
+                event_listener(ScanJobEvent::Finished(scan_job));
+            }
             return Err(error);
         }
     };
 
     if is_cancelled(&cancellation_flag) {
-        finalize_cancelled_scan(pool, scan_job_id, 0, 0).await;
+        if let Some(scan_job) = finalize_cancelled_scan(pool, scan_job_id, 0, 0).await {
+            event_listener(ScanJobEvent::Finished(scan_job));
+        }
         return Ok(ExecuteScanJobOutcome::Cancelled);
     }
 
     match mova_db::mark_scan_job_running(pool, scan_job_id).await {
-        Ok(Some(_)) => {}
+        Ok(Some(scan_job)) => {
+            event_listener(ScanJobEvent::Updated(scan_job));
+        }
         Ok(None) => {
             return Ok(ExecuteScanJobOutcome::Cancelled);
         }
         Err(error) => {
             let error = ApplicationError::from(error);
-            finalize_failed_scan(pool, scan_job_id, 0, 0, &error.to_string()).await;
+            if let Some(scan_job) =
+                finalize_failed_scan(pool, scan_job_id, 0, 0, &error.to_string()).await
+            {
+                event_listener(ScanJobEvent::Finished(scan_job));
+            }
             return Err(error);
         }
     }
 
     if is_cancelled(&cancellation_flag) {
-        finalize_cancelled_scan(pool, scan_job_id, 0, 0).await;
+        if let Some(scan_job) = finalize_cancelled_scan(pool, scan_job_id, 0, 0).await {
+            event_listener(ScanJobEvent::Finished(scan_job));
+        }
         return Ok(ExecuteScanJobOutcome::Cancelled);
     }
 
@@ -178,30 +203,44 @@ pub async fn execute_scan_job_with_cancellation(
         scan_job_id,
         &library.root_path,
         cancellation_flag.clone(),
+        event_listener.clone(),
     )
     .await
     {
         Ok(DiscoverMediaFilesOutcome::Completed(files)) => files,
         Ok(DiscoverMediaFilesOutcome::Cancelled(scanned_files)) => {
-            finalize_cancelled_scan(pool, scan_job_id, scanned_files, scanned_files).await;
+            if let Some(scan_job) =
+                finalize_cancelled_scan(pool, scan_job_id, scanned_files, scanned_files).await
+            {
+                event_listener(ScanJobEvent::Finished(scan_job));
+            }
             return Ok(ExecuteScanJobOutcome::Cancelled);
         }
         Err(error) => {
-            finalize_failed_scan(pool, scan_job_id, 0, 0, &error.to_string()).await;
+            if let Some(scan_job) =
+                finalize_failed_scan(pool, scan_job_id, 0, 0, &error.to_string()).await
+            {
+                event_listener(ScanJobEvent::Finished(scan_job));
+            }
             return Err(error);
         }
     };
 
     let total_files = discovered_files.len() as i32;
-    if let Err(error) =
-        mova_db::update_scan_job_progress(pool, scan_job_id, Some(total_files), total_files).await
+    match mova_db::update_scan_job_progress(pool, scan_job_id, Some(total_files), total_files).await
     {
-        tracing::warn!(
-            scan_job_id,
-            total_files,
-            error = ?error,
-            "failed to write final discovery progress"
-        );
+        Ok(Some(scan_job)) => {
+            event_listener(ScanJobEvent::Updated(scan_job));
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                scan_job_id,
+                total_files,
+                error = ?error,
+                "failed to write final discovery progress"
+            );
+        }
     }
 
     let discovered_files = enrich_discovered_files(
@@ -216,25 +255,40 @@ pub async fn execute_scan_job_with_cancellation(
     let media_entries = match build_media_entries(&library, discovered_files) {
         Ok(entries) => entries,
         Err(error) => {
-            finalize_failed_scan(pool, scan_job_id, total_files, 0, &error.to_string()).await;
+            if let Some(scan_job) =
+                finalize_failed_scan(pool, scan_job_id, total_files, 0, &error.to_string()).await
+            {
+                event_listener(ScanJobEvent::Finished(scan_job));
+            }
             return Err(error);
         }
     };
 
     if is_cancelled(&cancellation_flag) {
-        finalize_cancelled_scan(pool, scan_job_id, total_files, total_files).await;
+        if let Some(scan_job) =
+            finalize_cancelled_scan(pool, scan_job_id, total_files, total_files).await
+        {
+            event_listener(ScanJobEvent::Finished(scan_job));
+        }
         return Ok(ExecuteScanJobOutcome::Cancelled);
     }
 
     if let Err(error) = mova_db::sync_library_media(pool, library.id, &media_entries).await {
-        finalize_failed_scan(pool, scan_job_id, total_files, 0, &error.to_string()).await;
+        if let Some(scan_job) =
+            finalize_failed_scan(pool, scan_job_id, total_files, 0, &error.to_string()).await
+        {
+            event_listener(ScanJobEvent::Finished(scan_job));
+        }
         return Err(ApplicationError::Unexpected(error));
     }
 
     match mova_db::finalize_scan_job(pool, scan_job_id, "success", total_files, total_files, None)
         .await
     {
-        Ok(Some(scan_job)) => Ok(ExecuteScanJobOutcome::Completed(scan_job)),
+        Ok(Some(scan_job)) => {
+            event_listener(ScanJobEvent::Finished(scan_job.clone()));
+            Ok(ExecuteScanJobOutcome::Completed(scan_job))
+        }
         Ok(None) => Ok(ExecuteScanJobOutcome::Cancelled),
         Err(error) => Err(ApplicationError::from(error)),
     }
@@ -271,6 +325,7 @@ async fn discover_media_files(
     scan_job_id: i64,
     root_path: &str,
     cancellation_flag: Arc<AtomicBool>,
+    event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> ApplicationResult<DiscoverMediaFilesOutcome> {
     let root_path_string = root_path.to_string();
     let root_path_for_task = root_path_string.clone();
@@ -278,6 +333,7 @@ async fn discover_media_files(
     let progress_pool = pool.clone();
     let last_progress = Arc::new(AtomicI32::new(0));
     let last_progress_for_task = last_progress.clone();
+    let progress_event_listener = event_listener.clone();
 
     let progress_task = tokio::spawn(async move {
         let mut persisted_progress = 0;
@@ -287,17 +343,27 @@ async fn discover_media_files(
                 continue;
             }
 
-            if let Err(error) =
-                mova_db::update_scan_job_progress(&progress_pool, scan_job_id, None, scanned_files)
-                    .await
+            match mova_db::update_scan_job_progress(
+                &progress_pool,
+                scan_job_id,
+                None,
+                scanned_files,
+            )
+            .await
             {
-                tracing::warn!(
-                    scan_job_id,
-                    scanned_files,
-                    error = ?error,
-                    "failed to update scan progress"
-                );
-                continue;
+                Ok(Some(scan_job)) => {
+                    progress_event_listener(ScanJobEvent::Updated(scan_job));
+                }
+                Ok(None) => continue,
+                Err(error) => {
+                    tracing::warn!(
+                        scan_job_id,
+                        scanned_files,
+                        error = ?error,
+                        "failed to update scan progress"
+                    );
+                    continue;
+                }
             }
 
             persisted_progress = scanned_files;
@@ -461,8 +527,8 @@ async fn finalize_failed_scan(
     total_files: i32,
     scanned_files: i32,
     error_message: &str,
-) {
-    let _ = mova_db::finalize_scan_job(
+) -> Option<ScanJob> {
+    mova_db::finalize_scan_job(
         pool,
         scan_job_id,
         "failed",
@@ -470,7 +536,9 @@ async fn finalize_failed_scan(
         scanned_files,
         Some(error_message),
     )
-    .await;
+    .await
+    .ok()
+    .flatten()
 }
 
 async fn finalize_cancelled_scan(
@@ -478,8 +546,8 @@ async fn finalize_cancelled_scan(
     scan_job_id: i64,
     total_files: i32,
     scanned_files: i32,
-) {
-    let _ = mova_db::finalize_scan_job(
+) -> Option<ScanJob> {
+    mova_db::finalize_scan_job(
         pool,
         scan_job_id,
         "failed",
@@ -487,5 +555,7 @@ async fn finalize_cancelled_scan(
         scanned_files,
         Some("scan cancelled"),
     )
-    .await;
+    .await
+    .ok()
+    .flatten()
 }

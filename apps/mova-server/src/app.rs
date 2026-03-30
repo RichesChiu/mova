@@ -10,6 +10,7 @@ pub fn build_router(state: AppState, web_dist_dir: Option<PathBuf>) -> Router {
         .merge(routes::health())
         .merge(routes::libraries())
         .merge(routes::server())
+        .merge(routes::realtime())
         .merge(routes::media_files())
         .merge(routes::subtitle_files())
         .merge(routes::media_items())

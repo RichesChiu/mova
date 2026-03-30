@@ -7,6 +7,7 @@ authors.workspace = true
 
 [dependencies]
 tokio.workspace = true
+tokio-stream.workspace = true
 axum.workspace = true
 axum-extra.workspace = true
 serde.workspace = true

@@ -142,23 +142,33 @@ pub async fn update_scan_job_progress(
     scan_job_id: i64,
     total_files: Option<i32>,
     scanned_files: i32,
-) -> Result<()> {
-    sqlx::query(
+) -> Result<Option<ScanJob>> {
+    let row = sqlx::query(
         r#"
         update scan_jobs
         set total_files = coalesce($2, total_files),
             scanned_files = $3
         where id = $1
+        returning
+            id,
+            library_id,
+            status,
+            total_files,
+            scanned_files,
+            created_at,
+            started_at,
+            finished_at,
+            error_message
         "#,
     )
     .bind(scan_job_id)
     .bind(total_files)
     .bind(scanned_files)
-    .execute(pool)
+    .fetch_optional(pool)
     .await
     .context("failed to update scan job progress")?;
 
-    Ok(())
+    Ok(row.map(map_scan_job_row))
 }
 
 /// 服务启动时把中断留下的 pending/running 任务统一标记成 failed。
