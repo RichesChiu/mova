@@ -64,7 +64,7 @@ docker compose up -d --build
 - 本机访问：`http://127.0.0.1:36080`
 - 远程服务器访问：`http://<服务器IP>:36080`
 - 健康检查：`GET http://<服务器IP>:36080/api/health`
-- 示例媒体目录：宿主机 [`dev-media/`](dev-media/) 挂载到容器内 `/media`
+- 示例媒体目录：宿主机 [`media/`](media/) 挂载到容器内 `/media`
 - 运行时数据目录：[`data/postgres/`](data/postgres/)、[`data/cache/`](data/cache/)
 
 启动后会同时拉起：

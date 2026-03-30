@@ -28,7 +28,7 @@ services:
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
-        source: ${MOVA_MEDIA_ROOT:-./dev-media}
+        source: ${MOVA_MEDIA_ROOT:-./media}
         target: /media
         read_only: true
     restart: unless-stopped

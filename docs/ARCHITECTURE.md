@@ -30,7 +30,7 @@
 - `mova-server -> mova-application -> mova-db` 这条依赖方向
 - `mova-scan` 作为独立扫描能力，而不是把文件发现和 `ffprobe` 逻辑直接塞回 server
 - 运行时数据集中到 `data/`
-- 开发样例媒体集中到 `dev-media/`
+- 开发样例媒体集中到 `media/`
 
 当前阶段不建议：
 
