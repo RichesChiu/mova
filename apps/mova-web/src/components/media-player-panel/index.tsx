@@ -15,7 +15,12 @@ import { formatDuration } from '../../lib/format'
 const PROGRESS_SYNC_INTERVAL_SECONDS = 10
 
 interface MediaPlayerPanelProps {
+  episodeSwitchOptions?: Array<{
+    label: string
+    mediaItemId: number
+  }>
   mediaItemId: number
+  onSelectEpisode?: (mediaItemId: number) => void
   title: string
   startMode?: 'resume' | 'from-start'
   variant?: 'panel' | 'immersive'
@@ -250,6 +255,28 @@ const SubtitleIcon = () => {
   )
 }
 
+const EpisodeSwitchIcon = () => {
+  return (
+    <svg
+      aria-hidden="true"
+      className="player-control-button__glyph"
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <rect height="14" rx="2.5" stroke="currentColor" strokeWidth="1.8" width="18" x="3" y="5" />
+      <path d="M7 9H15" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M7 12.5H13" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path
+        d="M16.5 12L18.5 14L16.5 16"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
 const normalizeSubtitleTrackLanguage = (language: string | null | undefined) =>
   language?.split(/[-_]/)[0]?.toLowerCase() || 'und'
 
@@ -289,7 +316,9 @@ const forceSelectedTextTrack = (video: HTMLVideoElement, shouldShowSubtitle: boo
 }
 
 export const MediaPlayerPanel = ({
+  episodeSwitchOptions = [],
   mediaItemId,
+  onSelectEpisode,
   startMode = 'resume',
   title,
   variant = 'panel',
@@ -297,12 +326,15 @@ export const MediaPlayerPanel = ({
   const queryClient = useQueryClient()
   const stageRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const episodeMenuRef = useRef<HTMLDivElement | null>(null)
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedMediaFileRef = useRef<MediaFile | null>(null)
   const durationSecondsRef = useRef<number | null>(null)
   const restoredForFileRef = useRef<number | null>(null)
   const lastReportedSecondsRef = useRef(-1)
   const hasSubmittedProgressRef = useRef(false)
+  const syncPlaybackProgressRef = useRef<(force?: boolean, isFinished?: boolean) => void>(() => {})
+  const flushPlaybackProgressRef = useRef<() => void>(() => {})
   const [selectedMediaFileId, setSelectedMediaFileId] = useState<number | null>(null)
   const [playerError, setPlayerError] = useState<string | null>(null)
   const [positionSeconds, setPositionSeconds] = useState(0)
@@ -311,6 +343,7 @@ export const MediaPlayerPanel = ({
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(1)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isEpisodeMenuOpen, setIsEpisodeMenuOpen] = useState(false)
   const [isSubtitleMenuOpen, setIsSubtitleMenuOpen] = useState(false)
   const [selectedSubtitleId, setSelectedSubtitleId] = useState<number | null>(null)
 
@@ -415,24 +448,33 @@ export const MediaPlayerPanel = ({
   }, [selectedSubtitleId, subtitleFiles])
 
   useEffect(() => {
-    if (!isSubtitleMenuOpen) {
+    if (!isSubtitleMenuOpen && !isEpisodeMenuOpen) {
       return
     }
 
     const handlePointerDown = (event: MouseEvent) => {
-      const menuRoot = subtitleMenuRef.current
-      if (!menuRoot || !(event.target instanceof Node)) {
+      if (!(event.target instanceof Node)) {
         return
       }
 
-      if (!menuRoot.contains(event.target)) {
+      const subtitleMenuRoot = subtitleMenuRef.current
+      const episodeMenuRoot = episodeMenuRef.current
+      const clickedSubtitleMenu = subtitleMenuRoot?.contains(event.target)
+      const clickedEpisodeMenu = episodeMenuRoot?.contains(event.target)
+
+      if (!clickedSubtitleMenu) {
         setIsSubtitleMenuOpen(false)
+      }
+
+      if (!clickedEpisodeMenu) {
+        setIsEpisodeMenuOpen(false)
       }
     }
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsSubtitleMenuOpen(false)
+        setIsEpisodeMenuOpen(false)
       }
     }
 
@@ -443,7 +485,7 @@ export const MediaPlayerPanel = ({
       window.removeEventListener('mousedown', handlePointerDown)
       window.removeEventListener('keydown', handleEscape)
     }
-  }, [isSubtitleMenuOpen])
+  }, [isEpisodeMenuOpen, isSubtitleMenuOpen])
 
   useEffect(() => {
     const video = videoRef.current
@@ -507,50 +549,83 @@ export const MediaPlayerPanel = ({
     }
   }, [])
 
-  useEffect(() => {
-    const flushPlaybackProgress = () => {
-      const video = videoRef.current
-      const mediaFile = selectedMediaFileRef.current
-      if (!video || !mediaFile) {
-        return
-      }
-
-      const measuredDuration =
-        Number.isFinite(video.duration) && video.duration > 0
-          ? Math.round(video.duration)
-          : (durationSecondsRef.current ?? mediaFile.duration_seconds ?? undefined)
-      const measuredPosition = Math.max(
-        0,
-        Math.round(
-          measuredDuration ? Math.min(video.currentTime, measuredDuration) : video.currentTime,
-        ),
-      )
-
-      if (
-        measuredPosition <= 0 ||
-        Math.abs(measuredPosition - lastReportedSecondsRef.current) < 1
-      ) {
-        return
-      }
-
-      hasSubmittedProgressRef.current = true
-      lastReportedSecondsRef.current = measuredPosition
-      flushMediaItemPlaybackProgress(mediaItemId, {
-        media_file_id: mediaFile.id,
-        position_seconds: measuredPosition,
-        duration_seconds: measuredDuration,
-        is_finished: false,
-      })
+  const measurePlaybackProgress = () => {
+    const video = videoRef.current
+    const mediaFile = selectedMediaFileRef.current
+    if (!video || !mediaFile) {
+      return null
     }
 
+    const measuredDuration =
+      Number.isFinite(video.duration) && video.duration > 0
+        ? Math.round(video.duration)
+        : (durationSecondsRef.current ?? mediaFile.duration_seconds ?? undefined)
+    const measuredPosition = Math.max(
+      0,
+      Math.round(
+        measuredDuration ? Math.min(video.currentTime, measuredDuration) : video.currentTime,
+      ),
+    )
+
+    return {
+      durationSeconds: measuredDuration,
+      mediaFileId: mediaFile.id,
+      positionSeconds: measuredPosition,
+    }
+  }
+
+  // 播放中的持久化改成定时轮询，不再依赖浏览器 `timeupdate` 的触发频率。
+  syncPlaybackProgressRef.current = (force = false, isFinished = false) => {
+    const snapshot = measurePlaybackProgress()
+    if (!snapshot) {
+      return
+    }
+
+    if (
+      !force &&
+      Math.abs(snapshot.positionSeconds - lastReportedSecondsRef.current) <
+        PROGRESS_SYNC_INTERVAL_SECONDS
+    ) {
+      return
+    }
+
+    playbackProgressMutation.mutate({
+      media_file_id: snapshot.mediaFileId,
+      position_seconds: snapshot.positionSeconds,
+      duration_seconds: snapshot.durationSeconds,
+      is_finished: isFinished,
+    })
+  }
+
+  flushPlaybackProgressRef.current = () => {
+    const snapshot = measurePlaybackProgress()
+    if (
+      !snapshot ||
+      snapshot.positionSeconds <= 0 ||
+      Math.abs(snapshot.positionSeconds - lastReportedSecondsRef.current) < 1
+    ) {
+      return
+    }
+
+    hasSubmittedProgressRef.current = true
+    lastReportedSecondsRef.current = snapshot.positionSeconds
+    flushMediaItemPlaybackProgress(mediaItemId, {
+      media_file_id: snapshot.mediaFileId,
+      position_seconds: snapshot.positionSeconds,
+      duration_seconds: snapshot.durationSeconds,
+      is_finished: false,
+    })
+  }
+
+  useEffect(() => {
     // 页面切路由、切后台、直接关闭时都在这里补一次强制上报，避免“没点暂停就丢进度”。
     const handlePageHide = () => {
-      flushPlaybackProgress()
+      flushPlaybackProgressRef.current()
     }
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        flushPlaybackProgress()
+        flushPlaybackProgressRef.current()
       }
     }
 
@@ -560,7 +635,7 @@ export const MediaPlayerPanel = ({
     return () => {
       window.removeEventListener('pagehide', handlePageHide)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
-      flushPlaybackProgress()
+      flushPlaybackProgressRef.current()
 
       if (hasSubmittedProgressRef.current) {
         void queryClient.invalidateQueries({ queryKey: ['continue-watching'] })
@@ -572,37 +647,19 @@ export const MediaPlayerPanel = ({
     }
   }, [mediaItemId, queryClient])
 
-  const syncPlaybackProgress = (force = false, isFinished = false) => {
-    const video = videoRef.current
-    if (!video || !selectedMediaFile) {
+  useEffect(() => {
+    if (!isPlaying || selectedMediaFileId === null) {
       return
     }
 
-    const measuredDuration =
-      Number.isFinite(video.duration) && video.duration > 0
-        ? Math.round(video.duration)
-        : (selectedMediaFile.duration_seconds ?? undefined)
-    const measuredPosition = Math.max(
-      0,
-      Math.round(
-        measuredDuration ? Math.min(video.currentTime, measuredDuration) : video.currentTime,
-      ),
-    )
+    const intervalId = window.setInterval(() => {
+      syncPlaybackProgressRef.current(false, false)
+    }, PROGRESS_SYNC_INTERVAL_SECONDS * 1000)
 
-    if (
-      !force &&
-      Math.abs(measuredPosition - lastReportedSecondsRef.current) < PROGRESS_SYNC_INTERVAL_SECONDS
-    ) {
-      return
+    return () => {
+      window.clearInterval(intervalId)
     }
-
-    playbackProgressMutation.mutate({
-      media_file_id: selectedMediaFile.id,
-      position_seconds: measuredPosition,
-      duration_seconds: measuredDuration,
-      is_finished: isFinished,
-    })
-  }
+  }, [isPlaying, selectedMediaFileId])
 
   const handleLoadedMetadata = () => {
     const video = videoRef.current
@@ -655,11 +712,10 @@ export const MediaPlayerPanel = ({
     }
 
     setPositionSeconds(Math.max(0, Math.round(video.currentTime)))
-    syncPlaybackProgress(false, false)
   }
 
   const handlePause = () => {
-    syncPlaybackProgress(true, false)
+    syncPlaybackProgressRef.current(true, false)
   }
 
   const handleEnded = () => {
@@ -673,7 +729,7 @@ export const MediaPlayerPanel = ({
         ? Math.round(video.duration)
         : (durationSeconds ?? 0)
     setPositionSeconds(endedDuration)
-    syncPlaybackProgress(true, true)
+    syncPlaybackProgressRef.current(true, true)
   }
 
   const handlePlayerError = () => {
@@ -712,6 +768,7 @@ export const MediaPlayerPanel = ({
     const nextSeconds = Math.max(0, Math.min(seekMax || targetSeconds, targetSeconds))
     video.currentTime = nextSeconds
     setPositionSeconds(Math.round(nextSeconds))
+    syncPlaybackProgressRef.current(true, false)
   }
 
   const seekBy = (deltaSeconds: number) => {
@@ -920,11 +977,59 @@ export const MediaPlayerPanel = ({
 
                   <div className="player-toolbar-cluster player-toolbar-cluster--right">
                     <div className="player-toolbar-pill">
+                      {episodeSwitchOptions.length > 0 && onSelectEpisode ? (
+                        <div
+                          className={
+                            isEpisodeMenuOpen
+                              ? 'player-popover-menu player-popover-menu--open'
+                              : 'player-popover-menu'
+                          }
+                          ref={episodeMenuRef}
+                        >
+                          <button
+                            aria-expanded={isEpisodeMenuOpen}
+                            aria-haspopup="menu"
+                            aria-label="Switch episode"
+                            className={
+                              isEpisodeMenuOpen
+                                ? 'player-control-button player-control-button--icon player-control-button--toolbar player-control-button--active'
+                                : 'player-control-button player-control-button--icon player-control-button--toolbar'
+                            }
+                            onClick={() => {
+                              setIsEpisodeMenuOpen((open) => !open)
+                              setIsSubtitleMenuOpen(false)
+                            }}
+                            type="button"
+                          >
+                            <EpisodeSwitchIcon />
+                          </button>
+
+                          {isEpisodeMenuOpen ? (
+                            <div className="player-popover-menu__bubble" role="menu">
+                              {episodeSwitchOptions.map((episode) => (
+                                <button
+                                  className="player-popover-menu__option"
+                                  key={episode.mediaItemId}
+                                  onClick={() => {
+                                    setIsEpisodeMenuOpen(false)
+                                    onSelectEpisode(episode.mediaItemId)
+                                  }}
+                                  role="menuitem"
+                                  type="button"
+                                >
+                                  <span>{episode.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
                       <div
                         className={
                           isSubtitleMenuOpen
-                            ? 'player-subtitle-menu player-subtitle-menu--open'
-                            : 'player-subtitle-menu'
+                            ? 'player-popover-menu player-popover-menu--open'
+                            : 'player-popover-menu'
                         }
                         ref={subtitleMenuRef}
                       >
@@ -937,19 +1042,22 @@ export const MediaPlayerPanel = ({
                               ? 'player-control-button player-control-button--icon player-control-button--toolbar player-control-button--active'
                               : 'player-control-button player-control-button--icon player-control-button--toolbar'
                           }
-                          onClick={() => setIsSubtitleMenuOpen((open) => !open)}
+                          onClick={() => {
+                            setIsSubtitleMenuOpen((open) => !open)
+                            setIsEpisodeMenuOpen(false)
+                          }}
                           type="button"
                         >
                           <SubtitleIcon />
                         </button>
 
                         {isSubtitleMenuOpen ? (
-                          <div className="player-subtitle-menu__bubble" role="menu">
+                          <div className="player-popover-menu__bubble" role="menu">
                             <button
                               className={
                                 selectedSubtitleId === null
-                                  ? 'player-subtitle-menu__option player-subtitle-menu__option--active'
-                                  : 'player-subtitle-menu__option'
+                                  ? 'player-popover-menu__option player-popover-menu__option--active'
+                                  : 'player-popover-menu__option'
                               }
                               onClick={() => {
                                 setSelectedSubtitleId(null)
@@ -965,8 +1073,8 @@ export const MediaPlayerPanel = ({
                               <button
                                 className={
                                   selectedSubtitleId === subtitle.id
-                                    ? 'player-subtitle-menu__option player-subtitle-menu__option--active'
-                                    : 'player-subtitle-menu__option'
+                                    ? 'player-popover-menu__option player-popover-menu__option--active'
+                                    : 'player-popover-menu__option'
                                 }
                                 key={subtitle.id}
                                 onClick={() => {
@@ -984,10 +1092,10 @@ export const MediaPlayerPanel = ({
                             ))}
 
                             {subtitleFiles.length === 0 && !subtitleFilesQuery.isLoading ? (
-                              <p className="player-subtitle-menu__empty">No subtitles found.</p>
+                              <p className="player-popover-menu__empty">No subtitles found.</p>
                             ) : null}
                             {subtitleFilesQuery.isError ? (
-                              <p className="player-subtitle-menu__empty">
+                              <p className="player-popover-menu__empty">
                                 {subtitleFilesQuery.error instanceof Error
                                   ? subtitleFilesQuery.error.message
                                   : 'Failed to load subtitles'}

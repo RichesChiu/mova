@@ -126,60 +126,6 @@
   white-space: nowrap;
 }
 
-.player-screen__navigator {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 0 0 auto;
-}
-
-.player-screen__select-field {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  width: 150px;
-}
-
-.player-screen__select-label {
-  color: rgba(223, 229, 239, 0.74);
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.player-screen__select-field .glass-select {
-  min-width: 0;
-}
-
-.player-screen__select-field .glass-select__trigger {
-  min-height: 34px;
-  border-color: rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  padding: 7px 11px;
-  box-shadow: none;
-}
-
-.player-screen__select-field .glass-select__trigger:hover:enabled {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateY(-1px);
-}
-
-.player-screen__select-field .glass-select__value {
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.player-screen__select-field .glass-select__menu {
-  top: calc(100% + 6px);
-  border-radius: 14px;
-  background: rgba(5, 9, 14, 0.92);
-  box-shadow:
-    0 18px 34px rgba(0, 0, 0, 0.44),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
 .player-screen__viewport {
   flex: 1 1 0;
   min-height: 0;

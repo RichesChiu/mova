@@ -266,12 +266,12 @@
   min-width: 104px;
 }
 
-.player-subtitle-menu {
+.player-popover-menu {
   position: relative;
   display: inline-flex;
 }
 
-.player-subtitle-menu__bubble {
+.player-popover-menu__bubble {
   position: absolute;
   right: 0;
   bottom: calc(100% + 10px);
@@ -290,7 +290,7 @@
   backdrop-filter: blur(22px) saturate(135%);
 }
 
-.player-subtitle-menu__option {
+.player-popover-menu__option {
   display: grid;
   gap: 3px;
   width: 100%;
@@ -306,33 +306,33 @@
     transform 160ms ease;
 }
 
-.player-subtitle-menu__option span,
-.player-subtitle-menu__option small {
+.player-popover-menu__option span,
+.player-popover-menu__option small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.player-subtitle-menu__option small {
+.player-popover-menu__option small {
   color: var(--text-muted);
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.player-subtitle-menu__option:hover {
+.player-popover-menu__option:hover {
   transform: translateY(-1px);
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.06);
 }
 
-.player-subtitle-menu__option--active {
+.player-popover-menu__option--active {
   border-color: rgba(148, 180, 255, 0.28);
   background: rgba(148, 180, 255, 0.12);
   color: #e8efff;
 }
 
-.player-subtitle-menu__empty {
+.player-popover-menu__empty {
   margin: 0;
   padding: 6px 4px 2px;
   color: var(--text-muted);
