@@ -57,3 +57,5 @@ $RECYCLE.BIN/
 
 # Local runtime state for Docker-based development.
 data/
+
+/.codex/
