@@ -15,6 +15,11 @@ interface EpisodeCardProps {
   metaLabel?: string | null
 }
 
+interface EpisodeCardSkeletonProps {
+  metaLabel?: string | null
+  placeholderLabel: string
+}
+
 export const EpisodeCard = ({
   artworkAlt,
   artworkSrc,
@@ -82,6 +87,34 @@ export const EpisodeCard = ({
   return (
     <div aria-disabled="true" className={classes}>
       {content}
+    </div>
+  )
+}
+
+export const EpisodeCardSkeleton = ({ metaLabel, placeholderLabel }: EpisodeCardSkeletonProps) => {
+  return (
+    <div aria-hidden="true" className="episode-card episode-card--loading">
+      <div className="episode-card__artwork">
+        <div className="episode-card__placeholder episode-card__placeholder--loading">
+          <span>{placeholderLabel}</span>
+        </div>
+      </div>
+
+      <div className="episode-card__content">
+        <div className="episode-card__status-badge episode-card__status-badge--loading" />
+
+        <div className="episode-card__body">
+          {metaLabel ? <span className="episode-card__meta">{metaLabel}</span> : null}
+          <span className="episode-card__line episode-card__line--title skeleton-shimmer" />
+          <span className="episode-card__line episode-card__line--title-alt skeleton-shimmer" />
+          <span className="episode-card__line episode-card__line--description skeleton-shimmer" />
+          <span className="episode-card__line episode-card__line--description-alt skeleton-shimmer" />
+        </div>
+
+        <div className="episode-card__progress episode-card__progress--loading">
+          <span className="skeleton-shimmer" style={{ width: '42%' }} />
+        </div>
+      </div>
     </div>
   )
 }

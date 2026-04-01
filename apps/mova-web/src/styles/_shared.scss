@@ -11,6 +11,28 @@
   color: var(--text-muted);
 }
 
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background:
+    linear-gradient(
+      110deg,
+      color-mix(in srgb, var(--panel-background-soft) 86%, transparent) 8%,
+      color-mix(in srgb, var(--floating-surface-strong) 74%, white 10%) 18%,
+      color-mix(in srgb, var(--panel-background-soft) 86%, transparent) 33%
+    );
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.6s linear infinite;
+}
+
 .page-stack,
 .stack {
   position: relative;

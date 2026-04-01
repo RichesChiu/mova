@@ -4,10 +4,32 @@ import { SectionHelp } from '../../../components/section-help'
 import type { HomeLibraryModuleData } from '../types'
 
 interface LibrariesSectionProps {
+  isLoading: boolean
   libraryModules: HomeLibraryModuleData[]
 }
 
-export const LibrariesSection = ({ libraryModules }: LibrariesSectionProps) => (
+const LIBRARY_SPOTLIGHT_SKELETON_COUNT = 3
+const LIBRARY_SPOTLIGHT_SKELETON_KEYS = ['library-a', 'library-b', 'library-c'] as const
+
+const LibrarySpotlightSkeleton = () => (
+  <div aria-hidden="true" className="library-spotlight library-spotlight--loading">
+    <div className="library-spotlight__backdrop" aria-hidden="true">
+      <span className="library-spotlight__fallback library-spotlight__fallback--loading skeleton-shimmer" />
+    </div>
+
+    <div className="library-spotlight__content">
+      <span className="library-spotlight__type">library</span>
+      <span className="library-spotlight__line library-spotlight__line--title skeleton-shimmer" />
+
+      <div className="library-spotlight__stats">
+        <span className="library-spotlight__stat library-spotlight__stat--loading skeleton-shimmer" />
+        <span className="library-spotlight__stat library-spotlight__stat--loading skeleton-shimmer" />
+      </div>
+    </div>
+  </div>
+)
+
+export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSectionProps) => (
   <section className="catalog-block libraries-section">
     <div className="catalog-block__header">
       <div className="catalog-block__title-row">
@@ -20,7 +42,16 @@ export const LibrariesSection = ({ libraryModules }: LibrariesSectionProps) => (
       <span className="counter-badge">{libraryModules.length}</span>
     </div>
 
-    {libraryModules.length === 0 ? (
+    {isLoading ? (
+      <>
+        <p className="muted">Loading libraries…</p>
+        <ScrollableRail hint="Scroll horizontally." viewportClassName="libraries-section__viewport">
+          {LIBRARY_SPOTLIGHT_SKELETON_KEYS.slice(0, LIBRARY_SPOTLIGHT_SKELETON_COUNT).map((key) => (
+            <LibrarySpotlightSkeleton key={key} />
+          ))}
+        </ScrollableRail>
+      </>
+    ) : libraryModules.length === 0 ? (
       <div className="catalog-block__empty">
         <p className="muted">No libraries yet.</p>
       </div>

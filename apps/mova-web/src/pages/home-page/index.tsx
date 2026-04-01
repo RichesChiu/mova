@@ -41,7 +41,7 @@ const isEpisodeContextEntry = (entry: {
 }) => typeof entry.season_number === 'number' && typeof entry.episode_number === 'number'
 
 export const HomePage = () => {
-  const { libraries } = useOutletContext<AppShellOutletContext>()
+  const { libraries, librariesLoading } = useOutletContext<AppShellOutletContext>()
 
   const continueWatchingQuery = useQuery({
     queryKey: ['continue-watching', 20],
@@ -153,7 +153,7 @@ export const HomePage = () => {
 
   return (
     <div className="home-shell">
-      <LibrariesSection libraryModules={libraryModules} />
+      <LibrariesSection isLoading={librariesLoading} libraryModules={libraryModules} />
 
       <ContinueWatchingSection
         errorMessage={continueWatchingErrorMessage}
@@ -161,7 +161,7 @@ export const HomePage = () => {
         items={continueWatchingCards}
       />
 
-      <LibraryContentSections libraryModules={libraryModules} />
+      <LibraryContentSections isLoading={librariesLoading} libraryModules={libraryModules} />
     </div>
   )
 }

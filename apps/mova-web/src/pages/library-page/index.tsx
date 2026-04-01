@@ -2,9 +2,18 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { getLibrary, listLibraryMediaItems } from '../../api/client'
 import type { MediaItem } from '../../api/types'
-import { MediaCard } from '../../components/media-card'
+import { MediaCard, MediaCardSkeleton } from '../../components/media-card'
 
 const PAGE_SIZE = 500
+const MEDIA_SECTION_SKELETON_COUNT = 6
+const MEDIA_SECTION_SKELETON_KEYS = [
+  'media-a',
+  'media-b',
+  'media-c',
+  'media-d',
+  'media-e',
+  'media-f',
+] as const
 
 const MediaSection = ({ items, title }: { items: MediaItem[]; title: string }) => {
   return (
@@ -24,6 +33,28 @@ const MediaSection = ({ items, title }: { items: MediaItem[]; title: string }) =
           ))}
         </div>
       )}
+    </section>
+  )
+}
+
+const MediaSectionSkeleton = ({
+  placeholderLabel,
+  title,
+}: {
+  placeholderLabel: string
+  title: string
+}) => {
+  return (
+    <section aria-hidden="true" className="catalog-block">
+      <div className="catalog-block__header">
+        <h3>{title}</h3>
+      </div>
+
+      <div className="media-grid">
+        {MEDIA_SECTION_SKELETON_KEYS.slice(0, MEDIA_SECTION_SKELETON_COUNT).map((key) => (
+          <MediaCardSkeleton key={`${title}-${key}`} placeholderLabel={placeholderLabel} />
+        ))}
+      </div>
     </section>
   )
 }
@@ -67,6 +98,19 @@ export const LibraryPage = () => {
   const movieItems = mediaItems.filter((item) => item.media_type === 'movie')
   const seriesItems = mediaItems.filter((item) => item.media_type === 'series')
   const isMixedLibrary = currentLibrary?.library_type === 'mixed'
+  const primarySectionTitle =
+    currentLibrary?.library_type === 'series'
+      ? 'Series'
+      : currentLibrary?.library_type === 'movie'
+        ? 'Movies'
+        : 'Library Items'
+  const primarySkeletonLabel =
+    currentLibrary?.library_type === 'series'
+      ? 'SERIES'
+      : currentLibrary?.library_type === 'movie'
+        ? 'MOVIE'
+        : 'MEDIA'
+  const shouldShowMediaSkeleton = mediaItemsQuery.isLoading && mediaItems.length === 0
 
   return (
     <div className="page-stack">
@@ -125,13 +169,13 @@ export const LibraryPage = () => {
           当前正在扫描媒体库。
           {currentScan.total_files > 0
             ? ` 已处理 ${currentScan.scanned_files} / ${currentScan.total_files} 个文件。`
-            : ` 已发现 ${currentScan.scanned_files} 个文件。`}
-          {' '}当前首轮导入会在整批落库后显示媒体条目，大库时可能需要等待一段时间。
+            : ` 已发现 ${currentScan.scanned_files} 个文件。`}{' '}
+          当前首轮导入会在整批落库后显示媒体条目，大库时可能需要等待一段时间。
         </p>
       ) : null}
 
       <section className="catalog-shell">
-        {mediaItemsQuery.isLoading ? <p className="muted">Loading media items…</p> : null}
+        {shouldShowMediaSkeleton ? <p className="muted">Loading media items…</p> : null}
 
         {mediaItemsQuery.isError ? (
           <p className="callout callout--danger">
@@ -141,14 +185,30 @@ export const LibraryPage = () => {
           </p>
         ) : null}
 
-        {mediaItemsQuery.data && mediaItems.length === 0 ? (
+        {!shouldShowMediaSkeleton && mediaItemsQuery.data && mediaItems.length === 0 ? (
           <section className="empty-panel">
             <h3>No items available yet</h3>
             <p className="muted">这个媒体库当前还没有可展示的内容。</p>
           </section>
         ) : null}
 
-        {mediaItems.length > 0 ? (
+        {shouldShowMediaSkeleton ? (
+          isMixedLibrary ? (
+            <div className="catalog-stack">
+              <MediaSectionSkeleton placeholderLabel="MOVIE" title="Movies" />
+              <MediaSectionSkeleton placeholderLabel="SERIES" title="Series" />
+            </div>
+          ) : (
+            <div className="catalog-stack">
+              <MediaSectionSkeleton
+                placeholderLabel={primarySkeletonLabel}
+                title={primarySectionTitle}
+              />
+            </div>
+          )
+        ) : null}
+
+        {!shouldShowMediaSkeleton && mediaItems.length > 0 ? (
           isMixedLibrary ? (
             <div className="catalog-stack">
               <MediaSection items={movieItems} title="Movies" />

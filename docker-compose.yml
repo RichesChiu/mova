@@ -6,7 +6,7 @@ services:
       args:
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
-        NO_PROXY: ${NO_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,database}
         ALL_PROXY: ${ALL_PROXY:-}
     depends_on:
       database:
@@ -19,11 +19,11 @@ services:
       MOVA_TMDB_ACCESS_TOKEN: ${MOVA_TMDB_ACCESS_TOKEN:-}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,database}
       ALL_PROXY: ${ALL_PROXY:-}
       http_proxy: ${HTTP_PROXY:-}
       https_proxy: ${HTTPS_PROXY:-}
-      no_proxy: ${NO_PROXY:-}
+      no_proxy: ${NO_PROXY:-localhost,127.0.0.1,::1,database}
       all_proxy: ${ALL_PROXY:-}
     volumes:
       - ./data/cache:/app/data/cache

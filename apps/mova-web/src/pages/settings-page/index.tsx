@@ -16,14 +16,74 @@ import { CreateLibraryForm } from '../../components/create-library-form'
 import { SettingsGearIcon } from '../../components/settings-gear-icon'
 import { UserEditorModal } from '../../components/user-editor-modal'
 
+const USER_SKELETON_COUNT = 4
+const LIBRARY_SKELETON_COUNT = 3
+const USER_SKELETON_KEYS = ['user-a', 'user-b', 'user-c', 'user-d'] as const
+const LIBRARY_SKELETON_KEYS = ['library-a', 'library-b', 'library-c'] as const
+
 const userAvatarInitial = (username: string) => username.trim().charAt(0).toUpperCase() || 'U'
 
+const SettingsUserCardSkeleton = () => (
+  <article aria-hidden="true" className="settings-user-card settings-user-card--loading">
+    <div className="settings-user-card__avatar settings-user-card__avatar--loading skeleton-shimmer" />
+
+    <div className="settings-user-card__body">
+      <div className="settings-user-card__header">
+        <div className="settings-user-card__copy">
+          <span className="settings-user-card__line settings-user-card__line--title skeleton-shimmer" />
+          <span className="settings-user-card__line settings-user-card__line--role skeleton-shimmer" />
+        </div>
+
+        <div className="settings-user-card__controls">
+          <span className="settings-user-card__control settings-user-card__control--toggle skeleton-shimmer" />
+          <span className="settings-user-card__control settings-user-card__control--icon skeleton-shimmer" />
+        </div>
+      </div>
+
+      <span className="settings-user-card__line settings-user-card__line--access skeleton-shimmer" />
+    </div>
+
+    <div className="settings-user-card__actions">
+      <span className="settings-user-card__button skeleton-shimmer" />
+    </div>
+  </article>
+)
+
+const SettingsLibraryCardSkeleton = () => (
+  <article aria-hidden="true" className="settings-library-card settings-library-card--loading">
+    <div aria-hidden="true" className="settings-library-card__backdrop">
+      <span className="settings-library-card__backdrop-glow" />
+    </div>
+
+    <div className="settings-library-card__body">
+      <div className="settings-library-card__header">
+        <span className="settings-library-card__type settings-library-card__type--loading skeleton-shimmer" />
+        <span className="settings-library-card__language settings-library-card__language--loading skeleton-shimmer" />
+      </div>
+
+      <span className="settings-library-card__line settings-library-card__line--title skeleton-shimmer" />
+      <span className="settings-library-card__line settings-library-card__line--description skeleton-shimmer" />
+      <span className="settings-library-card__line settings-library-card__line--description-alt skeleton-shimmer" />
+
+      <div className="settings-library-card__path-block">
+        <span className="settings-library-card__path-label">Root path</span>
+        <span className="settings-library-card__path settings-library-card__path--loading skeleton-shimmer" />
+      </div>
+    </div>
+
+    <div className="settings-library-card__actions">
+      <span className="settings-library-card__button skeleton-shimmer" />
+      <span className="settings-library-card__button skeleton-shimmer" />
+    </div>
+  </article>
+)
+
 export const SettingsPage = () => {
-  const { currentUser, libraries } = useOutletContext<AppShellOutletContext>()
+  const { currentUser, libraries, librariesLoading } = useOutletContext<AppShellOutletContext>()
   const queryClient = useQueryClient()
   const [isCreateUserOpen, setIsCreateUserOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null)
-  const usersQuery = useQuery({
+  const usersQuery = useQuery<UserAccount[]>({
     enabled: currentUser.role === 'admin',
     queryKey: ['users'],
     queryFn: listUsers,
@@ -95,6 +155,9 @@ export const SettingsPage = () => {
     : editingUser && updateUserMutation.error instanceof Error
       ? updateUserMutation.error.message
       : null
+  const users = usersQuery.data ?? []
+  const shouldShowUserSkeleton = usersQuery.isLoading && users.length === 0
+  const shouldShowLibrarySkeleton = librariesLoading && libraries.length === 0
 
   return (
     <div className="settings-shell">
@@ -148,114 +211,129 @@ export const SettingsPage = () => {
         ) : null}
 
         <div className="settings-user-list">
-          {usersQuery.isLoading ? <p className="muted">Loading users…</p> : null}
+          {shouldShowUserSkeleton ? <p className="muted">Loading users…</p> : null}
 
-          {usersQuery.data?.map((user) => {
-            const libraryNames =
-              user.role === 'admin'
-                ? ['All libraries']
-                : libraries
-                    .filter((library) => user.library_ids.includes(library.id))
-                    .map((library) => library.name)
+          {shouldShowUserSkeleton
+            ? USER_SKELETON_KEYS.slice(0, USER_SKELETON_COUNT).map((key) => (
+                <SettingsUserCardSkeleton key={key} />
+              ))
+            : null}
 
-            return (
-              <article className="settings-user-card" key={user.id}>
-                <button
-                  aria-label={`Edit ${user.username}`}
-                  className="settings-user-card__avatar"
-                  onClick={() => setEditingUser(user)}
-                  type="button"
-                >
-                  <span>{userAvatarInitial(user.username)}</span>
-                </button>
+          {!shouldShowUserSkeleton
+            ? users.map((user) => {
+                const libraryNames =
+                  user.role === 'admin'
+                    ? ['All libraries']
+                    : libraries
+                        .filter((library) => user.library_ids.includes(library.id))
+                        .map((library) => library.name)
 
-                <div className="settings-user-card__body">
-                  <div className="settings-user-card__header">
-                    <div>
-                      <strong>{user.username}</strong>
-                      <p className="muted">{user.role === 'admin' ? 'Administrator' : 'Viewer'}</p>
-                    </div>
-
-                    <div className="settings-user-card__controls">
-                      {user.role === 'viewer' ? (
-                        <label className="settings-user-card__switch">
-                          <input
-                            checked={user.is_enabled}
-                            disabled={updateUserMutation.isPending}
-                            onChange={(event) =>
-                              updateUserMutation.mutate({
-                                userId: user.id,
-                                input: { is_enabled: event.target.checked },
-                              })
-                            }
-                            type="checkbox"
-                          />
-                          <span className="settings-user-card__switch-track" />
-                        </label>
-                      ) : null}
-
-                      <button
-                        aria-label={`Edit ${user.username}`}
-                        className="settings-user-card__edit-icon"
-                        onClick={() => setEditingUser(user)}
-                        type="button"
-                      >
-                        <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24">
-                          <path
-                            d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
-                            stroke="currentColor"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="1.7"
-                          />
-                          <path
-                            d="M12.75 7.05L16.95 11.25"
-                            stroke="currentColor"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="1.7"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-
-                  <p className="settings-user-card__access">
-                    {user.role === 'admin'
-                      ? 'Access: All libraries'
-                      : libraryNames.length > 0
-                        ? `Access: ${libraryNames.join(', ')}`
-                        : 'Access: No libraries assigned'}
-                  </p>
-                </div>
-
-                <div className="settings-user-card__actions">
-                  {user.id !== currentUser.id ? (
+                return (
+                  <article className="settings-user-card" key={user.id}>
                     <button
-                      className="button button--danger settings-user-card__delete"
-                      disabled={deleteUserMutation.isPending}
-                      onClick={() => {
-                        const confirmed = window.confirm(
-                          `Delete user "${user.username}"? This removes their access, sessions, and playback records.`,
-                        )
-
-                        if (!confirmed) {
-                          return
-                        }
-
-                        deleteUserMutation.mutate(user.id)
-                      }}
+                      aria-label={`Edit ${user.username}`}
+                      className="settings-user-card__avatar"
+                      onClick={() => setEditingUser(user)}
                       type="button"
                     >
-                      {deleteUserMutation.isPending && deleteUserMutation.variables === user.id
-                        ? 'Deleting…'
-                        : 'Delete'}
+                      <span>{userAvatarInitial(user.username)}</span>
                     </button>
-                  ) : null}
-                </div>
-              </article>
-            )
-          })}
+
+                    <div className="settings-user-card__body">
+                      <div className="settings-user-card__header">
+                        <div>
+                          <strong>{user.username}</strong>
+                          <p className="muted">
+                            {user.role === 'admin' ? 'Administrator' : 'Viewer'}
+                          </p>
+                        </div>
+
+                        <div className="settings-user-card__controls">
+                          {user.role === 'viewer' ? (
+                            <label className="settings-user-card__switch">
+                              <input
+                                checked={user.is_enabled}
+                                disabled={updateUserMutation.isPending}
+                                onChange={(event) =>
+                                  updateUserMutation.mutate({
+                                    userId: user.id,
+                                    input: { is_enabled: event.target.checked },
+                                  })
+                                }
+                                type="checkbox"
+                              />
+                              <span className="settings-user-card__switch-track" />
+                            </label>
+                          ) : null}
+
+                          <button
+                            aria-label={`Edit ${user.username}`}
+                            className="settings-user-card__edit-icon"
+                            onClick={() => setEditingUser(user)}
+                            type="button"
+                          >
+                            <svg
+                              aria-hidden="true"
+                              fill="none"
+                              focusable="false"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
+                                stroke="currentColor"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="1.7"
+                              />
+                              <path
+                                d="M12.75 7.05L16.95 11.25"
+                                stroke="currentColor"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="1.7"
+                              />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+
+                      <p className="settings-user-card__access">
+                        {user.role === 'admin'
+                          ? 'Access: All libraries'
+                          : libraryNames.length > 0
+                            ? `Access: ${libraryNames.join(', ')}`
+                            : 'Access: No libraries assigned'}
+                      </p>
+                    </div>
+
+                    <div className="settings-user-card__actions">
+                      {user.id !== currentUser.id ? (
+                        <button
+                          className="button button--danger settings-user-card__delete"
+                          disabled={deleteUserMutation.isPending}
+                          onClick={() => {
+                            const confirmed = window.confirm(
+                              `Delete user "${user.username}"? This removes their access, sessions, and playback records.`,
+                            )
+
+                            if (!confirmed) {
+                              return
+                            }
+
+                            deleteUserMutation.mutate(user.id)
+                          }}
+                          type="button"
+                        >
+                          {deleteUserMutation.isPending && deleteUserMutation.variables === user.id
+                            ? 'Deleting…'
+                            : 'Delete'}
+                        </button>
+                      ) : null}
+                    </div>
+                  </article>
+                )
+              })
+            : null}
         </div>
       </section>
 
@@ -276,7 +354,15 @@ export const SettingsPage = () => {
         ) : null}
 
         <div className="settings-library-list">
-          {libraries.length === 0 ? (
+          {shouldShowLibrarySkeleton ? <p className="muted">Loading libraries…</p> : null}
+
+          {shouldShowLibrarySkeleton
+            ? LIBRARY_SKELETON_KEYS.slice(0, LIBRARY_SKELETON_COUNT).map((key) => (
+                <SettingsLibraryCardSkeleton key={key} />
+              ))
+            : null}
+
+          {!shouldShowLibrarySkeleton && libraries.length === 0 ? (
             <article className="settings-library-card">
               <div className="settings-library-card__body">
                 <span className="summary-card__label">No libraries yet</span>
@@ -284,7 +370,7 @@ export const SettingsPage = () => {
                 <p className="muted">下方表单会直接创建媒体库，创建完成后库列表会出现在这里。</p>
               </div>
             </article>
-          ) : (
+          ) : !shouldShowLibrarySkeleton ? (
             libraries.map((library) => (
               <article className="settings-library-card" key={library.id}>
                 <div aria-hidden="true" className="settings-library-card__backdrop">
@@ -341,7 +427,7 @@ export const SettingsPage = () => {
                 </div>
               </article>
             ))
-          )}
+          ) : null}
         </div>
       </section>
 

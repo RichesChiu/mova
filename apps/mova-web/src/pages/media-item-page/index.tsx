@@ -9,7 +9,7 @@ import {
 } from '../../api/client'
 import type { EpisodeOutlineSeason, MediaCastMember } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
-import { EpisodeCard } from '../../components/episode-card'
+import { EpisodeCard, EpisodeCardSkeleton } from '../../components/episode-card'
 import { MetadataMatchPanel } from '../../components/metadata-match-panel'
 import { ScrollableRail } from '../../components/scrollable-rail'
 import { mediaItemDetailPath, mediaItemPlayPath } from '../../lib/media-routes'
@@ -81,6 +81,13 @@ const isResumableProgress = (
     | undefined,
 ) => Boolean(progress && !progress.is_finished && progress.position_seconds > 0)
 
+const EPISODE_SKELETONS = [
+  { metaLabel: 'S01 · E01', placeholderLabel: '1-1' },
+  { metaLabel: 'S01 · E02', placeholderLabel: '1-2' },
+  { metaLabel: 'S01 · E03', placeholderLabel: '1-3' },
+  { metaLabel: 'S01 · E04', placeholderLabel: '1-4' },
+] as const
+
 const SeasonBlock = ({ season }: { season: EpisodeOutlineSeason }) => {
   return (
     <article className="season-card">
@@ -128,6 +135,20 @@ const SeasonBlock = ({ season }: { season: EpisodeOutlineSeason }) => {
     </article>
   )
 }
+
+const SeasonBlockSkeleton = () => (
+  <article aria-hidden="true" className="season-card">
+    <ScrollableRail hint="Drag or click arrows to scroll episodes horizontally.">
+      {EPISODE_SKELETONS.map((episode) => (
+        <EpisodeCardSkeleton
+          key={episode.metaLabel}
+          metaLabel={episode.metaLabel}
+          placeholderLabel={episode.placeholderLabel}
+        />
+      ))}
+    </ScrollableRail>
+  </article>
+)
 
 const castInitials = (member: MediaCastMember) =>
   member.name
@@ -191,6 +212,8 @@ export const MediaItemPage = () => {
   const selectedSeason = availableSeasons.find(
     (season) => season.season_number === selectedSeasonNumber,
   )
+  const shouldShowEpisodeSkeleton =
+    episodeOutlineQuery.isLoading && !episodeOutlineQuery.isError && availableSeasons.length === 0
   const selectedSeasonLabel = selectedSeason
     ? (selectedSeason.title ?? `Season ${selectedSeason.season_number}`)
     : null
@@ -477,7 +500,12 @@ export const MediaItemPage = () => {
             <h3>Episodes</h3>
           </div>
 
-          {episodeOutlineQuery.isLoading ? <p className="muted">Loading episodes…</p> : null}
+          {shouldShowEpisodeSkeleton ? (
+            <>
+              <p className="muted">Loading episodes…</p>
+              <SeasonBlockSkeleton />
+            </>
+          ) : null}
 
           {episodeOutlineQuery.isError ? (
             <p className="callout callout--danger">
@@ -487,13 +515,13 @@ export const MediaItemPage = () => {
             </p>
           ) : null}
 
-          {availableSeasons.length > 0 ? (
+          {!shouldShowEpisodeSkeleton && availableSeasons.length > 0 ? (
             selectedSeason ? (
               <SeasonBlock key={selectedSeason.season_number} season={selectedSeason} />
             ) : null
-          ) : (
+          ) : !shouldShowEpisodeSkeleton ? (
             <p className="muted">No local episodes available in this series yet.</p>
-          )}
+          ) : null}
         </section>
       ) : null}
 

@@ -85,7 +85,6 @@ MOVA_MEDIA_ROOT=/mnt/media
 MOVA_TMDB_ACCESS_TOKEN=
 HTTP_PROXY=
 HTTPS_PROXY=
-NO_PROXY=localhost,127.0.0.1,database
 ```
 
 说明：
@@ -94,7 +93,8 @@ NO_PROXY=localhost,127.0.0.1,database
 - 前端创建媒体库时会直接展示 `/media` 下的递归目录树；你点击哪个文件夹，就把哪个文件夹作为库源路径。
 - 这样用户不需要手写 `/media/...` 路径，也不需要额外维护多套环境变量。
 - `MOVA_TMDB_ACCESS_TOKEN` 不配置时，TMDB 元数据补全会自动关闭，但本地扫描、入库和播放仍然可用。
-- 代理变量会同时传给 Docker 构建阶段和 `mova-server` 运行时，便于在受限网络里拉镜像依赖和请求 TMDB。
+- `HTTP_PROXY` / `HTTPS_PROXY` 会同时传给 Docker 构建阶段和 `mova-server` 运行时，便于在受限网络里拉镜像依赖和请求 TMDB。
+- `NO_PROXY` 会在 compose 中自动补上 `localhost,127.0.0.1,::1,database`；只有你确实需要覆盖默认值时才需要额外设置。
 - 当前约定只保留一个宿主机媒体根目录；后续扩展优先通过这个根目录下的子目录来做，而不是再引入更多环境变量。
 
 说明：

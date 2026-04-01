@@ -265,6 +265,11 @@
   min-width: 0;
 }
 
+.settings-user-card__copy {
+  display: grid;
+  gap: 6px;
+}
+
 .settings-user-card__header,
 .settings-user-card__controls,
 .settings-user-card__actions {
@@ -291,6 +296,27 @@
   margin: 0;
   color: var(--text-muted);
   line-height: 1.5;
+}
+
+.settings-user-card__line,
+.settings-library-card__line {
+  display: block;
+  border-radius: 999px;
+}
+
+.settings-user-card__line--title {
+  width: 124px;
+  height: 1rem;
+}
+
+.settings-user-card__line--role {
+  width: 96px;
+  height: 0.78rem;
+}
+
+.settings-user-card__line--access {
+  width: 88%;
+  height: 0.84rem;
 }
 
 .settings-user-card__switch {
@@ -379,4 +405,80 @@
 
 .settings-user-card__delete {
   min-width: 0;
+}
+
+.settings-user-card--loading,
+.settings-library-card--loading {
+  cursor: progress;
+}
+
+.settings-user-card__avatar--loading {
+  border-color: color-mix(in srgb, var(--floating-border) 72%, transparent);
+  color: transparent;
+}
+
+.settings-user-card__control,
+.settings-user-card__button,
+.settings-library-card__button {
+  display: inline-flex;
+  border-radius: 999px;
+}
+
+.settings-user-card__control--toggle {
+  width: 48px;
+  height: 28px;
+}
+
+.settings-user-card__control--icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+}
+
+.settings-user-card__button {
+  width: 132px;
+  height: 40px;
+}
+
+.settings-library-card__type--loading,
+.settings-library-card__language--loading {
+  min-height: 30px;
+  color: transparent;
+  background: transparent;
+}
+
+.settings-library-card__type--loading {
+  width: 72px;
+}
+
+.settings-library-card__language--loading {
+  width: 88px;
+}
+
+.settings-library-card__line--title {
+  width: 62%;
+  height: 1.1rem;
+}
+
+.settings-library-card__line--description,
+.settings-library-card__line--description-alt {
+  height: 0.8rem;
+}
+
+.settings-library-card__line--description {
+  width: 96%;
+}
+
+.settings-library-card__line--description-alt {
+  width: 78%;
+}
+
+.settings-library-card__path--loading {
+  min-height: 42px;
+  color: transparent;
+}
+
+.settings-library-card__button {
+  width: 100%;
+  min-height: 40px;
 }

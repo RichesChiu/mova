@@ -42,6 +42,10 @@
   font-weight: 700;
 }
 
+.episode-card__placeholder--loading {
+  color: color-mix(in srgb, var(--accent) 68%, var(--text-soft));
+}
+
 .episode-card__content {
   position: relative;
   display: grid;
@@ -130,6 +134,38 @@
   -webkit-box-orient: vertical;
 }
 
+.episode-card__line {
+  display: block;
+  width: 100%;
+  border-radius: 999px;
+}
+
+.episode-card__line--title,
+.episode-card__line--title-alt {
+  height: 0.92rem;
+}
+
+.episode-card__line--title {
+  width: calc(100% - 28px);
+}
+
+.episode-card__line--title-alt {
+  width: 68%;
+}
+
+.episode-card__line--description,
+.episode-card__line--description-alt {
+  height: 0.72rem;
+}
+
+.episode-card__line--description {
+  width: 92%;
+}
+
+.episode-card__line--description-alt {
+  width: 76%;
+}
+
 .episode-card__progress {
   align-self: end;
   height: 6px;
@@ -161,4 +197,24 @@
   border-color: var(--input-border);
   background: var(--panel-background-soft);
   cursor: not-allowed;
+}
+
+.episode-card--loading {
+  cursor: progress;
+}
+
+.episode-card--loading .episode-card__artwork,
+.episode-card--loading .episode-card__status-badge,
+.episode-card--loading .episode-card__progress {
+  border-color: color-mix(in srgb, var(--floating-border) 72%, transparent);
+}
+
+.episode-card__status-badge--loading::before {
+  width: 9px;
+  height: 9px;
+  background: rgba(176, 190, 218, 0.36);
+}
+
+.episode-card__progress--loading {
+  background: rgba(255, 255, 255, 0.05);
 }

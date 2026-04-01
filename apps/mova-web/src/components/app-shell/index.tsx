@@ -9,6 +9,7 @@ import { useServerEvents } from './use-server-events'
 
 export interface AppShellOutletContext {
   libraries: Library[]
+  librariesLoading: boolean
   currentUser: UserAccount
 }
 
@@ -108,7 +109,11 @@ export const AppShell = () => {
                 authenticated user or the visible library list on their own. */}
             <Outlet
               context={
-                { libraries: librariesQuery.data ?? [], currentUser } as AppShellOutletContext
+                {
+                  libraries: librariesQuery.data ?? [],
+                  librariesLoading: librariesQuery.isLoading,
+                  currentUser,
+                } as AppShellOutletContext
               }
             />
           </div>

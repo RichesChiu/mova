@@ -1,4 +1,4 @@
-import { EpisodeCard } from '../../../components/episode-card'
+import { EpisodeCard, EpisodeCardSkeleton } from '../../../components/episode-card'
 import { ScrollableRail } from '../../../components/scrollable-rail'
 import { SectionHelp } from '../../../components/section-help'
 import type { ContinueWatchingCardData } from '../types'
@@ -14,6 +14,8 @@ export const ContinueWatchingSection = ({
   isLoading,
   items,
 }: ContinueWatchingSectionProps) => {
+  const shouldShowSkeleton = isLoading && items.length === 0
+
   // 没有继续观看数据时直接收起整个模块，首页只保留真正有内容的块。
   if (!isLoading && !errorMessage && items.length === 0) {
     return null
@@ -34,6 +36,15 @@ export const ContinueWatchingSection = ({
 
       {isLoading ? <p className="muted">Loading…</p> : null}
       {errorMessage ? <p className="callout callout--danger">{errorMessage}</p> : null}
+
+      {shouldShowSkeleton ? (
+        <ScrollableRail hint="Scroll horizontally.">
+          <EpisodeCardSkeleton metaLabel="MOVIE" placeholderLabel="MOVIE" />
+          <EpisodeCardSkeleton metaLabel="S01 · E03" placeholderLabel="1-3" />
+          <EpisodeCardSkeleton metaLabel="S02 · E01" placeholderLabel="2-1" />
+          <EpisodeCardSkeleton metaLabel="MOVIE" placeholderLabel="MOVIE" />
+        </ScrollableRail>
+      ) : null}
 
       {items.length > 0 ? (
         <ScrollableRail hint="Scroll horizontally.">
