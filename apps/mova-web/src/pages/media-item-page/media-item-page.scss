@@ -147,10 +147,8 @@
   gap: 16px;
 }
 
-.cast-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
-  gap: 14px;
+.cast-panel__viewport {
+  grid-auto-columns: minmax(148px, 188px);
 }
 
 .cast-card {
@@ -161,6 +159,7 @@
   border-radius: 18px;
   background: var(--floating-surface);
   box-shadow: var(--panel-inset), var(--floating-shadow);
+  scroll-snap-align: start;
 }
 
 .cast-card__portrait {

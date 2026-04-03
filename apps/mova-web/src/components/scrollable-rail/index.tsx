@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ReactNode, WheelEvent } from 'react'
 import { useEffect, useRef, useState } from 'react'
 
 interface ScrollableRailProps {
@@ -9,7 +9,7 @@ interface ScrollableRailProps {
 
 export const ScrollableRail = ({
   children,
-  hint = 'Drag or click arrows to scroll horizontally.',
+  hint = 'Scroll, drag, or click arrows to move sideways.',
   viewportClassName,
 }: ScrollableRailProps) => {
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -51,6 +51,35 @@ export const ScrollableRail = ({
     })
   }
 
+  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    const list = listRef.current
+    if (!list) {
+      return
+    }
+
+    const maxLeft = Math.max(0, list.scrollWidth - list.clientWidth)
+    if (maxLeft <= 0) {
+      return
+    }
+
+    const primaryDelta =
+      Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+
+    if (Math.abs(primaryDelta) < 0.5) {
+      return
+    }
+
+    const nextLeft = list.scrollLeft + primaryDelta
+    const clampedLeft = Math.max(0, Math.min(maxLeft, nextLeft))
+
+    if (Math.abs(clampedLeft - list.scrollLeft) < 0.5) {
+      return
+    }
+
+    event.preventDefault()
+    list.scrollLeft = clampedLeft
+  }
+
   return (
     <div className="scrollable-rail">
       <div className="scrollable-rail__frame">
@@ -70,6 +99,7 @@ export const ScrollableRail = ({
               ? `scrollable-rail__viewport ${viewportClassName}`
               : 'scrollable-rail__viewport'
           }
+          onWheel={handleWheel}
           ref={listRef}
         >
           {children}

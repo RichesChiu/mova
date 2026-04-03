@@ -1,5 +1,6 @@
 use crate::auth::{require_admin, require_media_item_access, require_user};
 use crate::error::ApiError;
+use crate::realtime::RealtimeEvent;
 use crate::response::{
     ok, ApiJson, MediaFileResponse, MediaItemDetailResponse, MediaItemPlaybackHeaderResponse,
     MediaItemResponse, MetadataMatchCandidateResponse, SeasonResponse,
@@ -176,6 +177,12 @@ pub async fn apply_media_item_metadata_match(
     )
     .await
     .map_err(ApiError::from)?;
+    state
+        .realtime_hub
+        .publish(RealtimeEvent::MediaItemMetadataUpdated {
+            library_id: matched.library_id,
+            media_item_id: matched.id,
+        });
 
     Ok(ok(MediaItemResponse::from_domain(
         matched,
@@ -202,6 +209,12 @@ pub async fn refresh_media_item_metadata(
     )
     .await
     .map_err(ApiError::from)?;
+    state
+        .realtime_hub
+        .publish(RealtimeEvent::MediaItemMetadataUpdated {
+            library_id: refreshed.library_id,
+            media_item_id: refreshed.id,
+        });
 
     Ok(ok(MediaItemResponse::from_domain(
         refreshed,

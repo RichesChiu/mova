@@ -110,7 +110,7 @@ const requestJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   }
 
   if (isApiEnvelope<T>(payload)) {
-    return (payload.data === null ? undefined : payload.data) as T
+    return payload.data as T
   }
 
   return payload as T

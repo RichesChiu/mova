@@ -91,7 +91,7 @@ const EPISODE_SKELETONS = [
 const SeasonBlock = ({ season }: { season: EpisodeOutlineSeason }) => {
   return (
     <article className="season-card">
-      <ScrollableRail hint="Drag or click arrows to scroll episodes horizontally.">
+      <ScrollableRail hint="Scroll, drag, or click arrows to move through episodes.">
         {season.episodes.map((episode) => {
           const key = `${season.season_number}-${episode.episode_number}`
           const index = `S${String(season.season_number).padStart(2, '0')} · E${String(episode.episode_number).padStart(2, '0')}`
@@ -138,7 +138,7 @@ const SeasonBlock = ({ season }: { season: EpisodeOutlineSeason }) => {
 
 const SeasonBlockSkeleton = () => (
   <article aria-hidden="true" className="season-card">
-    <ScrollableRail hint="Drag or click arrows to scroll episodes horizontally.">
+    <ScrollableRail hint="Scroll, drag, or click arrows to move through episodes.">
       {EPISODE_SKELETONS.map((episode) => (
         <EpisodeCardSkeleton
           key={episode.metaLabel}
@@ -535,7 +535,10 @@ export const MediaItemPage = () => {
             <span className="counter-badge">{castMembers.length}</span>
           </div>
 
-          <div className="cast-grid">
+          <ScrollableRail
+            hint="Scroll, drag, or click arrows to move through the cast list."
+            viewportClassName="cast-panel__viewport"
+          >
             {castMembers.map((member) => (
               <article
                 className="cast-card"
@@ -559,7 +562,7 @@ export const MediaItemPage = () => {
                 </div>
               </article>
             ))}
-          </div>
+          </ScrollableRail>
         </section>
       ) : null}
     </div>

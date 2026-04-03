@@ -1,5 +1,6 @@
 use crate::auth::{require_admin, require_library_access, require_user};
 use crate::error::ApiError;
+use crate::realtime::RealtimeEvent;
 use crate::response::{
     accepted, created, ok, ok_message, with_status, ApiJson, LibraryDetailResponse,
     LibraryResponse, MediaItemListResponse, ScanJobResponse,
@@ -104,6 +105,9 @@ pub async fn create_library(
 
     maybe_enqueue_initial_library_scan(&state, library.id, library.is_enabled).await;
     sync_runtime::start_library_watcher(&state, library.clone()).await;
+    state
+        .realtime_hub
+        .publish(RealtimeEvent::LibraryUpdated { library_id: library.id });
 
     Ok(created(LibraryResponse::from_domain(
         library,
@@ -134,6 +138,9 @@ pub async fn update_library(
     )
     .await
     .map_err(ApiError::from)?;
+    state
+        .realtime_hub
+        .publish(RealtimeEvent::LibraryUpdated { library_id });
 
     Ok(ok(LibraryResponse::from_domain(
         updated_library,
@@ -184,6 +191,9 @@ pub async fn delete_library(
         .await
         .map_err(ApiError::from)?;
     state.library_sync_registry.clear_library(library_id);
+    state
+        .realtime_hub
+        .publish(RealtimeEvent::LibraryDeleted { library_id });
 
     Ok(ok_message("library deleted", ()))
 }

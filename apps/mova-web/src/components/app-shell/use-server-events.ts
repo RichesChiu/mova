@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
+import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import type { LibraryDetail, ScanJob } from '../../api/types'
 
 const SERVER_EVENTS_URL = '/api/events'
@@ -13,9 +14,24 @@ type ScanJobRealtimeEvent =
       type: 'scan.job.finished'
       scan_job: ScanJob
     }
+  | {
+      type: 'library.updated'
+      library_id: number
+    }
+  | {
+      type: 'library.deleted'
+      library_id: number
+    }
+  | {
+      type: 'media_item.metadata.updated'
+      library_id: number
+      media_item_id: number
+    }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
+
+const isNumber = (value: unknown): value is number => typeof value === 'number'
 
 const isScanJob = (value: unknown): value is ScanJob =>
   isRecord(value) &&
@@ -32,21 +48,47 @@ const isScanJob = (value: unknown): value is ScanJob =>
 const parseRealtimeEvent = (raw: string): ScanJobRealtimeEvent | null => {
   try {
     const parsed: unknown = JSON.parse(raw)
-    if (!isRecord(parsed) || !isScanJob(parsed.scan_job)) {
+    if (!isRecord(parsed)) {
       return null
     }
 
-    if (parsed.type === 'scan.job.updated') {
+    if (parsed.type === 'scan.job.updated' && isScanJob(parsed.scan_job)) {
       return {
         type: 'scan.job.updated',
         scan_job: parsed.scan_job,
       }
     }
 
-    if (parsed.type === 'scan.job.finished') {
+    if (parsed.type === 'scan.job.finished' && isScanJob(parsed.scan_job)) {
       return {
         type: 'scan.job.finished',
         scan_job: parsed.scan_job,
+      }
+    }
+
+    if (parsed.type === 'library.updated' && isNumber(parsed.library_id)) {
+      return {
+        type: 'library.updated',
+        library_id: parsed.library_id,
+      }
+    }
+
+    if (parsed.type === 'library.deleted' && isNumber(parsed.library_id)) {
+      return {
+        type: 'library.deleted',
+        library_id: parsed.library_id,
+      }
+    }
+
+    if (
+      parsed.type === 'media_item.metadata.updated' &&
+      isNumber(parsed.library_id) &&
+      isNumber(parsed.media_item_id)
+    ) {
+      return {
+        type: 'media_item.metadata.updated',
+        library_id: parsed.library_id,
+        media_item_id: parsed.media_item_id,
       }
     }
 
@@ -69,6 +111,13 @@ const patchLibraryLastScan = (current: LibraryDetail | undefined, scanJob: ScanJ
 
 export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
   const queryClient = useQueryClient()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const pathnameRef = useRef(location.pathname)
+
+  useEffect(() => {
+    pathnameRef.current = location.pathname
+  }, [location.pathname])
 
   useEffect(() => {
     if (!enabled || typeof EventSource === 'undefined') {
@@ -104,18 +153,93 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: ['library', payload.scan_job.library_id] }),
         queryClient.invalidateQueries({ queryKey: ['library-media', payload.scan_job.library_id] }),
+        queryClient.invalidateQueries({
+          queryKey: ['home-library-detail', payload.scan_job.library_id],
+        }),
         queryClient.invalidateQueries({ queryKey: ['libraries'] }),
-        queryClient.invalidateQueries({ queryKey: ['home-library-shelf'] }),
+        queryClient.invalidateQueries({
+          queryKey: ['home-library-shelf', payload.scan_job.library_id],
+        }),
+      ])
+    }
+
+    const handleLibraryUpdated = (event: MessageEvent<string>) => {
+      const payload = parseRealtimeEvent(event.data)
+      if (!payload || payload.type !== 'library.updated') {
+        return
+      }
+
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
+        queryClient.invalidateQueries({ queryKey: ['library', payload.library_id] }),
+        queryClient.invalidateQueries({ queryKey: ['library-media', payload.library_id] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-detail', payload.library_id] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-shelf', payload.library_id] }),
+      ])
+    }
+
+    const handleLibraryDeleted = (event: MessageEvent<string>) => {
+      const payload = parseRealtimeEvent(event.data)
+      if (!payload || payload.type !== 'library.deleted') {
+        return
+      }
+
+      const activeLibraryMatch = matchPath('/libraries/:libraryId', pathnameRef.current)
+      const activeLibraryId =
+        activeLibraryMatch?.params.libraryId !== undefined
+          ? Number(activeLibraryMatch.params.libraryId)
+          : Number.NaN
+
+      queryClient.removeQueries({ queryKey: ['library', payload.library_id] })
+      queryClient.removeQueries({ queryKey: ['library-media', payload.library_id] })
+      queryClient.removeQueries({ queryKey: ['home-library-detail', payload.library_id] })
+      queryClient.removeQueries({ queryKey: ['home-library-shelf', payload.library_id] })
+
+      void queryClient.invalidateQueries({ queryKey: ['libraries'] })
+
+      if (activeLibraryId === payload.library_id) {
+        window.alert('当前媒体库已被删除。点击确认后将返回主页。')
+        navigate('/', { replace: true })
+      }
+    }
+
+    const handleMediaItemMetadataUpdated = (event: MessageEvent<string>) => {
+      const payload = parseRealtimeEvent(event.data)
+      if (!payload || payload.type !== 'media_item.metadata.updated') {
+        return
+      }
+
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['media-item', payload.media_item_id] }),
+        queryClient.invalidateQueries({
+          queryKey: ['media-episode-outline', payload.media_item_id],
+        }),
+        queryClient.invalidateQueries({ queryKey: ['library-media', payload.library_id] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-shelf', payload.library_id] }),
+        queryClient.invalidateQueries({ queryKey: ['continue-watching'] }),
+        queryClient.invalidateQueries({ queryKey: ['watch-history'] }),
       ])
     }
 
     eventSource.addEventListener('scan.job.updated', handleScanJobUpdated as EventListener)
     eventSource.addEventListener('scan.job.finished', handleScanJobFinished as EventListener)
+    eventSource.addEventListener('library.updated', handleLibraryUpdated as EventListener)
+    eventSource.addEventListener('library.deleted', handleLibraryDeleted as EventListener)
+    eventSource.addEventListener(
+      'media_item.metadata.updated',
+      handleMediaItemMetadataUpdated as EventListener,
+    )
 
     return () => {
       eventSource.removeEventListener('scan.job.updated', handleScanJobUpdated as EventListener)
       eventSource.removeEventListener('scan.job.finished', handleScanJobFinished as EventListener)
+      eventSource.removeEventListener('library.updated', handleLibraryUpdated as EventListener)
+      eventSource.removeEventListener('library.deleted', handleLibraryDeleted as EventListener)
+      eventSource.removeEventListener(
+        'media_item.metadata.updated',
+        handleMediaItemMetadataUpdated as EventListener,
+      )
       eventSource.close()
     }
-  }, [enabled, queryClient])
+  }, [enabled, navigate, queryClient])
 }

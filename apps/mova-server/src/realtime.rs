@@ -33,6 +33,9 @@ impl RealtimeHub {
 pub enum RealtimeEvent {
     ScanJobUpdated { scan_job: ScanJob },
     ScanJobFinished { scan_job: ScanJob },
+    LibraryUpdated { library_id: i64 },
+    LibraryDeleted { library_id: i64 },
+    MediaItemMetadataUpdated { library_id: i64, media_item_id: i64 },
 }
 
 impl RealtimeEvent {
@@ -40,6 +43,9 @@ impl RealtimeEvent {
         match self {
             Self::ScanJobUpdated { .. } => "scan.job.updated",
             Self::ScanJobFinished { .. } => "scan.job.finished",
+            Self::LibraryUpdated { .. } => "library.updated",
+            Self::LibraryDeleted { .. } => "library.deleted",
+            Self::MediaItemMetadataUpdated { .. } => "media_item.metadata.updated",
         }
     }
 
@@ -61,27 +67,53 @@ impl RealtimeEvent {
             Self::ScanJobUpdated { scan_job } | Self::ScanJobFinished { scan_job } => {
                 scan_job.library_id
             }
+            Self::LibraryUpdated { library_id }
+            | Self::LibraryDeleted { library_id }
+            | Self::MediaItemMetadataUpdated { library_id, .. } => *library_id,
         }
     }
 }
 
 #[derive(Debug, Serialize)]
-struct RealtimeEventResponse {
-    #[serde(rename = "type")]
-    event_type: String,
-    scan_job: ScanJobResponse,
+#[serde(tag = "type")]
+enum RealtimeEventResponse {
+    #[serde(rename = "scan.job.updated")]
+    ScanJobUpdated { scan_job: ScanJobResponse },
+    #[serde(rename = "scan.job.finished")]
+    ScanJobFinished { scan_job: ScanJobResponse },
+    #[serde(rename = "library.updated")]
+    LibraryUpdated { library_id: i64 },
+    #[serde(rename = "library.deleted")]
+    LibraryDeleted { library_id: i64 },
+    #[serde(rename = "media_item.metadata.updated")]
+    MediaItemMetadataUpdated {
+        library_id: i64,
+        media_item_id: i64,
+    },
 }
 
 impl RealtimeEventResponse {
     fn from_event(event: &RealtimeEvent, api_time_offset: UtcOffset) -> Self {
-        let scan_job = match event {
-            RealtimeEvent::ScanJobUpdated { scan_job }
-            | RealtimeEvent::ScanJobFinished { scan_job } => scan_job.clone(),
-        };
-
-        Self {
-            event_type: event.event_name().to_string(),
-            scan_job: ScanJobResponse::from_domain(scan_job, api_time_offset),
+        match event {
+            RealtimeEvent::ScanJobUpdated { scan_job } => Self::ScanJobUpdated {
+                scan_job: ScanJobResponse::from_domain(scan_job.clone(), api_time_offset),
+            },
+            RealtimeEvent::ScanJobFinished { scan_job } => Self::ScanJobFinished {
+                scan_job: ScanJobResponse::from_domain(scan_job.clone(), api_time_offset),
+            },
+            RealtimeEvent::LibraryUpdated { library_id } => Self::LibraryUpdated {
+                library_id: *library_id,
+            },
+            RealtimeEvent::LibraryDeleted { library_id } => Self::LibraryDeleted {
+                library_id: *library_id,
+            },
+            RealtimeEvent::MediaItemMetadataUpdated {
+                library_id,
+                media_item_id,
+            } => Self::MediaItemMetadataUpdated {
+                library_id: *library_id,
+                media_item_id: *media_item_id,
+            },
         }
     }
 }
