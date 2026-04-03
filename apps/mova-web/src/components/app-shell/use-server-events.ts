@@ -114,6 +114,8 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
   const location = useLocation()
   const navigate = useNavigate()
   const pathnameRef = useRef(location.pathname)
+  const hasOpenedRef = useRef(false)
+  const shouldRecoverRef = useRef(false)
 
   useEffect(() => {
     pathnameRef.current = location.pathname
@@ -125,6 +127,65 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
     }
 
     const eventSource = new EventSource(SERVER_EVENTS_URL)
+
+    const recoverQueriesAfterReconnect = () => {
+      const activeLibraryMatch = matchPath('/libraries/:libraryId', pathnameRef.current)
+      const activeMediaItemMatch = matchPath('/media-items/:mediaItemId', pathnameRef.current)
+      const activeLibraryId =
+        activeLibraryMatch?.params.libraryId !== undefined
+          ? Number(activeLibraryMatch.params.libraryId)
+          : Number.NaN
+      const activeMediaItemId =
+        activeMediaItemMatch?.params.mediaItemId !== undefined
+          ? Number(activeMediaItemMatch.params.mediaItemId)
+          : Number.NaN
+
+      const recoveryTasks = [
+        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
+        queryClient.invalidateQueries({ queryKey: ['continue-watching'] }),
+        queryClient.invalidateQueries({ queryKey: ['watch-history'] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-detail'] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-shelf'] }),
+      ]
+
+      if (Number.isFinite(activeLibraryId)) {
+        recoveryTasks.push(
+          queryClient.invalidateQueries({ queryKey: ['library', activeLibraryId] }),
+          queryClient.invalidateQueries({ queryKey: ['library-media', activeLibraryId] }),
+        )
+      }
+
+      if (Number.isFinite(activeMediaItemId)) {
+        recoveryTasks.push(
+          queryClient.invalidateQueries({ queryKey: ['media-item', activeMediaItemId] }),
+          queryClient.invalidateQueries({ queryKey: ['media-episode-outline', activeMediaItemId] }),
+          queryClient.invalidateQueries({
+            queryKey: ['media-item-playback-progress', activeMediaItemId],
+          }),
+        )
+      }
+
+      void Promise.all(recoveryTasks)
+    }
+
+    const handleOpen = () => {
+      if (!hasOpenedRef.current) {
+        hasOpenedRef.current = true
+        shouldRecoverRef.current = false
+        return
+      }
+
+      if (!shouldRecoverRef.current) {
+        return
+      }
+
+      shouldRecoverRef.current = false
+      recoverQueriesAfterReconnect()
+    }
+
+    const handleError = () => {
+      shouldRecoverRef.current = true
+    }
 
     const handleScanJobUpdated = (event: MessageEvent<string>) => {
       const payload = parseRealtimeEvent(event.data)
@@ -229,6 +290,8 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       'media_item.metadata.updated',
       handleMediaItemMetadataUpdated as EventListener,
     )
+    eventSource.addEventListener('open', handleOpen as EventListener)
+    eventSource.addEventListener('error', handleError as EventListener)
 
     return () => {
       eventSource.removeEventListener('scan.job.updated', handleScanJobUpdated as EventListener)
@@ -239,6 +302,8 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         'media_item.metadata.updated',
         handleMediaItemMetadataUpdated as EventListener,
       )
+      eventSource.removeEventListener('open', handleOpen as EventListener)
+      eventSource.removeEventListener('error', handleError as EventListener)
       eventSource.close()
     }
   }, [enabled, navigate, queryClient])

@@ -63,6 +63,32 @@
   max-width: min(56vw, 420px);
 }
 
+.player-panel__status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  margin: 0;
+  padding: 9px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(11, 16, 24, 0.78);
+  color: rgba(240, 243, 249, 0.9);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 10px 24px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+
+.player-panel__status-stack {
+  display: grid;
+  justify-items: flex-start;
+  gap: 10px;
+}
+
 .player-stage {
   position: relative;
   overflow: hidden;
@@ -361,11 +387,78 @@
 
 .player-range {
   accent-color: #eef2f7;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .player-range--timeline {
+  --player-range-played: 0%;
+  --player-range-buffered: 0%;
   width: 100%;
+  height: 18px;
   margin: 0;
+  padding: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.player-range--timeline:focus {
+  outline: none;
+}
+
+.player-range--timeline::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    #eef2f7 0 var(--player-range-played),
+    rgba(232, 237, 246, 0.48) var(--player-range-played) var(--player-range-buffered),
+    rgba(255, 255, 255, 0.16) var(--player-range-buffered) 100%
+  );
+}
+
+.player-range--timeline::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  appearance: none;
+  background: #f7f9fc;
+  box-shadow:
+    0 0 0 3px rgba(238, 242, 247, 0.08),
+    0 6px 16px rgba(0, 0, 0, 0.28);
+}
+
+.player-range--timeline::-moz-range-track {
+  height: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    #eef2f7 0 var(--player-range-played),
+    rgba(232, 237, 246, 0.48) var(--player-range-played) var(--player-range-buffered),
+    rgba(255, 255, 255, 0.16) var(--player-range-buffered) 100%
+  );
+}
+
+.player-range--timeline::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+
+.player-range--timeline::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  background: #f7f9fc;
+  box-shadow:
+    0 0 0 3px rgba(238, 242, 247, 0.08),
+    0 6px 16px rgba(0, 0, 0, 0.28);
 }
 
 .player-range--volume-inline {

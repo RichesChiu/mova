@@ -473,12 +473,23 @@ export const MediaItemPage = () => {
           {playbackTargetMediaItemId || canMatchMetadata ? (
             <div className="detail-hero__actions">
               {playbackTargetMediaItemId ? (
-                <Link
-                  className="button button--primary"
-                  to={mediaItemPlayPath(playbackTargetMediaItemId)}
-                >
-                  <span>{playbackActionLabel}</span>
-                </Link>
+                <>
+                  <Link
+                    className="button button--primary"
+                    to={mediaItemPlayPath(playbackTargetMediaItemId)}
+                  >
+                    <span>{playbackActionLabel}</span>
+                  </Link>
+
+                  {shouldResumePlayback ? (
+                    <Link
+                      className="button"
+                      to={mediaItemPlayPath(playbackTargetMediaItemId, { fromStart: true })}
+                    >
+                      <span>Play from Beginning</span>
+                    </Link>
+                  ) : null}
+                </>
               ) : null}
               {canMatchMetadata ? (
                 <MetadataMatchPanel

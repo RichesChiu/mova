@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import {
   flushMediaItemPlaybackProgress,
   getMediaItemPlaybackProgress,
@@ -24,6 +24,12 @@ interface MediaPlayerPanelProps {
   title: string
   startMode?: 'resume' | 'from-start'
   variant?: 'panel' | 'immersive'
+}
+
+interface PendingPlaybackRestore {
+  positionSeconds: number
+  shouldAutoplay: boolean
+  shouldPersistSelection: boolean
 }
 
 const formatVideoMeta = (file: MediaFile) => {
@@ -304,6 +310,23 @@ const renderSubtitleLabel = (subtitle: SubtitleFile) => {
     .join(' · ')
 }
 
+const measureBufferedSeconds = (video: HTMLVideoElement) => {
+  let maxBufferedEnd = 0
+
+  for (let index = 0; index < video.buffered.length; index += 1) {
+    const rangeStart = video.buffered.start(index)
+    const rangeEnd = video.buffered.end(index)
+
+    if (video.currentTime >= rangeStart && video.currentTime <= rangeEnd) {
+      return Math.round(rangeEnd)
+    }
+
+    maxBufferedEnd = Math.max(maxBufferedEnd, rangeEnd)
+  }
+
+  return Math.round(maxBufferedEnd)
+}
+
 const forceSelectedTextTrack = (video: HTMLVideoElement, shouldShowSubtitle: boolean) => {
   const tracks = Array.from(video.textTracks)
   tracks.forEach((track) => {
@@ -329,14 +352,19 @@ export const MediaPlayerPanel = ({
   const episodeMenuRef = useRef<HTMLDivElement | null>(null)
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedMediaFileRef = useRef<MediaFile | null>(null)
+  const previousMediaItemIdRef = useRef(mediaItemId)
   const durationSecondsRef = useRef<number | null>(null)
   const restoredForFileRef = useRef<number | null>(null)
+  const shouldHonorStartModeRef = useRef(startMode === 'from-start')
+  const pendingPlaybackRestoreRef = useRef<PendingPlaybackRestore | null>(null)
   const lastReportedSecondsRef = useRef(-1)
   const hasSubmittedProgressRef = useRef(false)
   const syncPlaybackProgressRef = useRef<(force?: boolean, isFinished?: boolean) => void>(() => {})
   const flushPlaybackProgressRef = useRef<() => void>(() => {})
   const [selectedMediaFileId, setSelectedMediaFileId] = useState<number | null>(null)
   const [playerError, setPlayerError] = useState<string | null>(null)
+  const [isBuffering, setIsBuffering] = useState(false)
+  const [bufferedSeconds, setBufferedSeconds] = useState(0)
   const [positionSeconds, setPositionSeconds] = useState(0)
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -391,6 +419,17 @@ export const MediaPlayerPanel = ({
   }, [durationSeconds])
 
   useEffect(() => {
+    const mediaItemChanged = previousMediaItemIdRef.current !== mediaItemId
+    previousMediaItemIdRef.current = mediaItemId
+
+    if (mediaItemChanged) {
+      pendingPlaybackRestoreRef.current = null
+    }
+
+    shouldHonorStartModeRef.current = startMode === 'from-start'
+  }, [mediaItemId, startMode])
+
+  useEffect(() => {
     if (mediaFiles.length === 0) {
       setSelectedMediaFileId(null)
       return
@@ -412,6 +451,8 @@ export const MediaPlayerPanel = ({
     restoredForFileRef.current = null
     lastReportedSecondsRef.current = -1
     setPlayerError(null)
+    setIsBuffering(selectedMediaFileId !== null)
+    setBufferedSeconds(0)
     setPositionSeconds(0)
     setDurationSeconds(selectedMediaFileId === null ? null : selectedMediaFileDuration)
     setIsPlaying(false)
@@ -528,22 +569,51 @@ export const MediaPlayerPanel = ({
       setIsMuted(video.muted || video.volume === 0)
       setVolume(video.volume)
     }
+    const syncBufferedState = () => {
+      setBufferedSeconds(measureBufferedSeconds(video))
+    }
 
     const handlePlay = () => setIsPlaying(true)
     const handlePause = () => setIsPlaying(false)
+    const handleLoadStart = () => {
+      setIsBuffering(true)
+      setBufferedSeconds(0)
+    }
+    const handleWaiting = () => {
+      setIsBuffering(true)
+      syncBufferedState()
+    }
+    const handlePlaybackReady = () => {
+      syncBufferedState()
+      setIsBuffering(false)
+      setPlayerError(null)
+    }
     const handleFullscreenChange = () => {
       setIsFullscreen(document.fullscreenElement === stageRef.current)
     }
 
     syncVolumeState()
+    syncBufferedState()
     video.addEventListener('play', handlePlay)
     video.addEventListener('pause', handlePause)
+    video.addEventListener('loadstart', handleLoadStart)
+    video.addEventListener('waiting', handleWaiting)
+    video.addEventListener('stalled', handleWaiting)
+    video.addEventListener('progress', syncBufferedState)
+    video.addEventListener('canplay', handlePlaybackReady)
+    video.addEventListener('playing', handlePlaybackReady)
     video.addEventListener('volumechange', syncVolumeState)
     document.addEventListener('fullscreenchange', handleFullscreenChange)
 
     return () => {
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('pause', handlePause)
+      video.removeEventListener('loadstart', handleLoadStart)
+      video.removeEventListener('waiting', handleWaiting)
+      video.removeEventListener('stalled', handleWaiting)
+      video.removeEventListener('progress', syncBufferedState)
+      video.removeEventListener('canplay', handlePlaybackReady)
+      video.removeEventListener('playing', handlePlaybackReady)
       video.removeEventListener('volumechange', syncVolumeState)
       document.removeEventListener('fullscreenchange', handleFullscreenChange)
     }
@@ -672,13 +742,46 @@ export const MediaPlayerPanel = ({
       setDurationSeconds(Math.round(video.duration))
     }
 
-    if (startMode === 'from-start') {
-      if (restoredForFileRef.current === selectedMediaFile.id) {
-        return
+    const pendingPlaybackRestore = pendingPlaybackRestoreRef.current
+    if (pendingPlaybackRestore) {
+      const maxDuration =
+        Number.isFinite(video.duration) && video.duration > 0
+          ? Math.round(video.duration)
+          : (selectedMediaFile.duration_seconds ?? undefined)
+      const restorePosition = Math.max(
+        0,
+        Math.min(
+          pendingPlaybackRestore.positionSeconds,
+          typeof maxDuration === 'number' && maxDuration > 0
+            ? maxDuration
+            : Number.POSITIVE_INFINITY,
+        ),
+      )
+
+      video.currentTime = restorePosition
+      setPositionSeconds(Math.round(restorePosition))
+      pendingPlaybackRestoreRef.current = null
+      shouldHonorStartModeRef.current = false
+      restoredForFileRef.current = selectedMediaFile.id
+
+      if (pendingPlaybackRestore.shouldPersistSelection) {
+        lastReportedSecondsRef.current = -1
+        syncPlaybackProgressRef.current(true, false)
       }
 
+      if (pendingPlaybackRestore.shouldAutoplay) {
+        void video.play().catch(() => {
+          setPlayerError('Playback was blocked by the browser. Click play again to continue.')
+        })
+      }
+
+      return
+    }
+
+    if (shouldHonorStartModeRef.current) {
       // "Play from beginning" should win over any stored resume point, but only once per file
-      // selection so metadata reloads do not keep rewinding the same source.
+      // selection so metadata reloads or manual source switches do not keep rewinding playback.
+      shouldHonorStartModeRef.current = false
       video.currentTime = 0
       setPositionSeconds(0)
       lastReportedSecondsRef.current = 0
@@ -733,13 +836,62 @@ export const MediaPlayerPanel = ({
   }
 
   const handlePlayerError = () => {
+    setIsBuffering(false)
     setPlayerError(
       'This browser could not play the selected file. Try another version or container.',
     )
   }
 
+  const persistProgressBeforeSwitch = () => {
+    // 切源/切集不一定会触发暂停事件，先把当前播放点补报出去，避免刚看的几秒丢失。
+    flushPlaybackProgressRef.current()
+  }
+
+  const queuePlaybackRestore = (input: PendingPlaybackRestore) => {
+    pendingPlaybackRestoreRef.current = input
+  }
+
+  const retryCurrentSource = () => {
+    const video = videoRef.current
+    if (!video || !selectedMediaFile) {
+      return
+    }
+
+    queuePlaybackRestore({
+      positionSeconds: Math.max(0, video.currentTime || positionSeconds),
+      shouldAutoplay: !video.paused,
+      shouldPersistSelection: false,
+    })
+    setPlayerError(null)
+    setIsBuffering(true)
+    video.load()
+  }
+
+  const switchMediaFile = (targetMediaFileId: number) => {
+    const video = videoRef.current
+    if (!video || !selectedMediaFile || targetMediaFileId === selectedMediaFile.id) {
+      return
+    }
+
+    // 同一条目切换源时，直接把当前时间点迁移到新文件并在加载后立刻持久化，
+    // 避免先补旧文件、再写新文件时被网络乱序覆盖回旧源选择。
+    queuePlaybackRestore({
+      positionSeconds: Math.max(0, video.currentTime || positionSeconds),
+      shouldAutoplay: !video.paused,
+      shouldPersistSelection: true,
+    })
+    setSelectedMediaFileId(targetMediaFileId)
+  }
+
   const isImmersive = variant === 'immersive'
   const seekMax = Math.max(0, durationSeconds ?? selectedMediaFileDuration ?? 0)
+  const playedProgressPercent = seekMax > 0 ? Math.min(100, (positionSeconds / seekMax) * 100) : 0
+  const bufferedProgressPercent =
+    seekMax > 0 ? Math.min(100, (Math.max(bufferedSeconds, positionSeconds) / seekMax) * 100) : 0
+  const timelineStyle = {
+    '--player-range-buffered': `${Math.max(playedProgressPercent, bufferedProgressPercent)}%`,
+    '--player-range-played': `${playedProgressPercent}%`,
+  } as CSSProperties
 
   const togglePlay = async () => {
     const video = videoRef.current
@@ -855,7 +1007,17 @@ export const MediaPlayerPanel = ({
               {isImmersive && (mediaFiles.length > 1 || playerError) ? (
                 <div className="player-panel__overlay">
                   <div className="player-panel__overlay-status">
-                    {playerError ? <p className="callout callout--danger">{playerError}</p> : null}
+                    {isBuffering && !playerError ? (
+                      <p className="player-panel__status-badge">Buffering playback…</p>
+                    ) : null}
+                    {playerError ? (
+                      <div className="player-panel__status-stack">
+                        <p className="callout callout--danger">{playerError}</p>
+                        <button className="button" onClick={retryCurrentSource} type="button">
+                          Retry current source
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
 
                   {mediaFiles.length > 1 ? (
@@ -871,7 +1033,7 @@ export const MediaPlayerPanel = ({
                                 : 'player-source player-source--compact'
                             }
                             key={file.id}
-                            onClick={() => setSelectedMediaFileId(file.id)}
+                            onClick={() => switchMediaFile(file.id)}
                             type="button"
                           >
                             <span className="player-source__title">
@@ -932,6 +1094,7 @@ export const MediaPlayerPanel = ({
                     min={0}
                     onChange={(event) => seekTo(Number(event.target.value))}
                     step={1}
+                    style={timelineStyle}
                     type="range"
                     value={Math.min(positionSeconds, seekMax || positionSeconds)}
                   />
@@ -1012,6 +1175,7 @@ export const MediaPlayerPanel = ({
                                   key={episode.mediaItemId}
                                   onClick={() => {
                                     setIsEpisodeMenuOpen(false)
+                                    persistProgressBeforeSwitch()
                                     onSelectEpisode(episode.mediaItemId)
                                   }}
                                   role="menuitem"
@@ -1162,7 +1326,16 @@ export const MediaPlayerPanel = ({
           ) : null}
 
           {playerError && !isImmersive ? (
-            <p className="callout callout--danger">{playerError}</p>
+            <div className="player-panel__status-stack">
+              <p className="callout callout--danger">{playerError}</p>
+              <button className="button" onClick={retryCurrentSource} type="button">
+                Retry current source
+              </button>
+            </div>
+          ) : null}
+
+          {isBuffering && !playerError && !isImmersive ? (
+            <p className="player-panel__status-badge">Buffering playback…</p>
           ) : null}
 
           {mediaFiles.length > 1 && !isImmersive ? (
@@ -1174,7 +1347,7 @@ export const MediaPlayerPanel = ({
                   <button
                     className={isActive ? 'player-source player-source--active' : 'player-source'}
                     key={file.id}
-                    onClick={() => setSelectedMediaFileId(file.id)}
+                    onClick={() => switchMediaFile(file.id)}
                     type="button"
                   >
                     <span className="player-source__title">
