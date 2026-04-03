@@ -105,9 +105,9 @@ pub async fn create_library(
 
     maybe_enqueue_initial_library_scan(&state, library.id, library.is_enabled).await;
     sync_runtime::start_library_watcher(&state, library.clone()).await;
-    state
-        .realtime_hub
-        .publish(RealtimeEvent::LibraryUpdated { library_id: library.id });
+    state.realtime_hub.publish(RealtimeEvent::LibraryUpdated {
+        library_id: library.id,
+    });
 
     Ok(created(LibraryResponse::from_domain(
         library,

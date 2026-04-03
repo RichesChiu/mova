@@ -193,7 +193,7 @@
 ### `GET /api/events`
 
 作用：
-- 订阅服务端实时事件流，当前用于把扫描任务状态变化主动推送给在线客户端
+- 订阅服务端实时事件流，用于把扫描任务状态变化、媒体库更新和元数据变更主动推送给在线客户端
 
 说明：
 - 需要登录态 session cookie
@@ -201,6 +201,43 @@
 - 当前已实现事件：
   - `scan.job.updated`
   - `scan.job.finished`
+  - `scan.item.updated`
+  - `library.updated`
+  - `library.deleted`
+  - `media_item.metadata.updated`
+- `scan.job.updated` / `scan.job.finished` 里的 `scan_job` 目前会额外带一个可选 `phase` 字段，当前会使用：
+  - `discovering`：正在发现文件
+  - `enriching`：正在补全元数据和图片
+  - `syncing`：正在写入媒体库
+  - `finished`：任务已结束
+- `scan.item.updated` 用于扫描中的条目级提示；现在从“刚发现文件”开始就会推送，同一个 `item_key` 会在后续元数据、图片和写库前阶段持续更新，当前结构如下：
+
+```json
+{
+  "type": "scan.item.updated",
+  "item": {
+    "scan_job_id": 41,
+    "library_id": 7,
+    "item_key": "/media/movies/Interstellar (2014)/Interstellar.mkv",
+    "media_type": "movie",
+    "title": "Interstellar",
+    "season_number": null,
+    "episode_number": null,
+    "item_index": 12,
+    "total_items": 240,
+    "stage": "artwork",
+    "progress_percent": 72
+  }
+}
+```
+
+字段说明：
+- `item_key`：当前扫描条目的稳定键，第一版直接使用文件路径
+- `item_index` / `total_items`：当前条目在整批扫描里的位置，用于前端估算总进度
+- `stage`：当前条目处理阶段，当前会使用 `discovered` / `metadata` / `artwork` / `completed`
+- `progress_percent`：当前条目自身的粗粒度进度百分比，便于前端直接驱动占位卡进度条
+- 前端可以把同一个 `item_key` 当成一张临时扫描卡：发现文件时先渲染出来，后续收到新事件后只更新这张卡，而不是整块列表突然出现或突然消失
+- 当某个远端元数据步骤失败但扫描继续时，当前仍以服务端日志为主；日志会明确标出是 metadata enrichment 阶段失败，并说明会回退到本地数据
 
 ### `PUT /api/auth/password`
 
@@ -425,6 +462,7 @@
 - `description`：媒体库描述，可为空
 - `media_count`：当前库中的媒体数量
 - `last_scan`：最近一次扫描摘要，没有时为 `null`
+- `last_scan.phase`：当前 HTTP 查询里通常为 `null`；实时扫描阶段会通过 `GET /api/events` 的 `scan.job.*` 事件补齐
 
 ### `DELETE /api/libraries/{id}`
 
@@ -554,9 +592,13 @@
 
 关键字段：
 - `status`：`pending` / `running` / `success` / `failed`
+- `phase`：当前 HTTP 查询里通常为 `null`；实时扫描阶段会通过 `scan.job.updated` / `scan.job.finished` 填充
 - `scanned_files`：当前已发现文件数
 - `total_files`：当前已知总文件数
-- `error_message`：失败原因
+- `error_message`：失败原因；现在会直接带阶段上下文，例如：
+  - `扫描目录阶段失败：扫描文件目录失败：无法读取媒体库目录 /media/movies：...`
+  - `元数据补全阶段失败：整理媒体条目失败：...`
+  - `写入媒体库阶段失败：写入媒体库失败：...`
 
 ### `POST /api/libraries/{id}/scan`
 

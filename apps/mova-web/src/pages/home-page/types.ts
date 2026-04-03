@@ -5,10 +5,12 @@ import type {
   LibraryDetail,
   MediaItem,
 } from '../../api/types'
+import type { LibraryScanRuntime } from '../../components/app-shell/scan-runtime'
 
 export interface HomeLibraryModuleData {
   detail: LibraryDetail | null
   library: Library
+  scanRuntime: LibraryScanRuntime
   shelfError: Error | null
   shelfItems: MediaItem[]
   shelfLoading: boolean

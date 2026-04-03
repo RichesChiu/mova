@@ -1,7 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import type { LibraryDetail, ScanJob } from '../../api/types'
+import type { ScanRuntimeByLibrary, ScanRuntimeItem } from './scan-runtime'
 
 const SERVER_EVENTS_URL = '/api/events'
 
@@ -13,6 +14,10 @@ type ScanJobRealtimeEvent =
   | {
       type: 'scan.job.finished'
       scan_job: ScanJob
+    }
+  | {
+      type: 'scan.item.updated'
+      item: ScanRuntimeItem
     }
   | {
       type: 'library.updated'
@@ -38,12 +43,27 @@ const isScanJob = (value: unknown): value is ScanJob =>
   typeof value.id === 'number' &&
   typeof value.library_id === 'number' &&
   typeof value.status === 'string' &&
+  (typeof value.phase === 'string' || value.phase === null || value.phase === undefined) &&
   typeof value.total_files === 'number' &&
   typeof value.scanned_files === 'number' &&
   typeof value.created_at === 'string' &&
   (typeof value.started_at === 'string' || value.started_at === null) &&
   (typeof value.finished_at === 'string' || value.finished_at === null) &&
   (typeof value.error_message === 'string' || value.error_message === null)
+
+const isScanRuntimeItem = (value: unknown): value is ScanRuntimeItem =>
+  isRecord(value) &&
+  typeof value.scan_job_id === 'number' &&
+  typeof value.library_id === 'number' &&
+  typeof value.item_key === 'string' &&
+  typeof value.media_type === 'string' &&
+  typeof value.title === 'string' &&
+  (typeof value.season_number === 'number' || value.season_number === null) &&
+  (typeof value.episode_number === 'number' || value.episode_number === null) &&
+  typeof value.item_index === 'number' &&
+  typeof value.total_items === 'number' &&
+  typeof value.stage === 'string' &&
+  typeof value.progress_percent === 'number'
 
 const parseRealtimeEvent = (raw: string): ScanJobRealtimeEvent | null => {
   try {
@@ -63,6 +83,13 @@ const parseRealtimeEvent = (raw: string): ScanJobRealtimeEvent | null => {
       return {
         type: 'scan.job.finished',
         scan_job: parsed.scan_job,
+      }
+    }
+
+    if (parsed.type === 'scan.item.updated' && isScanRuntimeItem(parsed.item)) {
+      return {
+        type: 'scan.item.updated',
+        item: parsed.item,
       }
     }
 
@@ -109,6 +136,60 @@ const patchLibraryLastScan = (current: LibraryDetail | undefined, scanJob: ScanJ
   }
 }
 
+const removeLibraryScanRuntime = (
+  current: ScanRuntimeByLibrary,
+  libraryId: number,
+): ScanRuntimeByLibrary => {
+  if (!(libraryId in current)) {
+    return current
+  }
+
+  const next = { ...current }
+  delete next[libraryId]
+  return next
+}
+
+const replaceLibraryScanRuntime = (
+  current: ScanRuntimeByLibrary,
+  libraryId: number,
+  item: ScanRuntimeItem,
+): ScanRuntimeByLibrary => {
+  const previousItems = current[libraryId]?.items ?? []
+  const nextItems = [
+    item,
+    ...previousItems.filter(
+      (entry) => entry.scan_job_id === item.scan_job_id && entry.item_key !== item.item_key,
+    ),
+  ]
+
+  return {
+    ...current,
+    [libraryId]: {
+      items: nextItems,
+    },
+  }
+}
+
+const removeStaleLibraryScanRuntime = (
+  current: ScanRuntimeByLibrary,
+  libraryId: number,
+  scanJobId: number,
+): ScanRuntimeByLibrary => {
+  const currentRuntime = current[libraryId]
+  if (!currentRuntime) {
+    return current
+  }
+
+  const hasOnlyCurrentJobItems = currentRuntime.items.every(
+    (item) => item.scan_job_id === scanJobId,
+  )
+  if (hasOnlyCurrentJobItems) {
+    return current
+  }
+
+  return removeLibraryScanRuntime(current, libraryId)
+}
+
 export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
   const queryClient = useQueryClient()
   const location = useLocation()
@@ -116,6 +197,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
   const pathnameRef = useRef(location.pathname)
   const hasOpenedRef = useRef(false)
   const shouldRecoverRef = useRef(false)
+  const [scanRuntimeByLibrary, setScanRuntimeByLibrary] = useState<ScanRuntimeByLibrary>({})
 
   useEffect(() => {
     pathnameRef.current = location.pathname
@@ -123,6 +205,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
 
   useEffect(() => {
     if (!enabled || typeof EventSource === 'undefined') {
+      setScanRuntimeByLibrary({})
       return
     }
 
@@ -139,6 +222,8 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         activeMediaItemMatch?.params.mediaItemId !== undefined
           ? Number(activeMediaItemMatch.params.mediaItemId)
           : Number.NaN
+
+      setScanRuntimeByLibrary({})
 
       const recoveryTasks = [
         queryClient.invalidateQueries({ queryKey: ['libraries'] }),
@@ -197,6 +282,13 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         ['library', payload.scan_job.library_id],
         (current) => patchLibraryLastScan(current, payload.scan_job),
       )
+      queryClient.setQueryData<LibraryDetail | undefined>(
+        ['home-library-detail', payload.scan_job.library_id],
+        (current) => patchLibraryLastScan(current, payload.scan_job),
+      )
+      setScanRuntimeByLibrary((current) =>
+        removeStaleLibraryScanRuntime(current, payload.scan_job.library_id, payload.scan_job.id),
+      )
     }
 
     const handleScanJobFinished = (event: MessageEvent<string>) => {
@@ -207,6 +299,10 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
 
       queryClient.setQueryData<LibraryDetail | undefined>(
         ['library', payload.scan_job.library_id],
+        (current) => patchLibraryLastScan(current, payload.scan_job),
+      )
+      queryClient.setQueryData<LibraryDetail | undefined>(
+        ['home-library-detail', payload.scan_job.library_id],
         (current) => patchLibraryLastScan(current, payload.scan_job),
       )
 
@@ -221,7 +317,22 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         queryClient.invalidateQueries({
           queryKey: ['home-library-shelf', payload.scan_job.library_id],
         }),
-      ])
+      ]).finally(() => {
+        setScanRuntimeByLibrary((current) =>
+          removeLibraryScanRuntime(current, payload.scan_job.library_id),
+        )
+      })
+    }
+
+    const handleScanItemUpdated = (event: MessageEvent<string>) => {
+      const payload = parseRealtimeEvent(event.data)
+      if (!payload || payload.type !== 'scan.item.updated') {
+        return
+      }
+
+      setScanRuntimeByLibrary((current) =>
+        replaceLibraryScanRuntime(current, payload.item.library_id, payload.item),
+      )
     }
 
     const handleLibraryUpdated = (event: MessageEvent<string>) => {
@@ -255,6 +366,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       queryClient.removeQueries({ queryKey: ['library-media', payload.library_id] })
       queryClient.removeQueries({ queryKey: ['home-library-detail', payload.library_id] })
       queryClient.removeQueries({ queryKey: ['home-library-shelf', payload.library_id] })
+      setScanRuntimeByLibrary((current) => removeLibraryScanRuntime(current, payload.library_id))
 
       void queryClient.invalidateQueries({ queryKey: ['libraries'] })
 
@@ -284,6 +396,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
 
     eventSource.addEventListener('scan.job.updated', handleScanJobUpdated as EventListener)
     eventSource.addEventListener('scan.job.finished', handleScanJobFinished as EventListener)
+    eventSource.addEventListener('scan.item.updated', handleScanItemUpdated as EventListener)
     eventSource.addEventListener('library.updated', handleLibraryUpdated as EventListener)
     eventSource.addEventListener('library.deleted', handleLibraryDeleted as EventListener)
     eventSource.addEventListener(
@@ -296,6 +409,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
     return () => {
       eventSource.removeEventListener('scan.job.updated', handleScanJobUpdated as EventListener)
       eventSource.removeEventListener('scan.job.finished', handleScanJobFinished as EventListener)
+      eventSource.removeEventListener('scan.item.updated', handleScanItemUpdated as EventListener)
       eventSource.removeEventListener('library.updated', handleLibraryUpdated as EventListener)
       eventSource.removeEventListener('library.deleted', handleLibraryDeleted as EventListener)
       eventSource.removeEventListener(
@@ -307,4 +421,6 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       eventSource.close()
     }
   }, [enabled, navigate, queryClient])
+
+  return scanRuntimeByLibrary
 }

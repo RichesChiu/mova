@@ -3,6 +3,7 @@ use crate::{
     libraries::get_library,
     media_classification::{classify_media_type, metadata_lookup_type_for_media_type},
     media_enrichment::MetadataEnrichmentContext,
+    media_enrichment::MetadataEnrichmentStage,
     metadata::MetadataProvider,
 };
 use mova_domain::{Library, ScanJob};
@@ -33,8 +34,38 @@ pub enum ExecuteScanJobOutcome {
 
 #[derive(Debug, Clone)]
 pub enum ScanJobEvent {
-    Updated(ScanJob),
-    Finished(ScanJob),
+    Updated(ScanJobProgressUpdate),
+    Finished(ScanJobProgressUpdate),
+    ItemUpdated(ScanJobItemProgressUpdate),
+}
+
+#[derive(Debug, Clone)]
+pub struct ScanJobProgressUpdate {
+    pub scan_job: ScanJob,
+    pub phase: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScanJobItemProgressUpdate {
+    pub scan_job_id: i64,
+    pub library_id: i64,
+    pub item_key: String,
+    pub media_type: String,
+    pub title: String,
+    pub season_number: Option<i32>,
+    pub episode_number: Option<i32>,
+    pub item_index: i32,
+    pub total_items: i32,
+    pub stage: String,
+    pub progress_percent: i32,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ScanItemStage {
+    Discovered,
+    Metadata,
+    Artwork,
+    Completed,
 }
 
 #[derive(Debug)]
@@ -42,6 +73,18 @@ enum DiscoverMediaFilesOutcome {
     Completed(Vec<DiscoveredMediaFile>),
     Cancelled(i32),
 }
+
+const SCAN_PHASE_DISCOVERING: &str = "discovering";
+const SCAN_PHASE_ENRICHING: &str = "enriching";
+const SCAN_PHASE_SYNCING: &str = "syncing";
+const SCAN_PHASE_FINISHED: &str = "finished";
+
+const SCAN_ITEM_STAGE_DISCOVERED: &str = "discovered";
+const SCAN_ITEM_STAGE_METADATA: &str = "metadata";
+const SCAN_ITEM_STAGE_ARTWORK: &str = "artwork";
+const SCAN_ITEM_STAGE_COMPLETED: &str = "completed";
+
+const SCAN_PHASE_INITIALIZING: &str = "initializing";
 
 /// 读取某个媒体库的扫描历史。
 pub async fn list_scan_jobs_for_library(
@@ -146,7 +189,10 @@ pub async fn execute_scan_job_with_cancellation(
 ) -> ApplicationResult<ExecuteScanJobOutcome> {
     if is_cancelled(&cancellation_flag) {
         if let Some(scan_job) = finalize_cancelled_scan(pool, scan_job_id, 0, 0).await {
-            event_listener(ScanJobEvent::Finished(scan_job));
+            event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                scan_job,
+                SCAN_PHASE_FINISHED,
+            )));
         }
         return Ok(ExecuteScanJobOutcome::Cancelled);
     }
@@ -157,10 +203,22 @@ pub async fn execute_scan_job_with_cancellation(
             return Ok(ExecuteScanJobOutcome::Cancelled);
         }
         Err(error) => {
-            if let Some(scan_job) =
-                finalize_failed_scan(pool, scan_job_id, 0, 0, &error.to_string()).await
+            if let Some(scan_job) = finalize_failed_scan(
+                pool,
+                scan_job_id,
+                0,
+                0,
+                &format_scan_phase_error(
+                    SCAN_PHASE_INITIALIZING,
+                    format!("加载媒体库配置失败：{}", error),
+                ),
+            )
+            .await
             {
-                event_listener(ScanJobEvent::Finished(scan_job));
+                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                    scan_job,
+                    SCAN_PHASE_FINISHED,
+                )));
             }
             return Err(error);
         }
@@ -168,24 +226,42 @@ pub async fn execute_scan_job_with_cancellation(
 
     if is_cancelled(&cancellation_flag) {
         if let Some(scan_job) = finalize_cancelled_scan(pool, scan_job_id, 0, 0).await {
-            event_listener(ScanJobEvent::Finished(scan_job));
+            event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                scan_job,
+                SCAN_PHASE_FINISHED,
+            )));
         }
         return Ok(ExecuteScanJobOutcome::Cancelled);
     }
 
     match mova_db::mark_scan_job_running(pool, scan_job_id).await {
         Ok(Some(scan_job)) => {
-            event_listener(ScanJobEvent::Updated(scan_job));
+            event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
+                scan_job,
+                SCAN_PHASE_DISCOVERING,
+            )));
         }
         Ok(None) => {
             return Ok(ExecuteScanJobOutcome::Cancelled);
         }
         Err(error) => {
             let error = ApplicationError::from(error);
-            if let Some(scan_job) =
-                finalize_failed_scan(pool, scan_job_id, 0, 0, &error.to_string()).await
+            if let Some(scan_job) = finalize_failed_scan(
+                pool,
+                scan_job_id,
+                0,
+                0,
+                &format_scan_phase_error(
+                    SCAN_PHASE_INITIALIZING,
+                    format!("启动扫描任务失败：{}", error),
+                ),
+            )
+            .await
             {
-                event_listener(ScanJobEvent::Finished(scan_job));
+                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                    scan_job,
+                    SCAN_PHASE_FINISHED,
+                )));
             }
             return Err(error);
         }
@@ -193,7 +269,10 @@ pub async fn execute_scan_job_with_cancellation(
 
     if is_cancelled(&cancellation_flag) {
         if let Some(scan_job) = finalize_cancelled_scan(pool, scan_job_id, 0, 0).await {
-            event_listener(ScanJobEvent::Finished(scan_job));
+            event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                scan_job,
+                SCAN_PHASE_FINISHED,
+            )));
         }
         return Ok(ExecuteScanJobOutcome::Cancelled);
     }
@@ -201,7 +280,7 @@ pub async fn execute_scan_job_with_cancellation(
     let discovered_files = match discover_media_files(
         pool,
         scan_job_id,
-        &library.root_path,
+        &library,
         cancellation_flag.clone(),
         event_listener.clone(),
     )
@@ -212,15 +291,30 @@ pub async fn execute_scan_job_with_cancellation(
             if let Some(scan_job) =
                 finalize_cancelled_scan(pool, scan_job_id, scanned_files, scanned_files).await
             {
-                event_listener(ScanJobEvent::Finished(scan_job));
+                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                    scan_job,
+                    SCAN_PHASE_FINISHED,
+                )));
             }
             return Ok(ExecuteScanJobOutcome::Cancelled);
         }
         Err(error) => {
-            if let Some(scan_job) =
-                finalize_failed_scan(pool, scan_job_id, 0, 0, &error.to_string()).await
+            if let Some(scan_job) = finalize_failed_scan(
+                pool,
+                scan_job_id,
+                0,
+                0,
+                &format_scan_phase_error(
+                    SCAN_PHASE_DISCOVERING,
+                    format!("扫描文件目录失败：{}", error),
+                ),
+            )
+            .await
             {
-                event_listener(ScanJobEvent::Finished(scan_job));
+                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                    scan_job,
+                    SCAN_PHASE_FINISHED,
+                )));
             }
             return Err(error);
         }
@@ -230,7 +324,10 @@ pub async fn execute_scan_job_with_cancellation(
     match mova_db::update_scan_job_progress(pool, scan_job_id, Some(total_files), total_files).await
     {
         Ok(Some(scan_job)) => {
-            event_listener(ScanJobEvent::Updated(scan_job));
+            event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
+                scan_job,
+                SCAN_PHASE_DISCOVERING,
+            )));
         }
         Ok(None) => {}
         Err(error) => {
@@ -243,22 +340,44 @@ pub async fn execute_scan_job_with_cancellation(
         }
     }
 
+    emit_scan_job_phase(
+        pool,
+        scan_job_id,
+        SCAN_PHASE_ENRICHING,
+        event_listener.clone(),
+    )
+    .await;
+
     let discovered_files = enrich_discovered_files(
         &library,
+        scan_job_id,
         discovered_files,
         cancellation_flag.clone(),
         artwork_cache_dir,
         metadata_provider,
+        event_listener.clone(),
     )
     .await;
 
     let media_entries = match build_media_entries(&library, discovered_files) {
         Ok(entries) => entries,
         Err(error) => {
-            if let Some(scan_job) =
-                finalize_failed_scan(pool, scan_job_id, total_files, 0, &error.to_string()).await
+            if let Some(scan_job) = finalize_failed_scan(
+                pool,
+                scan_job_id,
+                total_files,
+                0,
+                &format_scan_phase_error(
+                    SCAN_PHASE_ENRICHING,
+                    format!("整理媒体条目失败：{}", error),
+                ),
+            )
+            .await
             {
-                event_listener(ScanJobEvent::Finished(scan_job));
+                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                    scan_job,
+                    SCAN_PHASE_FINISHED,
+                )));
             }
             return Err(error);
         }
@@ -268,16 +387,36 @@ pub async fn execute_scan_job_with_cancellation(
         if let Some(scan_job) =
             finalize_cancelled_scan(pool, scan_job_id, total_files, total_files).await
         {
-            event_listener(ScanJobEvent::Finished(scan_job));
+            event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                scan_job,
+                SCAN_PHASE_FINISHED,
+            )));
         }
         return Ok(ExecuteScanJobOutcome::Cancelled);
     }
 
+    emit_scan_job_phase(
+        pool,
+        scan_job_id,
+        SCAN_PHASE_SYNCING,
+        event_listener.clone(),
+    )
+    .await;
+
     if let Err(error) = mova_db::sync_library_media(pool, library.id, &media_entries).await {
-        if let Some(scan_job) =
-            finalize_failed_scan(pool, scan_job_id, total_files, 0, &error.to_string()).await
+        if let Some(scan_job) = finalize_failed_scan(
+            pool,
+            scan_job_id,
+            total_files,
+            0,
+            &format_scan_phase_error(SCAN_PHASE_SYNCING, format!("写入媒体库失败：{}", error)),
+        )
+        .await
         {
-            event_listener(ScanJobEvent::Finished(scan_job));
+            event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                scan_job,
+                SCAN_PHASE_FINISHED,
+            )));
         }
         return Err(ApplicationError::Unexpected(error));
     }
@@ -286,7 +425,10 @@ pub async fn execute_scan_job_with_cancellation(
         .await
     {
         Ok(Some(scan_job)) => {
-            event_listener(ScanJobEvent::Finished(scan_job.clone()));
+            event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                scan_job.clone(),
+                SCAN_PHASE_FINISHED,
+            )));
             Ok(ExecuteScanJobOutcome::Completed(scan_job))
         }
         Ok(None) => Ok(ExecuteScanJobOutcome::Cancelled),
@@ -296,25 +438,44 @@ pub async fn execute_scan_job_with_cancellation(
 
 async fn enrich_discovered_files(
     library: &Library,
+    scan_job_id: i64,
     mut discovered_files: Vec<DiscoveredMediaFile>,
     cancellation_flag: Arc<AtomicBool>,
     artwork_cache_dir: PathBuf,
     metadata_provider: Arc<dyn MetadataProvider>,
+    event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> Vec<DiscoveredMediaFile> {
     let mut enrichment = MetadataEnrichmentContext::new(
         artwork_cache_dir,
         metadata_provider,
         library.metadata_language.clone(),
     );
+    let total_items = i32::try_from(discovered_files.len()).unwrap_or(i32::MAX);
 
-    for file in &mut discovered_files {
+    for (index, file) in discovered_files.iter_mut().enumerate() {
         if is_cancelled(&cancellation_flag) {
             break;
         }
 
-        let media_type = classify_media_type(&library.library_type, &file.file_path);
-        let lookup_type = metadata_lookup_type_for_media_type(media_type);
-        enrichment.enrich_file(lookup_type, file).await;
+        let media_type = classify_media_type(&library.library_type, &file.file_path).to_string();
+        let lookup_type = metadata_lookup_type_for_media_type(&media_type);
+        let item_index = i32::try_from(index + 1).unwrap_or(i32::MAX);
+        let progress_listener = event_listener.clone();
+        let media_type_for_event = media_type.clone();
+
+        enrichment
+            .enrich_file_with_progress(lookup_type, file, move |stage, file| {
+                progress_listener(ScanJobEvent::ItemUpdated(build_scan_item_progress_update(
+                    scan_job_id,
+                    library.id,
+                    &media_type_for_event,
+                    file,
+                    item_index,
+                    total_items,
+                    stage.into(),
+                )));
+            })
+            .await;
     }
 
     discovered_files
@@ -323,17 +484,21 @@ async fn enrich_discovered_files(
 async fn discover_media_files(
     pool: &PgPool,
     scan_job_id: i64,
-    root_path: &str,
+    library: &Library,
     cancellation_flag: Arc<AtomicBool>,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> ApplicationResult<DiscoverMediaFilesOutcome> {
+    let library_id = library.id;
+    let root_path = library.root_path.as_str();
     let root_path_string = root_path.to_string();
     let root_path_for_task = root_path_string.clone();
+    let library_type_for_task = library.library_type.clone();
     let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel::<i32>();
     let progress_pool = pool.clone();
     let last_progress = Arc::new(AtomicI32::new(0));
     let last_progress_for_task = last_progress.clone();
     let progress_event_listener = event_listener.clone();
+    let item_event_listener = event_listener.clone();
 
     let progress_task = tokio::spawn(async move {
         let mut persisted_progress = 0;
@@ -352,7 +517,10 @@ async fn discover_media_files(
             .await
             {
                 Ok(Some(scan_job)) => {
-                    progress_event_listener(ScanJobEvent::Updated(scan_job));
+                    progress_event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
+                        scan_job,
+                        SCAN_PHASE_DISCOVERING,
+                    )));
                 }
                 Ok(None) => continue,
                 Err(error) => {
@@ -373,10 +541,27 @@ async fn discover_media_files(
 
     let cancellation_for_task = cancellation_flag.clone();
     let result = tokio::task::spawn_blocking(move || {
-        mova_scan::discover_media_files_with_progress_and_cancel(
+        let mut discovered_items = 0_i32;
+
+        mova_scan::discover_media_files_with_progress_item_and_cancel(
             std::path::Path::new(&root_path_for_task),
             |count| {
                 let _ = progress_tx.send(count as i32);
+            },
+            |file| {
+                discovered_items = discovered_items.saturating_add(1);
+                let media_type =
+                    classify_media_type(&library_type_for_task, &file.file_path).to_string();
+
+                item_event_listener(ScanJobEvent::ItemUpdated(build_scan_item_progress_update(
+                    scan_job_id,
+                    library_id,
+                    &media_type,
+                    file,
+                    discovered_items,
+                    discovered_items,
+                    ScanItemStage::Discovered,
+                )));
             },
             || cancellation_for_task.load(Ordering::SeqCst),
         )
@@ -384,7 +569,7 @@ async fn discover_media_files(
     .await
     .map_err(|error| {
         ApplicationError::Unexpected(anyhow::anyhow!(
-            "scan worker failed to join for {}: {}",
+            "扫描目录工作线程异常退出（{}）：{}",
             root_path_string,
             error
         ))
@@ -398,7 +583,7 @@ async fn discover_media_files(
             DiscoverMediaFilesOutcome::Cancelled(last_progress.load(Ordering::SeqCst)),
         ),
         Err(error) => Err(ApplicationError::Unexpected(anyhow::anyhow!(
-            "failed to scan library directory {}: {}",
+            "无法读取媒体库目录 {}：{}",
             root_path,
             error
         ))),
@@ -488,6 +673,101 @@ fn is_cancelled(cancellation_flag: &Arc<AtomicBool>) -> bool {
     cancellation_flag.load(Ordering::SeqCst)
 }
 
+fn build_scan_job_progress_update(scan_job: ScanJob, phase: &str) -> ScanJobProgressUpdate {
+    ScanJobProgressUpdate {
+        scan_job,
+        phase: Some(phase.to_string()),
+    }
+}
+
+fn format_scan_phase_error(phase: &str, detail: impl AsRef<str>) -> String {
+    format!("{}：{}", scan_phase_label(phase), detail.as_ref())
+}
+
+fn scan_phase_label(phase: &str) -> &'static str {
+    match phase {
+        SCAN_PHASE_INITIALIZING => "初始化阶段失败",
+        SCAN_PHASE_DISCOVERING => "扫描目录阶段失败",
+        SCAN_PHASE_ENRICHING => "元数据补全阶段失败",
+        SCAN_PHASE_SYNCING => "写入媒体库阶段失败",
+        SCAN_PHASE_FINISHED => "结束阶段失败",
+        _ => "扫描任务失败",
+    }
+}
+
+fn build_scan_item_progress_update(
+    scan_job_id: i64,
+    library_id: i64,
+    media_type: &str,
+    file: &DiscoveredMediaFile,
+    item_index: i32,
+    total_items: i32,
+    stage: ScanItemStage,
+) -> ScanJobItemProgressUpdate {
+    let (stage_name, progress_percent) = match stage {
+        ScanItemStage::Discovered => (SCAN_ITEM_STAGE_DISCOVERED, 6),
+        ScanItemStage::Metadata => (SCAN_ITEM_STAGE_METADATA, 36),
+        ScanItemStage::Artwork => (SCAN_ITEM_STAGE_ARTWORK, 76),
+        ScanItemStage::Completed => (SCAN_ITEM_STAGE_COMPLETED, 100),
+    };
+    let title = file
+        .episode_title
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| Some(file.title.as_str()).filter(|value| !value.trim().is_empty()))
+        .or_else(|| Some(file.source_title.as_str()).filter(|value| !value.trim().is_empty()))
+        .unwrap_or("Untitled")
+        .to_string();
+
+    ScanJobItemProgressUpdate {
+        scan_job_id,
+        library_id,
+        item_key: file.file_path.to_string_lossy().to_string(),
+        media_type: media_type.to_string(),
+        title,
+        season_number: file.season_number,
+        episode_number: file.episode_number,
+        item_index,
+        total_items,
+        stage: stage_name.to_string(),
+        progress_percent,
+    }
+}
+
+impl From<MetadataEnrichmentStage> for ScanItemStage {
+    fn from(value: MetadataEnrichmentStage) -> Self {
+        match value {
+            MetadataEnrichmentStage::Metadata => Self::Metadata,
+            MetadataEnrichmentStage::Artwork => Self::Artwork,
+            MetadataEnrichmentStage::Completed => Self::Completed,
+        }
+    }
+}
+
+async fn emit_scan_job_phase(
+    pool: &PgPool,
+    scan_job_id: i64,
+    phase: &str,
+    event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
+) {
+    match mova_db::get_scan_job(pool, scan_job_id).await {
+        Ok(Some(scan_job)) => {
+            event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
+                scan_job, phase,
+            )));
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                scan_job_id,
+                phase,
+                error = ?error,
+                "failed to fetch scan job before publishing phase update"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::media_classification::{LIBRARY_TYPE_MIXED, LIBRARY_TYPE_SERIES};
@@ -517,6 +797,33 @@ mod tests {
         assert_eq!(
             super::classify_media_type(LIBRARY_TYPE_SERIES, Path::new("Movie.2025.mkv")),
             "episode"
+        );
+    }
+
+    #[test]
+    fn scan_phase_label_returns_user_facing_stage_name() {
+        assert_eq!(
+            super::scan_phase_label(super::SCAN_PHASE_DISCOVERING),
+            "扫描目录阶段失败"
+        );
+        assert_eq!(
+            super::scan_phase_label(super::SCAN_PHASE_ENRICHING),
+            "元数据补全阶段失败"
+        );
+        assert_eq!(
+            super::scan_phase_label(super::SCAN_PHASE_SYNCING),
+            "写入媒体库阶段失败"
+        );
+    }
+
+    #[test]
+    fn format_scan_phase_error_prefixes_stage_context() {
+        assert_eq!(
+            super::format_scan_phase_error(
+                super::SCAN_PHASE_DISCOVERING,
+                "扫描文件目录失败：No such file or directory"
+            ),
+            "扫描目录阶段失败：扫描文件目录失败：No such file or directory"
         );
     }
 }

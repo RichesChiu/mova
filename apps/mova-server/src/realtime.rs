@@ -1,6 +1,7 @@
-use crate::response::ScanJobResponse;
+use crate::response::{ScanItemProgressResponse, ScanJobResponse};
 use axum::response::sse::Event;
-use mova_domain::{ScanJob, UserProfile};
+use mova_application::{ScanJobItemProgressUpdate, ScanJobProgressUpdate};
+use mova_domain::UserProfile;
 use serde::Serialize;
 use time::UtcOffset;
 use tokio::sync::broadcast;
@@ -31,8 +32,9 @@ impl RealtimeHub {
 
 #[derive(Debug, Clone)]
 pub enum RealtimeEvent {
-    ScanJobUpdated { scan_job: ScanJob },
-    ScanJobFinished { scan_job: ScanJob },
+    ScanJobUpdated { update: ScanJobProgressUpdate },
+    ScanJobFinished { update: ScanJobProgressUpdate },
+    ScanItemUpdated { item: ScanJobItemProgressUpdate },
     LibraryUpdated { library_id: i64 },
     LibraryDeleted { library_id: i64 },
     MediaItemMetadataUpdated { library_id: i64, media_item_id: i64 },
@@ -43,6 +45,7 @@ impl RealtimeEvent {
         match self {
             Self::ScanJobUpdated { .. } => "scan.job.updated",
             Self::ScanJobFinished { .. } => "scan.job.finished",
+            Self::ScanItemUpdated { .. } => "scan.item.updated",
             Self::LibraryUpdated { .. } => "library.updated",
             Self::LibraryDeleted { .. } => "library.deleted",
             Self::MediaItemMetadataUpdated { .. } => "media_item.metadata.updated",
@@ -64,9 +67,10 @@ impl RealtimeEvent {
 
     fn library_id(&self) -> i64 {
         match self {
-            Self::ScanJobUpdated { scan_job } | Self::ScanJobFinished { scan_job } => {
-                scan_job.library_id
+            Self::ScanJobUpdated { update } | Self::ScanJobFinished { update } => {
+                update.scan_job.library_id
             }
+            Self::ScanItemUpdated { item } => item.library_id,
             Self::LibraryUpdated { library_id }
             | Self::LibraryDeleted { library_id }
             | Self::MediaItemMetadataUpdated { library_id, .. } => *library_id,
@@ -81,25 +85,35 @@ enum RealtimeEventResponse {
     ScanJobUpdated { scan_job: ScanJobResponse },
     #[serde(rename = "scan.job.finished")]
     ScanJobFinished { scan_job: ScanJobResponse },
+    #[serde(rename = "scan.item.updated")]
+    ScanItemUpdated { item: ScanItemProgressResponse },
     #[serde(rename = "library.updated")]
     LibraryUpdated { library_id: i64 },
     #[serde(rename = "library.deleted")]
     LibraryDeleted { library_id: i64 },
     #[serde(rename = "media_item.metadata.updated")]
-    MediaItemMetadataUpdated {
-        library_id: i64,
-        media_item_id: i64,
-    },
+    MediaItemMetadataUpdated { library_id: i64, media_item_id: i64 },
 }
 
 impl RealtimeEventResponse {
     fn from_event(event: &RealtimeEvent, api_time_offset: UtcOffset) -> Self {
         match event {
-            RealtimeEvent::ScanJobUpdated { scan_job } => Self::ScanJobUpdated {
-                scan_job: ScanJobResponse::from_domain(scan_job.clone(), api_time_offset),
+            RealtimeEvent::ScanJobUpdated { update } => Self::ScanJobUpdated {
+                scan_job: ScanJobResponse::from_realtime(
+                    update.scan_job.clone(),
+                    update.phase.clone(),
+                    api_time_offset,
+                ),
             },
-            RealtimeEvent::ScanJobFinished { scan_job } => Self::ScanJobFinished {
-                scan_job: ScanJobResponse::from_domain(scan_job.clone(), api_time_offset),
+            RealtimeEvent::ScanJobFinished { update } => Self::ScanJobFinished {
+                scan_job: ScanJobResponse::from_realtime(
+                    update.scan_job.clone(),
+                    update.phase.clone(),
+                    api_time_offset,
+                ),
+            },
+            RealtimeEvent::ScanItemUpdated { item } => Self::ScanItemUpdated {
+                item: ScanItemProgressResponse::from_domain(item.clone()),
             },
             RealtimeEvent::LibraryUpdated { library_id } => Self::LibraryUpdated {
                 library_id: *library_id,

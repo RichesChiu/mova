@@ -17,6 +17,7 @@ export interface ScanJob {
   id: number
   library_id: number
   status: string
+  phase?: string | null
   total_files: number
   scanned_files: number
   created_at: string
@@ -229,6 +230,10 @@ export interface CreateLibraryInput {
   metadata_language: string
   root_path: string
   is_enabled: boolean
+}
+
+export interface UpdateLibraryInput {
+  name?: string
 }
 
 export interface ServerMediaDirectoryNode {

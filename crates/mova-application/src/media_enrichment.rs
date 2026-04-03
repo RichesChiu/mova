@@ -32,6 +32,13 @@ pub struct MetadataEnrichmentContext {
     frame_capture_availability: FrameCaptureAvailability,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MetadataEnrichmentStage {
+    Metadata,
+    Artwork,
+    Completed,
+}
+
 impl MetadataEnrichmentContext {
     /// 扫描和手动刷新都会复用这个上下文。
     /// 语言在创建时就绑定下来，确保同一个库的所有 TMDB 请求都落在同一语言版本上。
@@ -53,6 +60,18 @@ impl MetadataEnrichmentContext {
     }
 
     pub async fn enrich_file(&mut self, lookup_type: &str, file: &mut DiscoveredMediaFile) {
+        self.enrich_file_with_progress(lookup_type, file, |_, _| {})
+            .await;
+    }
+
+    pub async fn enrich_file_with_progress<F>(
+        &mut self,
+        lookup_type: &str,
+        file: &mut DiscoveredMediaFile,
+        mut on_progress: F,
+    ) where
+        F: FnMut(MetadataEnrichmentStage, &DiscoveredMediaFile),
+    {
         let lookup = MetadataLookup {
             // 元数据匹配应优先使用文件名解析出的原始标题，而不是已经被远端覆盖过的展示标题。
             title: file.source_title.clone(),
@@ -61,6 +80,8 @@ impl MetadataEnrichmentContext {
             language: Some(self.metadata_language.clone()),
             provider_item_id: None,
         };
+
+        on_progress(MetadataEnrichmentStage::Metadata, file);
 
         if self.metadata_provider.is_enabled() && needs_remote_metadata(file) {
             let metadata = self.lookup_remote_metadata_cached(&lookup).await;
@@ -75,6 +96,8 @@ impl MetadataEnrichmentContext {
             );
         }
 
+        on_progress(MetadataEnrichmentStage::Artwork, file);
+
         if lookup_type.eq_ignore_ascii_case("series") {
             self.enrich_episode_like_artwork(&lookup, file).await;
         }
@@ -84,6 +107,8 @@ impl MetadataEnrichmentContext {
         if lookup_type.eq_ignore_ascii_case("series") {
             self.ensure_local_episode_artwork(file).await;
         }
+
+        on_progress(MetadataEnrichmentStage::Completed, file);
     }
 
     async fn lookup_remote_metadata_cached(
@@ -102,7 +127,7 @@ impl MetadataEnrichmentContext {
                     year = lookup.year,
                     library_type = %lookup.library_type,
                     error = ?error,
-                    "failed to fetch remote metadata"
+                    "metadata enrichment stage failed to fetch remote metadata, falling back to local data"
                 );
                 None
             }
@@ -132,7 +157,7 @@ impl MetadataEnrichmentContext {
                     year = lookup.year,
                     library_type = %lookup.library_type,
                     error = ?error,
-                    "failed to fetch remote episode outline metadata"
+                    "metadata enrichment stage failed to fetch remote episode outline metadata, falling back to local data"
                 );
                 None
             }

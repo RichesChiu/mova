@@ -21,6 +21,7 @@ import type {
   Season,
   ServerMediaDirectoryNode,
   SubtitleFile,
+  UpdateLibraryInput,
   UpdateUserInput,
   UserAccount,
   WatchHistoryItem,
@@ -149,6 +150,12 @@ export const listLibraries = () => requestJson<Library[]>(withApiPrefix('/librar
 export const createLibrary = (input: CreateLibraryInput) =>
   requestJson<Library>(withApiPrefix('/libraries'), {
     method: 'POST',
+    body: JSON.stringify(input),
+  })
+
+export const updateLibrary = (libraryId: number, input: UpdateLibraryInput) =>
+  requestJson<Library>(withApiPrefix(`/libraries/${libraryId}`), {
+    method: 'PATCH',
     body: JSON.stringify(input),
   })
 

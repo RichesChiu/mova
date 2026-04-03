@@ -1,8 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useOutletContext, useParams } from 'react-router-dom'
 import { getLibrary, listLibraryMediaItems } from '../../api/client'
 import type { MediaItem } from '../../api/types'
-import { MediaCard, MediaCardSkeleton } from '../../components/media-card'
+import type { AppShellOutletContext } from '../../components/app-shell'
+import type { ScanRuntimeItem } from '../../components/app-shell/scan-runtime'
+import {
+  formatScanItemMeta,
+  formatScanItemProgressCopy,
+  formatScanJobStatusCopy,
+  getLibraryScanRuntime,
+  getScanJobProgressPercent,
+  getScanRuntimeItems,
+  shouldShowScanPlaceholder,
+} from '../../components/app-shell/scan-runtime'
+import { MediaCard, MediaCardScanPlaceholder, MediaCardSkeleton } from '../../components/media-card'
 
 const PAGE_SIZE = 500
 const MEDIA_SECTION_SKELETON_COUNT = 6
@@ -15,19 +26,37 @@ const MEDIA_SECTION_SKELETON_KEYS = [
   'media-f',
 ] as const
 
-const MediaSection = ({ items, title }: { items: MediaItem[]; title: string }) => {
+const MediaSection = ({
+  items,
+  scanItems,
+  title,
+}: {
+  items: MediaItem[]
+  scanItems: ScanRuntimeItem[]
+  title: string
+}) => {
   return (
     <section className="catalog-block">
       <div className="catalog-block__header">
         <h3>{title}</h3>
       </div>
 
-      {items.length === 0 ? (
+      {items.length === 0 && scanItems.length === 0 ? (
         <div className="catalog-block__empty">
           <p className="muted">No items in this section yet.</p>
         </div>
       ) : (
         <div className="media-grid">
+          {scanItems.map((item) => (
+            <MediaCardScanPlaceholder
+              key={`scan-${item.item_key}`}
+              placeholderLabel={item.media_type.toUpperCase()}
+              progressPercent={item.progress_percent}
+              progressText={formatScanItemProgressCopy(item)}
+              subtitle={formatScanItemMeta(item)}
+              title={item.title}
+            />
+          ))}
           {items.map((item) => (
             <MediaCard item={item} key={item.id} />
           ))}
@@ -61,6 +90,7 @@ const MediaSectionSkeleton = ({
 
 export const LibraryPage = () => {
   const params = useParams()
+  const { scanRuntimeByLibrary } = useOutletContext<AppShellOutletContext>()
   const libraryId = Number(params.libraryId)
 
   const libraryQuery = useQuery({
@@ -91,12 +121,20 @@ export const LibraryPage = () => {
   }
 
   const currentLibrary = libraryQuery.data
+  const currentScanRuntime = Number.isFinite(libraryId)
+    ? getLibraryScanRuntime(scanRuntimeByLibrary, libraryId)
+    : null
   const mediaItems = mediaItemsQuery.data?.items ?? []
   const libraryDescription =
     currentLibrary?.description?.trim() || 'No library description provided yet.'
   const currentScan = currentLibrary?.last_scan
+  const scanItems = shouldShowScanPlaceholder(currentLibrary?.last_scan, currentScanRuntime)
+    ? getScanRuntimeItems(currentScanRuntime)
+    : []
   const movieItems = mediaItems.filter((item) => item.media_type === 'movie')
   const seriesItems = mediaItems.filter((item) => item.media_type === 'series')
+  const movieScanItems = scanItems.filter((item) => item.media_type === 'movie')
+  const seriesScanItems = scanItems.filter((item) => item.media_type !== 'movie')
   const isMixedLibrary = currentLibrary?.library_type === 'mixed'
   const primarySectionTitle =
     currentLibrary?.library_type === 'series'
@@ -110,7 +148,13 @@ export const LibraryPage = () => {
       : currentLibrary?.library_type === 'movie'
         ? 'MOVIE'
         : 'MEDIA'
-  const shouldShowMediaSkeleton = mediaItemsQuery.isLoading && mediaItems.length === 0
+  const shouldShowMediaSkeleton =
+    mediaItemsQuery.isLoading && mediaItems.length === 0 && scanItems.length === 0
+  const scanProgressPercent = getScanJobProgressPercent(
+    currentLibrary?.last_scan,
+    currentScanRuntime,
+  )
+  const scanCopy = formatScanJobStatusCopy(currentLibrary?.last_scan, currentScanRuntime)
 
   return (
     <div className="page-stack">
@@ -166,11 +210,11 @@ export const LibraryPage = () => {
 
       {currentScan && (currentScan.status === 'pending' || currentScan.status === 'running') ? (
         <p className="callout">
-          当前正在扫描媒体库。
+          当前正在扫描媒体库。{scanCopy ? ` ${scanCopy}。` : null}
           {currentScan.total_files > 0
-            ? ` 已处理 ${currentScan.scanned_files} / ${currentScan.total_files} 个文件。`
-            : ` 已发现 ${currentScan.scanned_files} 个文件。`}{' '}
-          当前首轮导入会在整批落库后显示媒体条目，大库时可能需要等待一段时间。
+            ? ` 当前任务进度约 ${scanProgressPercent}%。`
+            : ' 当前会先发现文件，再逐个补全元数据和图片。'}{' '}
+          扫描不会阻塞浏览，你仍然可以进入详情页查看已有内容。
         </p>
       ) : null}
 
@@ -185,7 +229,10 @@ export const LibraryPage = () => {
           </p>
         ) : null}
 
-        {!shouldShowMediaSkeleton && mediaItemsQuery.data && mediaItems.length === 0 ? (
+        {!shouldShowMediaSkeleton &&
+        mediaItemsQuery.data &&
+        mediaItems.length === 0 &&
+        scanItems.length === 0 ? (
           <section className="empty-panel">
             <h3>No items available yet</h3>
             <p className="muted">这个媒体库当前还没有可展示的内容。</p>
@@ -208,16 +255,17 @@ export const LibraryPage = () => {
           )
         ) : null}
 
-        {!shouldShowMediaSkeleton && mediaItems.length > 0 ? (
+        {!shouldShowMediaSkeleton && (mediaItems.length > 0 || scanItems.length > 0) ? (
           isMixedLibrary ? (
             <div className="catalog-stack">
-              <MediaSection items={movieItems} title="Movies" />
-              <MediaSection items={seriesItems} title="Series" />
+              <MediaSection items={movieItems} scanItems={movieScanItems} title="Movies" />
+              <MediaSection items={seriesItems} scanItems={seriesScanItems} title="Series" />
             </div>
           ) : (
             <div className="catalog-stack">
               <MediaSection
                 items={mediaItems}
+                scanItems={scanItems}
                 title={currentLibrary?.library_type === 'series' ? 'Series' : 'Movies'}
               />
             </div>

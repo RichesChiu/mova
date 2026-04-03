@@ -1,7 +1,7 @@
 use axum::{http::StatusCode, Json};
 use mova_application::{
-    MediaItemPlaybackHeader, MetadataMatchCandidate, SeriesEpisodeOutline,
-    SeriesEpisodeOutlineEpisode, SeriesEpisodeOutlineSeason,
+    MediaItemPlaybackHeader, MetadataMatchCandidate, ScanJobItemProgressUpdate,
+    SeriesEpisodeOutline, SeriesEpisodeOutlineEpisode, SeriesEpisodeOutlineSeason,
 };
 use mova_domain::{
     ContinueWatchingItem, Episode, Library, LibraryDetail, MediaCastMember, MediaFile, MediaItem,
@@ -80,6 +80,7 @@ pub struct LibraryResponse {
 pub struct LibraryLastScanResponse {
     pub id: i64,
     pub status: String,
+    pub phase: Option<String>,
     pub total_files: i32,
     pub scanned_files: i32,
     pub created_at: String,
@@ -291,12 +292,28 @@ pub struct ScanJobResponse {
     pub id: i64,
     pub library_id: i64,
     pub status: String,
+    pub phase: Option<String>,
     pub total_files: i32,
     pub scanned_files: i32,
     pub created_at: String,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ScanItemProgressResponse {
+    pub scan_job_id: i64,
+    pub library_id: i64,
+    pub item_key: String,
+    pub media_type: String,
+    pub title: String,
+    pub season_number: Option<i32>,
+    pub episode_number: Option<i32>,
+    pub item_index: i32,
+    pub total_items: i32,
+    pub stage: String,
+    pub progress_percent: i32,
 }
 
 /// 面向 HTTP 接口返回的播放进度对象。
@@ -747,10 +764,15 @@ impl SubtitleFileResponse {
 
 impl ScanJobResponse {
     pub fn from_domain(scan_job: ScanJob, offset: UtcOffset) -> Self {
+        Self::from_realtime(scan_job, None, offset)
+    }
+
+    pub fn from_realtime(scan_job: ScanJob, phase: Option<String>, offset: UtcOffset) -> Self {
         Self {
             id: scan_job.id,
             library_id: scan_job.library_id,
             status: scan_job.status,
+            phase,
             total_files: scan_job.total_files,
             scanned_files: scan_job.scanned_files,
             created_at: format_datetime(scan_job.created_at, offset),
@@ -766,12 +788,31 @@ impl LibraryLastScanResponse {
         Self {
             id: scan_job.id,
             status: scan_job.status,
+            phase: None,
             total_files: scan_job.total_files,
             scanned_files: scan_job.scanned_files,
             created_at: format_datetime(scan_job.created_at, offset),
             started_at: format_optional_datetime(scan_job.started_at, offset),
             finished_at: format_optional_datetime(scan_job.finished_at, offset),
             error_message: scan_job.error_message,
+        }
+    }
+}
+
+impl ScanItemProgressResponse {
+    pub fn from_domain(item: ScanJobItemProgressUpdate) -> Self {
+        Self {
+            scan_job_id: item.scan_job_id,
+            library_id: item.library_id,
+            item_key: item.item_key,
+            media_type: item.media_type,
+            title: item.title,
+            season_number: item.season_number,
+            episode_number: item.episode_number,
+            item_index: item.item_index,
+            total_items: item.total_items,
+            stage: item.stage,
+            progress_percent: item.progress_percent,
         }
     }
 }

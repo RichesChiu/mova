@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import {
@@ -6,15 +6,26 @@ import {
   createUser,
   deleteLibrary,
   deleteUser,
+  getLibrary,
   listUsers,
   scanLibrary,
+  updateLibrary,
   updateUser,
 } from '../../api/client'
-import type { UserAccount } from '../../api/types'
+import type {
+  CreateLibraryInput,
+  Library,
+  LibraryDetail,
+  MediaItemListResponse,
+  ScanJob,
+  UserAccount,
+} from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import { CreateLibraryForm } from '../../components/create-library-form'
+import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { SettingsGearIcon } from '../../components/settings-gear-icon'
 import { UserEditorModal } from '../../components/user-editor-modal'
+import { formatDateTime } from '../../lib/format'
 
 const USER_SKELETON_COUNT = 4
 const LIBRARY_SKELETON_COUNT = 3
@@ -22,6 +33,98 @@ const USER_SKELETON_KEYS = ['user-a', 'user-b', 'user-c', 'user-d'] as const
 const LIBRARY_SKELETON_KEYS = ['library-a', 'library-b', 'library-c'] as const
 
 const userAvatarInitial = (username: string) => username.trim().charAt(0).toUpperCase() || 'U'
+
+const scanStatusLabel = (scanJob: ScanJob | null | undefined) => {
+  switch (scanJob?.status) {
+    case 'running':
+      return 'Running'
+    case 'success':
+      return 'Success'
+    case 'failed':
+      return 'Failed'
+    case 'cancelled':
+      return 'Cancelled'
+    case 'pending':
+      return 'Pending'
+    default:
+      return 'Idle'
+  }
+}
+
+const scanStatusTone = (scanJob: ScanJob | null | undefined) => {
+  switch (scanJob?.status) {
+    case 'running':
+      return 'running'
+    case 'success':
+      return 'success'
+    case 'failed':
+      return 'failed'
+    case 'cancelled':
+      return 'muted'
+    case 'pending':
+      return 'pending'
+    default:
+      return 'muted'
+  }
+}
+
+const scanStatusSummary = (scanJob: ScanJob | null | undefined) => {
+  if (!scanJob) {
+    return '还没有执行过扫描。'
+  }
+
+  if (scanJob.status === 'running') {
+    return `已扫描 ${scanJob.scanned_files}/${scanJob.total_files} 个文件。`
+  }
+
+  if (scanJob.status === 'failed' && scanJob.error_message) {
+    return scanJob.error_message
+  }
+
+  const finishedAt = scanJob.finished_at ?? scanJob.started_at ?? scanJob.created_at
+  return `最近更新于 ${formatDateTime(finishedAt)}。`
+}
+
+const buildInitialScanJob = (libraryId: number): ScanJob => {
+  const createdAt = new Date().toISOString()
+
+  return {
+    id: -libraryId,
+    library_id: libraryId,
+    status: 'pending',
+    phase: 'discovering',
+    total_files: 0,
+    scanned_files: 0,
+    created_at: createdAt,
+    started_at: null,
+    finished_at: null,
+    error_message: null,
+  }
+}
+
+const buildPlaceholderLibraryDetail = (library: Library): LibraryDetail => ({
+  ...library,
+  media_count: 0,
+  movie_count: 0,
+  series_count: 0,
+  last_scan: library.is_enabled ? buildInitialScanJob(library.id) : null,
+})
+
+const appendCreatedLibrary = (libraries: Library[] | undefined, createdLibrary: Library) => {
+  if (!libraries || libraries.length === 0) {
+    return [createdLibrary]
+  }
+
+  const withoutDuplicate = libraries.filter((library) => library.id !== createdLibrary.id)
+  return [...withoutDuplicate, createdLibrary]
+}
+
+const createEmptyShelf = (): MediaItemListResponse => ({
+  items: [],
+  total: 0,
+  page: 1,
+  page_size: 20,
+})
 
 const SettingsUserCardSkeleton = () => (
   <article aria-hidden="true" className="settings-user-card settings-user-card--loading">
@@ -83,16 +186,46 @@ export const SettingsPage = () => {
   const queryClient = useQueryClient()
   const [isCreateUserOpen, setIsCreateUserOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null)
+  const [editingLibrary, setEditingLibrary] = useState<Library | null>(null)
   const usersQuery = useQuery<UserAccount[]>({
     enabled: currentUser.role === 'admin',
     queryKey: ['users'],
     queryFn: listUsers,
   })
+  const libraryDetailQueries = useQueries({
+    queries: libraries.map((library) => ({
+      enabled: currentUser.role === 'admin',
+      queryKey: ['library', library.id],
+      queryFn: () => getLibrary(library.id),
+    })),
+  })
 
   const createLibraryMutation = useMutation({
     mutationFn: createLibrary,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['libraries'] })
+    onSuccess: async (createdLibrary, _input: CreateLibraryInput) => {
+      const placeholderDetail = buildPlaceholderLibraryDetail(createdLibrary)
+
+      // Show the new library immediately so home/settings can render a scanning placeholder while
+      // the real list/detail requests catch up in the background.
+      queryClient.setQueryData<Library[]>(['libraries'], (current) =>
+        appendCreatedLibrary(current, createdLibrary),
+      )
+      queryClient.setQueryData<LibraryDetail>(['library', createdLibrary.id], placeholderDetail)
+      queryClient.setQueryData<LibraryDetail>(
+        ['home-library-detail', createdLibrary.id],
+        placeholderDetail,
+      )
+      queryClient.setQueryData<MediaItemListResponse>(
+        ['home-library-shelf', createdLibrary.id],
+        createEmptyShelf(),
+      )
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
+        queryClient.invalidateQueries({ queryKey: ['library', createdLibrary.id] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-detail', createdLibrary.id] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-shelf', createdLibrary.id] }),
+      ])
     },
   })
 
@@ -115,6 +248,24 @@ export const SettingsPage = () => {
         queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['home-library-shelf'] }),
+      ])
+    },
+  })
+
+  const updateLibraryMutation = useMutation({
+    mutationFn: ({
+      libraryId,
+      input,
+    }: {
+      libraryId: number
+      input: Parameters<typeof updateLibrary>[1]
+    }) => updateLibrary(libraryId, input),
+    onSuccess: async (_library, libraryId) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
+        queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-shelf', libraryId] }),
       ])
     },
   })
@@ -155,9 +306,16 @@ export const SettingsPage = () => {
     : editingUser && updateUserMutation.error instanceof Error
       ? updateUserMutation.error.message
       : null
+  const activeLibraryModalError =
+    editingLibrary && updateLibraryMutation.error instanceof Error
+      ? updateLibraryMutation.error.message
+      : null
   const users = usersQuery.data ?? []
   const shouldShowUserSkeleton = usersQuery.isLoading && users.length === 0
   const shouldShowLibrarySkeleton = librariesLoading && libraries.length === 0
+  const libraryDetailsById = new Map(
+    libraries.map((library, index) => [library.id, libraryDetailQueries[index]?.data ?? null]),
+  )
 
   return (
     <div className="settings-shell">
@@ -371,62 +529,109 @@ export const SettingsPage = () => {
               </div>
             </article>
           ) : !shouldShowLibrarySkeleton ? (
-            libraries.map((library) => (
-              <article className="settings-library-card" key={library.id}>
-                <div aria-hidden="true" className="settings-library-card__backdrop">
-                  <span className="settings-library-card__backdrop-glow" />
-                </div>
+            libraries.map((library) => {
+              const libraryDetail = libraryDetailsById.get(library.id)
+              const lastScan = libraryDetail?.last_scan ?? null
+              const lastScanStatusLabel = scanStatusLabel(lastScan)
+              const lastScanStatusTone = scanStatusTone(lastScan)
 
-                <div className="settings-library-card__body">
-                  <div className="settings-library-card__header">
-                    <span className="settings-library-card__type">{library.library_type}</span>
-                    <span className="settings-library-card__language">
-                      {library.metadata_language}
-                    </span>
+              return (
+                <article className="settings-library-card" key={library.id}>
+                  <div aria-hidden="true" className="settings-library-card__backdrop">
+                    <span className="settings-library-card__backdrop-glow" />
                   </div>
 
-                  <strong className="settings-library-card__title">{library.name}</strong>
-                  <p className="settings-library-card__description">
-                    {library.description ?? 'No description'}
-                  </p>
+                  <div className="settings-library-card__body">
+                    <div className="settings-library-card__header">
+                      <div className="settings-library-card__meta">
+                        <span className="settings-library-card__type">{library.library_type}</span>
+                        <span className="settings-library-card__language">
+                          {library.metadata_language}
+                        </span>
+                      </div>
 
-                  <div className="settings-library-card__path-block">
-                    <span className="settings-library-card__path-label">Root path</span>
-                    <code className="settings-library-card__path">{library.root_path}</code>
+                      <button
+                        aria-label={`Edit ${library.name}`}
+                        className="settings-library-card__edit-icon"
+                        onClick={() => setEditingLibrary(library)}
+                        type="button"
+                      >
+                        <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24">
+                          <path
+                            d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="1.7"
+                          />
+                          <path
+                            d="M12.75 7.05L16.95 11.25"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="1.7"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+
+                    <strong className="settings-library-card__title">{library.name}</strong>
+                    <p className="settings-library-card__description">
+                      {library.description ?? 'No description'}
+                    </p>
+
+                    <div className="settings-library-card__scan">
+                      <div className="settings-library-card__scan-header">
+                        <span className="settings-library-card__path-label">Latest Scan</span>
+                        <span
+                          className={`settings-library-card__scan-badge settings-library-card__scan-badge--${lastScanStatusTone}`}
+                        >
+                          {lastScanStatusLabel}
+                        </span>
+                      </div>
+                      <p className="settings-library-card__scan-copy">
+                        {scanStatusSummary(lastScan)}
+                      </p>
+                    </div>
+
+                    <div className="settings-library-card__path-block">
+                      <span className="settings-library-card__path-label">Root path</span>
+                      <code className="settings-library-card__path">{library.root_path}</code>
+                    </div>
                   </div>
-                </div>
 
-                <div className="settings-library-card__actions">
-                  <button
-                    className="button"
-                    disabled={scanMutation.isPending}
-                    onClick={() => scanMutation.mutate(library.id)}
-                    type="button"
-                  >
-                    {scanMutation.isPending ? 'Triggering…' : 'Scan Library'}
-                  </button>
-                  <button
-                    className="button button--danger settings-library-card__delete"
-                    disabled={deleteLibraryMutation.isPending || scanMutation.isPending}
-                    onClick={() => {
-                      const confirmed = window.confirm(
-                        `Delete library "${library.name}"? This removes library records and scan history.`,
-                      )
-                      if (!confirmed) {
-                        return
-                      }
-                      deleteLibraryMutation.mutate(library.id)
-                    }}
-                    type="button"
-                  >
-                    {deleteLibraryMutation.isPending &&
-                    deleteLibraryMutation.variables === library.id
-                      ? 'Deleting…'
-                      : 'Delete Library'}
-                  </button>
-                </div>
-              </article>
-            ))
+                  <div className="settings-library-card__actions">
+                    <button
+                      className="button"
+                      disabled={scanMutation.isPending}
+                      onClick={() => scanMutation.mutate(library.id)}
+                      type="button"
+                    >
+                      {scanMutation.isPending ? 'Triggering…' : 'Scan Library'}
+                    </button>
+                    <button
+                      className="button button--danger settings-library-card__delete"
+                      disabled={deleteLibraryMutation.isPending || scanMutation.isPending}
+                      onClick={() => {
+                        const confirmed = window.confirm(
+                          `Delete library "${library.name}"? This removes library records and scan history.`,
+                        )
+                        if (!confirmed) {
+                          return
+                        }
+                        deleteLibraryMutation.mutate(library.id)
+                      }}
+                      type="button"
+                    >
+                      {deleteLibraryMutation.isPending &&
+                      deleteLibraryMutation.variables === library.id
+                        ? 'Deleting…'
+                        : 'Delete Library'}
+                    </button>
+                  </div>
+                </article>
+              )
+            })
           ) : null}
         </div>
       </section>
@@ -468,6 +673,18 @@ export const SettingsPage = () => {
         onCreate={(input) => createUserMutation.mutateAsync(input)}
         onUpdate={(userId, input) => updateUserMutation.mutateAsync({ userId, input })}
         user={editingUser}
+      />
+
+      <LibraryEditorModal
+        error={activeLibraryModalError}
+        isOpen={editingLibrary !== null}
+        isSubmitting={updateLibraryMutation.isPending}
+        library={editingLibrary}
+        onClose={() => {
+          setEditingLibrary(null)
+          updateLibraryMutation.reset()
+        }}
+        onUpdate={(libraryId, input) => updateLibraryMutation.mutateAsync({ libraryId, input })}
       />
     </div>
   )

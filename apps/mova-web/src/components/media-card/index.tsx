@@ -10,6 +10,14 @@ interface MediaCardSkeletonProps {
   placeholderLabel?: string
 }
 
+interface MediaCardScanPlaceholderProps {
+  placeholderLabel?: string
+  progressPercent: number
+  progressText: string
+  subtitle?: string | null
+  title: string
+}
+
 export const MediaCard = ({ item }: MediaCardProps) => {
   const title = item.title.trim() || item.source_title.trim() || 'Untitled'
   const subtitle = item.overview ?? item.original_title ?? 'No summary yet'
@@ -35,6 +43,45 @@ export const MediaCard = ({ item }: MediaCardProps) => {
         <p className="muted clamp-3">{subtitle}</p>
       </div>
     </Link>
+  )
+}
+
+export const MediaCardScanPlaceholder = ({
+  placeholderLabel = 'MEDIA',
+  progressPercent,
+  progressText,
+  subtitle,
+  title,
+}: MediaCardScanPlaceholderProps) => {
+  const clampedProgress = Math.max(0, Math.min(100, progressPercent))
+
+  return (
+    <div aria-live="polite" className="media-card media-card--scanning">
+      <div className="media-card__poster">
+        <div className="media-card__placeholder media-card__placeholder--loading media-card__placeholder--scanning">
+          <span>{placeholderLabel}</span>
+        </div>
+      </div>
+
+      <div className="media-card__body">
+        <div className="media-card__meta">
+          <span className="chip chip--scan">scanning</span>
+          {subtitle ? <span className="muted">{subtitle}</span> : null}
+        </div>
+        <h3>{title}</h3>
+        <p className="muted clamp-3">{progressText}</p>
+
+        <div className="media-card__scan">
+          <div className="media-card__scan-row">
+            <span className="media-card__scan-copy">{progressText}</span>
+            <strong>{clampedProgress}%</strong>
+          </div>
+          <div aria-hidden="true" className="media-card__scan-track">
+            <span className="media-card__scan-fill" style={{ width: `${clampedProgress}%` }} />
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 

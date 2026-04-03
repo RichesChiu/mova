@@ -6,7 +6,8 @@ mod subtitle;
 
 pub use discover::{
     discover_media_files, discover_media_files_with_progress,
-    discover_media_files_with_progress_and_cancel, discover_media_paths, inspect_media_file,
+    discover_media_files_with_progress_and_cancel,
+    discover_media_files_with_progress_item_and_cancel, discover_media_paths, inspect_media_file,
 };
 pub use parse::is_likely_episode_path;
 

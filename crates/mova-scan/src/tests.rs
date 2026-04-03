@@ -1,6 +1,7 @@
 use super::{
     discover::{
-        discover_media_files, discover_media_files_with_progress_and_cancel, discover_media_paths,
+        discover_media_files, discover_media_files_with_progress_and_cancel,
+        discover_media_files_with_progress_item_and_cancel, discover_media_paths,
         inspect_media_file,
     },
     is_likely_episode_path,
@@ -465,4 +466,39 @@ fn discover_media_files_with_progress_and_cancel_stops_when_requested() {
         result,
         Err(error) if error.kind() == ErrorKind::Interrupted
     ));
+}
+
+#[test]
+fn discover_media_files_with_progress_item_and_cancel_emits_discovered_files() {
+    let root = unique_temp_path("progress-items");
+
+    let (result, discovered_titles) = (|| {
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("movie-a.mp4"), b"video").unwrap();
+        fs::write(root.join("Show.S01E01.mkv"), b"video").unwrap();
+
+        let discovered_titles = std::cell::RefCell::new(Vec::<String>::new());
+        let result = discover_media_files_with_progress_item_and_cancel(
+            &root,
+            |_| {},
+            |file| {
+                discovered_titles.borrow_mut().push(file.title.clone());
+            },
+            || false,
+        );
+
+        (result, discovered_titles.into_inner())
+    })();
+
+    let _ = fs::remove_dir_all(&root);
+
+    let files = result.unwrap();
+    assert_eq!(files.len(), 2);
+    assert_eq!(discovered_titles.len(), 2);
+    assert!(
+        discovered_titles
+            .iter()
+            .any(|title| title.to_ascii_lowercase().contains("movie"))
+    );
+    assert!(discovered_titles.iter().any(|title| title.contains("Show")));
 }

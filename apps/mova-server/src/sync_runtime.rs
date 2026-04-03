@@ -140,11 +140,14 @@ pub fn spawn_library_scan_job(
     let cancellation_flag = active_scan.cancellation_flag();
     let scan_event_listener: Arc<dyn Fn(mova_application::ScanJobEvent) + Send + Sync> =
         Arc::new(move |event| match event {
-            mova_application::ScanJobEvent::Updated(scan_job) => {
-                realtime_hub.publish(RealtimeEvent::ScanJobUpdated { scan_job });
+            mova_application::ScanJobEvent::Updated(update) => {
+                realtime_hub.publish(RealtimeEvent::ScanJobUpdated { update });
             }
-            mova_application::ScanJobEvent::Finished(scan_job) => {
-                realtime_hub.publish(RealtimeEvent::ScanJobFinished { scan_job });
+            mova_application::ScanJobEvent::Finished(update) => {
+                realtime_hub.publish(RealtimeEvent::ScanJobFinished { update });
+            }
+            mova_application::ScanJobEvent::ItemUpdated(item) => {
+                realtime_hub.publish(RealtimeEvent::ScanItemUpdated { item });
             }
         });
 
@@ -203,9 +206,12 @@ pub async fn handle_scan_registration_rejected(
             .await
             {
                 Ok(Some(scan_job)) => {
-                    state
-                        .realtime_hub
-                        .publish(RealtimeEvent::ScanJobFinished { scan_job });
+                    state.realtime_hub.publish(RealtimeEvent::ScanJobFinished {
+                        update: mova_application::ScanJobProgressUpdate {
+                            scan_job,
+                            phase: Some("finished".to_string()),
+                        },
+                    });
                 }
                 Ok(None) => {}
                 Err(finalize_error) => {

@@ -7,6 +7,7 @@ import {
   listLibraryMediaItems,
 } from '../../api/client'
 import type { AppShellOutletContext } from '../../components/app-shell'
+import { getLibraryScanRuntime } from '../../components/app-shell/scan-runtime'
 import { mediaItemDetailPath, mediaItemPrimaryPath } from '../../lib/media-routes'
 import { MEDIA_QUERY_GC_TIME_MS, SERIES_OUTLINE_QUERY_STALE_TIME_MS } from '../../lib/query-options'
 import { ContinueWatchingSection } from './continue-watching-section'
@@ -41,7 +42,8 @@ const isEpisodeContextEntry = (entry: {
 }) => typeof entry.season_number === 'number' && typeof entry.episode_number === 'number'
 
 export const HomePage = () => {
-  const { libraries, librariesLoading } = useOutletContext<AppShellOutletContext>()
+  const { libraries, librariesLoading, scanRuntimeByLibrary } =
+    useOutletContext<AppShellOutletContext>()
 
   const continueWatchingQuery = useQuery({
     queryKey: ['continue-watching', 20],
@@ -92,6 +94,7 @@ export const HomePage = () => {
   const libraryModules: HomeLibraryModuleData[] = libraries.map((library, index) => ({
     detail: libraryDetailQueries[index]?.data ?? null,
     library,
+    scanRuntime: getLibraryScanRuntime(scanRuntimeByLibrary, library.id),
     shelfError: shelfQueries[index]?.error instanceof Error ? shelfQueries[index].error : null,
     shelfItems: shelfQueries[index]?.data?.items ?? [],
     shelfLoading: shelfQueries[index]?.isLoading ?? false,

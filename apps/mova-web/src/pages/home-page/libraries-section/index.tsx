@@ -1,4 +1,9 @@
 import { Link } from 'react-router-dom'
+import {
+  formatScanJobStatusCopy,
+  getScanJobProgressPercent,
+  isScanJobActive,
+} from '../../../components/app-shell/scan-runtime'
 import { ScrollableRail } from '../../../components/scrollable-rail'
 import { SectionHelp } from '../../../components/section-help'
 import type { HomeLibraryModuleData } from '../types'
@@ -57,13 +62,17 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
       </div>
     ) : (
       <ScrollableRail hint="Scroll horizontally." viewportClassName="libraries-section__viewport">
-        {libraryModules.map(({ detail, library, shelfItems }) => {
+        {libraryModules.map(({ detail, library, scanRuntime, shelfItems }) => {
           // Use the first few posters as a lightweight library backdrop so a new library card still
           // feels alive before it gets custom artwork or richer metadata.
           const collagePosters = shelfItems
             .map((item) => item.poster_path ?? item.backdrop_path)
             .filter((value): value is string => Boolean(value))
             .slice(0, 4)
+          const lastScan = detail?.last_scan ?? null
+          const isScanning = isScanJobActive(lastScan)
+          const scanCopy = formatScanJobStatusCopy(lastScan, scanRuntime)
+          const scanProgressPercent = getScanJobProgressPercent(lastScan, scanRuntime)
 
           return (
             <Link className="library-spotlight" key={library.id} to={`/libraries/${library.id}`}>
@@ -98,6 +107,21 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
                     </>
                   ) : null}
                 </div>
+
+                {isScanning ? (
+                  <div className="library-spotlight__scan" role="status">
+                    <div className="library-spotlight__scan-row">
+                      <span className="library-spotlight__scan-label">{scanCopy}</span>
+                      <span className="library-spotlight__scan-value">{scanProgressPercent}%</span>
+                    </div>
+                    <div aria-hidden="true" className="library-spotlight__scan-track">
+                      <span
+                        className="library-spotlight__scan-fill"
+                        style={{ width: `${scanProgressPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </Link>
           )

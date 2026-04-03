@@ -115,6 +115,43 @@
   gap: 8px;
 }
 
+.library-spotlight__scan {
+  display: grid;
+  gap: 7px;
+}
+
+.library-spotlight__scan-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.library-spotlight__scan-label,
+.library-spotlight__scan-value {
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.library-spotlight__scan-track {
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--floating-surface) 78%, rgba(255, 255, 255, 0.08));
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+.library-spotlight__scan-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background:
+    linear-gradient(90deg, rgba(255, 205, 135, 0.92), rgba(255, 240, 208, 0.95)),
+    linear-gradient(90deg, rgba(216, 166, 74, 0.42), rgba(255, 221, 156, 0.9));
+  box-shadow: 0 0 18px rgba(255, 214, 145, 0.28);
+}
+
 .library-spotlight__stat {
   display: inline-flex;
   align-items: center;

@@ -126,6 +126,12 @@
   gap: 10px;
 }
 
+.settings-library-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .settings-library-card__type,
 .settings-library-card__language {
   display: inline-flex;
@@ -140,6 +146,37 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.settings-library-card__edit-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--floating-surface) 78%, transparent);
+  color: var(--text-soft);
+  box-shadow: var(--panel-inset);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    background 160ms ease;
+}
+
+.settings-library-card__edit-icon:hover {
+  transform: translateY(-1px);
+  border-color: var(--button-primary-border);
+  background: color-mix(in srgb, var(--floating-surface-strong) 84%, transparent);
+  color: var(--accent-strong);
+}
+
+.settings-library-card__edit-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .settings-library-card__title {
@@ -157,6 +194,59 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+}
+
+.settings-library-card__scan {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-library-card__scan-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-library-card__scan-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.settings-library-card__scan-badge--running {
+  background: rgba(120, 170, 255, 0.14);
+  color: #d6e4ff;
+}
+
+.settings-library-card__scan-badge--success {
+  background: rgba(115, 212, 160, 0.14);
+  color: #d0f7e2;
+}
+
+.settings-library-card__scan-badge--failed {
+  background: rgba(255, 126, 126, 0.14);
+  color: #ffd8d8;
+}
+
+.settings-library-card__scan-badge--pending {
+  background: rgba(255, 214, 117, 0.14);
+  color: #ffe9b0;
+}
+
+.settings-library-card__scan-badge--muted {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-soft);
+}
+
+.settings-library-card__scan-copy {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.45;
 }
 
 .settings-library-card__path-block {

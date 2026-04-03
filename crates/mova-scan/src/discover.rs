@@ -44,12 +44,33 @@ where
     F: FnMut(usize),
     C: FnMut() -> bool,
 {
+    discover_media_files_with_progress_item_and_cancel(
+        root_path,
+        &mut on_progress,
+        |_| {},
+        &mut should_cancel,
+    )
+}
+
+/// 递归扫描目录，支持在发现单个媒体文件时立即回调，便于上层做增量 UI。
+pub fn discover_media_files_with_progress_item_and_cancel<F, I, C>(
+    root_path: &Path,
+    mut on_progress: F,
+    mut on_item_discovered: I,
+    mut should_cancel: C,
+) -> io::Result<Vec<DiscoveredMediaFile>>
+where
+    F: FnMut(usize),
+    I: FnMut(&DiscoveredMediaFile),
+    C: FnMut() -> bool,
+{
     let mut files = Vec::new();
     let mut probe_availability = ProbeAvailability::Unknown;
     visit_dir(
         root_path,
         &mut files,
         &mut on_progress,
+        &mut on_item_discovered,
         &mut should_cancel,
         &mut probe_availability,
     )?;
@@ -88,6 +109,7 @@ fn visit_dir<F>(
     dir: &Path,
     files: &mut Vec<DiscoveredMediaFile>,
     on_progress: &mut F,
+    on_item_discovered: &mut impl FnMut(&DiscoveredMediaFile),
     should_cancel: &mut impl FnMut() -> bool,
     probe_availability: &mut ProbeAvailability,
 ) -> io::Result<()>
@@ -108,7 +130,14 @@ where
         let metadata = entry.metadata()?;
 
         if metadata.is_dir() {
-            visit_dir(&path, files, on_progress, should_cancel, probe_availability)?;
+            visit_dir(
+                &path,
+                files,
+                on_progress,
+                on_item_discovered,
+                should_cancel,
+                probe_availability,
+            )?;
             continue;
         }
 
@@ -121,6 +150,9 @@ where
             metadata.len(),
             probe_availability,
         ));
+        if let Some(file) = files.last() {
+            on_item_discovered(file);
+        }
         on_progress(files.len());
     }
 

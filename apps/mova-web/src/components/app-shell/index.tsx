@@ -5,12 +5,14 @@ import { ApiError, getCurrentUser, listLibraries, logout } from '../../api/clien
 import type { Library, UserAccount } from '../../api/types'
 import { canManageServer } from '../../lib/viewer'
 import { ContentHeader } from '../content-header'
+import type { ScanRuntimeByLibrary } from './scan-runtime'
 import { useServerEvents } from './use-server-events'
 
 export interface AppShellOutletContext {
   libraries: Library[]
   librariesLoading: boolean
   currentUser: UserAccount
+  scanRuntimeByLibrary: ScanRuntimeByLibrary
 }
 
 export const AppShell = () => {
@@ -37,7 +39,7 @@ export const AppShell = () => {
     },
   })
 
-  useServerEvents({ enabled: currentUserQuery.isSuccess })
+  const scanRuntimeByLibrary = useServerEvents({ enabled: currentUserQuery.isSuccess })
 
   useEffect(() => {
     if (!location.pathname) {
@@ -113,6 +115,7 @@ export const AppShell = () => {
                   libraries: librariesQuery.data ?? [],
                   librariesLoading: librariesQuery.isLoading,
                   currentUser,
+                  scanRuntimeByLibrary,
                 } as AppShellOutletContext
               }
             />

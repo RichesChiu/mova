@@ -2,6 +2,8 @@
 
 `mova-web` 是 Mova 的前端原型，基于 Vite、React、TypeScript、React Router、TanStack Query 和 Biome。
 
+当前前端已经接入 SSE 实时事件流：扫描中的媒体库会立即显示库级进度条，发现新文件时首页和媒体库页会立刻插入临时卡片，再随着元数据和海报简介的获取过程逐步更新，最后由真实列表接管。
+
 ## 运行
 
 ```bash
@@ -39,6 +41,7 @@ docker compose up -d --build
 ## 质量工具
 
 ```bash
+pnpm test
 pnpm format
 pnpm lint
 pnpm check
