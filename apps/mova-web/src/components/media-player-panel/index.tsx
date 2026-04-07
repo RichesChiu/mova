@@ -13,6 +13,10 @@ import type { MediaFile, SubtitleFile } from '../../api/types'
 import { formatDuration } from '../../lib/format'
 
 const PROGRESS_SYNC_INTERVAL_SECONDS = 5
+const PLAYBACK_PROGRESS_SAVE_ERROR =
+  'Playback progress could not be saved. We will retry on the next sync.'
+const SUBTITLE_LOAD_ERROR =
+  'The selected subtitle could not be loaded. Playback will continue without subtitles.'
 
 interface MediaPlayerPanelProps {
   episodeSwitchOptions?: Array<{
@@ -338,6 +342,23 @@ const forceSelectedTextTrack = (video: HTMLVideoElement, shouldShowSubtitle: boo
   }
 }
 
+export const buildPlaybackSourceErrorMessage = (video: HTMLVideoElement | null) => {
+  const errorCode = video?.error?.code
+
+  switch (errorCode) {
+    case 1:
+      return 'Playback was interrupted before the file finished loading. Try again.'
+    case 2:
+      return 'The selected file could not be streamed. Check the storage mount or network path.'
+    case 3:
+      return 'This browser could not decode the selected file. Try another version or container.'
+    case 4:
+      return 'This browser does not support the selected video format.'
+    default:
+      return 'This browser could not play the selected file. Try another version or container.'
+  }
+}
+
 export const MediaPlayerPanel = ({
   episodeSwitchOptions = [],
   mediaItemId,
@@ -363,6 +384,8 @@ export const MediaPlayerPanel = ({
   const flushPlaybackProgressRef = useRef<() => void>(() => {})
   const [selectedMediaFileId, setSelectedMediaFileId] = useState<number | null>(null)
   const [playerError, setPlayerError] = useState<string | null>(null)
+  const [playbackSyncError, setPlaybackSyncError] = useState<string | null>(null)
+  const [subtitleTrackError, setSubtitleTrackError] = useState<string | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
   const [bufferedSeconds, setBufferedSeconds] = useState(0)
   const [positionSeconds, setPositionSeconds] = useState(0)
@@ -393,7 +416,11 @@ export const MediaPlayerPanel = ({
     onSuccess: (progress) => {
       hasSubmittedProgressRef.current = true
       lastReportedSecondsRef.current = progress.position_seconds
+      setPlaybackSyncError(null)
       queryClient.setQueryData(['media-item-playback-progress', mediaItemId], progress)
+    },
+    onError: () => {
+      setPlaybackSyncError(PLAYBACK_PROGRESS_SAVE_ERROR)
     },
   })
   const subtitleFilesQuery = useQuery({
@@ -409,6 +436,24 @@ export const MediaPlayerPanel = ({
   const selectedMediaFileDuration = selectedMediaFile?.duration_seconds ?? null
   const selectedSubtitle =
     subtitleFiles.find((subtitle) => subtitle.id === selectedSubtitleId) ?? null
+  const subtitleWarning =
+    subtitleTrackError ?? (subtitleFilesQuery.isError ? SUBTITLE_LOAD_ERROR : null)
+
+  const resetTransientPlayerFeedback = ({
+    keepBuffering = false,
+  }: {
+    keepBuffering?: boolean
+  } = {}) => {
+    setPlayerError(null)
+    setPlaybackSyncError(null)
+    setSubtitleTrackError(null)
+    setIsEpisodeMenuOpen(false)
+    setIsSubtitleMenuOpen(false)
+
+    if (!keepBuffering) {
+      setIsBuffering(false)
+    }
+  }
 
   useEffect(() => {
     selectedMediaFileRef.current = selectedMediaFile
@@ -451,6 +496,10 @@ export const MediaPlayerPanel = ({
     restoredForFileRef.current = null
     lastReportedSecondsRef.current = -1
     setPlayerError(null)
+    setPlaybackSyncError(null)
+    setSubtitleTrackError(null)
+    setIsEpisodeMenuOpen(false)
+    setIsSubtitleMenuOpen(false)
     setIsBuffering(selectedMediaFileId !== null)
     setBufferedSeconds(0)
     setPositionSeconds(0)
@@ -463,7 +512,6 @@ export const MediaPlayerPanel = ({
       return
     }
 
-    setIsSubtitleMenuOpen(false)
     setSelectedSubtitleId(null)
   }, [selectedMediaFileId])
 
@@ -771,7 +819,7 @@ export const MediaPlayerPanel = ({
 
       if (pendingPlaybackRestore.shouldAutoplay) {
         void video.play().catch(() => {
-          setPlayerError('Playback was blocked by the browser. Click play again to continue.')
+          setPlayerError('Autoplay was blocked by the browser. Click play again to continue.')
         })
       }
 
@@ -837,9 +885,17 @@ export const MediaPlayerPanel = ({
 
   const handlePlayerError = () => {
     setIsBuffering(false)
-    setPlayerError(
-      'This browser could not play the selected file. Try another version or container.',
-    )
+    setPlayerError(buildPlaybackSourceErrorMessage(videoRef.current))
+  }
+
+  const handleSubtitleTrackError = () => {
+    const video = videoRef.current
+    if (video) {
+      forceSelectedTextTrack(video, false)
+    }
+
+    setSelectedSubtitleId(null)
+    setSubtitleTrackError(SUBTITLE_LOAD_ERROR)
   }
 
   const persistProgressBeforeSwitch = () => {
@@ -862,7 +918,7 @@ export const MediaPlayerPanel = ({
       shouldAutoplay: !video.paused,
       shouldPersistSelection: false,
     })
-    setPlayerError(null)
+    resetTransientPlayerFeedback({ keepBuffering: true })
     setIsBuffering(true)
     video.load()
   }
@@ -880,6 +936,8 @@ export const MediaPlayerPanel = ({
       shouldAutoplay: !video.paused,
       shouldPersistSelection: true,
     })
+    resetTransientPlayerFeedback({ keepBuffering: true })
+    setIsBuffering(true)
     setSelectedMediaFileId(targetMediaFileId)
   }
 
@@ -903,7 +961,7 @@ export const MediaPlayerPanel = ({
       try {
         await video.play()
       } catch {
-        setPlayerError('Playback was blocked by the browser. Click play again to continue.')
+        setPlayerError('Autoplay was blocked by the browser. Click play again to continue.')
       }
       return
     }
@@ -1018,6 +1076,12 @@ export const MediaPlayerPanel = ({
                         </button>
                       </div>
                     ) : null}
+                    {!playerError && playbackSyncError ? (
+                      <p className="callout">{playbackSyncError}</p>
+                    ) : null}
+                    {!playerError && subtitleWarning ? (
+                      <p className="callout">{subtitleWarning}</p>
+                    ) : null}
                   </div>
 
                   {mediaFiles.length > 1 ? (
@@ -1076,6 +1140,7 @@ export const MediaPlayerPanel = ({
                     key={selectedSubtitle.id}
                     kind="subtitles"
                     label={renderSubtitleLabel(selectedSubtitle)}
+                    onError={handleSubtitleTrackError}
                     src={subtitleFileStreamUrl(selectedSubtitle.id)}
                     srcLang={normalizeSubtitleTrackLanguage(selectedSubtitle.language)}
                   />
@@ -1224,6 +1289,7 @@ export const MediaPlayerPanel = ({
                                   : 'player-popover-menu__option'
                               }
                               onClick={() => {
+                                setSubtitleTrackError(null)
                                 setSelectedSubtitleId(null)
                                 setIsSubtitleMenuOpen(false)
                               }}
@@ -1242,6 +1308,7 @@ export const MediaPlayerPanel = ({
                                 }
                                 key={subtitle.id}
                                 onClick={() => {
+                                  setSubtitleTrackError(null)
                                   setSelectedSubtitleId(subtitle.id)
                                   setIsSubtitleMenuOpen(false)
                                 }}
@@ -1332,6 +1399,14 @@ export const MediaPlayerPanel = ({
                 Retry current source
               </button>
             </div>
+          ) : null}
+
+          {!playerError && playbackSyncError && !isImmersive ? (
+            <p className="callout">{playbackSyncError}</p>
+          ) : null}
+
+          {!playerError && subtitleWarning && !isImmersive ? (
+            <p className="callout">{subtitleWarning}</p>
           ) : null}
 
           {isBuffering && !playerError && !isImmersive ? (

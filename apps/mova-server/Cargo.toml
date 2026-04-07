@@ -24,3 +24,7 @@ tower-http.workspace = true
 mova-db = { path = "../../crates/mova-db" }
 mova-domain = { path = "../../crates/mova-domain" }
 mova-application = { path = "../../crates/mova-application" }
+
+[dev-dependencies]
+http-body-util = "0.1"
+serde_json.workspace = true

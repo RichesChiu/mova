@@ -131,3 +131,58 @@ impl RealtimeEventResponse {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::RealtimeEvent;
+    use mova_application::ScanJobItemProgressUpdate;
+    use mova_domain::{User, UserProfile, UserRole};
+    use time::{OffsetDateTime, UtcOffset};
+
+    fn build_user_profile(role: UserRole, library_ids: Vec<i64>) -> UserProfile {
+        UserProfile {
+            user: User {
+                id: 1,
+                username: "viewer01".to_string(),
+                role,
+                is_enabled: true,
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                updated_at: OffsetDateTime::UNIX_EPOCH,
+            },
+            library_ids,
+        }
+    }
+
+    #[test]
+    fn library_updated_event_uses_library_visibility_rules() {
+        let viewer = build_user_profile(UserRole::Viewer, vec![7]);
+        let outsider = build_user_profile(UserRole::Viewer, vec![8]);
+        let event = RealtimeEvent::LibraryUpdated { library_id: 7 };
+
+        assert_eq!(event.event_name(), "library.updated");
+        assert!(event.is_visible_to(&viewer));
+        assert!(!event.is_visible_to(&outsider));
+    }
+
+    #[test]
+    fn scan_item_event_can_be_serialized_into_sse() {
+        let event = RealtimeEvent::ScanItemUpdated {
+            item: ScanJobItemProgressUpdate {
+                scan_job_id: 41,
+                library_id: 7,
+                item_key: "/media/movies/interstellar.mkv".to_string(),
+                media_type: "movie".to_string(),
+                title: "Interstellar".to_string(),
+                season_number: None,
+                episode_number: None,
+                item_index: 1,
+                total_items: 3,
+                stage: "metadata".to_string(),
+                progress_percent: 36,
+            },
+        };
+
+        assert_eq!(event.event_name(), "scan.item.updated");
+        assert!(event.to_sse_event(UtcOffset::UTC).is_some());
+    }
+}

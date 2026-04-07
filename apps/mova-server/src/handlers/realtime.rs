@@ -44,3 +44,157 @@ pub async fn events(
             .text("heartbeat"),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::events;
+    use crate::{
+        auth::{attach_session_cookie, SESSION_TTL},
+        realtime::RealtimeEvent,
+        state::{AppState, LibrarySyncRegistry, RealtimeHub, ScanRegistry},
+    };
+    use axum::{extract::State, response::IntoResponse};
+    use axum_extra::extract::cookie::CookieJar;
+    use http_body_util::BodyExt;
+    use mova_application::{NullMetadataProvider, ScanJobItemProgressUpdate};
+    use mova_domain::UserRole;
+    use std::{path::PathBuf, sync::Arc};
+    use time::{OffsetDateTime, UtcOffset};
+    use tokio::time::{timeout, Duration};
+
+    fn build_test_state(pool: sqlx::postgres::PgPool) -> AppState {
+        AppState {
+            db: pool,
+            api_time_offset: UtcOffset::UTC,
+            artwork_cache_dir: PathBuf::from("/tmp/mova-test-artwork"),
+            metadata_provider: Arc::new(NullMetadataProvider),
+            scan_registry: ScanRegistry::default(),
+            library_sync_registry: LibrarySyncRegistry::default(),
+            realtime_hub: RealtimeHub::default(),
+        }
+    }
+
+    async fn seed_authorized_session(
+        pool: &sqlx::postgres::PgPool,
+    ) -> (CookieJar, i64) {
+        let library = mova_db::create_library(
+            pool,
+            mova_db::CreateLibraryParams {
+                name: "Movies".to_string(),
+                description: None,
+                library_type: "movie".to_string(),
+                metadata_language: "zh-CN".to_string(),
+                root_path: "/media/movies".to_string(),
+                is_enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+        let user = mova_db::create_user(
+            pool,
+            mova_db::CreateUserParams {
+                username: "viewer01".to_string(),
+                password_hash: "hash".to_string(),
+                role: UserRole::Viewer,
+                is_enabled: true,
+                library_ids: vec![library.id],
+            },
+        )
+        .await
+        .unwrap();
+
+        let session_token = "realtime-test-session";
+        let expires_at = OffsetDateTime::now_utc() + SESSION_TTL;
+        mova_db::create_session(
+            pool,
+            mova_db::CreateSessionParams {
+                token: session_token.to_string(),
+                user_id: user.user.id,
+                expires_at,
+            },
+        )
+        .await
+        .unwrap();
+
+        (
+            attach_session_cookie(CookieJar::new(), session_token, expires_at),
+            library.id,
+        )
+    }
+
+    async fn read_first_sse_chunk(response: axum::response::Response) -> String {
+        let mut body = response.into_body();
+        let frame = timeout(Duration::from_secs(1), body.frame())
+            .await
+            .expect("timed out waiting for SSE frame")
+            .expect("stream closed before the first SSE frame")
+            .expect("failed to read SSE body frame");
+        let bytes = frame.into_data().expect("expected an SSE data frame");
+
+        String::from_utf8(bytes.to_vec()).expect("SSE body must be valid utf-8")
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn events_stream_serializes_library_updated_messages(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let state = build_test_state(pool.clone());
+        let (jar, library_id) = seed_authorized_session(&pool).await;
+
+        let sse = events(State(state.clone()), jar).await.unwrap();
+        state
+            .realtime_hub
+            .publish(RealtimeEvent::LibraryUpdated { library_id });
+
+        let response = sse.into_response();
+        let content_type = response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+
+        assert!(content_type.starts_with("text/event-stream"));
+
+        let body = read_first_sse_chunk(response).await;
+
+        assert!(body.contains("event: library.updated"));
+        assert!(body.contains("\"type\":\"library.updated\""));
+        assert!(body.contains(&format!("\"library_id\":{}", library_id)));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn events_stream_serializes_scan_item_progress_messages(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let state = build_test_state(pool.clone());
+        let (jar, library_id) = seed_authorized_session(&pool).await;
+
+        let sse = events(State(state.clone()), jar).await.unwrap();
+        state.realtime_hub.publish(RealtimeEvent::ScanItemUpdated {
+            item: ScanJobItemProgressUpdate {
+                scan_job_id: 41,
+                library_id,
+                item_key: "/media/movies/Interstellar (2014)/Interstellar.mkv".to_string(),
+                media_type: "movie".to_string(),
+                title: "Interstellar".to_string(),
+                season_number: None,
+                episode_number: None,
+                item_index: 1,
+                total_items: 3,
+                stage: "artwork".to_string(),
+                progress_percent: 68,
+            },
+        });
+
+        let body = read_first_sse_chunk(sse.into_response()).await;
+
+        assert!(body.contains("event: scan.item.updated"));
+        assert!(body.contains("\"type\":\"scan.item.updated\""));
+        assert!(body.contains("\"title\":\"Interstellar\""));
+        assert!(body.contains("\"stage\":\"artwork\""));
+        assert!(body.contains("\"progress_percent\":68"));
+    }
+}
