@@ -16,12 +16,14 @@ export interface ScanRuntimeItem {
 
 export interface LibraryScanRuntime {
   items: ScanRuntimeItem[]
+  scanJob: ScanJob | null
 }
 
 export type ScanRuntimeByLibrary = Record<number, LibraryScanRuntime>
 
 export const EMPTY_LIBRARY_SCAN_RUNTIME: LibraryScanRuntime = {
   items: [],
+  scanJob: null,
 }
 
 export const isScanJobActive = (scanJob: ScanJob | null | undefined) =>
@@ -38,39 +40,51 @@ export const getScanRuntimeItems = (runtime: LibraryScanRuntime | null | undefin
 export const getPrimaryScanRuntimeItem = (runtime: LibraryScanRuntime | null | undefined) =>
   getScanRuntimeItems(runtime)[0] ?? null
 
+export const getEffectiveScanJob = (
+  scanJob: ScanJob | null | undefined,
+  runtime: LibraryScanRuntime | null | undefined,
+) => runtime?.scanJob ?? scanJob ?? null
+
 export const formatScanJobStatusCopy = (
   scanJob: ScanJob | null | undefined,
   runtime: LibraryScanRuntime | null | undefined,
 ) => {
-  if (!scanJob) {
-    return null
-  }
-
-  if (scanJob.status === 'pending') {
-    return '等待开始扫描'
-  }
-
-  if (scanJob.status === 'failed') {
-    return scanJob.error_message ?? '扫描失败'
-  }
-
-  if (scanJob.status === 'success') {
-    return '扫描完成'
-  }
-
+  const effectiveScanJob = getEffectiveScanJob(scanJob, runtime)
   const primaryItem = getPrimaryScanRuntimeItem(runtime)
   const activeItemCount = getScanRuntimeItems(runtime).length
 
-  switch (scanJob.phase) {
+  if (!effectiveScanJob) {
+    if (primaryItem) {
+      return primaryItem.stage === 'artwork'
+        ? `正在补全 ${primaryItem.title} 的海报和简介`
+        : `正在匹配 ${primaryItem.title} 的元数据`
+    }
+
+    return null
+  }
+
+  if (effectiveScanJob.status === 'pending') {
+    return '等待开始扫描'
+  }
+
+  if (effectiveScanJob.status === 'failed') {
+    return effectiveScanJob.error_message ?? '扫描失败'
+  }
+
+  if (effectiveScanJob.status === 'success') {
+    return '扫描完成'
+  }
+
+  switch (effectiveScanJob.phase) {
     case 'discovering':
       if (activeItemCount > 0) {
         return activeItemCount > 1
           ? `已发现 ${activeItemCount} 个新条目，正在继续扫描目录`
           : `已发现 ${primaryItem?.title ?? '新条目'}，正在继续扫描目录`
       }
-      return scanJob.total_files > 0
-        ? `正在发现文件 ${scanJob.scanned_files}/${scanJob.total_files}`
-        : `正在发现文件 ${scanJob.scanned_files}`
+      return effectiveScanJob.total_files > 0
+        ? `正在发现文件 ${effectiveScanJob.scanned_files}/${effectiveScanJob.total_files}`
+        : `正在发现文件 ${effectiveScanJob.scanned_files}`
     case 'enriching':
       if (primaryItem) {
         if (primaryItem.stage === 'discovered') {
@@ -99,30 +113,36 @@ export const getScanJobProgressPercent = (
   scanJob: ScanJob | null | undefined,
   runtime: LibraryScanRuntime | null | undefined,
 ) => {
-  if (!scanJob) {
-    return 0
+  const effectiveScanJob = getEffectiveScanJob(scanJob, runtime)
+
+  if (!effectiveScanJob) {
+    const currentItem = getPrimaryScanRuntimeItem(runtime)
+    return currentItem ? Math.max(10, currentItem.progress_percent) : 0
   }
 
-  if (scanJob.status === 'success') {
+  if (effectiveScanJob.status === 'success') {
     return 100
   }
 
-  if (scanJob.status === 'pending') {
+  if (effectiveScanJob.status === 'pending') {
     return 4
   }
 
-  if (scanJob.phase === 'discovering') {
-    if (scanJob.total_files <= 0) {
+  if (effectiveScanJob.phase === 'discovering') {
+    if (effectiveScanJob.total_files <= 0) {
       return 12
     }
 
     return Math.max(
       12,
-      Math.min(45, Math.round((scanJob.scanned_files / scanJob.total_files) * 45)),
+      Math.min(
+        45,
+        Math.round((effectiveScanJob.scanned_files / effectiveScanJob.total_files) * 45),
+      ),
     )
   }
 
-  if (scanJob.phase === 'enriching') {
+  if (effectiveScanJob.phase === 'enriching') {
     const currentItem = getPrimaryScanRuntimeItem(runtime)
     if (!currentItem || currentItem.total_items <= 0) {
       return 52
@@ -135,15 +155,18 @@ export const getScanJobProgressPercent = (
     return Math.max(46, Math.min(90, Math.round(45 + totalFraction * 45)))
   }
 
-  if (scanJob.phase === 'syncing') {
+  if (effectiveScanJob.phase === 'syncing') {
     return 94
   }
 
-  if (scanJob.status === 'failed') {
-    if (scanJob.total_files > 0) {
+  if (effectiveScanJob.status === 'failed') {
+    if (effectiveScanJob.total_files > 0) {
       return Math.max(
         8,
-        Math.min(94, Math.round((scanJob.scanned_files / scanJob.total_files) * 94)),
+        Math.min(
+          94,
+          Math.round((effectiveScanJob.scanned_files / effectiveScanJob.total_files) * 94),
+        ),
       )
     }
 
@@ -153,10 +176,42 @@ export const getScanJobProgressPercent = (
   return 16
 }
 
-export const shouldShowScanPlaceholder = (
-  _scanJob: ScanJob | null | undefined,
+export const isLibraryScanActive = (
+  scanJob: ScanJob | null | undefined,
   runtime: LibraryScanRuntime | null | undefined,
-) => getScanRuntimeItems(runtime).length > 0
+) => {
+  const effectiveScanJob = getEffectiveScanJob(scanJob, runtime)
+
+  if (isScanJobActive(effectiveScanJob)) {
+    return true
+  }
+
+  return getScanRuntimeItems(runtime).length > 0
+}
+
+export const shouldShowScanPlaceholder = (
+  scanJob: ScanJob | null | undefined,
+  runtime: LibraryScanRuntime | null | undefined,
+) => {
+  if (getScanRuntimeItems(runtime).length > 0) {
+    return true
+  }
+
+  return isScanJobActive(getEffectiveScanJob(scanJob, runtime))
+}
+
+export const formatPendingScanPlaceholderCopy = (
+  scanJob: ScanJob | null | undefined,
+  runtime: LibraryScanRuntime | null | undefined,
+  fallbackTitle: string,
+) => {
+  const scanCopy = formatScanJobStatusCopy(scanJob, runtime)
+  if (scanCopy) {
+    return scanCopy
+  }
+
+  return `正在准备 ${fallbackTitle} 的扫描结果`
+}
 
 export const formatScanItemMeta = (item: ScanRuntimeItem) => {
   if (

@@ -9,6 +9,7 @@ import type { LibraryScanRuntime } from '../../components/app-shell/scan-runtime
 
 export interface HomeLibraryModuleData {
   detail: LibraryDetail | null
+  detailLoading: boolean
   library: Library
   scanRuntime: LibraryScanRuntime
   shelfError: Error | null

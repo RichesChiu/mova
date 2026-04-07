@@ -1,8 +1,13 @@
 import { Link } from 'react-router-dom'
 import {
+  formatPendingScanPlaceholderCopy,
   formatScanItemMeta,
   formatScanItemProgressCopy,
+  formatScanJobStatusCopy,
+  getEffectiveScanJob,
+  getScanJobProgressPercent,
   getScanRuntimeItems,
+  isLibraryScanActive,
   shouldShowScanPlaceholder,
 } from '../../../components/app-shell/scan-runtime'
 import {
@@ -55,10 +60,24 @@ export const LibraryContentSections = ({
           <LibraryContentSectionSkeleton key={title} title={title} />
         ))
       : libraryModules.map(
-          ({ detail, library, scanRuntime, shelfError, shelfItems, shelfLoading }) => {
+          ({
+            detail,
+            detailLoading,
+            library,
+            scanRuntime,
+            shelfError,
+            shelfItems,
+            shelfLoading,
+          }) => {
+            const effectiveScanJob = getEffectiveScanJob(detail?.last_scan, scanRuntime)
+            const isScanning = isLibraryScanActive(effectiveScanJob, scanRuntime)
             const showScanPlaceholder = shouldShowScanPlaceholder(detail?.last_scan, scanRuntime)
             const scanItems = showScanPlaceholder ? getScanRuntimeItems(scanRuntime) : []
             const currentScanItem = scanItems[0] ?? null
+            const scanCopy =
+              formatScanJobStatusCopy(effectiveScanJob, scanRuntime) ??
+              (detailLoading ? '正在同步媒体库状态' : null)
+            const scanProgressPercent = getScanJobProgressPercent(effectiveScanJob, scanRuntime)
 
             return (
               <section className="catalog-block library-content-sections__block" key={library.id}>
@@ -98,6 +117,8 @@ export const LibraryContentSections = ({
                     {formatScanItemProgressCopy(currentScanItem)}
                     {scanItems.length > 1 ? ` · 已发现 ${scanItems.length} 个新条目` : null}
                   </p>
+                ) : scanCopy ? (
+                  <p className="muted">{scanCopy}</p>
                 ) : null}
                 {shelfLoading ? <p className="muted">Loading library shelf…</p> : null}
                 {shelfError ? (
@@ -130,6 +151,24 @@ export const LibraryContentSections = ({
                     hint="Scroll horizontally."
                     viewportClassName="library-content-sections__viewport"
                   >
+                    {isScanning && scanItems.length === 0 ? (
+                      <div
+                        className="library-content-sections__item"
+                        key={`scan-pending-${library.id}`}
+                      >
+                        <MediaCardScanPlaceholder
+                          placeholderLabel={library.library_type.toUpperCase()}
+                          progressPercent={scanProgressPercent}
+                          progressText={formatPendingScanPlaceholderCopy(
+                            effectiveScanJob,
+                            scanRuntime,
+                            library.name,
+                          )}
+                          subtitle="library"
+                          title={library.name}
+                        />
+                      </div>
+                    ) : null}
                     {scanItems.map((item) => (
                       <div
                         className="library-content-sections__item"

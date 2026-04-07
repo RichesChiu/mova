@@ -771,7 +771,40 @@ async fn emit_scan_job_phase(
 #[cfg(test)]
 mod tests {
     use crate::media_classification::{LIBRARY_TYPE_MIXED, LIBRARY_TYPE_SERIES};
-    use std::path::Path;
+    use mova_scan::DiscoveredMediaFile;
+    use std::path::{Path, PathBuf};
+
+    fn build_discovered_file() -> DiscoveredMediaFile {
+        DiscoveredMediaFile {
+            file_path: PathBuf::from("/media/series/Arcane/Arcane.S01E01.mkv"),
+            title: "Arcane".to_string(),
+            source_title: "Arcane.S01E01".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: Some(2021),
+            season_number: Some(1),
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: Some(1),
+            episode_title: Some("Welcome to the Playground".to_string()),
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+            file_size: 1,
+            container: Some("mkv".to_string()),
+            duration_seconds: Some(2400),
+            video_codec: None,
+            audio_codec: None,
+            width: None,
+            height: None,
+            bitrate: None,
+            subtitle_tracks: Vec::new(),
+        }
+    }
 
     #[test]
     fn mixed_library_classifies_episode_like_paths_as_episode() {
@@ -825,6 +858,31 @@ mod tests {
             ),
             "扫描目录阶段失败：扫描文件目录失败：No such file or directory"
         );
+    }
+
+    #[test]
+    fn build_scan_item_progress_update_emits_discovered_episode_payload() {
+        let progress = super::build_scan_item_progress_update(
+            41,
+            7,
+            "episode",
+            &build_discovered_file(),
+            1,
+            3,
+            super::ScanItemStage::Discovered,
+        );
+
+        assert_eq!(progress.scan_job_id, 41);
+        assert_eq!(progress.library_id, 7);
+        assert_eq!(progress.media_type, "episode");
+        assert_eq!(progress.title, "Welcome to the Playground");
+        assert_eq!(progress.season_number, Some(1));
+        assert_eq!(progress.episode_number, Some(1));
+        assert_eq!(progress.stage, "discovered");
+        assert_eq!(progress.progress_percent, 6);
+        assert_eq!(progress.item_index, 1);
+        assert_eq!(progress.total_items, 3);
+        assert!(progress.item_key.ends_with("Arcane.S01E01.mkv"));
     }
 }
 

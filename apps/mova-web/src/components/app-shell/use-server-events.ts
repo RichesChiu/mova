@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
+import { getLibrary } from '../../api/client'
 import type { LibraryDetail, ScanJob } from '../../api/types'
 import type { ScanRuntimeByLibrary, ScanRuntimeItem } from './scan-runtime'
 
@@ -154,7 +155,8 @@ const replaceLibraryScanRuntime = (
   libraryId: number,
   item: ScanRuntimeItem,
 ): ScanRuntimeByLibrary => {
-  const previousItems = current[libraryId]?.items ?? []
+  const previousRuntime = current[libraryId]
+  const previousItems = previousRuntime?.items ?? []
   const nextItems = [
     item,
     ...previousItems.filter(
@@ -166,28 +168,26 @@ const replaceLibraryScanRuntime = (
     ...current,
     [libraryId]: {
       items: nextItems,
+      scanJob: previousRuntime?.scanJob ?? null,
     },
   }
 }
 
-const removeStaleLibraryScanRuntime = (
+const replaceLibraryScanJob = (
   current: ScanRuntimeByLibrary,
   libraryId: number,
-  scanJobId: number,
+  scanJob: ScanJob,
 ): ScanRuntimeByLibrary => {
   const currentRuntime = current[libraryId]
-  if (!currentRuntime) {
-    return current
-  }
+  const nextItems = currentRuntime?.items.filter((item) => item.scan_job_id === scanJob.id) ?? []
 
-  const hasOnlyCurrentJobItems = currentRuntime.items.every(
-    (item) => item.scan_job_id === scanJobId,
-  )
-  if (hasOnlyCurrentJobItems) {
-    return current
+  return {
+    ...current,
+    [libraryId]: {
+      items: nextItems,
+      scanJob,
+    },
   }
-
-  return removeLibraryScanRuntime(current, libraryId)
 }
 
 export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
@@ -210,6 +210,16 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
     }
 
     const eventSource = new EventSource(SERVER_EVENTS_URL)
+
+    const syncLibraryDetail = async (libraryId: number) => {
+      const detail = await queryClient.fetchQuery({
+        queryKey: ['home-library-detail', libraryId],
+        queryFn: () => getLibrary(libraryId),
+      })
+
+      queryClient.setQueryData(['library', libraryId], detail)
+      return detail
+    }
 
     const recoverQueriesAfterReconnect = () => {
       const activeLibraryMatch = matchPath('/libraries/:libraryId', pathnameRef.current)
@@ -287,7 +297,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         (current) => patchLibraryLastScan(current, payload.scan_job),
       )
       setScanRuntimeByLibrary((current) =>
-        removeStaleLibraryScanRuntime(current, payload.scan_job.library_id, payload.scan_job.id),
+        replaceLibraryScanJob(current, payload.scan_job.library_id, payload.scan_job),
       )
     }
 
@@ -304,6 +314,9 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       queryClient.setQueryData<LibraryDetail | undefined>(
         ['home-library-detail', payload.scan_job.library_id],
         (current) => patchLibraryLastScan(current, payload.scan_job),
+      )
+      setScanRuntimeByLibrary((current) =>
+        replaceLibraryScanJob(current, payload.scan_job.library_id, payload.scan_job),
       )
 
       // 扫描结束后再统一刷新重查询，避免每条进度事件都触发一轮 HTTP refetch。
@@ -347,6 +360,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         queryClient.invalidateQueries({ queryKey: ['library-media', payload.library_id] }),
         queryClient.invalidateQueries({ queryKey: ['home-library-detail', payload.library_id] }),
         queryClient.invalidateQueries({ queryKey: ['home-library-shelf', payload.library_id] }),
+        syncLibraryDetail(payload.library_id).catch(() => undefined),
       ])
     }
 

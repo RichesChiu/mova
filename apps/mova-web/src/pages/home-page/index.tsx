@@ -93,6 +93,7 @@ export const HomePage = () => {
   // Build a page-level view model once and keep the three home modules purely presentational.
   const libraryModules: HomeLibraryModuleData[] = libraries.map((library, index) => ({
     detail: libraryDetailQueries[index]?.data ?? null,
+    detailLoading: libraryDetailQueries[index]?.isLoading ?? false,
     library,
     scanRuntime: getLibraryScanRuntime(scanRuntimeByLibrary, library.id),
     shelfError: shelfQueries[index]?.error instanceof Error ? shelfQueries[index].error : null,

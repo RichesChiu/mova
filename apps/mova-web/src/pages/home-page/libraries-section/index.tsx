@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom'
 import {
   formatScanJobStatusCopy,
+  getEffectiveScanJob,
   getScanJobProgressPercent,
-  isScanJobActive,
+  isLibraryScanActive,
 } from '../../../components/app-shell/scan-runtime'
 import { ScrollableRail } from '../../../components/scrollable-rail'
 import { SectionHelp } from '../../../components/section-help'
@@ -62,17 +63,26 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
       </div>
     ) : (
       <ScrollableRail hint="Scroll horizontally." viewportClassName="libraries-section__viewport">
-        {libraryModules.map(({ detail, library, scanRuntime, shelfItems }) => {
+        {libraryModules.map(({ detail, detailLoading, library, scanRuntime, shelfItems }) => {
           // Use the first few posters as a lightweight library backdrop so a new library card still
           // feels alive before it gets custom artwork or richer metadata.
           const collagePosters = shelfItems
             .map((item) => item.poster_path ?? item.backdrop_path)
             .filter((value): value is string => Boolean(value))
             .slice(0, 4)
-          const lastScan = detail?.last_scan ?? null
-          const isScanning = isScanJobActive(lastScan)
-          const scanCopy = formatScanJobStatusCopy(lastScan, scanRuntime)
-          const scanProgressPercent = getScanJobProgressPercent(lastScan, scanRuntime)
+          const lastScan = getEffectiveScanJob(detail?.last_scan ?? null, scanRuntime)
+          const isScanning = isLibraryScanActive(lastScan, scanRuntime)
+          const isSyncingLibraryState = detailLoading && !detail && !isScanning
+          const scanCopy = isScanning
+            ? formatScanJobStatusCopy(lastScan, scanRuntime)
+            : isSyncingLibraryState
+              ? '正在同步媒体库状态'
+              : null
+          const scanProgressPercent = isScanning
+            ? getScanJobProgressPercent(lastScan, scanRuntime)
+            : isSyncingLibraryState
+              ? 10
+              : 0
 
           return (
             <Link className="library-spotlight" key={library.id} to={`/libraries/${library.id}`}>
@@ -95,7 +105,9 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
                 <strong className="library-spotlight__title">{library.name}</strong>
 
                 <div className="library-spotlight__stats">
-                  <span className="library-spotlight__stat">{detail?.media_count ?? 0} items</span>
+                  <span className="library-spotlight__stat">
+                    {detailLoading && !detail ? 'syncing…' : `${detail?.media_count ?? 0} items`}
+                  </span>
                   {library.library_type === 'mixed' ? (
                     <>
                       <span className="library-spotlight__stat">
@@ -108,7 +120,7 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
                   ) : null}
                 </div>
 
-                {isScanning ? (
+                {scanCopy ? (
                   <div className="library-spotlight__scan" role="status">
                     <div className="library-spotlight__scan-row">
                       <span className="library-spotlight__scan-label">{scanCopy}</span>
