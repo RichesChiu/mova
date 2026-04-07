@@ -119,12 +119,48 @@ const appendCreatedLibrary = (libraries: Library[] | undefined, createdLibrary: 
   return [...withoutDuplicate, createdLibrary]
 }
 
+const replaceLibrary = (libraries: Library[] | undefined, updatedLibrary: Library) => {
+  if (!libraries || libraries.length === 0) {
+    return [updatedLibrary]
+  }
+
+  let found = false
+  const nextLibraries = libraries.map((library) => {
+    if (library.id !== updatedLibrary.id) {
+      return library
+    }
+
+    found = true
+    return updatedLibrary
+  })
+
+  return found ? nextLibraries : [...nextLibraries, updatedLibrary]
+}
+
 const createEmptyShelf = (): MediaItemListResponse => ({
   items: [],
   total: 0,
   page: 1,
   page_size: 20,
 })
+
+const mergeUpdatedLibraryDetail = (
+  current: LibraryDetail | undefined,
+  updatedLibrary: Library,
+  shouldSeedPendingScan: boolean,
+): LibraryDetail => {
+  const currentLastScan = current?.last_scan ?? null
+
+  return {
+    ...(current ?? buildPlaceholderLibraryDetail(updatedLibrary)),
+    ...updatedLibrary,
+    last_scan: shouldSeedPendingScan
+      ? currentLastScan?.status === 'running' || currentLastScan?.status === 'pending'
+        ? currentLastScan
+        : buildInitialScanJob(updatedLibrary.id)
+      : currentLastScan,
+  }
+}
 
 const SettingsUserCardSkeleton = () => (
   <article aria-hidden="true" className="settings-user-card settings-user-card--loading">
@@ -260,10 +296,35 @@ export const SettingsPage = () => {
       libraryId: number
       input: Parameters<typeof updateLibrary>[1]
     }) => updateLibrary(libraryId, input),
-    onSuccess: async (_library, libraryId) => {
+    onSuccess: async (updatedLibrary, { libraryId }) => {
+      const currentLibraries = queryClient.getQueryData<Library[]>(['libraries'])
+      const previousLibrary =
+        currentLibraries?.find((library) => library.id === libraryId) ?? editingLibrary
+      const shouldSeedPendingScan = !previousLibrary?.is_enabled && updatedLibrary.is_enabled
+      const currentLibraryDetail = queryClient.getQueryData<LibraryDetail>(['library', libraryId])
+      const currentHomeLibraryDetail = queryClient.getQueryData<LibraryDetail>([
+        'home-library-detail',
+        libraryId,
+      ])
+
+      // Keep the settings list and detail caches in sync immediately so the modal edits feel
+      // local-first, then let background refetches reconcile scan state and counts.
+      queryClient.setQueryData<Library[]>(['libraries'], (current) =>
+        replaceLibrary(current, updatedLibrary),
+      )
+      queryClient.setQueryData<LibraryDetail>(
+        ['library', libraryId],
+        mergeUpdatedLibraryDetail(currentLibraryDetail, updatedLibrary, shouldSeedPendingScan),
+      )
+      queryClient.setQueryData<LibraryDetail>(
+        ['home-library-detail', libraryId],
+        mergeUpdatedLibraryDetail(currentHomeLibraryDetail, updatedLibrary, shouldSeedPendingScan),
+      )
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['libraries'] }),
         queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['home-library-shelf', libraryId] }),
       ])
@@ -499,7 +560,9 @@ export const SettingsPage = () => {
         <div className="section-heading">
           <div>
             <h3>Library Management</h3>
-            <p className="muted">用卡片方式管理媒体库，扫描和删除都集中在这里处理。</p>
+            <p className="muted">
+              用卡片方式管理媒体库，创建、扫描、删除和基础配置编辑都集中在这里处理。
+            </p>
           </div>
         </div>
 
@@ -547,6 +610,9 @@ export const SettingsPage = () => {
                         <span className="settings-library-card__type">{library.library_type}</span>
                         <span className="settings-library-card__language">
                           {library.metadata_language}
+                        </span>
+                        <span className="settings-library-card__status">
+                          {library.is_enabled ? 'enabled' : 'disabled'}
                         </span>
                       </div>
 

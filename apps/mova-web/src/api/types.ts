@@ -234,6 +234,9 @@ export interface CreateLibraryInput {
 
 export interface UpdateLibraryInput {
   name?: string
+  description?: string | null
+  metadata_language?: string
+  is_enabled?: boolean
 }
 
 export interface ServerMediaDirectoryNode {

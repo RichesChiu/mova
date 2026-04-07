@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Library, UpdateLibraryInput } from '../../api/types'
+import { GlassSelect, type GlassSelectOption } from '../glass-select'
 
 interface LibraryEditorModalProps {
   error: string | null
@@ -16,6 +17,11 @@ const libraryBadge = (library: Library | null) =>
   library?.library_type?.charAt(0).toUpperCase() ||
   'L'
 
+const metadataLanguageOptions: GlassSelectOption[] = [
+  { value: 'zh-CN', label: '中文 (zh-CN)' },
+  { value: 'en-US', label: 'English (en-US)' },
+]
+
 export const LibraryEditorModal = ({
   error,
   isOpen,
@@ -25,6 +31,9 @@ export const LibraryEditorModal = ({
   onUpdate,
 }: LibraryEditorModalProps) => {
   const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [metadataLanguage, setMetadataLanguage] = useState('zh-CN')
+  const [isEnabled, setIsEnabled] = useState(true)
 
   useEffect(() => {
     if (!isOpen) {
@@ -32,6 +41,9 @@ export const LibraryEditorModal = ({
     }
 
     setName(library?.name ?? '')
+    setDescription(library?.description ?? '')
+    setMetadataLanguage(library?.metadata_language ?? 'zh-CN')
+    setIsEnabled(library?.is_enabled ?? true)
   }, [isOpen, library])
 
   useEffect(() => {
@@ -64,6 +76,9 @@ export const LibraryEditorModal = ({
 
     await onUpdate(library.id, {
       name: name.trim(),
+      description: description.trim() || null,
+      metadata_language: metadataLanguage,
+      is_enabled: isEnabled,
     })
     onClose()
   }
@@ -73,6 +88,12 @@ export const LibraryEditorModal = ({
   }
 
   const normalizedName = name.trim()
+  const normalizedDescription = description.trim()
+  const hasChanges =
+    normalizedName !== library.name ||
+    normalizedDescription !== (library.description ?? '') ||
+    metadataLanguage !== library.metadata_language ||
+    isEnabled !== library.is_enabled
 
   return createPortal(
     <div className="library-editor-modal">
@@ -90,7 +111,7 @@ export const LibraryEditorModal = ({
             <div>
               <p className="eyebrow">Library Management</p>
               <h3>Edit Library</h3>
-              <p className="muted">当前先开放库名编辑，其他配置仍保持只读展示。</p>
+              <p className="muted">在这里统一维护媒体库名称、描述、元数据语言和启停状态。</p>
             </div>
           </div>
 
@@ -135,24 +156,46 @@ export const LibraryEditorModal = ({
             </article>
             <article className="library-editor-modal__fact">
               <span>Metadata Language</span>
-              <strong>{library.metadata_language}</strong>
+              <strong>{metadataLanguage}</strong>
             </article>
             <article className="library-editor-modal__fact">
-              <span>Watcher Status</span>
-              <strong>{library.is_enabled ? 'Enabled' : 'Disabled'}</strong>
+              <span>Library Status</span>
+              <strong>{isEnabled ? 'Enabled' : 'Disabled'}</strong>
             </article>
           </div>
+
+          <label className="field">
+            <span>Description</span>
+            <textarea
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="What is this library for?"
+              rows={4}
+              value={description}
+            />
+          </label>
+
+          <div className="field">
+            <span>Metadata Language</span>
+            <GlassSelect
+              ariaLabel="Library metadata language"
+              onChange={setMetadataLanguage}
+              options={metadataLanguageOptions}
+              value={metadataLanguage}
+            />
+          </div>
+
+          <label className="toggle">
+            <input
+              checked={isEnabled}
+              onChange={(event) => setIsEnabled(event.target.checked)}
+              type="checkbox"
+            />
+            <span>Enable watcher and automatic background sync</span>
+          </label>
 
           <div className="field">
             <span>Root Path</span>
             <code className="library-editor-modal__path">{library.root_path}</code>
-          </div>
-
-          <div className="field">
-            <span>Description</span>
-            <p className="library-editor-modal__description">
-              {library.description ?? 'No description'}
-            </p>
           </div>
 
           {error ? <p className="callout callout--danger">{error}</p> : null}
@@ -163,7 +206,7 @@ export const LibraryEditorModal = ({
             </button>
             <button
               className="button button--primary"
-              disabled={isSubmitting || normalizedName.length === 0}
+              disabled={isSubmitting || normalizedName.length === 0 || !hasChanges}
               type="submit"
             >
               {isSubmitting ? 'Saving…' : 'Save Changes'}

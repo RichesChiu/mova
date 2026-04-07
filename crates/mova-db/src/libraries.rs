@@ -16,11 +16,14 @@ pub struct CreateLibraryParams {
     pub is_enabled: bool,
 }
 
-/// 更新媒体库名称时需要的字段。
+/// 更新媒体库基础配置时需要的字段。
 #[derive(Debug)]
 pub struct UpdateLibraryParams {
     pub library_id: i64,
     pub name: String,
+    pub description: Option<String>,
+    pub metadata_language: String,
+    pub is_enabled: bool,
 }
 
 /// 按创建时间顺序读取媒体库列表，保证接口返回顺序稳定。
@@ -86,6 +89,9 @@ pub async fn update_library(pool: &PgPool, params: UpdateLibraryParams) -> Resul
         r#"
         update libraries
         set name = $2,
+            description = $3,
+            metadata_language = $4,
+            is_enabled = $5,
             updated_at = now()
         where id = $1
         returning id, name, description, library_type, metadata_language, root_path, is_enabled, created_at, updated_at
@@ -93,6 +99,9 @@ pub async fn update_library(pool: &PgPool, params: UpdateLibraryParams) -> Resul
     )
     .bind(params.library_id)
     .bind(params.name)
+    .bind(params.description)
+    .bind(params.metadata_language)
+    .bind(params.is_enabled)
     .fetch_optional(pool)
     .await
     .context("failed to update library")?;

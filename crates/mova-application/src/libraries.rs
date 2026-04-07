@@ -23,6 +23,9 @@ pub struct CreateLibraryInput {
 #[derive(Debug)]
 pub struct UpdateLibraryInput {
     pub name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub metadata_language: Option<String>,
+    pub is_enabled: Option<bool>,
 }
 
 /// 从持久层读取当前所有媒体库配置。
@@ -105,7 +108,6 @@ pub async fn create_library(
 }
 
 /// 更新媒体库基础配置。
-/// 当前只支持修改名称。
 pub async fn update_library(
     pool: &PgPool,
     library_id: i64,
@@ -113,7 +115,11 @@ pub async fn update_library(
 ) -> ApplicationResult<Library> {
     let existing = get_library(pool, library_id).await?;
 
-    if input.name.is_none() {
+    if input.name.is_none()
+        && input.description.is_none()
+        && input.metadata_language.is_none()
+        && input.is_enabled.is_none()
+    {
         return Err(ApplicationError::Validation(
             "at least one library field must be provided".to_string(),
         ));
@@ -128,14 +134,39 @@ pub async fn update_library(
         None => existing.name.clone(),
     };
 
-    if name == existing.name {
+    let description = match input.description {
+        Some(value) => normalize_optional_text(value),
+        None => existing.description.clone(),
+    };
+
+    let metadata_language = match input.metadata_language {
+        Some(value) => normalize_metadata_language(Some(value), DEFAULT_TMDB_LANGUAGE)?,
+        None => existing.metadata_language.clone(),
+    };
+
+    let is_enabled = input.is_enabled.unwrap_or(existing.is_enabled);
+
+    if name == existing.name
+        && description == existing.description
+        && metadata_language == existing.metadata_language
+        && is_enabled == existing.is_enabled
+    {
         return Ok(existing);
     }
 
-    mova_db::update_library(pool, mova_db::UpdateLibraryParams { library_id, name })
-        .await
-        .map_err(ApplicationError::from)?
-        .ok_or_else(|| ApplicationError::NotFound(format!("library not found: {}", library_id)))
+    mova_db::update_library(
+        pool,
+        mova_db::UpdateLibraryParams {
+            library_id,
+            name,
+            description,
+            metadata_language,
+            is_enabled,
+        },
+    )
+    .await
+    .map_err(ApplicationError::from)?
+    .ok_or_else(|| ApplicationError::NotFound(format!("library not found: {}", library_id)))
 }
 
 /// 删除媒体库。

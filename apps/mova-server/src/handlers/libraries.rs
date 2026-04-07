@@ -31,10 +31,13 @@ pub struct CreateLibraryRequest {
 }
 
 /// 更新媒体库接口接收的请求体。
-/// 当前只支持更新基础配置，不单独提供启停能力。
+/// 支持更新名称、描述、元数据语言和启停状态。
 #[derive(Debug, Deserialize)]
 pub struct UpdateLibraryRequest {
     pub name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub metadata_language: Option<String>,
+    pub is_enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -116,7 +119,6 @@ pub async fn create_library(
 }
 
 /// 更新媒体库基础配置。
-/// 当前只支持修改库名，不触发重扫。
 pub async fn update_library(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -131,13 +133,34 @@ pub async fn update_library(
         )));
     }
 
+    let previous_library = mova_application::get_library(&state.db, library_id)
+        .await
+        .map_err(ApiError::from)?;
     let updated_library = mova_application::update_library(
         &state.db,
         library_id,
-        mova_application::UpdateLibraryInput { name: request.name },
+        mova_application::UpdateLibraryInput {
+            name: request.name,
+            description: request.description,
+            metadata_language: request.metadata_language,
+            is_enabled: request.is_enabled,
+        },
     )
     .await
     .map_err(ApiError::from)?;
+
+    if previous_library.is_enabled && !updated_library.is_enabled {
+        if let Some(active_scan) = state.scan_registry.active_scan(library_id) {
+            active_scan.cancel();
+        }
+        state.library_sync_registry.stop_watcher(library_id);
+    }
+
+    if !previous_library.is_enabled && updated_library.is_enabled {
+        sync_runtime::start_library_watcher(&state, updated_library.clone()).await;
+        maybe_enqueue_initial_library_scan(&state, updated_library.id, true).await;
+    }
+
     state
         .realtime_hub
         .publish(RealtimeEvent::LibraryUpdated { library_id });
