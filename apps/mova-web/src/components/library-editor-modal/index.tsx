@@ -1,6 +1,11 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Library, UpdateLibraryInput } from '../../api/types'
+import {
+  buildLibraryEditorDraft,
+  buildLibraryUpdateInput,
+  hasLibraryConfigChanges,
+} from '../../lib/library-config'
 import { GlassSelect, type GlassSelectOption } from '../glass-select'
 
 interface LibraryEditorModalProps {
@@ -40,10 +45,11 @@ export const LibraryEditorModal = ({
       return
     }
 
-    setName(library?.name ?? '')
-    setDescription(library?.description ?? '')
-    setMetadataLanguage(library?.metadata_language ?? 'zh-CN')
-    setIsEnabled(library?.is_enabled ?? true)
+    const draft = buildLibraryEditorDraft(library)
+    setName(draft.name)
+    setDescription(draft.description)
+    setMetadataLanguage(draft.metadataLanguage)
+    setIsEnabled(draft.isEnabled)
   }, [isOpen, library])
 
   useEffect(() => {
@@ -74,12 +80,15 @@ export const LibraryEditorModal = ({
       return
     }
 
-    await onUpdate(library.id, {
-      name: name.trim(),
-      description: description.trim() || null,
-      metadata_language: metadataLanguage,
-      is_enabled: isEnabled,
-    })
+    await onUpdate(
+      library.id,
+      buildLibraryUpdateInput({
+        name,
+        description,
+        metadataLanguage,
+        isEnabled,
+      }),
+    )
     onClose()
   }
 
@@ -88,12 +97,12 @@ export const LibraryEditorModal = ({
   }
 
   const normalizedName = name.trim()
-  const normalizedDescription = description.trim()
-  const hasChanges =
-    normalizedName !== library.name ||
-    normalizedDescription !== (library.description ?? '') ||
-    metadataLanguage !== library.metadata_language ||
-    isEnabled !== library.is_enabled
+  const hasChanges = hasLibraryConfigChanges(library, {
+    name,
+    description,
+    metadataLanguage,
+    isEnabled,
+  })
 
   return createPortal(
     <div className="library-editor-modal">

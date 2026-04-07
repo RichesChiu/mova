@@ -1,15 +1,13 @@
 import type { MediaItem, MediaType } from '../api/types'
 
-export function mediaItemDetailPath(mediaItemId: number) {
-  return `/media-items/${mediaItemId}`
-}
+export const mediaItemDetailPath = (mediaItemId: number) => `/media-items/${mediaItemId}`
 
-export function mediaItemPlayPath(
+export const mediaItemPlayPath = (
   mediaItemId: number,
   options?: {
     fromStart?: boolean
   },
-) {
+) => {
   if (options?.fromStart) {
     return `/media-items/${mediaItemId}/play?fromStart=1`
   }
@@ -17,10 +15,10 @@ export function mediaItemPlayPath(
   return `/media-items/${mediaItemId}/play`
 }
 
-export function mediaItemPrimaryPath(item: Pick<MediaItem, 'id' | 'media_type'>) {
+export const mediaItemPrimaryPath = (item: Pick<MediaItem, 'id' | 'media_type'>) => {
   return mediaTypePrimaryPath(item.id, item.media_type)
 }
 
-export function mediaTypePrimaryPath(mediaItemId: number, _mediaType: MediaType) {
+export const mediaTypePrimaryPath = (mediaItemId: number, _mediaType: MediaType) => {
   return mediaItemDetailPath(mediaItemId)
 }

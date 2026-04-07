@@ -14,72 +14,18 @@ import { MetadataMatchPanel } from '../../components/metadata-match-panel'
 import { ScrollableRail } from '../../components/scrollable-rail'
 import { mediaItemDetailPath, mediaItemPlayPath } from '../../lib/media-routes'
 import {
+  buildPlaybackActionLinks,
+  isResumablePlayback,
+  pickPreferredPlaybackEpisode,
+  playbackPercent,
+  playbackStatus,
+} from '../../lib/playback'
+import {
   MEDIA_DETAIL_QUERY_STALE_TIME_MS,
   MEDIA_QUERY_GC_TIME_MS,
   SERIES_OUTLINE_QUERY_STALE_TIME_MS,
 } from '../../lib/query-options'
 import { canManageLibraries } from '../../lib/viewer'
-
-const playbackPercent = (
-  progress:
-    | {
-        position_seconds: number
-        duration_seconds: number | null
-        is_finished: boolean
-      }
-    | null
-    | undefined,
-) => {
-  if (!progress) {
-    return null
-  }
-
-  if (progress.is_finished) {
-    return 100
-  }
-
-  if (!progress.duration_seconds || progress.duration_seconds <= 0) {
-    return null
-  }
-
-  return Math.max(
-    0,
-    Math.min(100, Math.round((progress.position_seconds / progress.duration_seconds) * 100)),
-  )
-}
-
-const playbackStatus = (
-  progress:
-    | {
-        position_seconds: number
-        duration_seconds: number | null
-        is_finished: boolean
-      }
-    | null
-    | undefined,
-) => {
-  if (progress?.is_finished) {
-    return 'complete' as const
-  }
-
-  const percent = playbackPercent(progress)
-  if (typeof percent === 'number' && percent > 0) {
-    return 'progress' as const
-  }
-
-  return 'idle' as const
-}
-
-const isResumableProgress = (
-  progress:
-    | {
-        position_seconds: number
-        duration_seconds: number | null
-        is_finished: boolean
-      }
-    | null
-    | undefined,
-) => Boolean(progress && !progress.is_finished && progress.position_seconds > 0)
 
 const EPISODE_SKELETONS = [
   { metaLabel: 'S01 · E01', placeholderLabel: '1-1' },
@@ -258,22 +204,21 @@ export const MediaItemPage = () => {
   const canMatchMetadata =
     canManageLibraries(currentUser) && mediaItemQuery.data?.media_type !== 'episode'
   // 剧集详情页优先把按钮落到当前季里已有断点的那一集；如果当前季还没播过，再回退到第一集。
-  const selectedSeasonPlayableEpisode =
-    selectedSeason?.episodes.find(
-      (episode) =>
-        episode.is_available &&
-        episode.media_item_id &&
-        isResumableProgress(episode.playback_progress),
-    ) ??
-    selectedSeason?.episodes.find((episode) => episode.is_available && episode.media_item_id) ??
-    null
+  const selectedSeasonPlayableEpisode = pickPreferredPlaybackEpisode(selectedSeason?.episodes)
   const playbackTargetMediaItemId = isSeriesView
     ? (selectedSeasonPlayableEpisode?.media_item_id ?? null)
     : (mediaItemQuery.data?.id ?? null)
   const shouldResumePlayback = isSeriesView
-    ? isResumableProgress(selectedSeasonPlayableEpisode?.playback_progress)
-    : isResumableProgress(moviePlaybackProgressQuery.data)
-  const playbackActionLabel = shouldResumePlayback ? 'Resume Playback' : 'Play'
+    ? isResumablePlayback(selectedSeasonPlayableEpisode?.playback_progress)
+    : isResumablePlayback(moviePlaybackProgressQuery.data)
+  const playbackActionLinks = playbackTargetMediaItemId
+    ? buildPlaybackActionLinks(
+        playbackTargetMediaItemId,
+        isSeriesView
+          ? selectedSeasonPlayableEpisode?.playback_progress
+          : moviePlaybackProgressQuery.data,
+      )
+    : null
   const heroPosterPath =
     isSeriesView && selectedSeason
       ? (selectedSeason.poster_path ?? mediaItemQuery.data?.poster_path ?? null)
@@ -476,16 +421,16 @@ export const MediaItemPage = () => {
                 <>
                   <Link
                     className="button button--primary"
-                    to={mediaItemPlayPath(playbackTargetMediaItemId)}
+                    to={
+                      playbackActionLinks?.primaryPath ??
+                      mediaItemPlayPath(playbackTargetMediaItemId)
+                    }
                   >
-                    <span>{playbackActionLabel}</span>
+                    <span>{playbackActionLinks?.primaryLabel ?? 'Play'}</span>
                   </Link>
 
-                  {shouldResumePlayback ? (
-                    <Link
-                      className="button"
-                      to={mediaItemPlayPath(playbackTargetMediaItemId, { fromStart: true })}
-                    >
+                  {shouldResumePlayback && playbackActionLinks?.secondaryPath ? (
+                    <Link className="button" to={playbackActionLinks.secondaryPath}>
                       <span>Play from Beginning</span>
                     </Link>
                   ) : null}

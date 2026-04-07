@@ -1,4 +1,4 @@
-export function formatDateTime(value: string | null | undefined) {
+export const formatDateTime = (value: string | null | undefined) => {
   if (!value) {
     return '—'
   }
@@ -9,7 +9,7 @@ export function formatDateTime(value: string | null | undefined) {
   }).format(new Date(value))
 }
 
-export function formatBytes(value: number | null | undefined) {
+export const formatBytes = (value: number | null | undefined) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return '—'
   }
@@ -26,7 +26,7 @@ export function formatBytes(value: number | null | undefined) {
   return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
 }
 
-export function formatDuration(seconds: number | null | undefined) {
+export const formatDuration = (seconds: number | null | undefined) => {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) {
     return '—'
   }

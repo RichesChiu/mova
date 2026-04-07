@@ -9,7 +9,7 @@ export type ThemeName = (typeof THEMES)[keyof typeof THEMES]
 
 export const DEFAULT_THEME: ThemeName = THEMES.noir
 
-export function applyTheme(theme: ThemeName = DEFAULT_THEME) {
+export const applyTheme = (theme: ThemeName = DEFAULT_THEME) => {
   const root = document.documentElement
   root.setAttribute(THEME_ATTRIBUTE, theme)
   root.style.colorScheme = theme === THEMES.noir ? 'dark' : 'light'

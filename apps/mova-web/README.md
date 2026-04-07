@@ -140,6 +140,8 @@ src/
 | `lib/query-client.ts` | 创建全局 `QueryClient`，统一 `retry`、`staleTime`、`refetchOnWindowFocus` 策略。 |
 | `lib/query-options.ts` | 抽取媒体详情、剧集大纲等查询的缓存/过期常量。 |
 | `lib/media-routes.ts` | 统一生成媒体详情页和播放页路径，避免各页面自己拼字符串。 |
+| `lib/playback.ts` | 统一收口续播判断、播放入口链接和播放进度衍生状态，优先给页面和卡片复用。 |
+| `lib/library-config.ts` | 统一媒体库编辑弹窗的 draft 初始化、变更判断和提交 payload 归一化。 |
 | `lib/viewer.ts` | 当前角色判断工具，决定哪些管理入口只给管理员看。 |
 | `lib/format.ts` | 时间、日期、时长等显示格式化函数。 |
 | `lib/theme.ts` | 启动时应用全局主题。 |
@@ -173,18 +175,24 @@ src/
 已存在的测试文件包括：
 
 - `components/app-shell/use-server-events.test.tsx`
+- `components/app-shell/scan-runtime.test.ts`
 - `components/media-player-panel/media-player-panel.test.tsx`
-- `pages/media-item-page/media-item-page.test.tsx`
-- `pages/home-page/home-page-scan-state.test.tsx`
-- `components/library-editor-modal/library-editor-modal.test.tsx`
+- `lib/playback.test.ts`
+- `lib/library-config.test.ts`
 
 当前这些测试重点覆盖：
 
 - `useServerEvents` 的断线恢复、媒体库删除跳转、媒体库更新刷新、元数据更新刷新，以及扫描运行时状态保持
+- `scan-runtime` 的扫描中文案、占位显示和粗粒度进度计算
 - `MediaPlayerPanel` 的恢复播放、从头播放、切源迁移、错误文案映射和字幕失败降级
-- 首页库卡和 shelf 的扫描中 loading / 占位状态
-- 详情页“继续播放 / 从头播放”的入口行为
-- 媒体库编辑弹窗的请求体契约
+- `playback` helper 的续播判定、默认播放入口和剧集优先选择
+- `library-config` helper 的 draft 初始化、变更判断和提交 payload 归一化
+
+测试策略上，当前更偏向：
+
+- 保留高风险 hook 和播放器交互测试
+- 把页面按钮、占位文案、表单 payload 这类逻辑尽量下沉到纯函数，用 `.test.ts` 覆盖
+- 避免堆太多页面渲染级 `tsx` 测试，减少样式和文案微调带来的维护成本
 
 ## 7. 运行
 
