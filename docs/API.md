@@ -71,7 +71,7 @@
 | `GET` | `/api/libraries` | 查询媒体库列表 |
 | `POST` | `/api/libraries` | 创建媒体库 |
 | `GET` | `/api/libraries/{id}` | 查询单个媒体库详情 |
-| `PATCH` | `/api/libraries/{id}` | 更新媒体库名称 |
+| `PATCH` | `/api/libraries/{id}` | 更新媒体库基础配置 |
 | `DELETE` | `/api/libraries/{id}` | 删除媒体库 |
 | `GET` | `/api/libraries/{id}/media-items` | 查询媒体库下的媒体条目列表 |
 | `GET` | `/api/libraries/{id}/scan-jobs` | 查询媒体库扫描历史 |
@@ -198,6 +198,8 @@
 说明：
 - 需要登录态 session cookie
 - 返回类型为 `text/event-stream`
+- 事件本身更适合作为“资源已变化”的通知；客户端收到后，应按事件类型重新拉对应 HTTP 接口，而不是把 SSE 负载直接当成最终页面数据
+- 当前服务端只推送连接建立之后的新事件；客户端断线后应自动重连，并在重连成功后主动补一轮关键查询，避免断开期间漏掉一次刷新
 - 当前已实现事件：
   - `scan.job.updated`
   - `scan.job.finished`
@@ -491,7 +493,7 @@
 ### `PATCH /api/libraries/{id}`
 
 作用：
-- 更新媒体库名称
+- 更新媒体库基础配置
 
 权限：
 - 仅 `admin`
@@ -503,12 +505,18 @@
 
 ```json
 {
-  "name": "Movies HD"
+  "name": "Movies HD",
+  "description": "4K 电影库",
+  "metadata_language": "en-US",
+  "is_enabled": true
 }
 ```
 
 字段说明：
 - `name`：可选，更新媒体库名称
+- `description`：可选，更新媒体库描述；传 `null` 可清空现有描述
+- `metadata_language`：可选，更新 TMDB 元数据语言，当前支持 `zh-CN` / `en-US`
+- `is_enabled`：可选，控制该媒体库是否启用 watcher 与后台同步
 
 返回：
 - 成功时 `200 OK`
@@ -516,8 +524,9 @@
 
 说明：
 - 至少要传一个字段，否则返回 `400 Bad Request`
-- 目前只支持传 `name`
-- 更新名称不会触发重扫
+- 更新名称、描述或元数据语言不会直接重扫，但后续扫描会按新配置继续执行
+- 当 `is_enabled` 从 `false` 改成 `true` 时，服务会重新启动该库的 watcher，并自动补一轮后台扫描
+- 当 `is_enabled` 从 `true` 改成 `false` 时，服务会停止该库 watcher；如果该库此时有扫描正在执行，会先请求取消当前扫描
 
 ### `GET /api/libraries/{id}/media-items`
 
@@ -1009,6 +1018,10 @@
 - `last_watched_at`：最近一次上报时间
 - `is_finished`：是否标记为已看完
 
+说明：
+- `null` 是这个接口的正常语义，表示“当前用户还没有这条内容的播放记录”，不应当被当成异常
+- 前端播放器当前会在播放中按 `5s` 心跳上报，并在暂停、播放结束、切源、切集、页面隐藏和离开页面时额外强制 flush 一次
+
 ### `PUT /api/media-items/{id}/playback-progress`
 
 作用：
@@ -1048,6 +1061,9 @@
 说明：
 - 播放进度按当前登录用户隔离；不同用户的观看记录、继续观看列表互不共享
 - `playback_progress` 只保留“当前最新状态”，不承担完整历史时间线
+- 每次成功写入都会同步刷新该用户的 `watch_history`
+- 当 `is_finished = false` 时，该条内容会继续出现在 `continue-watching`
+- 当 `is_finished = true` 时，该条内容会从 `continue-watching` 移除，但对应观看会话仍会保留在 `watch-history`
 
 ### `GET /api/playback-progress/continue-watching`
 
@@ -1169,6 +1185,7 @@
   - 同目录、同 stem 自动匹配
   - 同目录、季集号一致且目录内唯一时自动匹配，例如 `show.S01E01.mkv` 可匹配 `xxxxx.S01E01.srt`
 - 如果同目录下同一个 `SxxEyy` 存在多个视频版本，服务端不会只靠季集号盲猜绑定
+- 如果字幕列表查询失败，客户端应当按“字幕暂不可用”降级，主视频播放不应被阻断
 
 ### `GET /api/subtitle-files/{id}/stream`
 
@@ -1188,6 +1205,7 @@
 - `ass/ssa` 会借助 `ffmpeg` 转成 `WebVTT`
 - 内嵌字幕会按流索引抽取后再转成 `WebVTT`
 - 前端播放器切换字幕时，应只激活一条字幕轨道，避免外挂和内嵌字幕同时显示造成重影
+- 如果单条字幕流转换或加载失败，客户端应提示该字幕不可用并继续播放主视频，而不是把整个播放器判成失败
 
 ### `GET /api/media-files/{id}/stream`
 

@@ -1,90 +1,60 @@
 # Mova
 
-Mova 是一个自托管媒体服务器项目，目标是把本地媒体目录整理成可扫描、可浏览、可播放、可持续同步的媒体库。
+Mova 是一个自托管媒体服务器项目，目标很直接：
 
-当前仓库包含后端服务 `mova-server` 和前端原型 `mova-web`。后端负责媒体库管理、文件扫描与增量同步、元数据补全、剧集聚合、图片缓存、播放进度和基础流媒体能力；前端负责把这些能力组织成可直接验证的管理与浏览界面。
+- 把本地媒体目录整理成可持续同步的媒体库
+- 用更轻松的方式浏览、播放和续播
+- 让扫描、补元数据、同步这些内部过程尽量自动完成
 
-## 主要技术
+当前仓库包含两个应用和四个核心 Rust crate：
 
-- Rust workspace
-- React
-- Vite
-- Axum
-- Tokio
-- PostgreSQL
-- SQLx
-- TanStack Query
-- `notify` 文件系统 watcher
-- `ffmpeg` / `ffprobe`
-- TMDB 元数据补全（运行时可选）
-- Biome
-- Docker Compose
+- `apps/mova-server`
+- `apps/mova-web`
+- `crates/mova-application`
+- `crates/mova-db`
+- `crates/mova-domain`
+- `crates/mova-scan`
 
-## 当前能力
+## 产品特点
 
-- 支持创建 `mixed` / `movie` / `series` 三种媒体库，默认推荐 `mixed`
-- 支持重叠库和相同路径重复建库；同一物理文件会在各自库内独立建模
-- 创建启用库后会自动触发首轮扫描
-- 支持后台扫描任务、扫描历史和单任务状态查询
-- 支持 `GET /api/events` 的 SSE 实时事件流；扫描阶段、条目级元数据补全进度、媒体库变更和元数据变更可主动推送到其他在线客户端
-- 已启用库会通过 watcher 和定时路径校准自动处理新增、删除、改名、移动等常见文件变更
-- 扫描按 `(library_id, file_path)` 做增量同步，不再整库替换
-- 电影按单文件建模；剧集会聚合成 `series / seasons / episodes`
-- 支持本地 sidecar 元数据读取，例如 `.nfo`、`poster.jpg`、`fanart.jpg`
-- 支持 TMDB 补全缺失的标题、简介、年份、海报和背景图，并把图片缓存到本地
-- 支持媒体列表分页、名称搜索、发行年筛选
-- 支持媒体详情、文件列表、海报、背景图、季列表、集列表
-- 支持剧集季/集级封面与背景图（TMDB 优先，缺失时集级可回退首帧）
-- 支持媒体文件直链播放、基础单段 `Range` 请求、字幕列表查询和 WebVTT 字幕输出
-- 支持首个管理员 bootstrap、登录、登出和当前用户查询
-- 支持 `admin / viewer` 两类用户；管理员默认可见全部媒体库，普通用户按库授权
-- 支持播放进度写入、继续观看列表和观看历史，且已切到真实登录用户维度
-- 播放器已接入周期性进度同步、切源/切集前补报、字幕切换、从头播放入口、缓冲提示和当前源重试
-- 首页和媒体库页已支持扫描中库进度条，以及“某个电影 / 某一集正在补海报简介”的占位卡提示；扫描不阻塞进入详情
-- 扫描发现新文件时，首页和媒体库页会立刻插入对应的临时卡片；卡片会继续经历“已发现文件 -> 匹配元数据 -> 获取海报简介 -> 等待写库”的过程，再由真实列表结果接管
-- 新建启用媒体库后，同一端会立即看到一个扫描中的库卡，不必等整轮列表重拉完成
-- 设置页已接入最小用户管理和媒体库管理，可创建/编辑用户、编辑媒体库名称，并直接查看最近扫描状态
-- 前端已接入最小 Vitest + React Testing Library 测试底座，覆盖实时事件 hook 和播放入口行为
-- 已提供基于 React + Vite 的前端原型，可直接联调媒体库、扫描、详情和剧集聚合
+### 好看且直接的 Web 体验
 
-## 启动
+Mova 的前端不是只做“能用”的后台页，而是尽量把首页、媒体库页、详情页和播放器做得更像一个真正会长期打开的媒体应用：
 
-当前只保留一种推荐启动方式：
+- 首页和媒体库页会直接展示扫描中的进度和占位卡
+- 扫描不会阻塞浏览和进入详情
+- 播放器支持续播、从头播放、字幕切换、缓冲反馈和重试
+
+### 更适合长时间运行的 Rust 后端
+
+后端使用 Rust 实现，重点放在这几类长期运行场景：
+
+- 媒体库扫描
+- 文件 watcher 和后台路径校准
+- 流媒体直链输出
+- 播放进度与继续观看状态维护
+
+对这个项目来说，Rust 的价值不只是“快”，更是更稳、更适合做持续运行的同步和服务端逻辑。
+
+### 尽量减少用户操作成本
+
+Mova 现在的方向不是让管理员维护很多后台细节，而是把常见动作尽量收敛成简单流程：
+
+- 启动后先登录或初始化首个管理员
+- 在设置页里创建媒体库、编辑库、管理用户
+- 选一个目录作为库根路径，然后让系统自己扫描和同步
+
+扫描进度、库状态和条目占位会尽量前台化，而不是要求用户盯着任务面板。
+
+## 快速启动
+
+先复制环境变量模板：
 
 ```bash
 cp .env.example .env
 ```
 
-然后按需填写 `.env` 里的媒体目录、TMDB token 和代理配置，再执行：
-
-```bash
-docker compose up -d --build
-```
-
-说明：
-- 第一次在新机器上构建镜像会比较慢；需要下载 Rust / Node 基础镜像、安装 `ffmpeg`，并编译 `mova-server` 的 release 版本。
-- 当前 Dockerfile 刻意保持为简单的多阶段构建，优先保证 Linux 上构建行为稳定、容易排查。
-
-默认行为：
-
-- 本机访问：`http://127.0.0.1:36080`
-- 远程服务器访问：`http://<服务器IP>:36080`
-- 健康检查：`GET http://<服务器IP>:36080/api/health`
-- 示例媒体目录：宿主机 [`media/`](media/) 挂载到容器内 `/media`
-- 运行时数据目录：[`data/postgres/`](data/postgres/)、[`data/cache/`](data/cache/)
-
-启动后会同时拉起：
-
-- `mova-server`：Rust API 服务，同时直接托管构建后的前端静态文件
-- `database`：PostgreSQL
-
-如果你的服务器地址是 `192.168.50.3`，启动完成后直接访问：
-
-```text
-http://192.168.50.3:36080
-```
-
-推荐先从 `.env.example` 复制一份，再通过 `.env` 配置宿主机媒体根目录、TMDB token 和代理：
+最常用的配置通常只需要这几个：
 
 ```env
 MOVA_MEDIA_ROOT=/mnt/media
@@ -93,29 +63,78 @@ HTTP_PROXY=
 HTTPS_PROXY=
 ```
 
-说明：
-- `MOVA_MEDIA_ROOT` 是宿主机路径，Docker 会把它只读挂载到容器内固定目录 `/media`。
-- Linux 部署时，推荐先把 SMB / NFS 等网络共享挂到宿主机本地目录，例如 `/mnt/media`，再把 `MOVA_MEDIA_ROOT` 指向这个目录。
-- 前端创建媒体库时会直接展示 `/media` 下的递归目录树；你点击哪个文件夹，就把哪个文件夹作为库源路径。
-- 这样用户不需要手写 `/media/...` 路径，也不需要额外维护多套环境变量。
-- `MOVA_TMDB_ACCESS_TOKEN` 不配置时，TMDB 元数据补全会自动关闭，但本地扫描、入库和播放仍然可用。
-- `HTTP_PROXY` / `HTTPS_PROXY` 会同时传给 Docker 构建阶段和 `mova-server` 运行时，便于在受限网络里拉镜像依赖和请求 TMDB。
-- `NO_PROXY` 会在 compose 中自动补上 `localhost,127.0.0.1,::1,database`；只有你确实需要覆盖默认值时才需要额外设置。
-- 当前约定只保留一个宿主机媒体根目录；后续扩展优先通过这个根目录下的子目录来做，而不是再引入更多环境变量。
+然后启动：
 
-说明：
-- 当前开发阶段只维护 `migrations/0001_init.sql`。如果你在此之前已经启动过旧数据库，升级后建议重建 `data/postgres` 目录再启动，确保新表结构生效。
-- 这次用户体系改动直接修改了 `0001_init.sql`。如果你已经有旧库数据，需要先重建 `data/postgres` 再启动。
+```bash
+docker compose up -d --build
+```
 
-如果要启用 TMDB，只需要设置 `MOVA_TMDB_ACCESS_TOKEN` 后重新构建或重启容器。
+启动后的默认访问地址：
 
-## 文档
+- 本机：`http://127.0.0.1:36080`
+- 远程服务器：`http://<服务器IP>:36080`
+- 健康检查：`GET http://<服务器IP>:36080/api/health`
+
+补充说明：
+
+- `MOVA_MEDIA_ROOT` 是宿主机路径，会以只读方式挂到容器内固定目录 `/media`
+- 前端建库时会直接展示容器内 `/media` 的递归目录树，所以通常不需要手写库路径
+- `MOVA_TMDB_ACCESS_TOKEN` 不配置时，TMDB 自动补全会关闭，但本地扫描、入库和播放仍然可用
+- `NO_PROXY` 会在 compose 里自动补默认值；大多数用户不需要自己配置
+
+如果你的服务器地址是 `192.168.50.3`，启动后直接访问：
+
+```text
+http://192.168.50.3:36080
+```
+
+## 当前范围
+
+根 README 不再展开列所有能力细节，当前仓库的功能状态拆到各子文档里维护：
+
+- 产品和启动入口看这里
+- API 和 SSE 契约看 `docs/API.md`
+- 功能现状、MVP 缺口和后续开发顺序看 `docs/ROADMAP.md`
+- MVP 阶段的部署和升级步骤看 `docs/DEPLOYMENT.md`
+- 前端实现细节看 `apps/mova-web/README.md`
+- 后端实现细节看 `apps/mova-server/README.md`
+- 各 crate 的职责和入口看 `crates/*/README.md`
+
+## 文档入口
+
+### 顶层文档
 
 - 接口说明：[docs/API.md](docs/API.md)
 - 功能现状与开发路线：[docs/ROADMAP.md](docs/ROADMAP.md)
+- MVP 部署与升级说明：[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - 工程结构与重构建议：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+### 应用文档
+
 - 前端原型说明：[apps/mova-web/README.md](apps/mova-web/README.md)
+- 后端服务说明：[apps/mova-server/README.md](apps/mova-server/README.md)
+
+### Workspace crate 文档
+
+- Workspace crate 索引：[crates/README.md](crates/README.md)
+- 应用层 crate：[crates/mova-application/README.md](crates/mova-application/README.md)
+- 持久层 crate：[crates/mova-db/README.md](crates/mova-db/README.md)
+- 领域模型 crate：[crates/mova-domain/README.md](crates/mova-domain/README.md)
+- 扫描能力 crate：[crates/mova-scan/README.md](crates/mova-scan/README.md)
+
+## 开源与许可证
+
+当前仓库实际生效的许可证仍然是 [`LICENSE`](LICENSE) 里的 `MIT`。
+
+项目方向上，我理解你希望 Mova 未来像 Immich 一样，保持“始终免费、始终开源”的路线。如果后续要参考 Immich 当前的 `GNU AGPL v3.0` 方向来调整 Mova 的许可证，我建议单独做一次明确的 license 变更提交，同时同步更新：
+
+- `LICENSE`
+- 根 README
+- 贡献说明
+- 可能受影响的发布与分发文档
+
+这样可以避免出现“README 写的是一种方向，但仓库真正生效的是另一份许可证”的歧义。
 
 ## License
 
-MIT. See [`LICENSE`](LICENSE).
+Current license: `MIT`. See [`LICENSE`](LICENSE).
