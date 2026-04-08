@@ -9,6 +9,16 @@ import {
 } from '../../api/client'
 import type { EpisodeOutlineSeason, MediaCastMember } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
+import {
+  formatMediaItemScanStatusCopy,
+  formatScanItemMeta,
+  formatScanItemProgressCopy,
+  getLibraryScanRuntime,
+  getMediaItemScanRuntimeItems,
+  getScanJobProgressPercent,
+  isLibraryScanActive,
+  type ScanRuntimeItem,
+} from '../../components/app-shell/scan-runtime'
 import { EpisodeCard, EpisodeCardSkeleton } from '../../components/episode-card'
 import { MetadataMatchPanel } from '../../components/metadata-match-panel'
 import { ScrollableRail } from '../../components/scrollable-rail'
@@ -34,41 +44,52 @@ const EPISODE_SKELETONS = [
   { metaLabel: 'S01 · E04', placeholderLabel: '1-4' },
 ] as const
 
-const SeasonBlock = ({ season }: { season: EpisodeOutlineSeason }) => {
-  return (
-    <article className="season-card">
-      <ScrollableRail hint="Scroll, drag, or click arrows to move through episodes.">
-        {season.episodes.map((episode) => {
-          const key = `${season.season_number}-${episode.episode_number}`
-          const index = `S${String(season.season_number).padStart(2, '0')} · E${String(episode.episode_number).padStart(2, '0')}`
-          const artwork = episode.poster_path ?? episode.backdrop_path
-          const title = episode.title.trim() || `Episode ${episode.episode_number}`
-          const progress = playbackPercent(episode.playback_progress)
-          const status = playbackStatus(episode.playback_progress)
+const SeasonBlock = ({
+  scanItems,
+  season,
+}: {
+  scanItems: ScanRuntimeItem[]
+  season: EpisodeOutlineSeason
+}) => {
+  const entries = [
+    ...scanItems.map((item) => ({
+      key: `scan-${item.item_key}`,
+      order: item.episode_number ?? Number.MAX_SAFE_INTEGER,
+      render: () => {
+        const metaLabel = formatScanItemMeta(item)
 
-          if (episode.is_available && episode.media_item_id) {
-            return (
-              <EpisodeCard
-                artworkAlt={`${index} artwork`}
-                artworkSrc={artwork}
-                description={episode.overview}
-                key={key}
-                href={mediaItemPlayPath(episode.media_item_id)}
-                metaLabel={index}
-                placeholderLabel={index}
-                progressPercent={progress}
-                status={status}
-                title={title}
-              />
-            )
-          }
+        return (
+          <EpisodeCard
+            artworkAlt={`${metaLabel} artwork`}
+            description={formatScanItemProgressCopy(item)}
+            key={`scan-${item.item_key}`}
+            metaLabel={metaLabel}
+            placeholderLabel={metaLabel}
+            progressPercent={item.progress_percent}
+            status="progress"
+            title={item.title}
+          />
+        )
+      },
+    })),
+    ...season.episodes.map((episode) => ({
+      key: `${season.season_number}-${episode.episode_number}`,
+      order: episode.episode_number,
+      render: () => {
+        const index = `S${String(season.season_number).padStart(2, '0')} · E${String(episode.episode_number).padStart(2, '0')}`
+        const artwork = episode.poster_path ?? episode.backdrop_path
+        const title = episode.title.trim() || `Episode ${episode.episode_number}`
+        const progress = playbackPercent(episode.playback_progress)
+        const status = playbackStatus(episode.playback_progress)
 
+        if (episode.is_available && episode.media_item_id) {
           return (
             <EpisodeCard
               artworkAlt={`${index} artwork`}
               artworkSrc={artwork}
               description={episode.overview}
-              key={key}
+              key={`${season.season_number}-${episode.episode_number}`}
+              href={mediaItemPlayPath(episode.media_item_id)}
               metaLabel={index}
               placeholderLabel={index}
               progressPercent={progress}
@@ -76,7 +97,29 @@ const SeasonBlock = ({ season }: { season: EpisodeOutlineSeason }) => {
               title={title}
             />
           )
-        })}
+        }
+
+        return (
+          <EpisodeCard
+            artworkAlt={`${index} artwork`}
+            artworkSrc={artwork}
+            description={episode.overview}
+            key={`${season.season_number}-${episode.episode_number}`}
+            metaLabel={index}
+            placeholderLabel={index}
+            progressPercent={progress}
+            status={status}
+            title={title}
+          />
+        )
+      },
+    })),
+  ].sort((left, right) => left.order - right.order)
+
+  return (
+    <article className="season-card">
+      <ScrollableRail hint="Scroll, drag, or click arrows to move through episodes.">
+        {entries.map((entry) => entry.render())}
       </ScrollableRail>
     </article>
   )
@@ -112,7 +155,7 @@ type HeroFact = {
 const isHeroFact = (item: HeroFact | null): item is HeroFact => item !== null
 
 export const MediaItemPage = () => {
-  const { currentUser } = useOutletContext<AppShellOutletContext>()
+  const { currentUser, scanRuntimeByLibrary } = useOutletContext<AppShellOutletContext>()
   const params = useParams()
   const [searchParams] = useSearchParams()
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number | null>(null)
@@ -203,6 +246,42 @@ export const MediaItemPage = () => {
   const isSeriesView = mediaItemQuery.data?.media_type === 'series'
   const canMatchMetadata =
     canManageLibraries(currentUser) && mediaItemQuery.data?.media_type !== 'episode'
+  const currentScanRuntime = mediaItemQuery.data
+    ? getLibraryScanRuntime(scanRuntimeByLibrary, mediaItemQuery.data.library_id)
+    : null
+  const detailScanItems = getMediaItemScanRuntimeItems(mediaItemQuery.data, currentScanRuntime, {
+    seasonNumber: isSeriesView ? selectedSeasonNumber : null,
+  })
+  const primaryDetailScanItem = detailScanItems[0] ?? null
+  const detailScanCopy = isLibraryScanActive(null, currentScanRuntime)
+    ? formatMediaItemScanStatusCopy(mediaItemQuery.data, currentScanRuntime, {
+        seasonNumber: isSeriesView ? selectedSeasonNumber : null,
+      })
+    : null
+  const detailScanProgressPercent = primaryDetailScanItem
+    ? primaryDetailScanItem.progress_percent
+    : getScanJobProgressPercent(null, currentScanRuntime)
+  const detailScanSubtitle = primaryDetailScanItem
+    ? [
+        primaryDetailScanItem.title,
+        primaryDetailScanItem.media_type === 'movie'
+          ? null
+          : formatScanItemMeta(primaryDetailScanItem),
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '详情信息和图片可能会在同步完成后继续更新。'
+  const selectedSeasonScanItems = selectedSeason
+    ? detailScanItems.filter(
+        (item) =>
+          !selectedSeason.episodes.some(
+            (episode) =>
+              episode.is_available &&
+              typeof item.episode_number === 'number' &&
+              episode.episode_number === item.episode_number,
+          ),
+      )
+    : []
   // 剧集详情页优先把按钮落到当前季里已有断点的那一集；如果当前季还没播过，再回退到第一集。
   const selectedSeasonPlayableEpisode = pickPreferredPlaybackEpisode(selectedSeason?.episodes)
   const playbackTargetMediaItemId = isSeriesView
@@ -415,6 +494,21 @@ export const MediaItemPage = () => {
             </div>
           ) : null}
           <p className="detail-hero__overview">{heroOverview}</p>
+          {detailScanCopy ? (
+            <div className="detail-hero__sync-note" role="status">
+              <div className="detail-hero__sync-copy">
+                <p className="detail-hero__sync-label">
+                  {primaryDetailScanItem ? '当前条目正在同步' : '当前媒体库正在同步'}
+                </p>
+                <strong>{detailScanCopy}</strong>
+                <span className="muted">{detailScanSubtitle}</span>
+              </div>
+
+              <div aria-hidden="true" className="detail-hero__sync-progress">
+                <span style={{ width: `${detailScanProgressPercent}%` }} />
+              </div>
+            </div>
+          ) : null}
           {playbackTargetMediaItemId || canMatchMetadata ? (
             <div className="detail-hero__actions">
               {playbackTargetMediaItemId ? (
@@ -456,6 +550,12 @@ export const MediaItemPage = () => {
             <h3>Episodes</h3>
           </div>
 
+          {selectedSeasonScanItems.length > 0 ? (
+            <p className="muted">
+              当前季还有 {selectedSeasonScanItems.length} 集正在同步，集卡会在写入媒体库前保持占位。
+            </p>
+          ) : null}
+
           {shouldShowEpisodeSkeleton ? (
             <>
               <p className="muted">Loading episodes…</p>
@@ -473,7 +573,11 @@ export const MediaItemPage = () => {
 
           {!shouldShowEpisodeSkeleton && availableSeasons.length > 0 ? (
             selectedSeason ? (
-              <SeasonBlock key={selectedSeason.season_number} season={selectedSeason} />
+              <SeasonBlock
+                key={selectedSeason.season_number}
+                scanItems={selectedSeasonScanItems}
+                season={selectedSeason}
+              />
             ) : null
           ) : !shouldShowEpisodeSkeleton ? (
             <p className="muted">No local episodes available in this series yet.</p>

@@ -1,4 +1,4 @@
-import type { ScanJob } from '../../api/types'
+import type { MediaItem, ScanJob } from '../../api/types'
 
 export interface ScanRuntimeItem {
   scan_job_id: number
@@ -237,4 +237,110 @@ export const formatScanItemProgressCopy = (item: ScanRuntimeItem) => {
     default:
       return '正在匹配元数据'
   }
+}
+
+const normalizeScanMatchText = (value: string | null | undefined) =>
+  (value ?? '')
+    .toLocaleLowerCase()
+    .replace(/[\s._\-()[\]{}:/\\|'"`,!?]+/g, '')
+    .trim()
+
+const buildMediaItemScanMatchCandidates = (
+  mediaItem: Pick<MediaItem, 'title' | 'source_title' | 'original_title'>,
+) =>
+  [...new Set([mediaItem.title, mediaItem.source_title, mediaItem.original_title])]
+    .map((value) => normalizeScanMatchText(value))
+    .filter((value) => value.length > 0)
+
+const matchesMediaItemScanCandidate = (item: ScanRuntimeItem, candidates: string[]) => {
+  const scanTexts = [item.title, item.item_key].map((value) => normalizeScanMatchText(value))
+
+  return candidates.some((candidate) => scanTexts.some((scanText) => scanText.includes(candidate)))
+}
+
+export const getMediaItemScanRuntimeItems = (
+  mediaItem:
+    | Pick<MediaItem, 'media_type' | 'title' | 'source_title' | 'original_title'>
+    | null
+    | undefined,
+  runtime: LibraryScanRuntime | null | undefined,
+  options?: {
+    seasonNumber?: number | null
+  },
+) => {
+  if (!mediaItem) {
+    return []
+  }
+
+  const candidates = buildMediaItemScanMatchCandidates(mediaItem)
+  if (candidates.length === 0) {
+    return []
+  }
+
+  return getScanRuntimeItems(runtime)
+    .filter((item) => {
+      if (!matchesMediaItemScanCandidate(item, candidates)) {
+        return false
+      }
+
+      if (mediaItem.media_type === 'movie') {
+        return item.media_type === 'movie'
+      }
+
+      if (mediaItem.media_type === 'series') {
+        if (item.media_type === 'movie') {
+          return false
+        }
+
+        if (
+          typeof options?.seasonNumber === 'number' &&
+          Number.isFinite(options.seasonNumber) &&
+          item.season_number !== options.seasonNumber
+        ) {
+          return false
+        }
+
+        return true
+      }
+
+      return false
+    })
+    .sort((left, right) => {
+      const seasonDiff = (left.season_number ?? 0) - (right.season_number ?? 0)
+      if (seasonDiff !== 0) {
+        return seasonDiff
+      }
+
+      const episodeDiff = (left.episode_number ?? 0) - (right.episode_number ?? 0)
+      if (episodeDiff !== 0) {
+        return episodeDiff
+      }
+
+      return left.item_index - right.item_index
+    })
+}
+
+export const formatMediaItemScanStatusCopy = (
+  mediaItem:
+    | Pick<MediaItem, 'media_type' | 'title' | 'source_title' | 'original_title'>
+    | null
+    | undefined,
+  runtime: LibraryScanRuntime | null | undefined,
+  options?: {
+    seasonNumber?: number | null
+  },
+) => {
+  const matchingItems = getMediaItemScanRuntimeItems(mediaItem, runtime, options)
+  const primaryItem = matchingItems[0]
+
+  if (!primaryItem) {
+    return formatScanJobStatusCopy(null, runtime)
+  }
+
+  const progressCopy = formatScanItemProgressCopy(primaryItem)
+  if (matchingItems.length > 1) {
+    return `${progressCopy} · 还有 ${matchingItems.length - 1} 个相关条目正在同步`
+  }
+
+  return progressCopy
 }
