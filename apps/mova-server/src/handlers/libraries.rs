@@ -351,7 +351,10 @@ async fn handle_scan_registration_rejected(
 
 #[cfg(test)]
 mod tests {
-    use super::{delete_library, update_library, UpdateLibraryRequest};
+    use super::{
+        delete_library, get_library_scan_job, list_library_scan_jobs, scan_library, update_library,
+        UpdateLibraryRequest,
+    };
     use crate::{
         auth::{attach_session_cookie, SESSION_TTL},
         error::ApiError,
@@ -388,14 +391,45 @@ mod tests {
     }
 
     async fn seed_admin_session(pool: &sqlx::postgres::PgPool) -> (i64, CookieJar) {
+        seed_user_session(
+            pool,
+            "admin01",
+            UserRole::Admin,
+            Vec::new(),
+            "admin-session",
+        )
+        .await
+    }
+
+    async fn seed_viewer_session(
+        pool: &sqlx::postgres::PgPool,
+        library_ids: Vec<i64>,
+    ) -> (i64, CookieJar) {
+        seed_user_session(
+            pool,
+            "viewer01",
+            UserRole::Viewer,
+            library_ids,
+            "viewer-session",
+        )
+        .await
+    }
+
+    async fn seed_user_session(
+        pool: &sqlx::postgres::PgPool,
+        username: &str,
+        role: UserRole,
+        library_ids: Vec<i64>,
+        session_token: &str,
+    ) -> (i64, CookieJar) {
         let user = mova_db::create_user(
             pool,
             mova_db::CreateUserParams {
-                username: "admin01".to_string(),
+                username: username.to_string(),
                 password_hash: "hash".to_string(),
-                role: UserRole::Admin,
+                role,
                 is_enabled: true,
-                library_ids: Vec::new(),
+                library_ids,
             },
         )
         .await
@@ -404,7 +438,7 @@ mod tests {
         mova_db::create_session(
             pool,
             mova_db::CreateSessionParams {
-                token: "admin-session".to_string(),
+                token: session_token.to_string(),
                 user_id: user.user.id,
                 expires_at,
             },
@@ -414,7 +448,7 @@ mod tests {
 
         (
             user.user.id,
-            attach_session_cookie(CookieJar::new(), "admin-session", expires_at),
+            attach_session_cookie(CookieJar::new(), session_token, expires_at),
         )
     }
 
@@ -433,6 +467,13 @@ mod tests {
         .await
         .unwrap()
         .id
+    }
+
+    async fn seed_scan_job(pool: &sqlx::postgres::PgPool, library_id: i64) -> i64 {
+        mova_db::create_scan_job(pool, mova_db::CreateScanJobParams { library_id })
+            .await
+            .unwrap()
+            .id
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -599,5 +640,44 @@ mod tests {
             .library_sync_registry
             .replace_watcher(library_id, probe_tx)
             .is_none());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn scan_endpoints_require_admin_even_for_viewers_with_library_access(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let state = build_test_state(pool.clone());
+        let library_id = seed_library(&pool, "Movies", true).await;
+        let scan_job_id = seed_scan_job(&pool, library_id).await;
+        let (_viewer_id, viewer_jar) = seed_viewer_session(&pool, vec![library_id]).await;
+
+        let list_error =
+            list_library_scan_jobs(State(state.clone()), viewer_jar.clone(), Path(library_id))
+                .await
+                .unwrap_err();
+        let detail_error = get_library_scan_job(
+            State(state.clone()),
+            viewer_jar.clone(),
+            Path((library_id, scan_job_id)),
+        )
+        .await
+        .unwrap_err();
+        let scan_error = scan_library(State(state), viewer_jar, Path(library_id))
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            list_error,
+            ApiError::Forbidden(message) if message == "admin permission required"
+        ));
+        assert!(matches!(
+            detail_error,
+            ApiError::Forbidden(message) if message == "admin permission required"
+        ));
+        assert!(matches!(
+            scan_error,
+            ApiError::Forbidden(message) if message == "admin permission required"
+        ));
     }
 }

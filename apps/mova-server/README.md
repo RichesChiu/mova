@@ -352,8 +352,9 @@
   - 例如 `state.rs` 的注册表行为、`response.rs` 的映射、`realtime.rs` 的事件名与可见性
 - 需要数据库环境的集成测试
   - 例如 `handlers/playback_progress.rs` 和 `handlers/realtime.rs` 里的播放进度 / SSE 契约测试
+  - `handlers/realtime.rs` 现在还覆盖 SSE 可见性过滤，确认 viewer 只会收到自己有权限媒体库的事件
   - `handlers/users.rs` 里的用户 CRUD 边界测试，覆盖自禁用、自改角色、自删限制，以及禁用/删除用户后的 session 清理
-  - `handlers/libraries.rs` 里的媒体库 CRUD 运行时测试，覆盖删库冲突、停用库时 watcher 停止，以及删库时取消活跃扫描并清理运行时状态
+  - `handlers/libraries.rs` 里的媒体库 CRUD 运行时测试，覆盖删库冲突、停用库时 watcher 停止、删库时取消活跃扫描并清理运行时状态，以及扫描相关接口仍然只允许管理员访问
 
 运行建议：
 
