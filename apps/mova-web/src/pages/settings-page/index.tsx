@@ -17,7 +17,6 @@ import type {
   Library,
   LibraryDetail,
   MediaItemListResponse,
-  ScanJob,
   UserAccount,
 } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
@@ -25,142 +24,25 @@ import { CreateLibraryForm } from '../../components/create-library-form'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { SettingsGearIcon } from '../../components/settings-gear-icon'
 import { UserEditorModal } from '../../components/user-editor-modal'
-import { formatDateTime } from '../../lib/format'
+import {
+  buildCreatedLibraryCacheState,
+  buildCreatedUserCacheState,
+  buildDeletedLibraryCacheState,
+  buildDeletedUserCacheState,
+  buildTriggeredScanCacheState,
+  buildUpdatedLibraryCacheState,
+  buildUpdatedUserCacheState,
+  getScanStatusLabel,
+  getScanStatusSummary,
+  getScanStatusTone,
+  getUserAvatarInitial,
+  getUserLibraryAccessSummary,
+} from '../../lib/settings-admin'
 
 const USER_SKELETON_COUNT = 4
 const LIBRARY_SKELETON_COUNT = 3
 const USER_SKELETON_KEYS = ['user-a', 'user-b', 'user-c', 'user-d'] as const
 const LIBRARY_SKELETON_KEYS = ['library-a', 'library-b', 'library-c'] as const
-
-const userAvatarInitial = (username: string) => username.trim().charAt(0).toUpperCase() || 'U'
-
-const scanStatusLabel = (scanJob: ScanJob | null | undefined) => {
-  switch (scanJob?.status) {
-    case 'running':
-      return 'Running'
-    case 'success':
-      return 'Success'
-    case 'failed':
-      return 'Failed'
-    case 'cancelled':
-      return 'Cancelled'
-    case 'pending':
-      return 'Pending'
-    default:
-      return 'Idle'
-  }
-}
-
-const scanStatusTone = (scanJob: ScanJob | null | undefined) => {
-  switch (scanJob?.status) {
-    case 'running':
-      return 'running'
-    case 'success':
-      return 'success'
-    case 'failed':
-      return 'failed'
-    case 'cancelled':
-      return 'muted'
-    case 'pending':
-      return 'pending'
-    default:
-      return 'muted'
-  }
-}
-
-const scanStatusSummary = (scanJob: ScanJob | null | undefined) => {
-  if (!scanJob) {
-    return '还没有执行过扫描。'
-  }
-
-  if (scanJob.status === 'running') {
-    return `已扫描 ${scanJob.scanned_files}/${scanJob.total_files} 个文件。`
-  }
-
-  if (scanJob.status === 'failed' && scanJob.error_message) {
-    return scanJob.error_message
-  }
-
-  const finishedAt = scanJob.finished_at ?? scanJob.started_at ?? scanJob.created_at
-  return `最近更新于 ${formatDateTime(finishedAt)}。`
-}
-
-const buildInitialScanJob = (libraryId: number): ScanJob => {
-  const createdAt = new Date().toISOString()
-
-  return {
-    id: -libraryId,
-    library_id: libraryId,
-    status: 'pending',
-    phase: 'discovering',
-    total_files: 0,
-    scanned_files: 0,
-    created_at: createdAt,
-    started_at: null,
-    finished_at: null,
-    error_message: null,
-  }
-}
-
-const buildPlaceholderLibraryDetail = (library: Library): LibraryDetail => ({
-  ...library,
-  media_count: 0,
-  movie_count: 0,
-  series_count: 0,
-  last_scan: library.is_enabled ? buildInitialScanJob(library.id) : null,
-})
-
-const appendCreatedLibrary = (libraries: Library[] | undefined, createdLibrary: Library) => {
-  if (!libraries || libraries.length === 0) {
-    return [createdLibrary]
-  }
-
-  const withoutDuplicate = libraries.filter((library) => library.id !== createdLibrary.id)
-  return [...withoutDuplicate, createdLibrary]
-}
-
-const replaceLibrary = (libraries: Library[] | undefined, updatedLibrary: Library) => {
-  if (!libraries || libraries.length === 0) {
-    return [updatedLibrary]
-  }
-
-  let found = false
-  const nextLibraries = libraries.map((library) => {
-    if (library.id !== updatedLibrary.id) {
-      return library
-    }
-
-    found = true
-    return updatedLibrary
-  })
-
-  return found ? nextLibraries : [...nextLibraries, updatedLibrary]
-}
-
-const createEmptyShelf = (): MediaItemListResponse => ({
-  items: [],
-  total: 0,
-  page: 1,
-  page_size: 20,
-})
-
-const mergeUpdatedLibraryDetail = (
-  current: LibraryDetail | undefined,
-  updatedLibrary: Library,
-  shouldSeedPendingScan: boolean,
-): LibraryDetail => {
-  const currentLastScan = current?.last_scan ?? null
-
-  return {
-    ...(current ?? buildPlaceholderLibraryDetail(updatedLibrary)),
-    ...updatedLibrary,
-    last_scan: shouldSeedPendingScan
-      ? currentLastScan?.status === 'running' || currentLastScan?.status === 'pending'
-        ? currentLastScan
-        : buildInitialScanJob(updatedLibrary.id)
-      : currentLastScan,
-  }
-}
 
 const SettingsUserCardSkeleton = () => (
   <article aria-hidden="true" className="settings-user-card settings-user-card--loading">
@@ -239,21 +121,25 @@ export const SettingsPage = () => {
   const createLibraryMutation = useMutation({
     mutationFn: createLibrary,
     onSuccess: async (createdLibrary, _input: CreateLibraryInput) => {
-      const placeholderDetail = buildPlaceholderLibraryDetail(createdLibrary)
+      const nextLibraryCache = buildCreatedLibraryCacheState(
+        queryClient.getQueryData<Library[]>(['libraries']),
+        createdLibrary,
+      )
 
       // Show the new library immediately so home/settings can render a scanning placeholder while
       // the real list/detail requests catch up in the background.
-      queryClient.setQueryData<Library[]>(['libraries'], (current) =>
-        appendCreatedLibrary(current, createdLibrary),
+      queryClient.setQueryData<Library[]>(['libraries'], nextLibraryCache.libraries)
+      queryClient.setQueryData<LibraryDetail>(
+        ['library', createdLibrary.id],
+        nextLibraryCache.libraryDetail,
       )
-      queryClient.setQueryData<LibraryDetail>(['library', createdLibrary.id], placeholderDetail)
       queryClient.setQueryData<LibraryDetail>(
         ['home-library-detail', createdLibrary.id],
-        placeholderDetail,
+        nextLibraryCache.homeLibraryDetail,
       )
       queryClient.setQueryData<MediaItemListResponse>(
         ['home-library-shelf', createdLibrary.id],
-        createEmptyShelf(),
+        nextLibraryCache.homeLibraryShelf,
       )
 
       await Promise.all([
@@ -267,11 +153,33 @@ export const SettingsPage = () => {
 
   const scanMutation = useMutation({
     mutationFn: (libraryId: number) => scanLibrary(libraryId),
-    onSuccess: async (_scanJob, libraryId) => {
+    onSuccess: async (scanJob, libraryId) => {
+      const fallbackLibrary = libraries.find((library) => library.id === libraryId)
+
+      if (fallbackLibrary) {
+        const nextScanCache = buildTriggeredScanCacheState({
+          fallbackLibrary,
+          currentLibraryDetail: queryClient.getQueryData<LibraryDetail>(['library', libraryId]),
+          currentHomeLibraryDetail: queryClient.getQueryData<LibraryDetail>([
+            'home-library-detail',
+            libraryId,
+          ]),
+          scanJob,
+        })
+
+        queryClient.setQueryData<LibraryDetail>(['library', libraryId], nextScanCache.libraryDetail)
+        queryClient.setQueryData<LibraryDetail>(
+          ['home-library-detail', libraryId],
+          nextScanCache.homeLibraryDetail,
+        )
+      }
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['libraries'] }),
         queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-shelf', libraryId] }),
       ])
     },
   })
@@ -279,6 +187,17 @@ export const SettingsPage = () => {
   const deleteLibraryMutation = useMutation({
     mutationFn: (libraryId: number) => deleteLibrary(libraryId),
     onSuccess: async (_result, libraryId) => {
+      const nextLibraryCache = buildDeletedLibraryCacheState(
+        queryClient.getQueryData<Library[]>(['libraries']),
+        libraryId,
+      )
+
+      queryClient.setQueryData<Library[]>(['libraries'], nextLibraryCache.libraries)
+      queryClient.removeQueries({ queryKey: ['library', libraryId] })
+      queryClient.removeQueries({ queryKey: ['library-media', libraryId] })
+      queryClient.removeQueries({ queryKey: ['home-library-detail', libraryId] })
+      queryClient.removeQueries({ queryKey: ['home-library-shelf', libraryId] })
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['libraries'] }),
         queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
@@ -300,25 +219,27 @@ export const SettingsPage = () => {
       const currentLibraries = queryClient.getQueryData<Library[]>(['libraries'])
       const previousLibrary =
         currentLibraries?.find((library) => library.id === libraryId) ?? editingLibrary
-      const shouldSeedPendingScan = !previousLibrary?.is_enabled && updatedLibrary.is_enabled
-      const currentLibraryDetail = queryClient.getQueryData<LibraryDetail>(['library', libraryId])
-      const currentHomeLibraryDetail = queryClient.getQueryData<LibraryDetail>([
-        'home-library-detail',
-        libraryId,
-      ])
+      const nextLibraryCache = buildUpdatedLibraryCacheState({
+        currentLibraries,
+        previousLibrary,
+        updatedLibrary,
+        currentLibraryDetail: queryClient.getQueryData<LibraryDetail>(['library', libraryId]),
+        currentHomeLibraryDetail: queryClient.getQueryData<LibraryDetail>([
+          'home-library-detail',
+          libraryId,
+        ]),
+      })
 
       // Keep the settings list and detail caches in sync immediately so the modal edits feel
       // local-first, then let background refetches reconcile scan state and counts.
-      queryClient.setQueryData<Library[]>(['libraries'], (current) =>
-        replaceLibrary(current, updatedLibrary),
-      )
+      queryClient.setQueryData<Library[]>(['libraries'], nextLibraryCache.libraries)
       queryClient.setQueryData<LibraryDetail>(
         ['library', libraryId],
-        mergeUpdatedLibraryDetail(currentLibraryDetail, updatedLibrary, shouldSeedPendingScan),
+        nextLibraryCache.libraryDetail,
       )
       queryClient.setQueryData<LibraryDetail>(
         ['home-library-detail', libraryId],
-        mergeUpdatedLibraryDetail(currentHomeLibraryDetail, updatedLibrary, shouldSeedPendingScan),
+        nextLibraryCache.homeLibraryDetail,
       )
 
       await Promise.all([
@@ -333,7 +254,13 @@ export const SettingsPage = () => {
 
   const createUserMutation = useMutation({
     mutationFn: createUser,
-    onSuccess: async () => {
+    onSuccess: async (createdUser) => {
+      const nextUserCache = buildCreatedUserCacheState(
+        queryClient.getQueryData<UserAccount[]>(['users']),
+        createdUser,
+      )
+
+      queryClient.setQueryData<UserAccount[]>(['users'], nextUserCache.users)
       await queryClient.invalidateQueries({ queryKey: ['users'] })
     },
   })
@@ -341,7 +268,17 @@ export const SettingsPage = () => {
   const updateUserMutation = useMutation({
     mutationFn: ({ userId, input }: { userId: number; input: Parameters<typeof updateUser>[1] }) =>
       updateUser(userId, input),
-    onSuccess: async () => {
+    onSuccess: async (updatedUser) => {
+      const nextUserCache = buildUpdatedUserCacheState(
+        queryClient.getQueryData<UserAccount[]>(['users']),
+        currentUser.id,
+        updatedUser,
+      )
+
+      queryClient.setQueryData<UserAccount[]>(['users'], nextUserCache.users)
+      if (nextUserCache.currentUser) {
+        queryClient.setQueryData<UserAccount>(['current-user'], nextUserCache.currentUser)
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['users'] }),
         queryClient.invalidateQueries({ queryKey: ['current-user'] }),
@@ -351,7 +288,13 @@ export const SettingsPage = () => {
 
   const deleteUserMutation = useMutation({
     mutationFn: (userId: number) => deleteUser(userId),
-    onSuccess: async () => {
+    onSuccess: async (_result, userId) => {
+      const nextUserCache = buildDeletedUserCacheState(
+        queryClient.getQueryData<UserAccount[]>(['users']),
+        userId,
+      )
+
+      queryClient.setQueryData<UserAccount[]>(['users'], nextUserCache.users)
       await queryClient.invalidateQueries({ queryKey: ['users'] })
     },
   })
@@ -440,13 +383,6 @@ export const SettingsPage = () => {
 
           {!shouldShowUserSkeleton
             ? users.map((user) => {
-                const libraryNames =
-                  user.role === 'admin'
-                    ? ['All libraries']
-                    : libraries
-                        .filter((library) => user.library_ids.includes(library.id))
-                        .map((library) => library.name)
-
                 return (
                   <article className="settings-user-card" key={user.id}>
                     <button
@@ -455,7 +391,7 @@ export const SettingsPage = () => {
                       onClick={() => setEditingUser(user)}
                       type="button"
                     >
-                      <span>{userAvatarInitial(user.username)}</span>
+                      <span>{getUserAvatarInitial(user.username)}</span>
                     </button>
 
                     <div className="settings-user-card__body">
@@ -517,11 +453,7 @@ export const SettingsPage = () => {
                       </div>
 
                       <p className="settings-user-card__access">
-                        {user.role === 'admin'
-                          ? 'Access: All libraries'
-                          : libraryNames.length > 0
-                            ? `Access: ${libraryNames.join(', ')}`
-                            : 'Access: No libraries assigned'}
+                        {getUserLibraryAccessSummary(user, libraries)}
                       </p>
                     </div>
 
@@ -595,8 +527,8 @@ export const SettingsPage = () => {
             libraries.map((library) => {
               const libraryDetail = libraryDetailsById.get(library.id)
               const lastScan = libraryDetail?.last_scan ?? null
-              const lastScanStatusLabel = scanStatusLabel(lastScan)
-              const lastScanStatusTone = scanStatusTone(lastScan)
+              const lastScanStatusLabel = getScanStatusLabel(lastScan)
+              const lastScanStatusTone = getScanStatusTone(lastScan)
 
               return (
                 <article className="settings-library-card" key={library.id}>
@@ -656,7 +588,7 @@ export const SettingsPage = () => {
                         </span>
                       </div>
                       <p className="settings-library-card__scan-copy">
-                        {scanStatusSummary(lastScan)}
+                        {getScanStatusSummary(lastScan)}
                       </p>
                     </div>
 
