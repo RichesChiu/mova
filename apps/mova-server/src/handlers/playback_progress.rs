@@ -124,9 +124,7 @@ mod tests {
         }
     }
 
-    async fn seed_playback_context(
-        pool: &sqlx::postgres::PgPool,
-    ) -> (CookieJar, i64, i64, i64) {
+    async fn seed_playback_context(pool: &sqlx::postgres::PgPool) -> (CookieJar, i64, i64, i64) {
         let library = mova_db::create_library(
             pool,
             mova_db::CreateLibraryParams {
@@ -260,7 +258,9 @@ mod tests {
 
         assert_eq!(initial_continue_watching.data.len(), 1);
         assert_eq!(
-            initial_continue_watching.data[0].playback_progress.position_seconds,
+            initial_continue_watching.data[0]
+                .playback_progress
+                .position_seconds,
             300
         );
 
@@ -280,10 +280,13 @@ mod tests {
 
         assert!(finished_progress_response.data.is_finished);
 
-        let Json(read_back_progress) =
-            get_media_item_playback_progress(State(state.clone()), jar.clone(), Path(media_item_id))
-                .await
-                .unwrap();
+        let Json(read_back_progress) = get_media_item_playback_progress(
+            State(state.clone()),
+            jar.clone(),
+            Path(media_item_id),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(
             read_back_progress
@@ -310,7 +313,9 @@ mod tests {
 
         assert!(finished_continue_watching.data.is_empty());
 
-        let history = mova_db::list_watch_history(&pool, user_id, 10).await.unwrap();
+        let history = mova_db::list_watch_history(&pool, user_id, 10)
+            .await
+            .unwrap();
         assert_eq!(history.len(), 1);
         assert!(history[0].watch_history.completed_at.is_some());
         assert!(history[0].watch_history.ended_at.is_some());

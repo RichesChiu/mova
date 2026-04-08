@@ -495,10 +495,8 @@ fn discover_media_files_with_progress_item_and_cancel_emits_discovered_files() {
     let files = result.unwrap();
     assert_eq!(files.len(), 2);
     assert_eq!(discovered_titles.len(), 2);
-    assert!(
-        discovered_titles
-            .iter()
-            .any(|title| title.to_ascii_lowercase().contains("movie"))
-    );
+    assert!(discovered_titles
+        .iter()
+        .any(|title| title.to_ascii_lowercase().contains("movie")));
     assert!(discovered_titles.iter().any(|title| title.contains("Show")));
 }

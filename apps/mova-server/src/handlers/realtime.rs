@@ -74,9 +74,7 @@ mod tests {
         }
     }
 
-    async fn seed_authorized_session(
-        pool: &sqlx::postgres::PgPool,
-    ) -> (CookieJar, i64) {
+    async fn seed_authorized_session(pool: &sqlx::postgres::PgPool) -> (CookieJar, i64) {
         let library = mova_db::create_library(
             pool,
             mova_db::CreateLibraryParams {
@@ -136,9 +134,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn events_stream_serializes_library_updated_messages(
-        pool: sqlx::postgres::PgPool,
-    ) {
+    async fn events_stream_serializes_library_updated_messages(pool: sqlx::postgres::PgPool) {
         let state = build_test_state(pool.clone());
         let (jar, library_id) = seed_authorized_session(&pool).await;
 
@@ -166,9 +162,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn events_stream_serializes_scan_item_progress_messages(
-        pool: sqlx::postgres::PgPool,
-    ) {
+    async fn events_stream_serializes_scan_item_progress_messages(pool: sqlx::postgres::PgPool) {
         let state = build_test_state(pool.clone());
         let (jar, library_id) = seed_authorized_session(&pool).await;
 

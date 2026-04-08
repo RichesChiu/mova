@@ -348,3 +348,256 @@ async fn handle_scan_registration_rejected(
 ) {
     sync_runtime::handle_scan_registration_rejected(state, library_id, scan_job_id, error).await;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{delete_library, update_library, UpdateLibraryRequest};
+    use crate::{
+        auth::{attach_session_cookie, SESSION_TTL},
+        error::ApiError,
+        realtime::RealtimeEvent,
+        state::{AppState, LibrarySyncRegistry, RealtimeHub, ScanRegistry},
+    };
+    use axum::{
+        extract::{Path, State},
+        Json,
+    };
+    use axum_extra::extract::cookie::CookieJar;
+    use mova_application::NullMetadataProvider;
+    use mova_domain::UserRole;
+    use std::{
+        path::PathBuf,
+        sync::{atomic::Ordering, Arc},
+    };
+    use time::{OffsetDateTime, UtcOffset};
+    use tokio::{
+        sync::watch,
+        time::{timeout, Duration},
+    };
+
+    fn build_test_state(pool: sqlx::postgres::PgPool) -> AppState {
+        AppState {
+            db: pool,
+            api_time_offset: UtcOffset::UTC,
+            artwork_cache_dir: PathBuf::from("/tmp/mova-test-artwork"),
+            metadata_provider: Arc::new(NullMetadataProvider),
+            scan_registry: ScanRegistry::default(),
+            library_sync_registry: LibrarySyncRegistry::default(),
+            realtime_hub: RealtimeHub::default(),
+        }
+    }
+
+    async fn seed_admin_session(pool: &sqlx::postgres::PgPool) -> (i64, CookieJar) {
+        let user = mova_db::create_user(
+            pool,
+            mova_db::CreateUserParams {
+                username: "admin01".to_string(),
+                password_hash: "hash".to_string(),
+                role: UserRole::Admin,
+                is_enabled: true,
+                library_ids: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+        let expires_at = OffsetDateTime::now_utc() + SESSION_TTL;
+        mova_db::create_session(
+            pool,
+            mova_db::CreateSessionParams {
+                token: "admin-session".to_string(),
+                user_id: user.user.id,
+                expires_at,
+            },
+        )
+        .await
+        .unwrap();
+
+        (
+            user.user.id,
+            attach_session_cookie(CookieJar::new(), "admin-session", expires_at),
+        )
+    }
+
+    async fn seed_library(pool: &sqlx::postgres::PgPool, name: &str, is_enabled: bool) -> i64 {
+        mova_db::create_library(
+            pool,
+            mova_db::CreateLibraryParams {
+                name: name.to_string(),
+                description: Some(format!("{name} description")),
+                library_type: "movie".to_string(),
+                metadata_language: "zh-CN".to_string(),
+                root_path: format!("/media/{}", name.to_lowercase()),
+                is_enabled,
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn update_library_rejects_changes_while_delete_is_in_progress(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let state = build_test_state(pool.clone());
+        let (_admin_id, admin_jar) = seed_admin_session(&pool).await;
+        let library_id = seed_library(&pool, "Movies", true).await;
+        let delete_guard = state.scan_registry.begin_delete(library_id).unwrap();
+
+        let error = update_library(
+            State(state),
+            admin_jar,
+            Path(library_id),
+            Json(UpdateLibraryRequest {
+                name: Some("Renamed Movies".to_string()),
+                description: None,
+                metadata_language: None,
+                is_enabled: None,
+            }),
+        )
+        .await
+        .unwrap_err();
+
+        drop(delete_guard);
+
+        match error {
+            ApiError::Conflict(message) => {
+                assert_eq!(message, format!("library {} is being deleted", library_id));
+            }
+            other => panic!("expected conflict error, got {other:?}"),
+        }
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn update_library_disabling_it_stops_the_watcher_and_persists_changes(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let state = build_test_state(pool.clone());
+        let (_admin_id, admin_jar) = seed_admin_session(&pool).await;
+        let library_id = seed_library(&pool, "Movies", true).await;
+        let (stop_tx, mut stop_rx) = watch::channel(false);
+        let mut realtime_rx = state.realtime_hub.subscribe();
+
+        state
+            .library_sync_registry
+            .replace_watcher(library_id, stop_tx);
+
+        let Json(response) = update_library(
+            State(state.clone()),
+            admin_jar,
+            Path(library_id),
+            Json(UpdateLibraryRequest {
+                name: Some("Movies Reloaded".to_string()),
+                description: Some(Some("updated description".to_string())),
+                metadata_language: Some("en-US".to_string()),
+                is_enabled: Some(false),
+            }),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.data.id, library_id);
+        assert_eq!(response.data.name, "Movies Reloaded");
+        assert_eq!(
+            response.data.description.as_deref(),
+            Some("updated description")
+        );
+        assert_eq!(response.data.metadata_language, "en-US");
+        assert!(!response.data.is_enabled);
+
+        timeout(Duration::from_secs(1), stop_rx.changed())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(*stop_rx.borrow_and_update());
+
+        let updated_library = mova_db::get_library(&pool, library_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated_library.name, "Movies Reloaded");
+        assert_eq!(
+            updated_library.description.as_deref(),
+            Some("updated description")
+        );
+        assert_eq!(updated_library.metadata_language, "en-US");
+        assert!(!updated_library.is_enabled);
+
+        let event = timeout(Duration::from_secs(1), realtime_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            event,
+            RealtimeEvent::LibraryUpdated { library_id: event_library_id }
+                if event_library_id == library_id
+        ));
+
+        let (probe_tx, _probe_rx) = watch::channel(false);
+        assert!(state
+            .library_sync_registry
+            .replace_watcher(library_id, probe_tx)
+            .is_none());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn delete_library_cancels_the_active_scan_clears_runtime_state_and_removes_the_row(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let state = build_test_state(pool.clone());
+        let (_admin_id, admin_jar) = seed_admin_session(&pool).await;
+        let library_id = seed_library(&pool, "Movies", true).await;
+        let (stop_tx, mut stop_rx) = watch::channel(false);
+        let mut realtime_rx = state.realtime_hub.subscribe();
+        let active_scan = state.scan_registry.register_scan(library_id, 42).unwrap();
+        let cancellation_flag = active_scan.cancellation_flag();
+        let finish_state = state.clone();
+
+        state
+            .library_sync_registry
+            .replace_watcher(library_id, stop_tx);
+
+        tokio::spawn(async move {
+            while !cancellation_flag.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+            finish_state.scan_registry.finish_scan(library_id, 42);
+        });
+
+        let Json(response) = delete_library(State(state.clone()), admin_jar, Path(library_id))
+            .await
+            .unwrap();
+
+        assert_eq!(response.message, "library deleted");
+        assert!(mova_db::get_library(&pool, library_id)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(state.scan_registry.active_scan(library_id).is_none());
+
+        timeout(Duration::from_secs(1), stop_rx.changed())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(*stop_rx.borrow_and_update());
+
+        let event = timeout(Duration::from_secs(1), realtime_rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            event,
+            RealtimeEvent::LibraryDeleted { library_id: event_library_id }
+                if event_library_id == library_id
+        ));
+
+        let (probe_tx, _probe_rx) = watch::channel(false);
+        assert!(state
+            .library_sync_registry
+            .replace_watcher(library_id, probe_tx)
+            .is_none());
+    }
+}
