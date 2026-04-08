@@ -32,6 +32,25 @@ export const formatAudioTrackLabel = (audioTrack: AudioTrack) =>
   `Track ${audioTrack.stream_index}`
 
 export const formatAudioTrackMeta = (audioTrack: AudioTrack) =>
-  [audioTrack.audio_codec?.toUpperCase() ?? null, audioTrack.is_default ? 'Default' : null]
+  [
+    audioTrack.audio_codec?.toUpperCase() ?? null,
+    audioTrack.is_default ? 'Default in source' : 'Embedded alternate',
+  ]
     .filter(Boolean)
     .join(' · ')
+
+export const describeAudioTrackSelection = (audioTrack: AudioTrack | null) =>
+  audioTrack ? formatAudioTrackLabel(audioTrack) : 'Original default track'
+
+export const buildAudioTrackSwitchingMessage = (audioTrack: AudioTrack | null) =>
+  audioTrack
+    ? `Switching audio to ${formatAudioTrackLabel(audioTrack)}…`
+    : 'Switching audio back to the original default track…'
+
+export const buildAudioTrackReadyMessage = (audioTrack: AudioTrack | null) =>
+  audioTrack
+    ? `Audio switched to ${formatAudioTrackLabel(audioTrack)}.`
+    : 'Audio switched back to the original default track.'
+
+export const buildAudioTrackLoadErrorMessage = () =>
+  'Audio tracks could not be loaded. Playback will stay on the current audio.'

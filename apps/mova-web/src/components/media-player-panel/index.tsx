@@ -11,7 +11,14 @@ import {
   updateMediaItemPlaybackProgress,
 } from '../../api/client'
 import type { MediaFile, SubtitleFile } from '../../api/types'
-import { formatAudioTrackLabel, formatAudioTrackMeta } from '../../lib/audio-tracks'
+import {
+  buildAudioTrackLoadErrorMessage,
+  buildAudioTrackReadyMessage,
+  buildAudioTrackSwitchingMessage,
+  describeAudioTrackSelection,
+  formatAudioTrackLabel,
+  formatAudioTrackMeta,
+} from '../../lib/audio-tracks'
 import { formatDuration } from '../../lib/format'
 import { shouldMarkPlaybackFinished } from '../../lib/playback'
 import {
@@ -415,6 +422,11 @@ export const MediaPlayerPanel = ({
   const audioMenuRef = useRef<HTMLDivElement | null>(null)
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedMediaFileRef = useRef<MediaFile | null>(null)
+  const audioTrackNoticeTimeoutRef = useRef<number | null>(null)
+  const pendingAudioTrackSwitchRef = useRef<{
+    label: string
+    target: number | null
+  } | null>(null)
   const previousMediaItemIdRef = useRef(mediaItemId)
   const durationSecondsRef = useRef<number | null>(null)
   const restoredForFileRef = useRef<number | null>(null)
@@ -429,6 +441,7 @@ export const MediaPlayerPanel = ({
   const [interactionWarning, setInteractionWarning] = useState<string | null>(null)
   const [playbackSyncError, setPlaybackSyncError] = useState<string | null>(null)
   const [subtitleTrackError, setSubtitleTrackError] = useState<string | null>(null)
+  const [audioTrackNotice, setAudioTrackNotice] = useState<string | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
   const [bufferedSeconds, setBufferedSeconds] = useState(0)
   const [positionSeconds, setPositionSeconds] = useState(0)
@@ -491,6 +504,28 @@ export const MediaPlayerPanel = ({
     subtitleFiles.find((subtitle) => subtitle.id === selectedSubtitleId) ?? null
   const subtitleWarning =
     subtitleTrackError ?? (subtitleFilesQuery.isError ? SUBTITLE_LOAD_ERROR : null)
+  const currentAudioSelectionLabel = describeAudioTrackSelection(selectedAudioTrack)
+
+  const clearAudioTrackNotice = () => {
+    if (audioTrackNoticeTimeoutRef.current !== null) {
+      window.clearTimeout(audioTrackNoticeTimeoutRef.current)
+      audioTrackNoticeTimeoutRef.current = null
+    }
+
+    setAudioTrackNotice(null)
+  }
+
+  const showAudioTrackNotice = (message: string, durationMs?: number) => {
+    clearAudioTrackNotice()
+    setAudioTrackNotice(message)
+
+    if (typeof durationMs === 'number' && durationMs > 0) {
+      audioTrackNoticeTimeoutRef.current = window.setTimeout(() => {
+        audioTrackNoticeTimeoutRef.current = null
+        setAudioTrackNotice(null)
+      }, durationMs)
+    }
+  }
 
   const resetTransientPlayerFeedback = ({
     keepBuffering = false,
@@ -519,11 +554,30 @@ export const MediaPlayerPanel = ({
   }, [durationSeconds])
 
   useEffect(() => {
+    return () => {
+      if (audioTrackNoticeTimeoutRef.current !== null) {
+        window.clearTimeout(audioTrackNoticeTimeoutRef.current)
+        audioTrackNoticeTimeoutRef.current = null
+      }
+
+      setAudioTrackNotice(null)
+    }
+  }, [])
+
+  useEffect(() => {
     const mediaItemChanged = previousMediaItemIdRef.current !== mediaItemId
     previousMediaItemIdRef.current = mediaItemId
 
     if (mediaItemChanged) {
       pendingPlaybackRestoreRef.current = null
+      pendingAudioTrackSwitchRef.current = null
+
+      if (audioTrackNoticeTimeoutRef.current !== null) {
+        window.clearTimeout(audioTrackNoticeTimeoutRef.current)
+        audioTrackNoticeTimeoutRef.current = null
+      }
+
+      setAudioTrackNotice(null)
     }
 
     shouldHonorStartModeRef.current = startMode === 'from-start'
@@ -562,6 +616,14 @@ export const MediaPlayerPanel = ({
     setPositionSeconds(0)
     setDurationSeconds(selectedMediaFileId === null ? null : selectedMediaFileDuration)
     setIsPlaying(false)
+    pendingAudioTrackSwitchRef.current = null
+
+    if (audioTrackNoticeTimeoutRef.current !== null) {
+      window.clearTimeout(audioTrackNoticeTimeoutRef.current)
+      audioTrackNoticeTimeoutRef.current = null
+    }
+
+    setAudioTrackNotice(null)
   }, [selectedMediaFileDuration, selectedMediaFileId])
 
   useEffect(() => {
@@ -712,6 +774,27 @@ export const MediaPlayerPanel = ({
       syncBufferedState()
       setIsBuffering(false)
       setPlayerError(null)
+
+      if (pendingAudioTrackSwitchRef.current) {
+        const switchTargetId = pendingAudioTrackSwitchRef.current.target
+        const targetAudioTrack =
+          switchTargetId === null
+            ? null
+            : (audioTracks.find((audioTrack) => audioTrack.id === switchTargetId) ?? null)
+
+        pendingAudioTrackSwitchRef.current = null
+
+        if (audioTrackNoticeTimeoutRef.current !== null) {
+          window.clearTimeout(audioTrackNoticeTimeoutRef.current)
+          audioTrackNoticeTimeoutRef.current = null
+        }
+
+        setAudioTrackNotice(buildAudioTrackReadyMessage(targetAudioTrack))
+        audioTrackNoticeTimeoutRef.current = window.setTimeout(() => {
+          audioTrackNoticeTimeoutRef.current = null
+          setAudioTrackNotice(null)
+        }, 2400)
+      }
     }
     const handleFullscreenChange = () => {
       setIsFullscreen(document.fullscreenElement === stageRef.current)
@@ -742,7 +825,7 @@ export const MediaPlayerPanel = ({
       video.removeEventListener('volumechange', syncVolumeState)
       document.removeEventListener('fullscreenchange', handleFullscreenChange)
     }
-  }, [])
+  }, [audioTracks])
 
   const measurePlaybackProgress = () => {
     const video = videoRef.current
@@ -970,7 +1053,17 @@ export const MediaPlayerPanel = ({
 
   const handlePlayerError = () => {
     setIsBuffering(false)
-    setPlayerError(buildPlaybackSourceErrorMessage(videoRef.current))
+    const fallbackMessage = buildPlaybackSourceErrorMessage(videoRef.current)
+
+    if (pendingAudioTrackSwitchRef.current) {
+      const switchLabel = pendingAudioTrackSwitchRef.current.label
+      pendingAudioTrackSwitchRef.current = null
+      setPlayerError(`Switching audio to ${switchLabel} failed. ${fallbackMessage}`)
+      clearAudioTrackNotice()
+      return
+    }
+
+    setPlayerError(fallbackMessage)
   }
 
   const handleSubtitleTrackError = () => {
@@ -1033,6 +1126,11 @@ export const MediaPlayerPanel = ({
       return
     }
 
+    const targetAudioTrack =
+      targetAudioTrackId === null
+        ? null
+        : (audioTracks.find((audioTrack) => audioTrack.id === targetAudioTrackId) ?? null)
+
     persistProgressBeforeSwitch()
     queuePlaybackRestore({
       positionSeconds: Math.max(0, video.currentTime || positionSeconds),
@@ -1041,6 +1139,11 @@ export const MediaPlayerPanel = ({
     })
     resetTransientPlayerFeedback({ keepBuffering: true })
     setIsBuffering(true)
+    pendingAudioTrackSwitchRef.current = {
+      label: describeAudioTrackSelection(targetAudioTrack),
+      target: targetAudioTrackId,
+    }
+    showAudioTrackNotice(buildAudioTrackSwitchingMessage(targetAudioTrack))
     setSelectedAudioTrackId(targetAudioTrackId)
     setIsAudioMenuOpen(false)
   }
@@ -1058,7 +1161,8 @@ export const MediaPlayerPanel = ({
     hasSubtitleWarning: subtitleWarning !== null,
     isBuffering,
   })
-  const shouldRenderAudioMenu = audioTracks.length > 1 || audioTracksQuery.isError
+  const shouldRenderAudioMenu =
+    audioTracks.length > 1 || audioTracksQuery.isError || audioTracksQuery.isLoading
   const timelineStyle = {
     '--player-range-buffered': `${Math.max(playedProgressPercent, bufferedProgressPercent)}%`,
     '--player-range-played': `${playedProgressPercent}%`,
@@ -1194,7 +1298,9 @@ export const MediaPlayerPanel = ({
                 <div className="player-panel__overlay">
                   <div className="player-panel__overlay-status">
                     {isBuffering && !playerError ? (
-                      <p className="player-panel__status-badge">Buffering playback…</p>
+                      <p className="player-panel__status-badge">
+                        {audioTrackNotice ?? 'Buffering playback…'}
+                      </p>
                     ) : null}
                     {playerError ? (
                       <div className="player-panel__status-stack">
@@ -1212,6 +1318,14 @@ export const MediaPlayerPanel = ({
                     ) : null}
                     {!playerError && subtitleWarning ? (
                       <p className="callout">{subtitleWarning}</p>
+                    ) : null}
+                    {!playerError &&
+                    !isBuffering &&
+                    !playbackSyncError &&
+                    !interactionWarning &&
+                    !subtitleWarning &&
+                    audioTrackNotice ? (
+                      <p className="callout">{audioTrackNotice}</p>
                     ) : null}
                   </div>
 
@@ -1400,6 +1514,7 @@ export const MediaPlayerPanel = ({
                             aria-expanded={isAudioMenuOpen}
                             aria-haspopup="menu"
                             aria-label="Select audio track"
+                            title={`Audio: ${currentAudioSelectionLabel}`}
                             className={
                               selectedAudioTrackId !== null || isAudioMenuOpen
                                 ? 'player-control-button player-control-button--icon player-control-button--toolbar player-control-button--active'
@@ -1417,6 +1532,15 @@ export const MediaPlayerPanel = ({
 
                           {isAudioMenuOpen ? (
                             <div className="player-popover-menu__bubble" role="menu">
+                              <div className="player-popover-menu__header">
+                                <strong>Audio</strong>
+                                <small>
+                                  {audioTracksQuery.isLoading
+                                    ? 'Loading embedded audio tracks…'
+                                    : `Current: ${currentAudioSelectionLabel}`}
+                                </small>
+                              </div>
+
                               <button
                                 className={
                                   selectedAudioTrackId === null
@@ -1427,8 +1551,8 @@ export const MediaPlayerPanel = ({
                                 role="menuitem"
                                 type="button"
                               >
-                                <span>Auto</span>
-                                <small>Use the original file audio selection</small>
+                                <span>Original default track</span>
+                                <small>Use the source file&apos;s default audio</small>
                               </button>
 
                               {audioTracks.map((audioTrack) => (
@@ -1450,8 +1574,8 @@ export const MediaPlayerPanel = ({
 
                               {audioTracks.length === 0 && !audioTracksQuery.isLoading ? (
                                 <p className="player-popover-menu__empty">
-                                  {audioTracksQuery.error instanceof Error
-                                    ? audioTracksQuery.error.message
+                                  {audioTracksQuery.error
+                                    ? buildAudioTrackLoadErrorMessage()
                                     : 'No alternate audio tracks found.'}
                                 </p>
                               ) : null}
@@ -1625,8 +1749,20 @@ export const MediaPlayerPanel = ({
             <p className="callout">{subtitleWarning}</p>
           ) : null}
 
+          {!playerError &&
+          !isBuffering &&
+          !playbackSyncError &&
+          !interactionWarning &&
+          !subtitleWarning &&
+          audioTrackNotice &&
+          !isImmersive ? (
+            <p className="callout">{audioTrackNotice}</p>
+          ) : null}
+
           {isBuffering && !playerError && !isImmersive ? (
-            <p className="player-panel__status-badge">Buffering playback…</p>
+            <p className="player-panel__status-badge">
+              {audioTrackNotice ?? 'Buffering playback…'}
+            </p>
           ) : null}
 
           {mediaFiles.length > 1 && !isImmersive ? (
