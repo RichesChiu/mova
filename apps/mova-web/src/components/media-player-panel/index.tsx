@@ -3,6 +3,7 @@ import { type CSSProperties, useEffect, useRef, useState } from 'react'
 import {
   flushMediaItemPlaybackProgress,
   getMediaItemPlaybackProgress,
+  listMediaFileAudioTracks,
   listMediaFileSubtitles,
   listMediaItemFiles,
   mediaFileStreamUrl,
@@ -10,6 +11,7 @@ import {
   updateMediaItemPlaybackProgress,
 } from '../../api/client'
 import type { MediaFile, SubtitleFile } from '../../api/types'
+import { formatAudioTrackLabel, formatAudioTrackMeta } from '../../lib/audio-tracks'
 import { formatDuration } from '../../lib/format'
 import { shouldMarkPlaybackFinished } from '../../lib/playback'
 import {
@@ -271,6 +273,39 @@ const SubtitleIcon = () => {
   )
 }
 
+const AudioTrackIcon = () => {
+  return (
+    <svg
+      aria-hidden="true"
+      className="player-control-button__glyph"
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M5 10H8L12 6V18L8 14H5V10Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M15.5 9.5C16.3 10.1 16.8 11.01 16.8 12C16.8 12.99 16.3 13.9 15.5 14.5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M18.3 7C19.72 8.24 20.6 10.05 20.6 12C20.6 13.95 19.72 15.76 18.3 17"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </svg>
+  )
+}
+
 const EpisodeSwitchIcon = () => {
   return (
     <svg
@@ -377,6 +412,7 @@ export const MediaPlayerPanel = ({
   const stageRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const episodeMenuRef = useRef<HTMLDivElement | null>(null)
+  const audioMenuRef = useRef<HTMLDivElement | null>(null)
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedMediaFileRef = useRef<MediaFile | null>(null)
   const previousMediaItemIdRef = useRef(mediaItemId)
@@ -402,7 +438,9 @@ export const MediaPlayerPanel = ({
   const [volume, setVolume] = useState(1)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [isEpisodeMenuOpen, setIsEpisodeMenuOpen] = useState(false)
+  const [isAudioMenuOpen, setIsAudioMenuOpen] = useState(false)
   const [isSubtitleMenuOpen, setIsSubtitleMenuOpen] = useState(false)
+  const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<number | null>(null)
   const [selectedSubtitleId, setSelectedSubtitleId] = useState<number | null>(null)
 
   const mediaFilesQuery = useQuery({
@@ -435,12 +473,20 @@ export const MediaPlayerPanel = ({
     queryKey: ['media-file-subtitles', selectedMediaFileId],
     queryFn: () => listMediaFileSubtitles(selectedMediaFileId ?? 0),
   })
+  const audioTracksQuery = useQuery({
+    enabled: selectedMediaFileId !== null,
+    queryKey: ['media-file-audio-tracks', selectedMediaFileId],
+    queryFn: () => listMediaFileAudioTracks(selectedMediaFileId ?? 0),
+  })
 
   const mediaFiles = mediaFilesQuery.data ?? []
+  const audioTracks = audioTracksQuery.data ?? []
   const subtitleFiles = subtitleFilesQuery.data ?? []
   const selectedMediaFile =
     mediaFiles.find((file) => file.id === selectedMediaFileId) ?? mediaFiles[0] ?? null
   const selectedMediaFileDuration = selectedMediaFile?.duration_seconds ?? null
+  const selectedAudioTrack =
+    audioTracks.find((audioTrack) => audioTrack.id === selectedAudioTrackId) ?? null
   const selectedSubtitle =
     subtitleFiles.find((subtitle) => subtitle.id === selectedSubtitleId) ?? null
   const subtitleWarning =
@@ -456,6 +502,7 @@ export const MediaPlayerPanel = ({
     setPlaybackSyncError(null)
     setSubtitleTrackError(null)
     setIsEpisodeMenuOpen(false)
+    setIsAudioMenuOpen(false)
     setIsSubtitleMenuOpen(false)
 
     if (!keepBuffering) {
@@ -508,6 +555,7 @@ export const MediaPlayerPanel = ({
     setPlaybackSyncError(null)
     setSubtitleTrackError(null)
     setIsEpisodeMenuOpen(false)
+    setIsAudioMenuOpen(false)
     setIsSubtitleMenuOpen(false)
     setIsBuffering(selectedMediaFileId !== null)
     setBufferedSeconds(0)
@@ -521,8 +569,18 @@ export const MediaPlayerPanel = ({
       return
     }
 
+    setSelectedAudioTrackId(null)
     setSelectedSubtitleId(null)
   }, [selectedMediaFileId])
+
+  useEffect(() => {
+    if (
+      selectedAudioTrackId !== null &&
+      !audioTracks.some((audioTrack) => audioTrack.id === selectedAudioTrackId)
+    ) {
+      setSelectedAudioTrackId(null)
+    }
+  }, [audioTracks, selectedAudioTrackId])
 
   useEffect(() => {
     if (subtitleFiles.length === 0) {
@@ -546,7 +604,7 @@ export const MediaPlayerPanel = ({
   }, [selectedSubtitleId, subtitleFiles])
 
   useEffect(() => {
-    if (!isSubtitleMenuOpen && !isEpisodeMenuOpen) {
+    if (!isSubtitleMenuOpen && !isEpisodeMenuOpen && !isAudioMenuOpen) {
       return
     }
 
@@ -556,12 +614,18 @@ export const MediaPlayerPanel = ({
       }
 
       const subtitleMenuRoot = subtitleMenuRef.current
+      const audioMenuRoot = audioMenuRef.current
       const episodeMenuRoot = episodeMenuRef.current
       const clickedSubtitleMenu = subtitleMenuRoot?.contains(event.target)
+      const clickedAudioMenu = audioMenuRoot?.contains(event.target)
       const clickedEpisodeMenu = episodeMenuRoot?.contains(event.target)
 
       if (!clickedSubtitleMenu) {
         setIsSubtitleMenuOpen(false)
+      }
+
+      if (!clickedAudioMenu) {
+        setIsAudioMenuOpen(false)
       }
 
       if (!clickedEpisodeMenu) {
@@ -572,6 +636,7 @@ export const MediaPlayerPanel = ({
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsSubtitleMenuOpen(false)
+        setIsAudioMenuOpen(false)
         setIsEpisodeMenuOpen(false)
       }
     }
@@ -583,7 +648,7 @@ export const MediaPlayerPanel = ({
       window.removeEventListener('mousedown', handlePointerDown)
       window.removeEventListener('keydown', handleEscape)
     }
-  }, [isEpisodeMenuOpen, isSubtitleMenuOpen])
+  }, [isAudioMenuOpen, isEpisodeMenuOpen, isSubtitleMenuOpen])
 
   useEffect(() => {
     const video = videoRef.current
@@ -961,6 +1026,25 @@ export const MediaPlayerPanel = ({
     setSelectedMediaFileId(targetMediaFileId)
   }
 
+  const switchAudioTrack = (targetAudioTrackId: number | null) => {
+    const video = videoRef.current
+    if (!video || !selectedMediaFile || targetAudioTrackId === selectedAudioTrackId) {
+      setIsAudioMenuOpen(false)
+      return
+    }
+
+    persistProgressBeforeSwitch()
+    queuePlaybackRestore({
+      positionSeconds: Math.max(0, video.currentTime || positionSeconds),
+      shouldAutoplay: !video.paused,
+      shouldPersistSelection: false,
+    })
+    resetTransientPlayerFeedback({ keepBuffering: true })
+    setIsBuffering(true)
+    setSelectedAudioTrackId(targetAudioTrackId)
+    setIsAudioMenuOpen(false)
+  }
+
   const isImmersive = variant === 'immersive'
   const seekMax = Math.max(0, durationSeconds ?? selectedMediaFileDuration ?? 0)
   const playedProgressPercent = seekMax > 0 ? Math.min(100, (positionSeconds / seekMax) * 100) : 0
@@ -974,6 +1058,7 @@ export const MediaPlayerPanel = ({
     hasSubtitleWarning: subtitleWarning !== null,
     isBuffering,
   })
+  const shouldRenderAudioMenu = audioTracks.length > 1 || audioTracksQuery.isError
   const timelineStyle = {
     '--player-range-buffered': `${Math.max(playedProgressPercent, bufferedProgressPercent)}%`,
     '--player-range-played': `${playedProgressPercent}%`,
@@ -1177,7 +1262,9 @@ export const MediaPlayerPanel = ({
                 preload="metadata"
                 playsInline
                 ref={videoRef}
-                src={mediaFileStreamUrl(selectedMediaFile.id)}
+                src={mediaFileStreamUrl(selectedMediaFile.id, {
+                  audioTrackId: selectedAudioTrackId,
+                })}
               >
                 {selectedSubtitle ? (
                   // Web 端同一时间只挂一条字幕 track，切换时直接替换，避免内嵌/外挂叠加重影。
@@ -1300,6 +1387,79 @@ export const MediaPlayerPanel = ({
                         </div>
                       ) : null}
 
+                      {shouldRenderAudioMenu ? (
+                        <div
+                          className={
+                            isAudioMenuOpen
+                              ? 'player-popover-menu player-popover-menu--open'
+                              : 'player-popover-menu'
+                          }
+                          ref={audioMenuRef}
+                        >
+                          <button
+                            aria-expanded={isAudioMenuOpen}
+                            aria-haspopup="menu"
+                            aria-label="Select audio track"
+                            className={
+                              selectedAudioTrackId !== null || isAudioMenuOpen
+                                ? 'player-control-button player-control-button--icon player-control-button--toolbar player-control-button--active'
+                                : 'player-control-button player-control-button--icon player-control-button--toolbar'
+                            }
+                            onClick={() => {
+                              setIsAudioMenuOpen((open) => !open)
+                              setIsEpisodeMenuOpen(false)
+                              setIsSubtitleMenuOpen(false)
+                            }}
+                            type="button"
+                          >
+                            <AudioTrackIcon />
+                          </button>
+
+                          {isAudioMenuOpen ? (
+                            <div className="player-popover-menu__bubble" role="menu">
+                              <button
+                                className={
+                                  selectedAudioTrackId === null
+                                    ? 'player-popover-menu__option player-popover-menu__option--active'
+                                    : 'player-popover-menu__option'
+                                }
+                                onClick={() => switchAudioTrack(null)}
+                                role="menuitem"
+                                type="button"
+                              >
+                                <span>Auto</span>
+                                <small>Use the original file audio selection</small>
+                              </button>
+
+                              {audioTracks.map((audioTrack) => (
+                                <button
+                                  className={
+                                    selectedAudioTrackId === audioTrack.id
+                                      ? 'player-popover-menu__option player-popover-menu__option--active'
+                                      : 'player-popover-menu__option'
+                                  }
+                                  key={audioTrack.id}
+                                  onClick={() => switchAudioTrack(audioTrack.id)}
+                                  role="menuitem"
+                                  type="button"
+                                >
+                                  <span>{formatAudioTrackLabel(audioTrack)}</span>
+                                  <small>{formatAudioTrackMeta(audioTrack) || 'Embedded'}</small>
+                                </button>
+                              ))}
+
+                              {audioTracks.length === 0 && !audioTracksQuery.isLoading ? (
+                                <p className="player-popover-menu__empty">
+                                  {audioTracksQuery.error instanceof Error
+                                    ? audioTracksQuery.error.message
+                                    : 'No alternate audio tracks found.'}
+                                </p>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
                       <div
                         className={
                           isSubtitleMenuOpen
@@ -1320,6 +1480,7 @@ export const MediaPlayerPanel = ({
                           onClick={() => {
                             setIsSubtitleMenuOpen((open) => !open)
                             setIsEpisodeMenuOpen(false)
+                            setIsAudioMenuOpen(false)
                           }}
                           type="button"
                         >
@@ -1387,6 +1548,11 @@ export const MediaPlayerPanel = ({
                           aria-label="Adjust volume"
                           className="player-control-button player-control-button--icon player-control-button--toolbar"
                           type="button"
+                          title={
+                            selectedAudioTrack
+                              ? `Selected audio: ${formatAudioTrackLabel(selectedAudioTrack)}`
+                              : 'Adjust volume'
+                          }
                         >
                           <SpeakerIcon muted={isMuted} volume={volume} />
                         </button>

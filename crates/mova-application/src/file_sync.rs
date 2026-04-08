@@ -252,6 +252,17 @@ fn build_media_entry(
         width: file.width,
         height: file.height,
         bitrate: file.bitrate,
+        audio_tracks: file
+            .audio_tracks
+            .into_iter()
+            .map(|audio_track| mova_db::CreateAudioTrackParams {
+                stream_index: audio_track.stream_index,
+                language: audio_track.language,
+                audio_codec: audio_track.audio_codec,
+                label: audio_track.label,
+                is_default: audio_track.is_default,
+            })
+            .collect(),
         // 扫描阶段已经把外挂/内嵌字幕归属到当前媒体文件，这里直接带入落库。
         subtitle_tracks: file
             .subtitle_tracks

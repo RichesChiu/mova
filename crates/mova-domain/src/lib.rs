@@ -1,3 +1,4 @@
+mod audio_track;
 mod continue_watching_item;
 mod episode;
 mod library;
@@ -14,6 +15,7 @@ mod user_profile;
 mod watch_history;
 mod watch_history_item;
 
+pub use audio_track::AudioTrack;
 pub use continue_watching_item::ContinueWatchingItem;
 pub use episode::Episode;
 pub use library::Library;

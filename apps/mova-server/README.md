@@ -285,8 +285,9 @@
 
 | Method | Path | Handler | 主要依赖 | 作用 |
 | --- | --- | --- | --- | --- |
-| `GET` | `/api/media-files/{id}/stream` | `handlers::media_files::stream_media_file` | `auth::require_media_file_access`、本地文件读取、`Range` 解析、`ReaderStream` | 以流方式输出媒体文件内容。 |
-| `HEAD` | `/api/media-files/{id}/stream` | `handlers::media_files::head_media_file` | `auth::require_media_file_access`、本地文件元数据读取 | 返回媒体文件响应头，不输出实体。 |
+| `GET` | `/api/media-files/{id}/stream` | `handlers::media_files::stream_media_file` | `auth::require_media_file_access`、本地文件读取、`Range` 解析、`ReaderStream`、可选 `ffmpeg -c copy` 音轨 remux 缓存 | 以流方式输出媒体文件内容；当前也支持通过 `audio_track_id` 选择内嵌音轨。 |
+| `HEAD` | `/api/media-files/{id}/stream` | `handlers::media_files::head_media_file` | `auth::require_media_file_access`、本地文件元数据读取、可选音轨变体探测 | 返回媒体文件响应头，不输出实体。 |
+| `GET` | `/api/media-files/{id}/audio-tracks` | `handlers::media_files::list_media_file_audio_tracks` | `auth::require_media_file_access`、`mova_application::list_audio_tracks_for_media_file` | 查询媒体文件可切换的内嵌音轨列表。 |
 | `GET` | `/api/media-files/{id}/subtitles` | `handlers::subtitle_files::list_media_file_subtitles` | `auth::require_media_file_access`、`mova_application::list_subtitle_files_for_media_file` | 查询媒体文件可切换字幕轨道。 |
 
 #### `routes/subtitle_files.rs`
@@ -335,12 +336,14 @@
 
 - `/api/media-items/{id}/playback-header`
 - `/api/media-items/{id}/files`
+- `/api/media-files/{id}/audio-tracks`
 - `/api/media-files/{id}/subtitles`
 - `/api/media-items/{id}/playback-progress`
 
 真正播放时：
 
 - `/api/media-files/{id}/stream` 直接读取磁盘文件
+- 如果用户切到非默认音轨，会先通过 `ffmpeg -c copy` 生成一个缓存的音轨变体，再继续走同一条 `/stream` 直链与 `Range` 逻辑
 - `/api/subtitle-files/{id}/stream` 负责把字幕转换成 WebVTT
 - `/api/media-items/{id}/playback-progress` 负责轮询保存进度
 

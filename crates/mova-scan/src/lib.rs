@@ -25,6 +25,15 @@ pub struct DiscoveredSubtitleTrack {
     pub is_forced: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoveredAudioTrack {
+    pub stream_index: i32,
+    pub language: Option<String>,
+    pub audio_codec: Option<String>,
+    pub label: Option<String>,
+    pub is_default: bool,
+}
+
 /// 扫描目录时发现的单个视频文件。
 #[derive(Debug, Clone)]
 pub struct DiscoveredMediaFile {
@@ -54,6 +63,7 @@ pub struct DiscoveredMediaFile {
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub bitrate: Option<i64>,
+    pub audio_tracks: Vec<DiscoveredAudioTrack>,
     pub subtitle_tracks: Vec<DiscoveredSubtitleTrack>,
 }
 

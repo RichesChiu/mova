@@ -387,6 +387,7 @@ pub(super) async fn insert_media_file(
     .context("failed to insert media file")?;
 
     let media_file_id = row.get("id");
+    replace_audio_tracks_for_media_file_tx(tx, media_file_id, &entry.audio_tracks).await?;
     replace_subtitle_files_for_media_file_tx(tx, media_file_id, &entry.subtitle_tracks).await?;
 
     Ok(media_file_id)
@@ -428,7 +429,52 @@ pub(super) async fn update_media_file_from_entry(
     .await
     .context("failed to update media file during library sync")?;
 
+    replace_audio_tracks_for_media_file_tx(tx, media_file_id, &entry.audio_tracks).await?;
     replace_subtitle_files_for_media_file_tx(tx, media_file_id, &entry.subtitle_tracks).await?;
+
+    Ok(())
+}
+
+async fn replace_audio_tracks_for_media_file_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    media_file_id: i64,
+    audio_tracks: &[super::CreateAudioTrackParams],
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        delete from audio_tracks
+        where media_file_id = $1
+        "#,
+    )
+    .bind(media_file_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to delete audio tracks during media sync")?;
+
+    for audio_track in audio_tracks {
+        sqlx::query(
+            r#"
+            insert into audio_tracks (
+                media_file_id,
+                stream_index,
+                language,
+                audio_codec,
+                label,
+                is_default
+            )
+            values ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(media_file_id)
+        .bind(audio_track.stream_index)
+        .bind(&audio_track.language)
+        .bind(&audio_track.audio_codec)
+        .bind(&audio_track.label)
+        .bind(audio_track.is_default)
+        .execute(&mut **tx)
+        .await
+        .context("failed to insert audio track during media sync")?;
+    }
 
     Ok(())
 }

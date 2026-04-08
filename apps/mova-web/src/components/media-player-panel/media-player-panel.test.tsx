@@ -6,9 +6,15 @@ import { buildPlaybackSourceErrorMessage, MediaPlayerPanel } from './index'
 const clientMocks = vi.hoisted(() => ({
   flushMediaItemPlaybackProgress: vi.fn(),
   getMediaItemPlaybackProgress: vi.fn(),
+  listMediaFileAudioTracks: vi.fn(),
   listMediaFileSubtitles: vi.fn(),
   listMediaItemFiles: vi.fn(),
-  mediaFileStreamUrl: vi.fn((mediaFileId: number) => `/api/media-files/${mediaFileId}/stream`),
+  mediaFileStreamUrl: vi.fn(
+    (mediaFileId: number, options?: { audioTrackId?: number | null }) =>
+      `/api/media-files/${mediaFileId}/stream${
+        typeof options?.audioTrackId === 'number' ? `?audio_track_id=${options.audioTrackId}` : ''
+      }`,
+  ),
   subtitleFileStreamUrl: vi.fn(
     (subtitleFileId: number) => `/api/subtitle-files/${subtitleFileId}/stream`,
   ),
@@ -18,6 +24,7 @@ const clientMocks = vi.hoisted(() => ({
 vi.mock('../../api/client', () => ({
   flushMediaItemPlaybackProgress: clientMocks.flushMediaItemPlaybackProgress,
   getMediaItemPlaybackProgress: clientMocks.getMediaItemPlaybackProgress,
+  listMediaFileAudioTracks: clientMocks.listMediaFileAudioTracks,
   listMediaFileSubtitles: clientMocks.listMediaFileSubtitles,
   listMediaItemFiles: clientMocks.listMediaItemFiles,
   mediaFileStreamUrl: clientMocks.mediaFileStreamUrl,
@@ -143,6 +150,30 @@ describe('MediaPlayerPanel', () => {
       last_watched_at: '2026-04-07T00:00:00Z',
       is_finished: false,
     })
+    clientMocks.listMediaFileAudioTracks.mockResolvedValue([
+      {
+        id: 801,
+        media_file_id: 401,
+        stream_index: 1,
+        language: 'zh-CN',
+        audio_codec: 'aac',
+        label: 'Mandarin Stereo',
+        is_default: true,
+        created_at: '2026-04-07T00:00:00Z',
+        updated_at: '2026-04-07T00:00:00Z',
+      },
+      {
+        id: 802,
+        media_file_id: 401,
+        stream_index: 2,
+        language: 'en',
+        audio_codec: 'ac3',
+        label: 'English 5.1',
+        is_default: false,
+        created_at: '2026-04-07T00:00:00Z',
+        updated_at: '2026-04-07T00:00:00Z',
+      },
+    ])
     clientMocks.listMediaFileSubtitles.mockResolvedValue([])
     clientMocks.updateMediaItemPlaybackProgress.mockImplementation(
       async (_mediaItemId: number, input: Record<string, unknown>) => ({
@@ -262,6 +293,35 @@ describe('MediaPlayerPanel', () => {
         is_finished: false,
       })
     })
+  })
+
+  it('keeps the playback position when switching to another audio track', async () => {
+    const { container } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel mediaItemId={31} title="Interstellar" variant="immersive" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
+    const video = container.querySelector('video') as HTMLVideoElement
+    const videoState = installVideoTestState(video)
+    fireEvent.loadedMetadata(video)
+    videoState.setCurrentTime(845)
+    videoState.setPaused(false)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select audio track' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /English 5\.1/i }))
+
+    await waitFor(() => {
+      expect(video.getAttribute('src')).toContain('/api/media-files/401/stream?audio_track_id=802')
+    })
+
+    fireEvent.loadedMetadata(video)
+
+    expect(videoState.getCurrentTime()).toBe(845)
   })
 
   it('maps source playback errors to a clearer user-facing message', () => {

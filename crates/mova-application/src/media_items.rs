@@ -6,7 +6,9 @@ use crate::{
     media_enrichment::MetadataEnrichmentContext,
     metadata::{MetadataLookup, MetadataProvider, RemoteSeriesEpisodeOutline},
 };
-use mova_domain::{Episode, MediaFile, MediaItem, PlaybackProgress, Season, SubtitleFile};
+use mova_domain::{
+    AudioTrack, Episode, MediaFile, MediaItem, PlaybackProgress, Season, SubtitleFile,
+};
 use sqlx::postgres::PgPool;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -174,6 +176,19 @@ pub async fn list_subtitle_files_for_media_file(
         .map_err(ApplicationError::from)
 }
 
+/// 读取某个媒体文件可切换的内嵌音轨。
+/// 当前播放器切换语言音轨时按媒体文件维度查询，避免跨版本文件误复用轨道列表。
+pub async fn list_audio_tracks_for_media_file(
+    pool: &PgPool,
+    media_file_id: i64,
+) -> ApplicationResult<Vec<AudioTrack>> {
+    get_media_file(pool, media_file_id).await?;
+
+    mova_db::list_audio_tracks_for_media_file(pool, media_file_id)
+        .await
+        .map_err(ApplicationError::from)
+}
+
 pub async fn get_subtitle_file(
     pool: &PgPool,
     subtitle_file_id: i64,
@@ -184,6 +199,13 @@ pub async fn get_subtitle_file(
         .ok_or_else(|| {
             ApplicationError::NotFound(format!("subtitle file not found: {}", subtitle_file_id))
         })
+}
+
+pub async fn get_audio_track(pool: &PgPool, audio_track_id: i64) -> ApplicationResult<AudioTrack> {
+    mova_db::get_audio_track(pool, audio_track_id)
+        .await
+        .map_err(ApplicationError::from)?
+        .ok_or_else(|| ApplicationError::NotFound(format!("audio track not found: {}", audio_track_id)))
 }
 
 pub async fn list_seasons_for_series(

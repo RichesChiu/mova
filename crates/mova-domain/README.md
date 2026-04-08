@@ -31,6 +31,7 @@
 | `src/library_detail.rs` | `LibraryDetail` |
 | `src/media_item.rs` | `MediaItem` |
 | `src/media_file.rs` | `MediaFile` |
+| `src/audio_track.rs` | `AudioTrack` |
 | `src/subtitle_file.rs` | `SubtitleFile` |
 | `src/season.rs` | `Season` |
 | `src/episode.rs` | `Episode` |
@@ -51,6 +52,7 @@
 - `LibraryDetail`
 - `MediaItem`
 - `MediaFile`
+- `AudioTrack`
 - `SubtitleFile`
 - `Season`
 - `Episode`
@@ -87,8 +89,8 @@
 - `Library` / `LibraryDetail`
   - 媒体库列表、详情、设置页和扫描链路都围绕这两个对象展开。
 
-- `MediaItem` / `MediaFile`
-  - 一个负责逻辑上的媒体条目，一个负责物理文件与播放链路。
+- `MediaItem` / `MediaFile` / `AudioTrack`
+  - 一个负责逻辑上的媒体条目，一个负责物理文件与播放链路，`AudioTrack` 负责补齐单个媒体文件的内嵌音轨建模。
 
 - `PlaybackProgress` / `WatchHistory`
   - 一个表达“当前最新进度”，一个表达“观看会话历史”。

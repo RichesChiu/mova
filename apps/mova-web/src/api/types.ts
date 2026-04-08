@@ -194,6 +194,18 @@ export interface SubtitleFile {
   updated_at: string
 }
 
+export interface AudioTrack {
+  id: number
+  media_file_id: number
+  stream_index: number
+  language: string | null
+  audio_codec: string | null
+  label: string | null
+  is_default: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface ContinueWatchingItem {
   media_item: MediaItem
   playback_progress: PlaybackProgress

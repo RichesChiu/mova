@@ -13,4 +13,8 @@ pub fn router() -> Router<crate::state::AppState> {
             "/media-files/{id}/subtitles",
             get(handlers::subtitle_files::list_media_file_subtitles),
         )
+        .route(
+            "/media-files/{id}/audio-tracks",
+            get(handlers::media_files::list_media_file_audio_tracks),
+        )
 }

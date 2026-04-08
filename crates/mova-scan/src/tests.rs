@@ -259,8 +259,67 @@ fn parse_ffprobe_output_extracts_media_probe_fields() {
             width: Some(1920),
             height: Some(1080),
             bitrate: Some(4_500_000),
+            audio_streams: Vec::new(),
             subtitle_streams: Vec::new(),
         }
+    );
+}
+
+#[test]
+fn parse_ffprobe_output_extracts_embedded_audio_tracks() {
+    let probe = parse_ffprobe_output(
+        br#"{
+            "streams": [
+                {
+                    "index": 1,
+                    "codec_type": "audio",
+                    "codec_name": "aac",
+                    "tags": {
+                        "language": "zh",
+                        "title": "Mandarin"
+                    },
+                    "disposition": {
+                        "default": 1,
+                        "forced": 0
+                    }
+                },
+                {
+                    "index": 2,
+                    "codec_type": "audio",
+                    "codec_name": "ac3",
+                    "tags": {
+                        "language": "en",
+                        "title": "English"
+                    },
+                    "disposition": {
+                        "default": 0,
+                        "forced": 0
+                    }
+                }
+            ],
+            "format": {}
+        }"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        probe.audio_streams,
+        vec![
+            crate::probe::EmbeddedAudioStream {
+                stream_index: 1,
+                language: Some("zh".to_string()),
+                audio_codec: Some("aac".to_string()),
+                label: Some("Mandarin".to_string()),
+                is_default: true,
+            },
+            crate::probe::EmbeddedAudioStream {
+                stream_index: 2,
+                language: Some("en".to_string()),
+                audio_codec: Some("ac3".to_string()),
+                label: Some("English".to_string()),
+                is_default: false,
+            },
+        ]
     );
 }
 

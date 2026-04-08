@@ -2,7 +2,7 @@ use crate::{
     parse::{extension_lowercase, parse_media_metadata},
     probe::{probe_media_file, ProbeAvailability},
     subtitle::discover_subtitle_tracks,
-    DiscoveredMediaFile,
+    DiscoveredAudioTrack, DiscoveredMediaFile,
 };
 use std::{
     fs,
@@ -213,6 +213,17 @@ fn build_discovered_media_file(
         width: probe.width,
         height: probe.height,
         bitrate: probe.bitrate,
+        audio_tracks: probe
+            .audio_streams
+            .into_iter()
+            .map(|audio| DiscoveredAudioTrack {
+                stream_index: audio.stream_index,
+                language: audio.language,
+                audio_codec: audio.audio_codec,
+                label: audio.label,
+                is_default: audio.is_default,
+            })
+            .collect(),
         subtitle_tracks: discover_subtitle_tracks(&path, &probe.subtitle_streams),
         file_path: path,
         file_size,

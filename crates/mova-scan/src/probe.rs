@@ -9,7 +9,17 @@ pub(crate) struct MediaProbe {
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub bitrate: Option<i64>,
+    pub audio_streams: Vec<EmbeddedAudioStream>,
     pub subtitle_streams: Vec<EmbeddedSubtitleStream>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EmbeddedAudioStream {
+    pub stream_index: i32,
+    pub language: Option<String>,
+    pub audio_codec: Option<String>,
+    pub label: Option<String>,
+    pub is_default: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,6 +175,12 @@ pub(crate) fn parse_ffprobe_output(output: &[u8]) -> Result<MediaProbe, ProbeErr
         .streams
         .iter()
         .find(|stream| stream.codec_type.as_deref() == Some("audio"));
+    let audio_streams = parsed
+        .streams
+        .iter()
+        .filter(|stream| stream.codec_type.as_deref() == Some("audio"))
+        .filter_map(map_embedded_audio_stream)
+        .collect::<Vec<_>>();
     let subtitle_streams = parsed
         .streams
         .iter()
@@ -192,7 +208,31 @@ pub(crate) fn parse_ffprobe_output(output: &[u8]) -> Result<MediaProbe, ProbeErr
                     .and_then(|stream| stream.bit_rate.as_deref())
                     .and_then(parse_i64_field)
             }),
+        audio_streams,
         subtitle_streams,
+    })
+}
+
+fn map_embedded_audio_stream(stream: &FfprobeStream) -> Option<EmbeddedAudioStream> {
+    Some(EmbeddedAudioStream {
+        stream_index: stream.index?,
+        language: stream
+            .tags
+            .as_ref()
+            .and_then(|tags| tags.language.as_ref())
+            .and_then(|language| normalize_language_token(language)),
+        audio_codec: stream.codec_name.clone(),
+        label: stream
+            .tags
+            .as_ref()
+            .and_then(|tags| tags.title.as_ref())
+            .map(|title| title.trim().to_string())
+            .filter(|title| !title.is_empty()),
+        is_default: stream
+            .disposition
+            .as_ref()
+            .map(|disposition| disposition.default > 0)
+            .unwrap_or(false),
     })
 }
 

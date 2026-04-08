@@ -94,6 +94,7 @@
 | `PUT` | `/api/media-items/{id}/playback-progress` | 写入或更新播放进度 |
 | `GET` | `/api/playback-progress/continue-watching` | 查询继续观看列表 |
 | `GET` | `/api/watch-history` | 查询当前用户自己的观看历史 |
+| `GET` | `/api/media-files/{id}/audio-tracks` | 查询媒体文件可切换的内嵌音轨列表 |
 | `GET` | `/api/media-files/{id}/subtitles` | 查询媒体文件可切换字幕列表 |
 | `GET` | `/api/media-files/{id}/stream` | 播放媒体文件 |
 | `HEAD` | `/api/media-files/{id}/stream` | 查询媒体文件播放头信息 |
@@ -1159,6 +1160,30 @@
 
 ## 6. 媒体流
 
+### `GET /api/media-files/{id}/audio-tracks`
+
+作用：
+- 查询某个媒体文件下当前可切换的内嵌音轨列表
+
+路径参数：
+- `id`：`media_file_id`
+
+返回：
+- `200 OK`
+- 返回 `AudioTrackResponse[]`
+
+关键字段：
+- `stream_index`：原始媒体文件里的音轨流索引
+- `language`：语言代码，例如 `zh`、`en`
+- `audio_codec`：音频编码，例如 `aac`、`ac3`
+- `label`：音轨标题，例如 `Mandarin Stereo`
+- `is_default`：是否是原始文件里的默认音轨
+
+说明：
+- 当前只列出扫描时通过 `ffprobe` 发现的内嵌音轨
+- 外挂音轨暂不在 MVP 范围内
+- 前端通常会额外提供一个 `Auto` 选项，表示不传 `audio_track_id`，直接使用原始文件默认音轨
+
 ### `GET /api/media-files/{id}/subtitles`
 
 作用：
@@ -1215,12 +1240,16 @@
 路径参数：
 - `id`：`media_file_id`
 
+可选查询参数：
+- `audio_track_id`：指定后端应该优先输出哪条内嵌音轨的 remux 变体
+
 可选请求头：
 - `Range: bytes=0-1023`
 
 典型场景：
 - `<video src="...">` 直接播放
 - 浏览器拖动进度条时的分段读取
+- 用户在播放器里切换到另一条内嵌音轨
 
 返回：
 - 不带 `Range` 时通常为 `200 OK`
@@ -1236,6 +1265,8 @@
 说明：
 - 当前应直接把这个 URL 给播放器使用
 - 不建议前端先 `fetch` 完整文件再转 `blob`
+- 当带上 `audio_track_id` 时，服务端会先验证这条音轨确实属于当前媒体文件，再按 `ffmpeg -c copy` 生成缓存变体；这里是 remux，不是转码
+- 当前 remux 变体仍然只服务于源码直放，不会提供多码率或自适应码流
 
 ### `HEAD /api/media-files/{id}/stream`
 
@@ -1244,6 +1275,9 @@
 
 路径参数：
 - `id`：`media_file_id`
+
+可选查询参数：
+- `audio_track_id`
 
 可选请求头：
 - `Range`
@@ -1258,6 +1292,7 @@
 说明：
 - 前端通常不需要手动调用
 - 浏览器播放器可能会自己使用
+- 如果请求的是某条音轨变体，服务端会先确保对应缓存变体已经准备好
 
 ## 7. ID 关系说明
 
@@ -1275,6 +1310,10 @@
   - 来自 `/api/media-items/{id}/files`
   - 用于媒体流播放和播放进度上报
 
+- `audio_track_id`
+  - 来自 `/api/media-files/{id}/audio-tracks`
+  - 用于播放器切换内嵌音轨
+
 - `subtitle_file_id`
   - 来自 `/api/media-files/{id}/subtitles`
   - 用于播放器加载单条字幕轨道内容
@@ -1285,8 +1324,10 @@
 2. 取某条记录的 `media_item_id`
 3. 调 `GET /api/media-items/{media_item_id}/files`
 4. 取文件列表中的 `media_file_id`
-5. 如需字幕菜单，再调 `GET /api/media-files/{media_file_id}/subtitles`
-6. 选中字轨后，用 `subtitle_file_id` 请求 `/api/subtitle-files/{subtitle_file_id}/stream`
+5. 如需音轨菜单，先调 `GET /api/media-files/{media_file_id}/audio-tracks`
+6. 如需字幕菜单，再调 `GET /api/media-files/{media_file_id}/subtitles`
+7. 选中字轨后，用 `subtitle_file_id` 请求 `/api/subtitle-files/{subtitle_file_id}/stream`
 5. 播放时：
-   - `<video src="/api/media-files/{media_file_id}/stream" />`
+   - 默认音轨：`<video src="/api/media-files/{media_file_id}/stream" />`
+   - 切换音轨后：`<video src="/api/media-files/{media_file_id}/stream?audio_track_id={audio_track_id}" />`
    - `PUT /api/media-items/{media_item_id}/playback-progress`

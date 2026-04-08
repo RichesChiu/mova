@@ -1,4 +1,5 @@
 import type {
+  AudioTrack,
   BootstrapAdminInput,
   BootstrapStatus,
   ChangeOwnPasswordInput,
@@ -313,6 +314,9 @@ export const listMediaItemFiles = (mediaItemId: number) =>
 export const listMediaFileSubtitles = (mediaFileId: number) =>
   requestJson<SubtitleFile[]>(withApiPrefix(`/media-files/${mediaFileId}/subtitles`))
 
+export const listMediaFileAudioTracks = (mediaFileId: number) =>
+  requestJson<AudioTrack[]>(withApiPrefix(`/media-files/${mediaFileId}/audio-tracks`))
+
 export const listMediaItemSeasons = (mediaItemId: number) =>
   requestJson<Season[]>(withApiPrefix(`/media-items/${mediaItemId}/seasons`))
 
@@ -327,8 +331,21 @@ export const refreshMediaItemMetadata = (mediaItemId: number) =>
     method: 'POST',
   })
 
-export const mediaFileStreamUrl = (mediaFileId: number) =>
-  withApiPrefix(`/media-files/${mediaFileId}/stream`)
+export const mediaFileStreamUrl = (
+  mediaFileId: number,
+  options?: {
+    audioTrackId?: number | null
+  },
+) => {
+  const searchParams = new URLSearchParams()
+
+  if (typeof options?.audioTrackId === 'number') {
+    searchParams.set('audio_track_id', String(options.audioTrackId))
+  }
+
+  const query = searchParams.toString()
+  return withApiPrefix(`/media-files/${mediaFileId}/stream${query ? `?${query}` : ''}`)
+}
 
 export const subtitleFileStreamUrl = (subtitleFileId: number) =>
   withApiPrefix(`/subtitle-files/${subtitleFileId}/stream`)

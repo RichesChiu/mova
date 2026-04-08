@@ -1,31 +1,61 @@
 use crate::auth::{require_media_file_access, require_user};
 use crate::error::ApiError;
+use crate::response::{ok, ApiJson, AudioTrackResponse};
 use crate::state::AppState;
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{
         header::{self, HeaderMap, HeaderValue},
         Response, StatusCode,
     },
 };
 use axum_extra::extract::cookie::CookieJar;
-use std::io::ErrorKind;
+use serde::Deserialize;
+use std::{
+    io::ErrorKind,
+    path::{Path as StdPath, PathBuf},
+};
 use tokio::{
-    fs::File,
+    fs::{self, File},
     io::{AsyncReadExt, AsyncSeekExt, SeekFrom},
+    process::Command,
 };
 use tokio_util::io::ReaderStream;
+
+#[derive(Debug, Deserialize, Default)]
+pub struct MediaFileStreamQuery {
+    pub audio_track_id: Option<i64>,
+}
+
+/// 返回某个媒体文件可切换的内嵌音轨列表。
+pub async fn list_media_file_audio_tracks(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(media_file_id): Path<i64>,
+) -> Result<ApiJson<Vec<AudioTrackResponse>>, ApiError> {
+    let user = require_user(&state, &jar).await?;
+    require_media_file_access(&state, &user, media_file_id).await?;
+    let audio_tracks = mova_application::list_audio_tracks_for_media_file(&state.db, media_file_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(ok(audio_tracks
+        .into_iter()
+        .map(|audio_track| AudioTrackResponse::from_domain(audio_track, state.api_time_offset))
+        .collect()))
+}
 
 /// 读取媒体文件内容，支持 HTTP Range 请求，供浏览器视频播放使用。
 pub async fn stream_media_file(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(media_file_id): Path<i64>,
+    Query(query): Query<MediaFileStreamQuery>,
     headers: HeaderMap,
 ) -> Result<Response<Body>, ApiError> {
     let user = require_user(&state, &jar).await?;
-    build_media_file_stream_response(state, &user, media_file_id, headers, false).await
+    build_media_file_stream_response(state, &user, media_file_id, query.audio_track_id, headers, false).await
 }
 
 /// 返回媒体文件的响应头，不返回实体内容。
@@ -33,35 +63,82 @@ pub async fn head_media_file(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(media_file_id): Path<i64>,
+    Query(query): Query<MediaFileStreamQuery>,
     headers: HeaderMap,
 ) -> Result<Response<Body>, ApiError> {
     let user = require_user(&state, &jar).await?;
-    build_media_file_stream_response(state, &user, media_file_id, headers, true).await
+    build_media_file_stream_response(state, &user, media_file_id, query.audio_track_id, headers, true).await
 }
 
 async fn build_media_file_stream_response(
     state: AppState,
     user: &mova_domain::UserProfile,
     media_file_id: i64,
+    audio_track_id: Option<i64>,
     headers: HeaderMap,
     head_only: bool,
 ) -> Result<Response<Body>, ApiError> {
     let media_file = require_media_file_access(&state, user, media_file_id).await?;
+    let stream_path = match audio_track_id {
+        Some(audio_track_id) => {
+            let audio_track = mova_application::get_audio_track(&state.db, audio_track_id)
+                .await
+                .map_err(ApiError::from)?;
 
-    let metadata = tokio::fs::metadata(&media_file.file_path)
+            if audio_track.media_file_id != media_file.id {
+                return Err(ApiError::NotFound(format!(
+                    "audio track {} does not belong to media file {}",
+                    audio_track_id, media_file_id
+                )));
+            }
+
+            materialize_audio_track_variant(&state, &media_file, &audio_track).await?
+        }
+        None => PathBuf::from(&media_file.file_path),
+    };
+    let content_type = content_type_for_media_file(&media_file);
+
+    build_file_stream_response(
+        &stream_path,
+        content_type,
+        headers,
+        head_only,
+        if audio_track_id.is_some() {
+            format!(
+                "audio track stream not found on disk for media file {}: {}",
+                media_file_id,
+                stream_path.display()
+            )
+        } else {
+            format!(
+                "media file not found on disk for id {}: {}",
+                media_file_id, media_file.file_path
+            )
+        },
+    )
+    .await
+}
+
+async fn build_file_stream_response(
+    file_path: &StdPath,
+    content_type: &'static str,
+    headers: HeaderMap,
+    head_only: bool,
+    not_found_message: String,
+) -> Result<Response<Body>, ApiError> {
+    let metadata = fs::metadata(file_path)
         .await
-        .map_err(|error| map_media_file_io_error(media_file_id, &media_file.file_path, error))?;
+        .map_err(|error| map_stream_file_io_error(file_path, error, &not_found_message))?;
 
     if !metadata.is_file() {
         return Err(ApiError::NotFound(format!(
             "media file path is not a regular file: {}",
-            media_file.file_path
+            file_path.display()
         )));
     }
 
     let file_size = metadata.len();
     let requested_range = parse_requested_range(headers.get(header::RANGE), file_size)?;
-    let content_type = content_type_for_media_file(&media_file);
 
     let (status, start, end) = match requested_range {
         Some(range) => (StatusCode::PARTIAL_CONTENT, range.start, range.end),
@@ -78,14 +155,13 @@ async fn build_media_file_stream_response(
     let body = if head_only || file_size == 0 {
         Body::empty()
     } else {
-        let mut file = File::open(&media_file.file_path).await.map_err(|error| {
-            map_media_file_io_error(media_file_id, &media_file.file_path, error)
-        })?;
+        let mut file =
+            File::open(file_path).await.map_err(|error| map_stream_file_io_error(file_path, error, &not_found_message))?;
 
         if start > 0 {
-            file.seek(SeekFrom::Start(start)).await.map_err(|error| {
-                map_media_file_io_error(media_file_id, &media_file.file_path, error)
-            })?;
+            file.seek(SeekFrom::Start(start))
+                .await
+                .map_err(|error| map_stream_file_io_error(file_path, error, &not_found_message))?;
         }
 
         let stream = ReaderStream::new(file.take(content_length));
@@ -112,6 +188,83 @@ async fn build_media_file_stream_response(
     }
 
     Ok(response)
+}
+
+async fn materialize_audio_track_variant(
+    state: &AppState,
+    media_file: &mova_domain::MediaFile,
+    audio_track: &mova_domain::AudioTrack,
+) -> Result<PathBuf, ApiError> {
+    let cache_dir = state.artwork_cache_dir.join("audio-tracks");
+    fs::create_dir_all(&cache_dir)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+
+    let extension = media_file
+        .container
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .unwrap_or("mp4");
+    let cache_key = media_file.updated_at.unix_timestamp_nanos();
+    let cached_path = cache_dir.join(format!(
+        "media-file-{}-audio-track-{}-{}.{}",
+        media_file.id, audio_track.id, cache_key, extension
+    ));
+
+    if fs::metadata(&cached_path).await.is_ok() {
+        return Ok(cached_path);
+    }
+
+    let mut command = Command::new("ffmpeg");
+    command
+        .arg("-nostdin")
+        .arg("-y")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-i")
+        .arg(&media_file.file_path)
+        .arg("-map")
+        .arg("0:v:0")
+        .arg("-map")
+        .arg(format!("0:{}", audio_track.stream_index))
+        .arg("-dn")
+        .arg("-c")
+        .arg("copy");
+
+    if matches!(
+        media_file.container.as_deref(),
+        Some("mp4" | "m4v" | "mov")
+    ) {
+        command.arg("-movflags").arg("+faststart");
+    }
+
+    let output = command
+        .arg(&cached_path)
+        .output()
+        .await
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                ApiError::Internal
+            } else {
+                tracing::error!(error = ?error, "failed to spawn ffmpeg audio track remux");
+                ApiError::Internal
+            }
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        tracing::error!(stderr, audio_track_id = audio_track.id, "ffmpeg audio track remux failed");
+        return Err(ApiError::BadRequest(format!(
+            "failed to prepare the selected audio track for playback: {}",
+            if stderr.is_empty() {
+                "ffmpeg remux failed"
+            } else {
+                &stderr
+            }
+        )));
+    }
+
+    Ok(cached_path)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -204,16 +357,16 @@ fn content_type_for_media_file(media_file: &mova_domain::MediaFile) -> &'static 
     }
 }
 
-fn map_media_file_io_error(media_file_id: i64, file_path: &str, error: std::io::Error) -> ApiError {
+fn map_stream_file_io_error(
+    file_path: &StdPath,
+    error: std::io::Error,
+    not_found_message: &str,
+) -> ApiError {
     match error.kind() {
-        ErrorKind::NotFound => ApiError::NotFound(format!(
-            "media file not found on disk for id {}: {}",
-            media_file_id, file_path
-        )),
+        ErrorKind::NotFound => ApiError::NotFound(not_found_message.to_string()),
         _ => {
             tracing::error!(
-                media_file_id,
-                file_path,
+                file_path = %file_path.display(),
                 error = ?error,
                 "failed to access media file on disk"
             );

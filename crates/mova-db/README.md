@@ -53,8 +53,8 @@
 | `src/watch_history.rs` | 观看历史表读写。 |
 | `src/media_cast.rs` | 演员缓存表读写。 |
 | `src/media_items.rs` | 媒体条目相关父模块。 |
-| `src/media_items/query.rs` | 媒体列表、详情、文件、季集、outline cache 等读侧查询。 |
-| `src/media_items/sync.rs` | 按路径 upsert / delete 媒体项、媒体文件和字幕轨道。 |
+| `src/media_items/query.rs` | 媒体列表、详情、文件、音轨、季集、outline cache 等读侧查询。 |
+| `src/media_items/sync.rs` | 按路径 upsert / delete 媒体项、媒体文件、音轨和字幕轨道。 |
 | `src/media_items/series.rs` | 剧集聚合写入与 `series / seasons / episodes` 相关持久化。 |
 
 ## 5. 主要导出能力
@@ -105,14 +105,17 @@
 - `list_media_items_for_library`
 - `get_media_item`
 - `get_media_file`
+- `get_audio_track`
 - `get_season`
 - `list_media_files_for_media_item`
+- `list_audio_tracks_for_media_file`
 - `list_seasons_for_series`
 - `list_episodes_for_season`
 - `sync_library_media`
 - `upsert_library_media_entry_by_file_path`
 - `delete_library_media_by_file_path`
 - `delete_library_media_by_path_prefix`
+- `replace_audio_tracks_for_media_file`
 - `replace_subtitle_files_for_media_file`
 - `update_media_item_metadata`
 - `update_media_file_metadata`
@@ -138,7 +141,7 @@
 
 ## 7. 当前值得注意的点
 
-- 仓库仍处于 pre-1.0 阶段，migration 目前集中在根目录 [`../../migrations/0001_init.sql`](../../migrations/0001_init.sql)。
+- 仓库仍处于 pre-1.0 阶段，migration 目前集中在根目录 [`../../migrations/`](../../migrations/)。
 - `mova-server` 启动时会直接调用这里的 `connect / migrate / ping / fail_incomplete_scan_jobs`。
 - `mova-application` 的大部分业务用例都会在这里落到最终 SQL。
 

@@ -1,11 +1,11 @@
 use super::{
-    CreateSubtitleTrackParams, LibraryMediaTypeCounts, ListMediaItemsForLibraryParams,
-    ListMediaItemsForLibraryResult, MediaItemPlaybackHeader, SeriesEpisodeOutlineCacheEntry,
-    UpdateMediaFileMetadataParams, UpdateMediaItemMetadataParams,
+    CreateAudioTrackParams, CreateSubtitleTrackParams, LibraryMediaTypeCounts,
+    ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult, MediaItemPlaybackHeader,
+    SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams, UpdateMediaItemMetadataParams,
     UpsertSeriesEpisodeOutlineCacheParams,
 };
 use anyhow::{Context, Result};
-use mova_domain::{Episode, MediaFile, MediaItem, Season, SubtitleFile};
+use mova_domain::{AudioTrack, Episode, MediaFile, MediaItem, Season, SubtitleFile};
 use sqlx::{
     postgres::{PgPool, PgRow},
     Row,
@@ -382,6 +382,39 @@ pub async fn list_subtitle_files_for_media_file(
     Ok(rows.into_iter().map(map_subtitle_file_row).collect())
 }
 
+/// 读取某个媒体文件可切换的音轨列表。
+pub async fn list_audio_tracks_for_media_file(
+    pool: &PgPool,
+    media_file_id: i64,
+) -> Result<Vec<AudioTrack>> {
+    let rows = sqlx::query(
+        r#"
+        select
+            id,
+            media_file_id,
+            stream_index,
+            language,
+            audio_codec,
+            label,
+            is_default,
+            created_at,
+            updated_at
+        from audio_tracks
+        where media_file_id = $1
+        order by
+            is_default desc,
+            coalesce(language, '') asc,
+            id asc
+        "#,
+    )
+    .bind(media_file_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to list audio tracks for media file")?;
+
+    Ok(rows.into_iter().map(map_audio_track_row).collect())
+}
+
 /// 通过主键读取单条字幕轨道。
 pub async fn get_subtitle_file(
     pool: &PgPool,
@@ -412,6 +445,85 @@ pub async fn get_subtitle_file(
     .context("failed to get subtitle file")?;
 
     Ok(row.map(map_subtitle_file_row))
+}
+
+/// 通过主键读取单条音轨。
+pub async fn get_audio_track(pool: &PgPool, audio_track_id: i64) -> Result<Option<AudioTrack>> {
+    let row = sqlx::query(
+        r#"
+        select
+            id,
+            media_file_id,
+            stream_index,
+            language,
+            audio_codec,
+            label,
+            is_default,
+            created_at,
+            updated_at
+        from audio_tracks
+        where id = $1
+        "#,
+    )
+    .bind(audio_track_id)
+    .fetch_optional(pool)
+    .await
+    .context("failed to get audio track")?;
+
+    Ok(row.map(map_audio_track_row))
+}
+
+/// 每次扫描后直接整体替换某个媒体文件的音轨清单，避免做复杂 diff。
+pub async fn replace_audio_tracks_for_media_file(
+    pool: &PgPool,
+    media_file_id: i64,
+    audio_tracks: &[CreateAudioTrackParams],
+) -> Result<()> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start audio track replacement transaction")?;
+
+    sqlx::query(
+        r#"
+        delete from audio_tracks
+        where media_file_id = $1
+        "#,
+    )
+    .bind(media_file_id)
+    .execute(&mut *tx)
+    .await
+    .context("failed to delete existing audio tracks")?;
+
+    for audio_track in audio_tracks {
+        sqlx::query(
+            r#"
+            insert into audio_tracks (
+                media_file_id,
+                stream_index,
+                language,
+                audio_codec,
+                label,
+                is_default
+            ) values ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(media_file_id)
+        .bind(audio_track.stream_index)
+        .bind(&audio_track.language)
+        .bind(&audio_track.audio_codec)
+        .bind(&audio_track.label)
+        .bind(audio_track.is_default)
+        .execute(&mut *tx)
+        .await
+        .context("failed to insert audio track")?;
+    }
+
+    tx.commit()
+        .await
+        .context("failed to commit audio track replacement transaction")?;
+
+    Ok(())
 }
 
 /// 每次扫描后直接整体替换某个媒体文件的字幕清单，避免做复杂 diff。
@@ -817,6 +929,20 @@ fn map_subtitle_file_row(row: PgRow) -> SubtitleFile {
         label: row.get("label"),
         is_default: row.get("is_default"),
         is_forced: row.get("is_forced"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
+fn map_audio_track_row(row: PgRow) -> AudioTrack {
+    AudioTrack {
+        id: row.get("id"),
+        media_file_id: row.get("media_file_id"),
+        stream_index: row.get("stream_index"),
+        language: row.get("language"),
+        audio_codec: row.get("audio_codec"),
+        label: row.get("label"),
+        is_default: row.get("is_default"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }

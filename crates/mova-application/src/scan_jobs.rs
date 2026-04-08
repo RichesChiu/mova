@@ -646,6 +646,17 @@ fn build_media_entries(
             width: file.width,
             height: file.height,
             bitrate: file.bitrate,
+            audio_tracks: file
+                .audio_tracks
+                .into_iter()
+                .map(|audio_track| mova_db::CreateAudioTrackParams {
+                    stream_index: audio_track.stream_index,
+                    language: audio_track.language,
+                    audio_codec: audio_track.audio_codec,
+                    label: audio_track.label,
+                    is_default: audio_track.is_default,
+                })
+                .collect(),
             // 全量扫库时同样带上已经解析好的字幕轨道，后续播放器直接从数据库读取即可。
             subtitle_tracks: file
                 .subtitle_tracks
@@ -802,6 +813,7 @@ mod tests {
             width: None,
             height: None,
             bitrate: None,
+            audio_tracks: Vec::new(),
             subtitle_tracks: Vec::new(),
         }
     }

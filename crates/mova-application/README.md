@@ -66,7 +66,7 @@
 | `src/users.rs` | 用户创建、编辑、删除、登录、登出、bootstrap、密码修改、库授权。 |
 | `src/scan_jobs.rs` | 扫描任务入队、执行、进度事件、取消态和任务查询。 |
 | `src/file_sync.rs` | watcher / reconcile 触发后的路径级同步与库存对齐。 |
-| `src/media_items.rs` | 媒体条目详情、列表、文件、剧集 outline、季集查询、元数据刷新。 |
+| `src/media_items.rs` | 媒体条目详情、列表、文件、音轨、剧集 outline、季集查询、元数据刷新。 |
 | `src/media_enrichment.rs` | 扫描过程中对单条媒体做 TMDB / sidecar / 图片补全。 |
 | `src/metadata.rs` | 元数据 provider 抽象、TMDB client、语言归一化、远端查询结构。 |
 | `src/metadata_match.rs` | 管理员手动搜索候选元数据并应用匹配。 |
@@ -118,9 +118,11 @@
 - `get_media_item`
 - `list_media_items_for_library`
 - `list_media_files_for_media_item`
+- `list_audio_tracks_for_media_file`
 - `list_seasons_for_series`
 - `list_episodes_for_season`
 - `series_episode_outline_for_media_item`
+- `get_audio_track`
 - `refresh_media_item_metadata`
 - `search_media_item_metadata_matches`
 - `apply_media_item_metadata_match`
@@ -129,6 +131,8 @@
 ### 播放
 
 - `get_media_item_playback_header`
+- `list_audio_tracks_for_media_file`
+- `get_audio_track`
 - `get_playback_progress_for_media_item`
 - `update_playback_progress_for_media_item`
 - `list_continue_watching`

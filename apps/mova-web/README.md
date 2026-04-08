@@ -12,7 +12,7 @@
 | `src/main.tsx` | 浏览器入口。负责 `applyTheme()`、引入全局样式 `global.scss`、挂载 React 根节点。 |
 | `src/App.tsx` | 应用入口。负责创建 `QueryClientProvider`、`BrowserRouter`，并声明完整路由树。 |
 | `src/components/app-shell/index.tsx` | 登录后主壳层。负责查询当前用户、查询可见媒体库、挂载顶栏、处理登出、建立 SSE 连接，并把共享上下文下发给页面。 |
-| `src/api/client.ts` | 前端统一 API 客户端。负责 `fetch`、错误处理、JSON envelope 解包，以及媒体流/字幕流 URL 构造。 |
+| `src/api/client.ts` | 前端统一 API 客户端。负责 `fetch`、错误处理、JSON envelope 解包，以及媒体流/字幕流 URL 构造。播放器这里也会通过它拿字幕列表和音轨列表，并在切换音轨时拼出带 `audio_track_id` 的播放地址。 |
 | `src/api/types.ts` | 前后端共享的数据契约类型定义。页面和组件基本都依赖这里的 DTO。 |
 | `src/lib/query-client.ts` | TanStack Query 的全局默认配置入口。 |
 | `src/styles/global.scss` | 样式总入口，统一聚合 `_tokens.scss`、`_base.scss`、`_shared.scss` 和各 feature 的样式。 |
@@ -103,7 +103,7 @@ src/
 | `MediaCard` / `MediaCardSkeleton` / `MediaCardScanPlaceholder` | `components/media-card/index.tsx` | 统一的媒体卡片、骨架卡和扫描中占位卡；扫描态会尽量保持与最终卡片一致的占位尺寸，减少同步完成时的跳动。 | 首页、媒体库页 |
 | `EpisodeCard` / `EpisodeCardSkeleton` | `components/episode-card/index.tsx` | 统一的剧集卡片，支持可播放/不可播放状态和播放进度条。 | 媒体详情页 |
 | `ScrollableRail` | `components/scrollable-rail/index.tsx` | 横向滚动容器，支持左右按钮、鼠标滚轮直接横滑、提示文案。 | 首页 rail、剧集页、演员区 |
-| `MediaPlayerPanel` | `components/media-player-panel/index.tsx` | 真正的播放器核心组件，负责媒体源、字幕、播放进度、缓冲态、错误分类、非阻塞字幕/自动播放/全屏降级和集切换。 | `MediaPlayerPage` |
+| `MediaPlayerPanel` | `components/media-player-panel/index.tsx` | 真正的播放器核心组件，负责媒体源、字幕、音轨切换、播放进度、缓冲态、错误分类、非阻塞字幕/自动播放/全屏降级和集切换。 | `MediaPlayerPage` |
 
 ### 4.3 管理与编辑
 
@@ -142,6 +142,7 @@ src/
 | `lib/query-options.ts` | 抽取媒体详情、剧集大纲等查询的缓存/过期常量。 |
 | `lib/media-routes.ts` | 统一生成媒体详情页和播放页路径，避免各页面自己拼字符串。 |
 | `lib/playback.ts` | 统一收口续播判断、播放入口链接、播放进度衍生状态，以及“接近片尾时视为已看完”的完成判定。 |
+| `lib/audio-tracks.ts` | 统一音轨标签、语言和元信息文案，避免播放器菜单里散落格式化逻辑。 |
 | `lib/player-feedback.ts` | 播放器兼容性提示文案，专门处理自动播放与全屏失败时的非阻断 warning。 |
 | `lib/library-config.ts` | 统一媒体库编辑弹窗的 draft 初始化、变更判断和提交 payload 归一化。 |
 | `lib/settings-admin.ts` | 收口设置页里的用户/媒体库缓存更新、扫描状态文案、本地占位 detail 构建，以及删库/删用户确认文案。 |
@@ -180,6 +181,7 @@ src/
 - `components/app-shell/use-server-events.test.tsx`
 - `components/app-shell/scan-runtime.test.ts`
 - `components/media-player-panel/media-player-panel.test.tsx`
+- `lib/audio-tracks.test.ts`
 - `lib/playback.test.ts`
 - `lib/player-feedback.test.ts`
 - `lib/library-config.test.ts`
@@ -189,7 +191,8 @@ src/
 
 - `useServerEvents` 的断线恢复、媒体库删除跳转、媒体库更新刷新、元数据更新刷新，以及扫描运行时状态保持
 - `scan-runtime` 的扫描中文案、占位显示、详情页条目匹配和粗粒度进度计算
-- `MediaPlayerPanel` 的恢复播放、从头播放、切源迁移、错误文案映射，以及自动播放/全屏失败与字幕失败的非阻断降级
+- `MediaPlayerPanel` 的恢复播放、从头播放、切源迁移、音轨切换时的位置保持、错误文案映射，以及自动播放/全屏失败与字幕失败的非阻断降级
+- `audio-tracks` helper 的音轨菜单标签和元信息格式化
 - `playback` helper 的续播判定、默认播放入口、剧集优先选择和接近片尾的完成判定
 - `library-config` helper 的 draft 初始化、变更判断和提交 payload 归一化
 - `settings-admin` helper 的设置页本地缓存更新、扫描状态摘要、确认文案，以及删除/更新/启停后的边界收口

@@ -4,8 +4,9 @@ use mova_application::{
     SeriesEpisodeOutline, SeriesEpisodeOutlineEpisode, SeriesEpisodeOutlineSeason,
 };
 use mova_domain::{
-    ContinueWatchingItem, Episode, Library, LibraryDetail, MediaCastMember, MediaFile, MediaItem,
-    PlaybackProgress, ScanJob, Season, SubtitleFile, UserProfile, WatchHistory, WatchHistoryItem,
+    AudioTrack, ContinueWatchingItem, Episode, Library, LibraryDetail, MediaCastMember,
+    MediaFile, MediaItem, PlaybackProgress, ScanJob, Season, SubtitleFile, UserProfile,
+    WatchHistory, WatchHistoryItem,
 };
 use serde::Serialize;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
@@ -282,6 +283,19 @@ pub struct SubtitleFileResponse {
     pub label: Option<String>,
     pub is_default: bool,
     pub is_forced: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AudioTrackResponse {
+    pub id: i64,
+    pub media_file_id: i64,
+    pub stream_index: i32,
+    pub language: Option<String>,
+    pub audio_codec: Option<String>,
+    pub label: Option<String>,
+    pub is_default: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -758,6 +772,22 @@ impl SubtitleFileResponse {
             is_forced: subtitle_file.is_forced,
             created_at: format_datetime(subtitle_file.created_at, offset),
             updated_at: format_datetime(subtitle_file.updated_at, offset),
+        }
+    }
+}
+
+impl AudioTrackResponse {
+    pub fn from_domain(audio_track: AudioTrack, offset: UtcOffset) -> Self {
+        Self {
+            id: audio_track.id,
+            media_file_id: audio_track.media_file_id,
+            stream_index: audio_track.stream_index,
+            language: audio_track.language,
+            audio_codec: audio_track.audio_codec,
+            label: audio_track.label,
+            is_default: audio_track.is_default,
+            created_at: format_datetime(audio_track.created_at, offset),
+            updated_at: format_datetime(audio_track.updated_at, offset),
         }
     }
 }

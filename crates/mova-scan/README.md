@@ -15,7 +15,7 @@
 - 识别电影/剧集线索
 - 读取 `.nfo` / `poster` / `fanart` 等 sidecar
 - 通过 `ffprobe` 补充媒体技术信息
-- 发现外挂或内嵌字幕轨道
+- 发现内嵌音轨、外挂或内嵌字幕轨道
 
 它不负责：
 
@@ -27,7 +27,7 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `src/lib.rs` | crate 入口，导出扫描 API 与 `DiscoveredMediaFile` / `DiscoveredSubtitleTrack` 结构。 |
+| `src/lib.rs` | crate 入口，导出扫描 API 与 `DiscoveredMediaFile`、`DiscoveredAudioTrack`、`DiscoveredSubtitleTrack` 结构。 |
 
 ## 3. 当前模块
 
@@ -52,6 +52,7 @@
 - `inspect_media_file`
 - `is_likely_episode_path`
 - `DiscoveredMediaFile`
+- `DiscoveredAudioTrack`
 - `DiscoveredSubtitleTrack`
 
 ## 5. 关键数据结构
@@ -67,9 +68,18 @@
 - 简介
 - 海报/背景图路径
 - 文件大小、容器、时长、编码、分辨率、码率
+- 内嵌音轨列表
 - 字幕轨道列表
 
 也就是说，应用层在真正写库前，先拿到的是一份“尽量丰富但还没入库”的媒体快照。
+
+### `DiscoveredAudioTrack`
+
+用于表达：
+
+- 内嵌音轨的 `stream_index`
+- 语言、codec、标题
+- 是否是默认音轨
 
 ### `DiscoveredSubtitleTrack`
 
