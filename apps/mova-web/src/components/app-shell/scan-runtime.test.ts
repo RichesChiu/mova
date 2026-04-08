@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { ScanJob } from '../../api/types'
 import {
+  formatFailedScanCopy,
   formatMediaItemScanStatusCopy,
   formatPendingScanPlaceholderCopy,
   formatScanItemProgressCopy,
   formatScanJobStatusCopy,
   getMediaItemScanRuntimeItems,
   getScanJobProgressPercent,
+  hasFailedLibraryScan,
   isLibraryScanActive,
   type LibraryScanRuntime,
   shouldShowScanPlaceholder,
@@ -172,5 +174,20 @@ describe('scan runtime helpers', () => {
         { seasonNumber: 1 },
       ),
     ).toBe('正在获取海报、剧照和简介')
+  })
+
+  it('surfaces failed scan copy even when the library is no longer actively syncing', () => {
+    const runtime: LibraryScanRuntime = {
+      scanJob: buildScanJob({
+        status: 'failed',
+        phase: 'finished',
+        error_message: '元数据补全阶段失败：TMDB 请求超时',
+      }),
+      items: [],
+    }
+
+    expect(hasFailedLibraryScan(null, runtime)).toBe(true)
+    expect(formatFailedScanCopy(null, runtime)).toBe('元数据补全阶段失败：TMDB 请求超时')
+    expect(isLibraryScanActive(null, runtime)).toBe(false)
   })
 })

@@ -11,6 +11,7 @@ import {
 } from '../../api/client'
 import type { MediaFile, SubtitleFile } from '../../api/types'
 import { formatDuration } from '../../lib/format'
+import { shouldMarkPlaybackFinished } from '../../lib/playback'
 import {
   buildFullscreenWarningMessage,
   buildPlaybackInteractionWarningMessage,
@@ -722,7 +723,12 @@ export const MediaPlayerPanel = ({
       media_file_id: snapshot.mediaFileId,
       position_seconds: snapshot.positionSeconds,
       duration_seconds: snapshot.durationSeconds,
-      is_finished: isFinished,
+      is_finished:
+        isFinished ||
+        shouldMarkPlaybackFinished({
+          durationSeconds: snapshot.durationSeconds,
+          positionSeconds: snapshot.positionSeconds,
+        }),
     })
   }
 
@@ -742,7 +748,10 @@ export const MediaPlayerPanel = ({
       media_file_id: snapshot.mediaFileId,
       position_seconds: snapshot.positionSeconds,
       duration_seconds: snapshot.durationSeconds,
-      is_finished: false,
+      is_finished: shouldMarkPlaybackFinished({
+        durationSeconds: snapshot.durationSeconds,
+        positionSeconds: snapshot.positionSeconds,
+      }),
     })
   }
 

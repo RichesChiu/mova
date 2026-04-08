@@ -7,6 +7,12 @@ import type {
 } from '../api/types'
 import { formatDateTime } from './format'
 
+export interface ConfirmActionCopy {
+  confirmLabel: string
+  description: string
+  title: string
+}
+
 export const getUserAvatarInitial = (username: string) =>
   username.trim().charAt(0).toUpperCase() || 'U'
 
@@ -224,6 +230,12 @@ export const buildDeletedLibraryCacheState = (
   libraries: removeLibrary(libraries, libraryId),
 })
 
+export const buildDeleteLibraryConfirmationCopy = (library: Library): ConfirmActionCopy => ({
+  confirmLabel: 'Delete Library',
+  description: `Delete "${library.name}"? This removes the library record and scan history. Already imported media files in the filesystem will not be deleted.`,
+  title: 'Delete library',
+})
+
 export const upsertUserAccount = (users: UserAccount[] | undefined, nextUser: UserAccount) => {
   if (!users || users.length === 0) {
     return [nextUser]
@@ -263,4 +275,10 @@ export const buildUpdatedUserCacheState = (
 
 export const buildDeletedUserCacheState = (users: UserAccount[] | undefined, userId: number) => ({
   users: removeUserAccount(users, userId),
+})
+
+export const buildDeleteUserConfirmationCopy = (user: UserAccount): ConfirmActionCopy => ({
+  confirmLabel: 'Delete User',
+  description: `Delete "${user.username}"? This removes their access, active sessions, playback progress, and watch history records.`,
+  title: 'Delete user',
 })

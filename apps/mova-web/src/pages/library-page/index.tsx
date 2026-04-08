@@ -5,6 +5,7 @@ import type { MediaItem } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import type { ScanRuntimeItem } from '../../components/app-shell/scan-runtime'
 import {
+  formatFailedScanCopy,
   formatPendingScanPlaceholderCopy,
   formatScanItemMeta,
   formatScanItemProgressCopy,
@@ -13,6 +14,7 @@ import {
   getLibraryScanRuntime,
   getScanJobProgressPercent,
   getScanRuntimeItems,
+  hasFailedLibraryScan,
   isLibraryScanActive,
   shouldShowScanPlaceholder,
 } from '../../components/app-shell/scan-runtime'
@@ -147,6 +149,7 @@ export const LibraryPage = () => {
   const libraryDescription =
     currentLibrary?.description?.trim() || 'No library description provided yet.'
   const currentScan = getEffectiveScanJob(currentLibrary?.last_scan, currentScanRuntime)
+  const hasFailedScan = hasFailedLibraryScan(currentLibrary?.last_scan, currentScanRuntime)
   const scanItems = shouldShowScanPlaceholder(currentLibrary?.last_scan, currentScanRuntime)
     ? getScanRuntimeItems(currentScanRuntime)
     : []
@@ -245,6 +248,13 @@ export const LibraryPage = () => {
             ? ` 当前任务进度约 ${scanProgressPercent}%。`
             : ' 当前会先发现文件，再逐个补全元数据和图片。'}{' '}
           扫描不会阻塞浏览，你仍然可以进入详情页查看已有内容。
+        </p>
+      ) : null}
+
+      {hasFailedScan ? (
+        <p className="callout callout--danger">
+          最近一次扫描失败。{formatFailedScanCopy(currentLibrary?.last_scan, currentScanRuntime)}
+          。已有内容仍然可以继续浏览，管理员可以稍后重新触发扫描。
         </p>
       ) : null}
 

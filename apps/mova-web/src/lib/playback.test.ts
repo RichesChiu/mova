@@ -5,6 +5,7 @@ import {
   pickPreferredPlaybackEpisode,
   playbackPercent,
   playbackStatus,
+  shouldMarkPlaybackFinished,
 } from './playback'
 
 describe('playback helpers', () => {
@@ -69,5 +70,28 @@ describe('playback helpers', () => {
       }),
     ).toBe('progress')
     expect(isResumablePlayback(null)).toBe(false)
+  })
+
+  it('marks playback as finished when the remaining time is within the completion window', () => {
+    expect(
+      shouldMarkPlaybackFinished({
+        durationSeconds: 7200,
+        positionSeconds: 7180,
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldMarkPlaybackFinished({
+        durationSeconds: 120,
+        positionSeconds: 100,
+      }),
+    ).toBe(false)
+
+    expect(
+      shouldMarkPlaybackFinished({
+        durationSeconds: 40,
+        positionSeconds: 35,
+      }),
+    ).toBe(true)
   })
 })

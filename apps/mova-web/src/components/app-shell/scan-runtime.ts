@@ -189,6 +189,23 @@ export const isLibraryScanActive = (
   return getScanRuntimeItems(runtime).length > 0
 }
 
+export const hasFailedLibraryScan = (
+  scanJob: ScanJob | null | undefined,
+  runtime: LibraryScanRuntime | null | undefined,
+) => getEffectiveScanJob(scanJob, runtime)?.status === 'failed'
+
+export const formatFailedScanCopy = (
+  scanJob: ScanJob | null | undefined,
+  runtime: LibraryScanRuntime | null | undefined,
+) => {
+  const effectiveScanJob = getEffectiveScanJob(scanJob, runtime)
+  if (effectiveScanJob?.status !== 'failed') {
+    return null
+  }
+
+  return effectiveScanJob.error_message ?? '最近一次扫描失败'
+}
+
 export const shouldShowScanPlaceholder = (
   scanJob: ScanJob | null | undefined,
   runtime: LibraryScanRuntime | null | undefined,

@@ -5,6 +5,8 @@ import {
   buildCreatedUserCacheState,
   buildDeletedLibraryCacheState,
   buildDeletedUserCacheState,
+  buildDeleteLibraryConfirmationCopy,
+  buildDeleteUserConfirmationCopy,
   buildInitialScanJob,
   buildPlaceholderLibraryDetail,
   buildTriggeredScanCacheState,
@@ -135,6 +137,18 @@ describe('settings admin helpers', () => {
     })
     expect(buildDeletedLibraryCacheState([library], library.id)).toEqual({
       libraries: [],
+    })
+    expect(buildDeleteLibraryConfirmationCopy(library)).toEqual({
+      confirmLabel: 'Delete Library',
+      description:
+        'Delete "Movies"? This removes the library record and scan history. Already imported media files in the filesystem will not be deleted.',
+      title: 'Delete library',
+    })
+    expect(buildDeleteUserConfirmationCopy(viewer)).toEqual({
+      confirmLabel: 'Delete User',
+      description:
+        'Delete "viewer01"? This removes their access, active sessions, playback progress, and watch history records.',
+      title: 'Delete user',
     })
   })
 

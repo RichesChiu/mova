@@ -120,6 +120,13 @@
   gap: 7px;
 }
 
+.library-spotlight__scan--failed {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, rgba(255, 108, 108, 0.58) 82%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, rgba(95, 22, 22, 0.72) 76%, transparent);
+}
+
 .library-spotlight__scan-row {
   display: flex;
   align-items: center;
@@ -132,6 +139,11 @@
   color: var(--text-soft);
   font-size: 0.75rem;
   font-weight: 700;
+}
+
+.library-spotlight__scan--failed .library-spotlight__scan-label,
+.library-spotlight__scan--failed .library-spotlight__scan-value {
+  color: #ffd2d2;
 }
 
 .library-spotlight__scan-track {

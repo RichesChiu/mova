@@ -20,6 +20,7 @@ import type {
   UserAccount,
 } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
+import { ConfirmActionModal } from '../../components/confirm-action-modal'
 import { CreateLibraryForm } from '../../components/create-library-form'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { SettingsGearIcon } from '../../components/settings-gear-icon'
@@ -29,6 +30,8 @@ import {
   buildCreatedUserCacheState,
   buildDeletedLibraryCacheState,
   buildDeletedUserCacheState,
+  buildDeleteLibraryConfirmationCopy,
+  buildDeleteUserConfirmationCopy,
   buildTriggeredScanCacheState,
   buildUpdatedLibraryCacheState,
   buildUpdatedUserCacheState,
@@ -43,6 +46,10 @@ const USER_SKELETON_COUNT = 4
 const LIBRARY_SKELETON_COUNT = 3
 const USER_SKELETON_KEYS = ['user-a', 'user-b', 'user-c', 'user-d'] as const
 const LIBRARY_SKELETON_KEYS = ['library-a', 'library-b', 'library-c'] as const
+
+type PendingSettingsConfirmation =
+  | { kind: 'delete-library'; library: Library }
+  | { kind: 'delete-user'; user: UserAccount }
 
 const SettingsUserCardSkeleton = () => (
   <article aria-hidden="true" className="settings-user-card settings-user-card--loading">
@@ -105,6 +112,8 @@ export const SettingsPage = () => {
   const [isCreateUserOpen, setIsCreateUserOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null)
   const [editingLibrary, setEditingLibrary] = useState<Library | null>(null)
+  const [pendingConfirmation, setPendingConfirmation] =
+    useState<PendingSettingsConfirmation | null>(null)
   const usersQuery = useQuery<UserAccount[]>({
     enabled: currentUser.role === 'admin',
     queryKey: ['users'],
@@ -314,6 +323,28 @@ export const SettingsPage = () => {
     editingLibrary && updateLibraryMutation.error instanceof Error
       ? updateLibraryMutation.error.message
       : null
+  const confirmationCopy =
+    pendingConfirmation?.kind === 'delete-user'
+      ? buildDeleteUserConfirmationCopy(pendingConfirmation.user)
+      : pendingConfirmation?.kind === 'delete-library'
+        ? buildDeleteLibraryConfirmationCopy(pendingConfirmation.library)
+        : null
+  const confirmationError =
+    pendingConfirmation?.kind === 'delete-user'
+      ? deleteUserMutation.error instanceof Error
+        ? deleteUserMutation.error.message
+        : null
+      : pendingConfirmation?.kind === 'delete-library'
+        ? deleteLibraryMutation.error instanceof Error
+          ? deleteLibraryMutation.error.message
+          : null
+        : null
+  const isConfirmationSubmitting =
+    pendingConfirmation?.kind === 'delete-user'
+      ? deleteUserMutation.isPending
+      : pendingConfirmation?.kind === 'delete-library'
+        ? deleteLibraryMutation.isPending
+        : false
   const users = usersQuery.data ?? []
   const shouldShowUserSkeleton = usersQuery.isLoading && users.length === 0
   const shouldShowLibrarySkeleton = librariesLoading && libraries.length === 0
@@ -463,15 +494,11 @@ export const SettingsPage = () => {
                           className="button button--danger settings-user-card__delete"
                           disabled={deleteUserMutation.isPending}
                           onClick={() => {
-                            const confirmed = window.confirm(
-                              `Delete user "${user.username}"? This removes their access, sessions, and playback records.`,
-                            )
-
-                            if (!confirmed) {
-                              return
-                            }
-
-                            deleteUserMutation.mutate(user.id)
+                            deleteUserMutation.reset()
+                            setPendingConfirmation({
+                              kind: 'delete-user',
+                              user,
+                            })
                           }}
                           type="button"
                         >
@@ -611,13 +638,11 @@ export const SettingsPage = () => {
                       className="button button--danger settings-library-card__delete"
                       disabled={deleteLibraryMutation.isPending || scanMutation.isPending}
                       onClick={() => {
-                        const confirmed = window.confirm(
-                          `Delete library "${library.name}"? This removes library records and scan history.`,
-                        )
-                        if (!confirmed) {
-                          return
-                        }
-                        deleteLibraryMutation.mutate(library.id)
+                        deleteLibraryMutation.reset()
+                        setPendingConfirmation({
+                          kind: 'delete-library',
+                          library,
+                        })
                       }}
                       type="button"
                     >
@@ -683,6 +708,36 @@ export const SettingsPage = () => {
           updateLibraryMutation.reset()
         }}
         onUpdate={(libraryId, input) => updateLibraryMutation.mutateAsync({ libraryId, input })}
+      />
+
+      <ConfirmActionModal
+        confirmLabel={confirmationCopy?.confirmLabel ?? 'Confirm'}
+        description={confirmationCopy?.description ?? ''}
+        error={confirmationError}
+        isOpen={pendingConfirmation !== null}
+        isSubmitting={isConfirmationSubmitting}
+        onClose={() => {
+          setPendingConfirmation(null)
+          deleteUserMutation.reset()
+          deleteLibraryMutation.reset()
+        }}
+        onConfirm={() => {
+          if (!pendingConfirmation) {
+            return
+          }
+
+          if (pendingConfirmation.kind === 'delete-user') {
+            deleteUserMutation.mutate(pendingConfirmation.user.id, {
+              onSuccess: () => setPendingConfirmation(null),
+            })
+            return
+          }
+
+          deleteLibraryMutation.mutate(pendingConfirmation.library.id, {
+            onSuccess: () => setPendingConfirmation(null),
+          })
+        }}
+        title={confirmationCopy?.title ?? 'Confirm action'}
       />
     </div>
   )

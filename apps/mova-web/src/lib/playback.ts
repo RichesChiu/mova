@@ -17,6 +17,11 @@ export interface PlaybackActionLinks {
   secondaryPath: string | null
 }
 
+interface PlaybackCompletionInput {
+  durationSeconds: number | null | undefined
+  positionSeconds: number
+}
+
 type PlayableEpisode = {
   is_available: boolean
   media_item_id: number | null
@@ -40,6 +45,21 @@ export const playbackPercent = (progress: PlaybackProgressLike) => {
     0,
     Math.min(100, Math.round((progress.position_seconds / progress.duration_seconds) * 100)),
   )
+}
+
+export const shouldMarkPlaybackFinished = ({
+  durationSeconds,
+  positionSeconds,
+}: PlaybackCompletionInput) => {
+  if (!durationSeconds || durationSeconds <= 0 || positionSeconds <= 0) {
+    return false
+  }
+
+  const boundedPosition = Math.max(0, Math.min(positionSeconds, durationSeconds))
+  const remainingSeconds = durationSeconds - boundedPosition
+  const completionWindowSeconds = Math.min(30, Math.max(5, Math.round(durationSeconds * 0.05)))
+
+  return remainingSeconds <= completionWindowSeconds
 }
 
 export const playbackStatus = (progress: PlaybackProgressLike): PlaybackStatus => {

@@ -75,7 +75,7 @@ src/
 | `/media-items/:mediaItemId` | `src/pages/media-item-page/index.tsx` | 媒体详情页。电影显示详情与播放入口；剧集显示季/集大纲、演员和管理员元数据工具；当所在媒体库仍在扫描时，这里也会显示当前条目或当前季的同步状态与占位集卡。 | `getMediaItem`、`getMediaItemEpisodeOutline`、`getMediaItemPlaybackProgress`、`getMediaItemPlaybackHeader`、`scanRuntimeByLibrary` |
 | `/media-items/:mediaItemId/play` | `src/pages/media-player-page/index.tsx` | 沉浸式播放器页。负责装配播放器标题、副标题、集切换选项，并把实际播放行为交给 `MediaPlayerPanel`。 | `getMediaItemPlaybackHeader`、`getMediaItemEpisodeOutline` |
 | `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。当前主要承接密码修改和账号基础信息展示。 | `changeOwnPassword`、`AppShell` 提供的 `currentUser/libraries` |
-| `/settings` | `src/pages/settings-page/index.tsx` | 管理员设置页。承接用户增删改查、媒体库创建、扫描、删除和基础配置编辑。 | `listUsers`、`createUser`、`updateUser`、`deleteUser`、`createLibrary`、`updateLibrary`、`scanLibrary`、`deleteLibrary`、`getLibrary` |
+| `/settings` | `src/pages/settings-page/index.tsx` | 管理员设置页。承接用户增删改查、媒体库创建、扫描、删除和基础配置编辑；危险操作会走统一确认弹窗。 | `listUsers`、`createUser`、`updateUser`、`deleteUser`、`createLibrary`、`updateLibrary`、`scanLibrary`、`deleteLibrary`、`getLibrary` |
 
 几个页面内还有“页面级子模块”，但它们不算独立路由：
 
@@ -112,6 +112,7 @@ src/
 | `CreateLibraryForm` | `components/create-library-form/index.tsx` | 建库表单，支持目录树选择、类型选择、元数据语言和启停。 | 设置页 |
 | `LibraryEditorModal` | `components/library-editor-modal/index.tsx` | 编辑媒体库基础配置，当前支持名称、描述、元数据语言和启停状态。 | 设置页 |
 | `UserEditorModal` | `components/user-editor-modal/index.tsx` | 创建/编辑用户，支持角色、启停和媒体库授权。 | 设置页 |
+| `ConfirmActionModal` | `components/confirm-action-modal/index.tsx` | 统一承接危险操作确认流和错误提示，当前用于删库、删用户。 | 设置页 |
 | `MetadataMatchPanel` | `components/metadata-match-panel/index.tsx` | 管理员手动搜索并替换单条媒体元数据。 | 媒体详情页 |
 | `MediaDirectoryTree` | `components/media-directory-tree/index.tsx` | 递归目录树选择器，用于从容器内 `/media` 目录里选择库根路径。 | `CreateLibraryForm` |
 | `GlassSelect` | `components/glass-select/index.tsx` | 自定义下拉选择器，统一风格与交互。 | 设置页、建库表单、用户编辑弹窗、媒体库编辑弹窗 |
@@ -140,10 +141,10 @@ src/
 | `lib/query-client.ts` | 创建全局 `QueryClient`，统一 `retry`、`staleTime`、`refetchOnWindowFocus` 策略。 |
 | `lib/query-options.ts` | 抽取媒体详情、剧集大纲等查询的缓存/过期常量。 |
 | `lib/media-routes.ts` | 统一生成媒体详情页和播放页路径，避免各页面自己拼字符串。 |
-| `lib/playback.ts` | 统一收口续播判断、播放入口链接和播放进度衍生状态，优先给页面和卡片复用。 |
+| `lib/playback.ts` | 统一收口续播判断、播放入口链接、播放进度衍生状态，以及“接近片尾时视为已看完”的完成判定。 |
 | `lib/player-feedback.ts` | 播放器兼容性提示文案，专门处理自动播放与全屏失败时的非阻断 warning。 |
 | `lib/library-config.ts` | 统一媒体库编辑弹窗的 draft 初始化、变更判断和提交 payload 归一化。 |
-| `lib/settings-admin.ts` | 收口设置页里的用户/媒体库缓存更新、扫描状态文案和本地占位 detail 构建。 |
+| `lib/settings-admin.ts` | 收口设置页里的用户/媒体库缓存更新、扫描状态文案、本地占位 detail 构建，以及删库/删用户确认文案。 |
 | `lib/viewer.ts` | 当前角色判断工具，决定哪些管理入口只给管理员看。 |
 | `lib/format.ts` | 时间、日期、时长等显示格式化函数。 |
 | `lib/theme.ts` | 启动时应用全局主题。 |
@@ -189,9 +190,9 @@ src/
 - `useServerEvents` 的断线恢复、媒体库删除跳转、媒体库更新刷新、元数据更新刷新，以及扫描运行时状态保持
 - `scan-runtime` 的扫描中文案、占位显示、详情页条目匹配和粗粒度进度计算
 - `MediaPlayerPanel` 的恢复播放、从头播放、切源迁移、错误文案映射，以及自动播放/全屏失败与字幕失败的非阻断降级
-- `playback` helper 的续播判定、默认播放入口和剧集优先选择
+- `playback` helper 的续播判定、默认播放入口、剧集优先选择和接近片尾的完成判定
 - `library-config` helper 的 draft 初始化、变更判断和提交 payload 归一化
-- `settings-admin` helper 的设置页本地缓存更新、扫描状态摘要，以及删除/更新/启停后的边界收口
+- `settings-admin` helper 的设置页本地缓存更新、扫描状态摘要、确认文案，以及删除/更新/启停后的边界收口
 
 测试策略上，当前更偏向：
 

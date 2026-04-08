@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom'
 import {
+  formatFailedScanCopy,
   formatScanJobStatusCopy,
   getEffectiveScanJob,
   getScanJobProgressPercent,
+  hasFailedLibraryScan,
   isLibraryScanActive,
 } from '../../../components/app-shell/scan-runtime'
 import { ScrollableRail } from '../../../components/scrollable-rail'
@@ -72,12 +74,15 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
             .slice(0, 4)
           const lastScan = getEffectiveScanJob(detail?.last_scan ?? null, scanRuntime)
           const isScanning = isLibraryScanActive(lastScan, scanRuntime)
+          const hasFailedScan = hasFailedLibraryScan(lastScan, scanRuntime)
           const isSyncingLibraryState = detailLoading && !detail && !isScanning
           const scanCopy = isScanning
             ? formatScanJobStatusCopy(lastScan, scanRuntime)
-            : isSyncingLibraryState
-              ? '正在同步媒体库状态'
-              : null
+            : hasFailedScan
+              ? formatFailedScanCopy(lastScan, scanRuntime)
+              : isSyncingLibraryState
+                ? '正在同步媒体库状态'
+                : null
           const scanProgressPercent = isScanning
             ? getScanJobProgressPercent(lastScan, scanRuntime)
             : isSyncingLibraryState
@@ -121,17 +126,28 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
                 </div>
 
                 {scanCopy ? (
-                  <div className="library-spotlight__scan" role="status">
+                  <div
+                    className={
+                      hasFailedScan
+                        ? 'library-spotlight__scan library-spotlight__scan--failed'
+                        : 'library-spotlight__scan'
+                    }
+                    role="status"
+                  >
                     <div className="library-spotlight__scan-row">
                       <span className="library-spotlight__scan-label">{scanCopy}</span>
-                      <span className="library-spotlight__scan-value">{scanProgressPercent}%</span>
+                      <span className="library-spotlight__scan-value">
+                        {hasFailedScan ? 'failed' : `${scanProgressPercent}%`}
+                      </span>
                     </div>
-                    <div aria-hidden="true" className="library-spotlight__scan-track">
-                      <span
-                        className="library-spotlight__scan-fill"
-                        style={{ width: `${scanProgressPercent}%` }}
-                      />
-                    </div>
+                    {!hasFailedScan ? (
+                      <div aria-hidden="true" className="library-spotlight__scan-track">
+                        <span
+                          className="library-spotlight__scan-fill"
+                          style={{ width: `${scanProgressPercent}%` }}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
