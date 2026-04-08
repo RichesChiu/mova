@@ -103,7 +103,7 @@ src/
 | `MediaCard` / `MediaCardSkeleton` / `MediaCardScanPlaceholder` | `components/media-card/index.tsx` | 统一的媒体卡片、骨架卡和扫描中占位卡；扫描态会尽量保持与最终卡片一致的占位尺寸，减少同步完成时的跳动。 | 首页、媒体库页 |
 | `EpisodeCard` / `EpisodeCardSkeleton` | `components/episode-card/index.tsx` | 统一的剧集卡片，支持可播放/不可播放状态和播放进度条。 | 媒体详情页 |
 | `ScrollableRail` | `components/scrollable-rail/index.tsx` | 横向滚动容器，支持左右按钮、鼠标滚轮直接横滑、提示文案。 | 首页 rail、剧集页、演员区 |
-| `MediaPlayerPanel` | `components/media-player-panel/index.tsx` | 真正的播放器核心组件，负责媒体源、字幕、播放进度、缓冲态、错误分类、非阻塞字幕降级和集切换。 | `MediaPlayerPage` |
+| `MediaPlayerPanel` | `components/media-player-panel/index.tsx` | 真正的播放器核心组件，负责媒体源、字幕、播放进度、缓冲态、错误分类、非阻塞字幕/自动播放/全屏降级和集切换。 | `MediaPlayerPage` |
 
 ### 4.3 管理与编辑
 
@@ -141,6 +141,7 @@ src/
 | `lib/query-options.ts` | 抽取媒体详情、剧集大纲等查询的缓存/过期常量。 |
 | `lib/media-routes.ts` | 统一生成媒体详情页和播放页路径，避免各页面自己拼字符串。 |
 | `lib/playback.ts` | 统一收口续播判断、播放入口链接和播放进度衍生状态，优先给页面和卡片复用。 |
+| `lib/player-feedback.ts` | 播放器兼容性提示文案，专门处理自动播放与全屏失败时的非阻断 warning。 |
 | `lib/library-config.ts` | 统一媒体库编辑弹窗的 draft 初始化、变更判断和提交 payload 归一化。 |
 | `lib/settings-admin.ts` | 收口设置页里的用户/媒体库缓存更新、扫描状态文案和本地占位 detail 构建。 |
 | `lib/viewer.ts` | 当前角色判断工具，决定哪些管理入口只给管理员看。 |
@@ -179,6 +180,7 @@ src/
 - `components/app-shell/scan-runtime.test.ts`
 - `components/media-player-panel/media-player-panel.test.tsx`
 - `lib/playback.test.ts`
+- `lib/player-feedback.test.ts`
 - `lib/library-config.test.ts`
 - `lib/settings-admin.test.ts`
 
@@ -186,10 +188,10 @@ src/
 
 - `useServerEvents` 的断线恢复、媒体库删除跳转、媒体库更新刷新、元数据更新刷新，以及扫描运行时状态保持
 - `scan-runtime` 的扫描中文案、占位显示、详情页条目匹配和粗粒度进度计算
-- `MediaPlayerPanel` 的恢复播放、从头播放、切源迁移、错误文案映射和字幕失败降级
+- `MediaPlayerPanel` 的恢复播放、从头播放、切源迁移、错误文案映射，以及自动播放/全屏失败与字幕失败的非阻断降级
 - `playback` helper 的续播判定、默认播放入口和剧集优先选择
 - `library-config` helper 的 draft 初始化、变更判断和提交 payload 归一化
-- `settings-admin` helper 的设置页本地缓存更新、扫描状态摘要和删除/更新收口
+- `settings-admin` helper 的设置页本地缓存更新、扫描状态摘要，以及删除/更新/启停后的边界收口
 
 测试策略上，当前更偏向：
 

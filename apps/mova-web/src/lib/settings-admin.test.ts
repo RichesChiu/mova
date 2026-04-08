@@ -14,6 +14,7 @@ import {
   getScanStatusLabel,
   getScanStatusSummary,
   getScanStatusTone,
+  getUserAvatarInitial,
   getUserLibraryAccessSummary,
   mergeTriggeredScanLibraryDetail,
   mergeUpdatedLibraryDetail,
@@ -98,6 +99,9 @@ describe('settings admin helpers', () => {
   })
 
   it('upserts and removes libraries and users in cached collections', () => {
+    expect(getUserAvatarInitial(' viewer01 ')).toBe('V')
+    expect(getUserAvatarInitial('')).toBe('U')
+
     expect(
       upsertLibrary([library], {
         ...library,
@@ -213,6 +217,45 @@ describe('settings admin helpers', () => {
         last_scan: scanJob,
       },
     })
+
+    expect(
+      buildUpdatedLibraryCacheState({
+        currentLibraries: [
+          {
+            ...library,
+            is_enabled: true,
+          },
+        ],
+        previousLibrary: {
+          ...library,
+          is_enabled: true,
+        },
+        updatedLibrary: {
+          ...library,
+          description: '更新后的说明',
+          is_enabled: true,
+        },
+        currentLibraryDetail: {
+          ...currentDetail,
+          is_enabled: true,
+          last_scan: scanJob,
+        },
+        currentHomeLibraryDetail: {
+          ...currentDetail,
+          is_enabled: true,
+          last_scan: scanJob,
+        },
+      }),
+    ).toMatchObject({
+      libraryDetail: {
+        description: '更新后的说明',
+        last_scan: scanJob,
+      },
+      homeLibraryDetail: {
+        description: '更新后的说明',
+        last_scan: scanJob,
+      },
+    })
   })
 
   it('formats scan and access summaries for the settings cards', () => {
@@ -231,11 +274,28 @@ describe('settings admin helpers', () => {
     expect(getScanStatusLabel(scanJob)).toBe('Running')
     expect(getScanStatusTone(scanJob)).toBe('running')
     expect(getScanStatusSummary(scanJob)).toBe('已扫描 6/20 个文件。')
+    expect(getScanStatusSummary(null)).toBe('还没有执行过扫描。')
+    expect(
+      getScanStatusSummary({
+        ...scanJob,
+        status: 'failed',
+        error_message: '扫描目录阶段失败：目录不存在',
+      }),
+    ).toBe('扫描目录阶段失败：目录不存在')
     expect(
       buildUpdatedUserCacheState([viewer], viewer.id, { ...viewer, is_enabled: false }),
     ).toEqual({
       users: [{ ...viewer, is_enabled: false }],
       currentUser: { ...viewer, is_enabled: false },
+    })
+    expect(
+      buildUpdatedUserCacheState([viewer], 99, {
+        ...viewer,
+        username: 'viewer02',
+      }),
+    ).toEqual({
+      users: [{ ...viewer, username: 'viewer02' }],
+      currentUser: null,
     })
   })
 })

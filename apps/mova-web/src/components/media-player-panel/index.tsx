@@ -11,6 +11,11 @@ import {
 } from '../../api/client'
 import type { MediaFile, SubtitleFile } from '../../api/types'
 import { formatDuration } from '../../lib/format'
+import {
+  buildFullscreenWarningMessage,
+  buildPlaybackInteractionWarningMessage,
+  shouldShowImmersiveOverlay,
+} from '../../lib/player-feedback'
 
 const PROGRESS_SYNC_INTERVAL_SECONDS = 5
 const PLAYBACK_PROGRESS_SAVE_ERROR =
@@ -384,6 +389,7 @@ export const MediaPlayerPanel = ({
   const flushPlaybackProgressRef = useRef<() => void>(() => {})
   const [selectedMediaFileId, setSelectedMediaFileId] = useState<number | null>(null)
   const [playerError, setPlayerError] = useState<string | null>(null)
+  const [interactionWarning, setInteractionWarning] = useState<string | null>(null)
   const [playbackSyncError, setPlaybackSyncError] = useState<string | null>(null)
   const [subtitleTrackError, setSubtitleTrackError] = useState<string | null>(null)
   const [isBuffering, setIsBuffering] = useState(false)
@@ -445,6 +451,7 @@ export const MediaPlayerPanel = ({
     keepBuffering?: boolean
   } = {}) => {
     setPlayerError(null)
+    setInteractionWarning(null)
     setPlaybackSyncError(null)
     setSubtitleTrackError(null)
     setIsEpisodeMenuOpen(false)
@@ -496,6 +503,7 @@ export const MediaPlayerPanel = ({
     restoredForFileRef.current = null
     lastReportedSecondsRef.current = -1
     setPlayerError(null)
+    setInteractionWarning(null)
     setPlaybackSyncError(null)
     setSubtitleTrackError(null)
     setIsEpisodeMenuOpen(false)
@@ -621,7 +629,10 @@ export const MediaPlayerPanel = ({
       setBufferedSeconds(measureBufferedSeconds(video))
     }
 
-    const handlePlay = () => setIsPlaying(true)
+    const handlePlay = () => {
+      setIsPlaying(true)
+      setInteractionWarning(null)
+    }
     const handlePause = () => setIsPlaying(false)
     const handleLoadStart = () => {
       setIsBuffering(true)
@@ -818,8 +829,8 @@ export const MediaPlayerPanel = ({
       }
 
       if (pendingPlaybackRestore.shouldAutoplay) {
-        void video.play().catch(() => {
-          setPlayerError('Autoplay was blocked by the browser. Click play again to continue.')
+        void video.play().catch((error) => {
+          setInteractionWarning(buildPlaybackInteractionWarningMessage(error))
         })
       }
 
@@ -946,6 +957,14 @@ export const MediaPlayerPanel = ({
   const playedProgressPercent = seekMax > 0 ? Math.min(100, (positionSeconds / seekMax) * 100) : 0
   const bufferedProgressPercent =
     seekMax > 0 ? Math.min(100, (Math.max(bufferedSeconds, positionSeconds) / seekMax) * 100) : 0
+  const shouldShowOverlay = shouldShowImmersiveOverlay({
+    hasInteractionWarning: interactionWarning !== null,
+    hasMultipleSources: mediaFiles.length > 1,
+    hasPlaybackSyncError: playbackSyncError !== null,
+    hasPlayerError: playerError !== null,
+    hasSubtitleWarning: subtitleWarning !== null,
+    isBuffering,
+  })
   const timelineStyle = {
     '--player-range-buffered': `${Math.max(playedProgressPercent, bufferedProgressPercent)}%`,
     '--player-range-played': `${playedProgressPercent}%`,
@@ -960,8 +979,8 @@ export const MediaPlayerPanel = ({
     if (video.paused) {
       try {
         await video.play()
-      } catch {
-        setPlayerError('Autoplay was blocked by the browser. Click play again to continue.')
+      } catch (error) {
+        setInteractionWarning(buildPlaybackInteractionWarningMessage(error))
       }
       return
     }
@@ -1008,11 +1027,26 @@ export const MediaPlayerPanel = ({
     }
 
     if (document.fullscreenElement === stage) {
-      await document.exitFullscreen()
+      try {
+        await document.exitFullscreen()
+        setInteractionWarning(null)
+      } catch (error) {
+        setInteractionWarning(buildFullscreenWarningMessage(error))
+      }
       return
     }
 
-    await stage.requestFullscreen()
+    if (typeof stage.requestFullscreen !== 'function' || document.fullscreenEnabled === false) {
+      setInteractionWarning(buildFullscreenWarningMessage())
+      return
+    }
+
+    try {
+      await stage.requestFullscreen()
+      setInteractionWarning(null)
+    } catch (error) {
+      setInteractionWarning(buildFullscreenWarningMessage(error))
+    }
   }
 
   return (
@@ -1062,7 +1096,7 @@ export const MediaPlayerPanel = ({
         >
           <div className="player-stage" ref={stageRef}>
             <div className="player-stage__media">
-              {isImmersive && (mediaFiles.length > 1 || playerError) ? (
+              {isImmersive && shouldShowOverlay ? (
                 <div className="player-panel__overlay">
                   <div className="player-panel__overlay-status">
                     {isBuffering && !playerError ? (
@@ -1078,6 +1112,9 @@ export const MediaPlayerPanel = ({
                     ) : null}
                     {!playerError && playbackSyncError ? (
                       <p className="callout">{playbackSyncError}</p>
+                    ) : null}
+                    {!playerError && interactionWarning ? (
+                      <p className="callout">{interactionWarning}</p>
                     ) : null}
                     {!playerError && subtitleWarning ? (
                       <p className="callout">{subtitleWarning}</p>
@@ -1403,6 +1440,10 @@ export const MediaPlayerPanel = ({
 
           {!playerError && playbackSyncError && !isImmersive ? (
             <p className="callout">{playbackSyncError}</p>
+          ) : null}
+
+          {!playerError && interactionWarning && !isImmersive ? (
+            <p className="callout">{interactionWarning}</p>
           ) : null}
 
           {!playerError && subtitleWarning && !isImmersive ? (
