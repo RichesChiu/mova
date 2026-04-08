@@ -39,8 +39,12 @@ export const MediaCard = ({ item }: MediaCardProps) => {
           <span className="chip">{item.media_type}</span>
           {item.year ? <span className="muted">{item.year}</span> : null}
         </div>
-        <h3>{title}</h3>
-        <p className="muted clamp-3">{subtitle}</p>
+        <h3 className="media-card__title" title={title}>
+          {title}
+        </h3>
+        <p className="media-card__summary" title={subtitle}>
+          {subtitle}
+        </p>
       </div>
     </Link>
   )
@@ -68,12 +72,16 @@ export const MediaCardScanPlaceholder = ({
           <span className="chip chip--scan">scanning</span>
           {subtitle ? <span className="muted">{subtitle}</span> : null}
         </div>
-        <h3>{title}</h3>
-        <p className="muted clamp-3">{progressText}</p>
+        <h3 className="media-card__title" title={title}>
+          {title}
+        </h3>
+        <p className="media-card__summary media-card__summary--scan" title={progressText}>
+          {progressText}
+        </p>
 
         <div className="media-card__scan">
           <div className="media-card__scan-row">
-            <span className="media-card__scan-copy">{progressText}</span>
+            <span className="media-card__scan-copy">同步中</span>
             <strong>{clampedProgress}%</strong>
           </div>
           <div aria-hidden="true" className="media-card__scan-track">
