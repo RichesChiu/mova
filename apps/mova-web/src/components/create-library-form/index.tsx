@@ -19,7 +19,7 @@ const libraryTypeOptions: Array<{ value: LibraryType; label: string }> = [
 ]
 
 const metadataLanguageOptions: GlassSelectOption[] = [
-  { value: 'zh-CN', label: '中文 (zh-CN)' },
+  { value: 'zh-CN', label: 'Chinese (zh-CN)' },
   { value: 'en-US', label: 'English (en-US)' },
 ]
 
@@ -27,21 +27,21 @@ const LIBRARY_TYPE_HELP = (
   <span className="section-help__tooltip-list">
     <span className="section-help__tooltip-item">
       <span className="section-help__tooltip-label">Mixed</span>
-      <span>按文件名自动区分电影和剧集，适合内容混放的目录。</span>
+      <span>Automatically sorts movies and series by filename. Best for mixed folders.</span>
     </span>
     <span className="section-help__tooltip-item">
       <span className="section-help__tooltip-label">Movie</span>
-      <span>只按电影整理，更适合纯电影目录。</span>
+      <span>Organizes only movies. Best for movie-only folders.</span>
     </span>
     <span className="section-help__tooltip-item">
       <span className="section-help__tooltip-label">Series</span>
-      <span>只按剧集整理，更适合单独的电视剧目录。</span>
+      <span>Organizes only series. Best for dedicated TV show folders.</span>
     </span>
   </span>
 )
 
 const ROOT_PATH_HELP =
-  '这里选择的是容器内路径。宿主机的 MOVA_MEDIA_ROOT 会挂载成容器内固定的 /media，所以这里看到的 /media/... 就是实际可建库的根目录。'
+  'This picker shows in-container paths. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so every /media/... path here maps to the actual library root available to the app.'
 
 const treeContainsPath = (node: ServerMediaDirectoryNode, path: string): boolean => {
   if (node.path === path) {
@@ -171,19 +171,19 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
         ) : null}
 
         {mediaTreeQuery.isLoading ? (
-          <p className="root-path-picker__hint">正在读取容器内 `/media` 目录树…</p>
+          <p className="root-path-picker__hint">Reading the in-container `/media` tree…</p>
         ) : null}
         {mediaTreeQuery.isError ? (
           <p className="root-path-picker__hint">
             {mediaTreeQuery.error instanceof Error
-              ? `读取目录失败：${mediaTreeQuery.error.message}`
-              : '读取目录失败，请检查 docker 挂载配置'}
+              ? `Failed to read directories: ${mediaTreeQuery.error.message}`
+              : 'Failed to read directories. Check the Docker volume mapping.'}
           </p>
         ) : null}
         {!mediaTreeQuery.isLoading && !mediaTreeQuery.isError && !mediaTree ? (
           <p className="root-path-picker__hint">
-            暂未检测到容器内 `/media` 目录，请确认 `.env` 已配置 `MOVA_MEDIA_ROOT`，并且已重新启动
-            docker compose。
+            No in-container `/media` directory was detected yet. Make sure `.env` sets
+            `MOVA_MEDIA_ROOT`, then restart Docker Compose.
           </p>
         ) : null}
       </div>

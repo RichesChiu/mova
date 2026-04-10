@@ -1,5 +1,4 @@
 .section-help {
-  position: relative;
   display: inline-flex;
   align-items: center;
 }
@@ -35,10 +34,9 @@
 }
 
 .section-help__tooltip {
-  position: absolute;
-  left: 50%;
-  z-index: 4;
-  width: min(300px, 72vw);
+  position: fixed;
+  z-index: 999;
+  width: min(300px, calc(100vw - 24px));
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   border-radius: 14px;
@@ -49,12 +47,7 @@
   color: var(--text-muted);
   font-size: 0.8rem;
   line-height: 1.5;
-  opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, -4px);
-  transition:
-    opacity 160ms ease,
-    transform 160ms ease;
 }
 
 .section-help__tooltip-list {
@@ -75,36 +68,22 @@
 .section-help__tooltip::before {
   content: '';
   position: absolute;
-  left: 50%;
+  left: var(--section-help-arrow-left, 50%);
   width: 12px;
   height: 12px;
   background: color-mix(in srgb, var(--panel-background) 94%, rgba(6, 10, 18, 0.96));
 }
 
-.section-help--top .section-help__tooltip {
-  bottom: calc(100% + 10px);
-}
-
-.section-help--top .section-help__tooltip::before {
+.section-help__tooltip--top::before {
   bottom: -6px;
   border-right: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   transform: translateX(-50%) rotate(45deg);
 }
 
-.section-help--bottom .section-help__tooltip {
-  top: calc(100% + 10px);
-}
-
-.section-help--bottom .section-help__tooltip::before {
+.section-help__tooltip--bottom::before {
   top: -6px;
   border-top: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   border-left: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   transform: translateX(-50%) rotate(45deg);
-}
-
-.section-help:hover .section-help__tooltip,
-.section-help:focus-within .section-help__tooltip {
-  opacity: 1;
-  transform: translate(-50%, 0);
 }

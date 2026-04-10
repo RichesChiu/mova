@@ -197,7 +197,7 @@ describe('useServerEvents', () => {
     })
 
     await waitFor(() => {
-      expect(alertSpy).toHaveBeenCalledWith('当前媒体库已被删除。点击确认后将返回主页。')
+      expect(alertSpy).toHaveBeenCalledWith('This library was deleted. Click OK to return home.')
       expect(screen.getByTestId('pathname')).toHaveTextContent('/')
     })
   })

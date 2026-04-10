@@ -76,7 +76,7 @@ export const LibraryContentSections = ({
             const currentScanItem = scanItems[0] ?? null
             const scanCopy =
               formatScanJobStatusCopy(effectiveScanJob, scanRuntime) ??
-              (detailLoading ? '正在同步媒体库状态' : null)
+              (detailLoading ? 'Syncing library state' : null)
             const scanProgressPercent = getScanJobProgressPercent(effectiveScanJob, scanRuntime)
 
             return (
@@ -116,7 +116,7 @@ export const LibraryContentSections = ({
                 {currentScanItem ? (
                   <p className="muted">
                     {formatScanItemProgressCopy(currentScanItem)}
-                    {scanItems.length > 1 ? ` · 已发现 ${scanItems.length} 个新条目` : null}
+                    {scanItems.length > 1 ? ` · ${scanItems.length} new items discovered` : null}
                   </p>
                 ) : scanCopy ? (
                   <p className="muted">{scanCopy}</p>

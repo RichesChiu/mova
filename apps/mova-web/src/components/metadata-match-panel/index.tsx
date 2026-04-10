@@ -74,7 +74,7 @@ export const MetadataMatchPanel = ({
     onSuccess: (searchResults) => {
       setResults(searchResults)
       setSelectedProviderItemId(searchResults[0]?.provider_item_id ?? null)
-      setStatusMessage(searchResults.length === 0 ? '未找到匹配结果。' : null)
+      setStatusMessage(searchResults.length === 0 ? 'No matches found.' : null)
     },
   })
 
@@ -100,7 +100,7 @@ export const MetadataMatchPanel = ({
 
     const trimmedQuery = query.trim()
     if (!trimmedQuery) {
-      setStatusMessage('请输入资源名称。')
+      setStatusMessage('Enter a title to search.')
       return
     }
 
@@ -118,7 +118,7 @@ export const MetadataMatchPanel = ({
 
   const handleApply = async () => {
     if (!selectedProviderItemId) {
-      setStatusMessage('请先选中一个匹配结果。')
+      setStatusMessage('Select a match before replacing metadata.')
       return
     }
 
@@ -214,7 +214,7 @@ export const MetadataMatchPanel = ({
                   <p className="callout callout--danger">
                     {searchMutation.error instanceof Error
                       ? searchMutation.error.message
-                      : '搜索元数据失败'}
+                      : 'Metadata search failed'}
                   </p>
                 ) : null}
                 {matchMutation.isError ? (
@@ -223,7 +223,7 @@ export const MetadataMatchPanel = ({
                       ? matchMutation.error.message
                       : matchMutation.error instanceof Error
                         ? matchMutation.error.message
-                        : '替换元数据失败'}
+                        : 'Metadata replacement failed'}
                   </p>
                 ) : null}
 

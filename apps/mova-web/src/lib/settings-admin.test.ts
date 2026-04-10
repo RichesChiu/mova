@@ -29,7 +29,7 @@ import {
 const library: Library = {
   id: 7,
   name: 'Movies',
-  description: '家庭电影库',
+  description: 'Family movie library',
   library_type: 'movie',
   metadata_language: 'zh-CN',
   root_path: '/media/movies',
@@ -246,7 +246,7 @@ describe('settings admin helpers', () => {
         },
         updatedLibrary: {
           ...library,
-          description: '更新后的说明',
+          description: 'Updated description',
           is_enabled: true,
         },
         currentLibraryDetail: {
@@ -262,11 +262,11 @@ describe('settings admin helpers', () => {
       }),
     ).toMatchObject({
       libraryDetail: {
-        description: '更新后的说明',
+        description: 'Updated description',
         last_scan: scanJob,
       },
       homeLibraryDetail: {
-        description: '更新后的说明',
+        description: 'Updated description',
         last_scan: scanJob,
       },
     })
@@ -287,15 +287,15 @@ describe('settings admin helpers', () => {
 
     expect(getScanStatusLabel(scanJob)).toBe('Running')
     expect(getScanStatusTone(scanJob)).toBe('running')
-    expect(getScanStatusSummary(scanJob)).toBe('已扫描 6/20 个文件。')
-    expect(getScanStatusSummary(null)).toBe('还没有执行过扫描。')
+    expect(getScanStatusSummary(scanJob)).toBe('Scanned 6/20 files.')
+    expect(getScanStatusSummary(null)).toBe('No scan has run yet.')
     expect(
       getScanStatusSummary({
         ...scanJob,
         status: 'failed',
-        error_message: '扫描目录阶段失败：目录不存在',
+        error_message: 'Directory scan failed: Directory does not exist',
       }),
-    ).toBe('扫描目录阶段失败：目录不存在')
+    ).toBe('Directory scan failed: Directory does not exist')
     expect(
       buildUpdatedUserCacheState([viewer], viewer.id, { ...viewer, is_enabled: false }),
     ).toEqual({

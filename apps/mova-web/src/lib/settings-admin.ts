@@ -66,11 +66,11 @@ export const getScanStatusTone = (scanJob: ScanJob | null | undefined) => {
 
 export const getScanStatusSummary = (scanJob: ScanJob | null | undefined) => {
   if (!scanJob) {
-    return '还没有执行过扫描。'
+    return 'No scan has run yet.'
   }
 
   if (scanJob.status === 'running') {
-    return `已扫描 ${scanJob.scanned_files}/${scanJob.total_files} 个文件。`
+    return `Scanned ${scanJob.scanned_files}/${scanJob.total_files} files.`
   }
 
   if (scanJob.status === 'failed' && scanJob.error_message) {
@@ -78,7 +78,7 @@ export const getScanStatusSummary = (scanJob: ScanJob | null | undefined) => {
   }
 
   const finishedAt = scanJob.finished_at ?? scanJob.started_at ?? scanJob.created_at
-  return `最近更新于 ${formatDateTime(finishedAt)}。`
+  return `Last updated at ${formatDateTime(finishedAt)}.`
 }
 
 export const buildInitialScanJob = (

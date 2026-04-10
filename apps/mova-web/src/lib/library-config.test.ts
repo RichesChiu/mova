@@ -9,7 +9,7 @@ import {
 const library: Library = {
   id: 7,
   name: 'Movies',
-  description: '家庭电影库',
+  description: 'Family movie library',
   library_type: 'movie',
   metadata_language: 'zh-CN',
   root_path: '/media/movies',
@@ -22,7 +22,7 @@ describe('library config helpers', () => {
   it('builds a stable editor draft from a library record', () => {
     expect(buildLibraryEditorDraft(library)).toEqual({
       name: 'Movies',
-      description: '家庭电影库',
+      description: 'Family movie library',
       metadataLanguage: 'zh-CN',
       isEnabled: true,
     })

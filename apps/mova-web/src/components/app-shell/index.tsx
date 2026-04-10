@@ -55,7 +55,7 @@ export const AppShell = () => {
       <div className="page-stack">
         <section className="empty-panel">
           <h3>Loading session…</h3>
-          <p className="muted">正在校验当前登录状态。</p>
+          <p className="muted">Validating the current signed-in session.</p>
         </section>
       </div>
     )

@@ -37,7 +37,7 @@ describe('scan runtime helpers', () => {
 
     expect(isLibraryScanActive(null, runtime)).toBe(true)
     expect(shouldShowScanPlaceholder(null, runtime)).toBe(true)
-    expect(formatScanJobStatusCopy(null, runtime)).toBe('正在发现文件 4/20')
+    expect(formatScanJobStatusCopy(null, runtime)).toBe('Scanning files 4/20')
     expect(getScanJobProgressPercent(null, runtime)).toBe(12)
   })
 
@@ -62,10 +62,10 @@ describe('scan runtime helpers', () => {
     }
 
     expect(formatPendingScanPlaceholderCopy(null, runtime, 'Movies')).toBe(
-      '正在补全 Interstellar 的海报和简介',
+      'Interstellar · Fetching artwork & overview',
     )
     expect(getScanJobProgressPercent(null, runtime)).toBe(68)
-    expect(formatScanItemProgressCopy(runtime.items[0])).toBe('正在获取海报、剧照和简介')
+    expect(formatScanItemProgressCopy(runtime.items[0])).toBe('Fetching artwork & overview')
   })
 
   it('matches a movie detail against scan runtime items by title and file path', () => {
@@ -111,7 +111,7 @@ describe('scan runtime helpers', () => {
         },
         runtime,
       ),
-    ).toBe('正在匹配元数据')
+    ).toBe('Fetching metadata')
   })
 
   it('filters series scan runtime items by the selected season', () => {
@@ -173,7 +173,7 @@ describe('scan runtime helpers', () => {
         runtime,
         { seasonNumber: 1 },
       ),
-    ).toBe('正在获取海报、剧照和简介')
+    ).toBe('Fetching artwork & overview')
   })
 
   it('surfaces failed scan copy even when the library is no longer actively syncing', () => {
@@ -181,13 +181,15 @@ describe('scan runtime helpers', () => {
       scanJob: buildScanJob({
         status: 'failed',
         phase: 'finished',
-        error_message: '元数据补全阶段失败：TMDB 请求超时',
+        error_message: 'Metadata enrichment failed: TMDB request timed out',
       }),
       items: [],
     }
 
     expect(hasFailedLibraryScan(null, runtime)).toBe(true)
-    expect(formatFailedScanCopy(null, runtime)).toBe('元数据补全阶段失败：TMDB 请求超时')
+    expect(formatFailedScanCopy(null, runtime)).toBe(
+      'Metadata enrichment failed: TMDB request timed out',
+    )
     expect(isLibraryScanActive(null, runtime)).toBe(false)
   })
 })

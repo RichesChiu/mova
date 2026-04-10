@@ -3,6 +3,8 @@
 `mova-web` 是 Mova 的前端应用，基于 Vite、React、TypeScript、React Router、TanStack Query 和 SCSS。  
 这份文档不重复接口契约，而是从代码入口、页面结构、共享组件、数据层和测试层来说明当前前端是怎么组织的。
 
+当前产品 UI 文案先统一为英文，后续会在这套英文基线上补中英切换能力。
+
 如果你要看接口字段和 HTTP/SSE 契约，优先看 [`../../docs/API.md`](../../docs/API.md)。
 
 ## 1. 入口与启动链路
@@ -123,7 +125,7 @@ src/
 
 | 组件 | 文件 | 作用 | 主要使用位置 |
 | --- | --- | --- | --- |
-| `SectionHelp` | `components/section-help/index.tsx` | 节标题上的轻量 tooltip 帮助说明。 | 需要补帮助说明的 section 标题 |
+| `SectionHelp` | `components/section-help/index.tsx` | 节标题上的轻量 tooltip 帮助说明；tooltip 本体会通过 portal 挂到根级浮层，避免被卡片或容器裁掉。 | 需要补帮助说明的 section 标题 |
 | `StatusPill` | `components/status-pill/index.tsx` | 把 `success / failed / neutral` 等文本状态渲染成统一 pill。 | 状态展示区 |
 | `SettingsGearIcon` | `components/settings-gear-icon/index.tsx` | 设置相关的纯图标组件。 | 顶栏、设置页 hero |
 

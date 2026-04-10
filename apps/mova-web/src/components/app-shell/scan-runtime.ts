@@ -56,56 +56,56 @@ export const formatScanJobStatusCopy = (
   if (!effectiveScanJob) {
     if (primaryItem) {
       return primaryItem.stage === 'artwork'
-        ? `正在补全 ${primaryItem.title} 的海报和简介`
-        : `正在匹配 ${primaryItem.title} 的元数据`
+        ? `${primaryItem.title} · Fetching artwork & overview`
+        : `${primaryItem.title} · Fetching metadata`
     }
 
     return null
   }
 
   if (effectiveScanJob.status === 'pending') {
-    return '等待开始扫描'
+    return 'Queued for scan'
   }
 
   if (effectiveScanJob.status === 'failed') {
-    return effectiveScanJob.error_message ?? '扫描失败'
+    return effectiveScanJob.error_message ?? 'Scan failed'
   }
 
   if (effectiveScanJob.status === 'success') {
-    return '扫描完成'
+    return null
   }
 
   switch (effectiveScanJob.phase) {
     case 'discovering':
       if (activeItemCount > 0) {
         return activeItemCount > 1
-          ? `已发现 ${activeItemCount} 个新条目，正在继续扫描目录`
-          : `已发现 ${primaryItem?.title ?? '新条目'}，正在继续扫描目录`
+          ? `Discovered ${activeItemCount} new items`
+          : `Discovered ${primaryItem?.title ?? 'new item'}`
       }
       return effectiveScanJob.total_files > 0
-        ? `正在发现文件 ${effectiveScanJob.scanned_files}/${effectiveScanJob.total_files}`
-        : `正在发现文件 ${effectiveScanJob.scanned_files}`
+        ? `Scanning files ${effectiveScanJob.scanned_files}/${effectiveScanJob.total_files}`
+        : `Scanning files ${effectiveScanJob.scanned_files}`
     case 'enriching':
       if (primaryItem) {
         if (primaryItem.stage === 'discovered') {
-          return `已发现 ${primaryItem.title}，等待补全元数据`
+          return `${primaryItem.title} · Waiting for metadata`
         }
 
         if (primaryItem.stage === 'artwork') {
-          return `正在补全 ${primaryItem.title} 的海报和简介`
+          return `${primaryItem.title} · Fetching artwork & overview`
         }
 
         if (primaryItem.stage === 'completed') {
-          return `已准备好 ${primaryItem.title} 的元数据，等待写入媒体库`
+          return `${primaryItem.title} · Waiting to save`
         }
 
-        return `正在匹配 ${primaryItem.title} 的元数据`
+        return `${primaryItem.title} · Fetching metadata`
       }
-      return '正在补全条目元数据'
+      return 'Enriching metadata'
     case 'syncing':
-      return activeItemCount > 0 ? `正在写入 ${activeItemCount} 个新条目到媒体库` : '正在写入媒体库'
+      return activeItemCount > 0 ? `Saving ${activeItemCount} items` : 'Saving to library'
     default:
-      return '正在扫描媒体库'
+      return 'Library sync in progress'
   }
 }
 
@@ -203,7 +203,7 @@ export const formatFailedScanCopy = (
     return null
   }
 
-  return effectiveScanJob.error_message ?? '最近一次扫描失败'
+  return effectiveScanJob.error_message ?? 'The most recent scan failed'
 }
 
 export const shouldShowScanPlaceholder = (
@@ -227,7 +227,7 @@ export const formatPendingScanPlaceholderCopy = (
     return scanCopy
   }
 
-  return `正在准备 ${fallbackTitle} 的扫描结果`
+  return `Syncing ${fallbackTitle}`
 }
 
 export const formatScanItemMeta = (item: ScanRuntimeItem) => {
@@ -246,13 +246,13 @@ export const formatScanItemMeta = (item: ScanRuntimeItem) => {
 export const formatScanItemProgressCopy = (item: ScanRuntimeItem) => {
   switch (item.stage) {
     case 'discovered':
-      return '已发现文件，等待获取元数据'
+      return 'Waiting for metadata'
     case 'artwork':
-      return '正在获取海报、剧照和简介'
+      return 'Fetching artwork & overview'
     case 'completed':
-      return '元数据已准备好，等待写入媒体库'
+      return 'Waiting to save to library'
     default:
-      return '正在匹配元数据'
+      return 'Fetching metadata'
   }
 }
 
@@ -356,7 +356,7 @@ export const formatMediaItemScanStatusCopy = (
 
   const progressCopy = formatScanItemProgressCopy(primaryItem)
   if (matchingItems.length > 1) {
-    return `${progressCopy} · 还有 ${matchingItems.length - 1} 个相关条目正在同步`
+    return `${progressCopy} · ${matchingItems.length - 1} more related items syncing`
   }
 
   return progressCopy

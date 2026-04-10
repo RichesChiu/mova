@@ -68,9 +68,13 @@ export const MediaCardScanPlaceholder = ({
       </div>
 
       <div className="media-card__body">
-        <div className="media-card__meta">
+        <div className="media-card__meta media-card__meta--scan">
           <span className="chip chip--scan">scanning</span>
-          {subtitle ? <span className="muted">{subtitle}</span> : null}
+          {subtitle ? (
+            <span className="media-card__meta-note" title={subtitle}>
+              {subtitle}
+            </span>
+          ) : null}
         </div>
         <h3 className="media-card__title" title={title}>
           {title}
@@ -81,7 +85,7 @@ export const MediaCardScanPlaceholder = ({
 
         <div className="media-card__scan">
           <div className="media-card__scan-row">
-            <span className="media-card__scan-copy">同步中</span>
+            <span className="media-card__scan-copy">syncing</span>
             <strong>{clampedProgress}%</strong>
           </div>
           <div aria-hidden="true" className="media-card__scan-track">

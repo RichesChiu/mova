@@ -82,7 +82,7 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
             : hasFailedScan
               ? formatFailedScanCopy(lastScan, scanRuntime)
               : isSyncingLibraryState
-                ? '正在同步媒体库状态'
+                ? 'Syncing library state'
                 : null
           const scanProgressPercent = isScanning
             ? getScanJobProgressPercent(lastScan, scanRuntime)

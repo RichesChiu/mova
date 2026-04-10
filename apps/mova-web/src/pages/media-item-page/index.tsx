@@ -316,7 +316,7 @@ export const MediaItemPage = () => {
       ]
         .filter(Boolean)
         .join(' · ')
-    : '详情信息和图片可能会在同步完成后继续更新。'
+    : 'Details and artwork may continue updating until the sync finishes.'
   const selectedSeasonScanItems = selectedSeason
     ? detailScanItems.filter(
         (item) =>
@@ -554,7 +554,7 @@ export const MediaItemPage = () => {
             <div className="detail-hero__sync-note" role="status">
               <div className="detail-hero__sync-copy">
                 <p className="detail-hero__sync-label">
-                  {primaryDetailScanItem ? '当前条目正在同步' : '当前媒体库正在同步'}
+                  {primaryDetailScanItem ? 'This item is syncing' : 'This library is syncing'}
                 </p>
                 <strong>{detailScanCopy}</strong>
                 <span className="muted">{detailScanSubtitle}</span>
@@ -608,7 +608,10 @@ export const MediaItemPage = () => {
 
           {selectedSeasonScanItems.length > 0 ? (
             <p className="muted">
-              当前季还有 {selectedSeasonScanItems.length} 集正在同步，集卡会在写入媒体库前保持占位。
+              {selectedSeasonScanItems.length}{' '}
+              {selectedSeasonScanItems.length === 1 ? 'episode is' : 'episodes are'} still
+              syncing in this season. Placeholder cards stay visible until the library write
+              completes.
             </p>
           ) : null}
 
@@ -673,7 +676,7 @@ export const MediaItemPage = () => {
                 <div className="cast-card__body">
                   <p className="cast-card__name">{member.name}</p>
                   <p className="cast-card__role">
-                    {member.character_name ? `饰 ${member.character_name}` : 'Actor'}
+                    {member.character_name ? `as ${member.character_name}` : 'Actor'}
                   </p>
                 </div>
               </article>

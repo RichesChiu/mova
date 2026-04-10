@@ -385,7 +385,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       void queryClient.invalidateQueries({ queryKey: ['libraries'] })
 
       if (activeLibraryId === payload.library_id) {
-        window.alert('当前媒体库已被删除。点击确认后将返回主页。')
+        window.alert('This library was deleted. Click OK to return home.')
         navigate('/', { replace: true })
       }
     }

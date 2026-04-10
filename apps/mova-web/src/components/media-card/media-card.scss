@@ -82,6 +82,23 @@
   gap: 8px;
 }
 
+.media-card__meta--scan {
+  align-items: flex-start;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.media-card__meta-note {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .media-card__title,
 .media-card__summary {
   min-width: 0;
@@ -109,7 +126,9 @@
 }
 
 .media-card__summary--scan {
-  min-height: calc(1.42em * 2);
+  font-size: 0.84rem;
+  line-height: 1.36;
+  min-height: calc(1.36em * 2);
   -webkit-line-clamp: 2;
 }
 

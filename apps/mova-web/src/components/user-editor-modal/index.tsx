@@ -243,18 +243,22 @@ export const UserEditorModal = ({
                 <span>Account enabled</span>
               </label>
               {isEditingSelf ? (
-                <p className="muted">当前登录账号不支持在这里修改自己的启用状态。</p>
+                <p className="muted">You cannot change your own enabled state here.</p>
               ) : null}
             </>
           ) : (
-            <p className="muted">管理员账号默认保持启用，不在这里提供启停开关。</p>
+            <p className="muted">
+              Admin accounts stay enabled and do not expose an enable or disable toggle here.
+            </p>
           )}
 
           {role === 'viewer' ? (
             <div className="field">
               <span>Library Access</span>
               {sortedLibraries.length === 0 ? (
-                <p className="muted">请先创建至少一个媒体库，再给普通用户分配可见范围。</p>
+                <p className="muted">
+                  Create at least one library before assigning viewer access.
+                </p>
               ) : (
                 <div className="user-editor-modal__access-grid">
                   {sortedLibraries.map((library) => {
@@ -276,7 +280,7 @@ export const UserEditorModal = ({
               )}
             </div>
           ) : (
-            <p className="muted">管理员默认拥有所有媒体库访问权，不需要单独分配。</p>
+            <p className="muted">Admin accounts automatically have access to every library.</p>
           )}
 
           {error ? <p className="callout callout--danger">{error}</p> : null}

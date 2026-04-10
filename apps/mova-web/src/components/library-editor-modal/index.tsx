@@ -24,7 +24,7 @@ const libraryBadge = (library: Library | null) =>
   'L'
 
 const metadataLanguageOptions: GlassSelectOption[] = [
-  { value: 'zh-CN', label: '中文 (zh-CN)' },
+  { value: 'zh-CN', label: 'Chinese (zh-CN)' },
   { value: 'en-US', label: 'English (en-US)' },
 ]
 
@@ -32,21 +32,21 @@ const LIBRARY_TYPE_HELP = (
   <span className="section-help__tooltip-list">
     <span className="section-help__tooltip-item">
       <span className="section-help__tooltip-label">Mixed</span>
-      <span>按文件名自动区分电影和剧集，适合内容混放的目录。</span>
+      <span>Automatically sorts movies and series by filename. Best for mixed folders.</span>
     </span>
     <span className="section-help__tooltip-item">
       <span className="section-help__tooltip-label">Movie</span>
-      <span>只按电影整理，更适合纯电影目录。</span>
+      <span>Organizes only movies. Best for movie-only folders.</span>
     </span>
     <span className="section-help__tooltip-item">
       <span className="section-help__tooltip-label">Series</span>
-      <span>只按剧集整理，更适合单独的电视剧目录。</span>
+      <span>Organizes only series. Best for dedicated TV show folders.</span>
     </span>
   </span>
 )
 
 const ROOT_PATH_HELP =
-  '这里显示的是容器内路径。宿主机的 MOVA_MEDIA_ROOT 会挂载成容器内固定的 /media，所以编辑时看到的 /media/... 对应的就是容器内实际扫描路径。'
+  'This shows the in-container path. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so the /media/... value shown here is the real scan path used by the app.'
 
 export const LibraryEditorModal = ({
   error,

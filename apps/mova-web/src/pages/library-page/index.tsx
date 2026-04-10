@@ -183,7 +183,7 @@ export const LibraryPage = () => {
           progressText: formatPendingScanPlaceholderCopy(
             currentScan,
             currentScanRuntime,
-            currentLibrary?.name ?? '当前媒体库',
+            currentLibrary?.name ?? 'Current library',
           ),
           title: currentLibrary?.name ?? 'Scanning library',
         }
@@ -193,7 +193,7 @@ export const LibraryPage = () => {
     <div className="page-stack">
       <div className="library-page__toolbar">
         <Link className="button button--toolbar library-page__home-link" to="/">
-          <span>返回主页</span>
+          <span>Back Home</span>
         </Link>
       </div>
 
@@ -243,18 +243,18 @@ export const LibraryPage = () => {
 
       {currentScan && (currentScan.status === 'pending' || currentScan.status === 'running') ? (
         <p className="callout">
-          当前正在扫描媒体库。{scanCopy ? ` ${scanCopy}。` : null}
+          This library is syncing.{scanCopy ? ` ${scanCopy}.` : null}
           {currentScan.total_files > 0
-            ? ` 当前任务进度约 ${scanProgressPercent}%。`
-            : ' 当前会先发现文件，再逐个补全元数据和图片。'}{' '}
-          扫描不会阻塞浏览，你仍然可以进入详情页查看已有内容。
+            ? ` Current task progress is about ${scanProgressPercent}%.`
+            : ' The sync discovers files first, then enriches metadata and artwork item by item.'}{' '}
+          Browsing stays available while the sync is running.
         </p>
       ) : null}
 
       {hasFailedScan ? (
         <p className="callout callout--danger">
-          最近一次扫描失败。{formatFailedScanCopy(currentLibrary?.last_scan, currentScanRuntime)}
-          。已有内容仍然可以继续浏览，管理员可以稍后重新触发扫描。
+          The most recent scan failed.{` ${formatFailedScanCopy(currentLibrary?.last_scan, currentScanRuntime)}`}
+          . Existing items are still available, and an admin can trigger another scan later.
         </p>
       ) : null}
 
@@ -275,7 +275,7 @@ export const LibraryPage = () => {
         scanItems.length === 0 ? (
           <section className="empty-panel">
             <h3>No items available yet</h3>
-            <p className="muted">这个媒体库当前还没有可展示的内容。</p>
+            <p className="muted">This library does not have any visible items yet.</p>
           </section>
         ) : null}
 

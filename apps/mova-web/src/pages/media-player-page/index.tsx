@@ -78,10 +78,10 @@ export const MediaPlayerPage = () => {
     playbackHeaderQuery.data.media_type === 'episode'
       ? [
           playbackHeaderQuery.data.season_number
-            ? `第${playbackHeaderQuery.data.season_number}季`
+            ? `Season ${playbackHeaderQuery.data.season_number}`
             : null,
           playbackHeaderQuery.data.episode_number
-            ? `第${playbackHeaderQuery.data.episode_number}集`
+            ? `Episode ${playbackHeaderQuery.data.episode_number}`
             : null,
           playbackHeaderQuery.data.episode_title,
         ]

@@ -210,7 +210,7 @@ pub async fn execute_scan_job_with_cancellation(
                 0,
                 &format_scan_phase_error(
                     SCAN_PHASE_INITIALIZING,
-                    format!("加载媒体库配置失败：{}", error),
+                    format!("Failed to load library configuration: {}", error),
                 ),
             )
             .await
@@ -253,7 +253,7 @@ pub async fn execute_scan_job_with_cancellation(
                 0,
                 &format_scan_phase_error(
                     SCAN_PHASE_INITIALIZING,
-                    format!("启动扫描任务失败：{}", error),
+                    format!("Failed to start the scan job: {}", error),
                 ),
             )
             .await
@@ -306,7 +306,7 @@ pub async fn execute_scan_job_with_cancellation(
                 0,
                 &format_scan_phase_error(
                     SCAN_PHASE_DISCOVERING,
-                    format!("扫描文件目录失败：{}", error),
+                    format!("Failed to scan library files: {}", error),
                 ),
             )
             .await
@@ -369,7 +369,7 @@ pub async fn execute_scan_job_with_cancellation(
                 0,
                 &format_scan_phase_error(
                     SCAN_PHASE_ENRICHING,
-                    format!("整理媒体条目失败：{}", error),
+                    format!("Failed to build media entries: {}", error),
                 ),
             )
             .await
@@ -409,7 +409,10 @@ pub async fn execute_scan_job_with_cancellation(
             scan_job_id,
             total_files,
             0,
-            &format_scan_phase_error(SCAN_PHASE_SYNCING, format!("写入媒体库失败：{}", error)),
+            &format_scan_phase_error(
+                SCAN_PHASE_SYNCING,
+                format!("Failed to save library data: {}", error),
+            ),
         )
         .await
         {
@@ -569,7 +572,7 @@ async fn discover_media_files(
     .await
     .map_err(|error| {
         ApplicationError::Unexpected(anyhow::anyhow!(
-            "扫描目录工作线程异常退出（{}）：{}",
+            "The file discovery worker exited unexpectedly ({}): {}",
             root_path_string,
             error
         ))
@@ -583,7 +586,7 @@ async fn discover_media_files(
             DiscoverMediaFilesOutcome::Cancelled(last_progress.load(Ordering::SeqCst)),
         ),
         Err(error) => Err(ApplicationError::Unexpected(anyhow::anyhow!(
-            "无法读取媒体库目录 {}：{}",
+            "Unable to read library directory {}: {}",
             root_path,
             error
         ))),
@@ -711,17 +714,17 @@ fn build_scan_job_progress_update(scan_job: ScanJob, phase: &str) -> ScanJobProg
 }
 
 fn format_scan_phase_error(phase: &str, detail: impl AsRef<str>) -> String {
-    format!("{}：{}", scan_phase_label(phase), detail.as_ref())
+    format!("{}: {}", scan_phase_label(phase), detail.as_ref())
 }
 
 fn scan_phase_label(phase: &str) -> &'static str {
     match phase {
-        SCAN_PHASE_INITIALIZING => "初始化阶段失败",
-        SCAN_PHASE_DISCOVERING => "扫描目录阶段失败",
-        SCAN_PHASE_ENRICHING => "元数据补全阶段失败",
-        SCAN_PHASE_SYNCING => "写入媒体库阶段失败",
-        SCAN_PHASE_FINISHED => "结束阶段失败",
-        _ => "扫描任务失败",
+        SCAN_PHASE_INITIALIZING => "Initialization failed",
+        SCAN_PHASE_DISCOVERING => "Directory scan failed",
+        SCAN_PHASE_ENRICHING => "Metadata enrichment failed",
+        SCAN_PHASE_SYNCING => "Library write failed",
+        SCAN_PHASE_FINISHED => "Finalization failed",
+        _ => "Scan job failed",
     }
 }
 
@@ -882,15 +885,15 @@ mod tests {
     fn scan_phase_label_returns_user_facing_stage_name() {
         assert_eq!(
             super::scan_phase_label(super::SCAN_PHASE_DISCOVERING),
-            "扫描目录阶段失败"
+            "Directory scan failed"
         );
         assert_eq!(
             super::scan_phase_label(super::SCAN_PHASE_ENRICHING),
-            "元数据补全阶段失败"
+            "Metadata enrichment failed"
         );
         assert_eq!(
             super::scan_phase_label(super::SCAN_PHASE_SYNCING),
-            "写入媒体库阶段失败"
+            "Library write failed"
         );
     }
 
@@ -899,9 +902,9 @@ mod tests {
         assert_eq!(
             super::format_scan_phase_error(
                 super::SCAN_PHASE_DISCOVERING,
-                "扫描文件目录失败：No such file or directory"
+                "Failed to scan library files: No such file or directory"
             ),
-            "扫描目录阶段失败：扫描文件目录失败：No such file or directory"
+            "Directory scan failed: Failed to scan library files: No such file or directory"
         );
     }
 

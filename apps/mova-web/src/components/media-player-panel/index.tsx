@@ -343,15 +343,15 @@ const renderSubtitleLabel = (subtitle: SubtitleFile) => {
     switch (subtitle.language?.toLowerCase()) {
       case 'zh':
       case 'zh-cn':
-        return '中文'
+        return 'Chinese'
       case 'zh-tw':
-        return '繁中'
+        return 'Traditional Chinese'
       case 'en':
         return 'English'
       case 'ja':
-        return '日本語'
+        return 'Japanese'
       case 'ko':
-        return '한국어'
+        return 'Korean'
       default:
         return subtitle.language?.toUpperCase() ?? null
     }

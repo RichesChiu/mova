@@ -56,7 +56,7 @@ export const LoginPage = () => {
       <div className="login-page">
         <section className="login-card">
           <h2>Loading session…</h2>
-          <p className="muted">正在检查是否已经登录。</p>
+          <p className="muted">Checking whether you are already signed in.</p>
         </section>
       </div>
     )
