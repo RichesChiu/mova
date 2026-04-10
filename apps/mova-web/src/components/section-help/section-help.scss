@@ -2,7 +2,6 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  margin-left: 8px;
 }
 
 .section-help__trigger {
@@ -37,10 +36,9 @@
 
 .section-help__tooltip {
   position: absolute;
-  top: calc(100% + 10px);
   left: 50%;
   z-index: 4;
-  width: min(240px, 54vw);
+  width: min(300px, 72vw);
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   border-radius: 14px;
@@ -59,16 +57,49 @@
     transform 160ms ease;
 }
 
+.section-help__tooltip-list {
+  display: grid;
+  gap: 8px;
+}
+
+.section-help__tooltip-item {
+  display: grid;
+  gap: 2px;
+}
+
+.section-help__tooltip-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .section-help__tooltip::before {
   content: '';
   position: absolute;
-  top: -6px;
   left: 50%;
   width: 12px;
   height: 12px;
+  background: color-mix(in srgb, var(--panel-background) 94%, rgba(6, 10, 18, 0.96));
+}
+
+.section-help--top .section-help__tooltip {
+  bottom: calc(100% + 10px);
+}
+
+.section-help--top .section-help__tooltip::before {
+  bottom: -6px;
+  border-right: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.section-help--bottom .section-help__tooltip {
+  top: calc(100% + 10px);
+}
+
+.section-help--bottom .section-help__tooltip::before {
+  top: -6px;
   border-top: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   border-left: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
-  background: color-mix(in srgb, var(--panel-background) 94%, rgba(6, 10, 18, 0.96));
   transform: translateX(-50%) rotate(45deg);
 }
 

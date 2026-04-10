@@ -4,6 +4,7 @@ import { getServerMediaTree } from '../../api/client'
 import type { CreateLibraryInput, LibraryType, ServerMediaDirectoryNode } from '../../api/types'
 import { GlassSelect, type GlassSelectOption } from '../glass-select'
 import { MediaDirectoryTree } from '../media-directory-tree'
+import { SectionHelp } from '../section-help'
 
 interface CreateLibraryFormProps {
   error: string | null
@@ -21,6 +22,26 @@ const metadataLanguageOptions: GlassSelectOption[] = [
   { value: 'zh-CN', label: '中文 (zh-CN)' },
   { value: 'en-US', label: 'English (en-US)' },
 ]
+
+const LIBRARY_TYPE_HELP = (
+  <span className="section-help__tooltip-list">
+    <span className="section-help__tooltip-item">
+      <span className="section-help__tooltip-label">Mixed</span>
+      <span>按文件名自动区分电影和剧集，适合内容混放的目录。</span>
+    </span>
+    <span className="section-help__tooltip-item">
+      <span className="section-help__tooltip-label">Movie</span>
+      <span>只按电影整理，更适合纯电影目录。</span>
+    </span>
+    <span className="section-help__tooltip-item">
+      <span className="section-help__tooltip-label">Series</span>
+      <span>只按剧集整理，更适合单独的电视剧目录。</span>
+    </span>
+  </span>
+)
+
+const ROOT_PATH_HELP =
+  '这里选择的是容器内路径。宿主机的 MOVA_MEDIA_ROOT 会挂载成容器内固定的 /media，所以这里看到的 /media/... 就是实际可建库的根目录。'
 
 const treeContainsPath = (node: ServerMediaDirectoryNode, path: string): boolean => {
   if (node.path === path) {
@@ -108,7 +129,10 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
       </label>
 
       <div className="field">
-        <span>Library Type</span>
+        <div className="field__label">
+          <span className="field__label-copy">Library Type</span>
+          <SectionHelp detail={LIBRARY_TYPE_HELP} title="Library type help" />
+        </div>
         <GlassSelect
           ariaLabel="Library type"
           onChange={(value) => setLibraryType(value as LibraryType)}
@@ -128,13 +152,13 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
       </div>
 
       <div className="field">
-        <span>Root Path</span>
+        <div className="field__label">
+          <span className="field__label-copy">Root Path</span>
+          <SectionHelp detail={ROOT_PATH_HELP} title="Root path help" />
+        </div>
 
         {mediaTree ? (
           <div className="root-path-picker">
-            <p className="root-path-picker__hint">
-              已读取容器内 `/media` 目录树。点击任意文件夹作为库源。
-            </p>
             <div className="media-tree">
               <div className="media-tree__selected">
                 <span className="media-tree__selected-label">Selected</span>

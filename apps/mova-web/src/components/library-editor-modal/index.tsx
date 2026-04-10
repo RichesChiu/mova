@@ -7,6 +7,7 @@ import {
   hasLibraryConfigChanges,
 } from '../../lib/library-config'
 import { GlassSelect, type GlassSelectOption } from '../glass-select'
+import { SectionHelp } from '../section-help'
 
 interface LibraryEditorModalProps {
   error: string | null
@@ -26,6 +27,26 @@ const metadataLanguageOptions: GlassSelectOption[] = [
   { value: 'zh-CN', label: '中文 (zh-CN)' },
   { value: 'en-US', label: 'English (en-US)' },
 ]
+
+const LIBRARY_TYPE_HELP = (
+  <span className="section-help__tooltip-list">
+    <span className="section-help__tooltip-item">
+      <span className="section-help__tooltip-label">Mixed</span>
+      <span>按文件名自动区分电影和剧集，适合内容混放的目录。</span>
+    </span>
+    <span className="section-help__tooltip-item">
+      <span className="section-help__tooltip-label">Movie</span>
+      <span>只按电影整理，更适合纯电影目录。</span>
+    </span>
+    <span className="section-help__tooltip-item">
+      <span className="section-help__tooltip-label">Series</span>
+      <span>只按剧集整理，更适合单独的电视剧目录。</span>
+    </span>
+  </span>
+)
+
+const ROOT_PATH_HELP =
+  '这里显示的是容器内路径。宿主机的 MOVA_MEDIA_ROOT 会挂载成容器内固定的 /media，所以编辑时看到的 /media/... 对应的就是容器内实际扫描路径。'
 
 export const LibraryEditorModal = ({
   error,
@@ -120,7 +141,6 @@ export const LibraryEditorModal = ({
             <div>
               <p className="eyebrow">Library Management</p>
               <h3>Edit Library</h3>
-              <p className="muted">在这里统一维护媒体库名称、描述、元数据语言和启停状态。</p>
             </div>
           </div>
 
@@ -160,7 +180,10 @@ export const LibraryEditorModal = ({
 
           <div className="library-editor-modal__facts">
             <article className="library-editor-modal__fact">
-              <span>Library Type</span>
+              <div className="field__label">
+                <span className="field__label-copy">Library Type</span>
+                <SectionHelp detail={LIBRARY_TYPE_HELP} title="Library type help" />
+              </div>
               <strong>{library.library_type}</strong>
             </article>
             <article className="library-editor-modal__fact">
@@ -203,7 +226,10 @@ export const LibraryEditorModal = ({
           </label>
 
           <div className="field">
-            <span>Root Path</span>
+            <div className="field__label">
+              <span className="field__label-copy">Root Path</span>
+              <SectionHelp detail={ROOT_PATH_HELP} title="Root path help" />
+            </div>
             <code className="library-editor-modal__path">{library.root_path}</code>
           </div>
 

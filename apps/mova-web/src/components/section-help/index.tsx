@@ -1,11 +1,20 @@
+import type { ReactNode } from 'react'
+
 interface SectionHelpProps {
-  detail: string
+  detail: ReactNode
+  placement?: 'bottom' | 'top'
   title: string
 }
 
 // Keep dense section headers readable while preserving a place for longer guidance.
-export const SectionHelp = ({ detail, title }: SectionHelpProps) => (
-  <span className="section-help">
+export const SectionHelp = ({ detail, placement = 'top', title }: SectionHelpProps) => (
+  <span
+    className={
+      placement === 'bottom'
+        ? 'section-help section-help--bottom'
+        : 'section-help section-help--top'
+    }
+  >
     <button aria-label={title} className="section-help__trigger" type="button">
       <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 20 20">
         <circle cx="10" cy="10" r="8.25" stroke="currentColor" strokeWidth="1.5" />

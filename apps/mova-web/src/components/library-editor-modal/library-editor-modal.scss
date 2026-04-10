@@ -114,7 +114,8 @@
   box-shadow: var(--panel-shadow);
 }
 
-.library-editor-modal__fact span {
+.library-editor-modal__fact > span,
+.library-editor-modal__fact > .field__label .field__label-copy {
   color: var(--text-soft);
   font-size: 0.74rem;
   font-weight: 700;

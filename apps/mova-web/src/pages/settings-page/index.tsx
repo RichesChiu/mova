@@ -21,7 +21,7 @@ import type {
 } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import { ConfirmActionModal } from '../../components/confirm-action-modal'
-import { CreateLibraryForm } from '../../components/create-library-form'
+import { CreateLibraryModal } from '../../components/create-library-modal'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { SettingsGearIcon } from '../../components/settings-gear-icon'
 import { UserEditorModal } from '../../components/user-editor-modal'
@@ -109,6 +109,7 @@ const SettingsLibraryCardSkeleton = () => (
 export const SettingsPage = () => {
   const { currentUser, libraries, librariesLoading } = useOutletContext<AppShellOutletContext>()
   const queryClient = useQueryClient()
+  const [isCreateLibraryOpen, setIsCreateLibraryOpen] = useState(false)
   const [isCreateUserOpen, setIsCreateUserOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null)
   const [editingLibrary, setEditingLibrary] = useState<Library | null>(null)
@@ -157,6 +158,8 @@ export const SettingsPage = () => {
         queryClient.invalidateQueries({ queryKey: ['home-library-detail', createdLibrary.id] }),
         queryClient.invalidateQueries({ queryKey: ['home-library-shelf', createdLibrary.id] }),
       ])
+
+      setIsCreateLibraryOpen(false)
     },
   })
 
@@ -361,10 +364,6 @@ export const SettingsPage = () => {
         <div className="settings-hero__copy">
           <p className="eyebrow">Admin Settings</p>
           <h2>Server Settings</h2>
-          <p className="muted">
-            当前以管理员视角登录：`{currentUser.username}
-            `。这里统一承接用户、媒体库和扫描相关的管理动作。
-          </p>
         </div>
       </section>
 
@@ -372,7 +371,6 @@ export const SettingsPage = () => {
         <div className="section-heading">
           <div>
             <h3>User Management</h3>
-            <p className="muted">用头像卡片管理用户，创建和编辑都在弹窗里完成。</p>
           </div>
           <button
             className="button button--primary button--toolbar"
@@ -519,10 +517,14 @@ export const SettingsPage = () => {
         <div className="section-heading">
           <div>
             <h3>Library Management</h3>
-            <p className="muted">
-              用卡片方式管理媒体库，创建、扫描、删除和基础配置编辑都集中在这里处理。
-            </p>
           </div>
+          <button
+            className="button button--primary button--toolbar"
+            onClick={() => setIsCreateLibraryOpen(true)}
+            type="button"
+          >
+            <span>Create Library</span>
+          </button>
         </div>
 
         {deleteLibraryMutation.isError ? (
@@ -547,7 +549,6 @@ export const SettingsPage = () => {
               <div className="settings-library-card__body">
                 <span className="summary-card__label">No libraries yet</span>
                 <strong>Create the first library</strong>
-                <p className="muted">下方表单会直接创建媒体库，创建完成后库列表会出现在这里。</p>
               </div>
             </article>
           ) : !shouldShowLibrarySkeleton ? (
@@ -659,27 +660,6 @@ export const SettingsPage = () => {
         </div>
       </section>
 
-      <section className="settings-section">
-        <div className="section-heading">
-          <div>
-            <h3>Create Library</h3>
-            <p className="muted">默认仍然支持 `mixed / movie / series` 三种建库模式。</p>
-          </div>
-        </div>
-
-        <div className="settings-create-block">
-          <CreateLibraryForm
-            error={
-              createLibraryMutation.error instanceof Error
-                ? createLibraryMutation.error.message
-                : null
-            }
-            isSubmitting={createLibraryMutation.isPending}
-            onSubmit={(input) => createLibraryMutation.mutateAsync(input)}
-          />
-        </div>
-      </section>
-
       <UserEditorModal
         currentUserId={currentUser.id}
         error={activeUserModalError}
@@ -708,6 +688,19 @@ export const SettingsPage = () => {
           updateLibraryMutation.reset()
         }}
         onUpdate={(libraryId, input) => updateLibraryMutation.mutateAsync({ libraryId, input })}
+      />
+
+      <CreateLibraryModal
+        error={
+          createLibraryMutation.error instanceof Error ? createLibraryMutation.error.message : null
+        }
+        isOpen={isCreateLibraryOpen}
+        isSubmitting={createLibraryMutation.isPending}
+        onClose={() => {
+          setIsCreateLibraryOpen(false)
+          createLibraryMutation.reset()
+        }}
+        onSubmit={(input) => createLibraryMutation.mutateAsync(input)}
       />
 
       <ConfirmActionModal

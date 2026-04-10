@@ -3,9 +3,11 @@
 @use './shared';
 
 @use '../components/app-shell/app-shell';
+@use '../components/change-password-modal/change-password-modal';
 @use '../components/content-header/content-header';
 @use '../components/confirm-action-modal/confirm-action-modal';
 @use '../components/create-library-form/create-library-form';
+@use '../components/create-library-modal/create-library-modal';
 @use '../components/episode-card/episode-card';
 @use '../components/glass-select/glass-select';
 @use '../components/library-editor-modal/library-editor-modal';

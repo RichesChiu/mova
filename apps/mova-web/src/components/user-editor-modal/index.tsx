@@ -130,9 +130,6 @@ export const UserEditorModal = ({
   }
 
   const title = isCreateMode ? 'Create User' : 'Edit User'
-  const description = isCreateMode
-    ? '创建管理员或普通用户，并为普通用户分配可见媒体库。'
-    : '调整用户角色、启停状态和媒体库授权范围。'
   const submitLabel = isCreateMode
     ? isSubmitting
       ? 'Creating…'
@@ -161,7 +158,6 @@ export const UserEditorModal = ({
             <div>
               <p className="eyebrow">User Management</p>
               <h3>{title}</h3>
-              <p className="muted">{description}</p>
             </div>
           </div>
 

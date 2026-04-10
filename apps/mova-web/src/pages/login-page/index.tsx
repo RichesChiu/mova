@@ -94,11 +94,6 @@ export const LoginPage = () => {
       <section className="login-card">
         <p className="eyebrow">{bootstrapRequired ? 'Bootstrap' : 'Authentication'}</p>
         <h2>{bootstrapRequired ? 'Create the first admin account' : 'Sign in to Mova'}</h2>
-        <p className="muted">
-          {bootstrapRequired
-            ? '当前数据库里还没有管理员。先初始化第一个 admin 账号，再继续进入系统。'
-            : '使用管理员或已授权的普通用户账号登录。管理员默认拥有全部媒体库访问权。'}
-        </p>
 
         <form className="stack" onSubmit={handleSubmit}>
           <label className="field">

@@ -153,10 +153,6 @@ export const MetadataMatchPanel = ({
                   <div>
                     <p className="eyebrow">Admin</p>
                     <h3>Search and Replace Metadata</h3>
-                    <p className="muted">
-                      手动输入{mediaType === 'series' ? '剧名' : '片名'}
-                      与年份，搜索后选中正确结果覆盖当前元数据。
-                    </p>
                   </div>
 
                   <button

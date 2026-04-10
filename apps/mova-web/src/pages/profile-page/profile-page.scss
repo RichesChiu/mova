@@ -2,17 +2,19 @@
   align-content: start;
 }
 
-.profile-page__password-block,
-.profile-page__password-form {
+.profile-page__identity {
+  display: inline-grid;
+  gap: 10px;
+  justify-items: flex-start;
+}
+
+.profile-page__password-block {
   display: grid;
   gap: 14px;
 }
 
-.profile-page__password-form {
-  max-width: 540px;
-}
-
 .profile-page__password-actions {
-  display: flex;
-  justify-content: flex-start;
+  display: grid;
+  gap: 12px;
+  justify-items: flex-start;
 }

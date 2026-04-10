@@ -28,6 +28,7 @@ export const ContinueWatchingSection = ({
           <h3>Continue Watching</h3>
           <SectionHelp
             detail="Resume unfinished movies and episodes. The latest in-progress item stays here."
+            placement="bottom"
             title="About continue watching"
           />
         </div>

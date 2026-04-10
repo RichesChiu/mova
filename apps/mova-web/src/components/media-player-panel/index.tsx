@@ -1253,7 +1253,6 @@ export const MediaPlayerPanel = ({
         <div className="catalog-block__header">
           <div>
             <h3>Playback</h3>
-            <p className="muted">Uses direct browser playback with automatic progress sync.</p>
           </div>
         </div>
       ) : null}

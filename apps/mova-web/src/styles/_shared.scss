@@ -173,6 +173,17 @@
   font-size: 0.88rem;
 }
 
+.field__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.field__label-copy {
+  min-width: 0;
+}
+
 .field input,
 .field textarea,
 .field select {

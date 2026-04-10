@@ -3,7 +3,6 @@
 .settings-library-card,
 .settings-library-card__body,
 .settings-library-card__actions,
-.settings-create-block,
 .settings-user-card,
 .settings-user-card__body {
   display: grid;
@@ -89,8 +88,7 @@
 }
 
 .settings-library-card__body,
-.settings-library-card__actions,
-.settings-create-block > * {
+.settings-library-card__actions {
   position: relative;
   z-index: 1;
 }
@@ -287,16 +285,6 @@
 
 .settings-library-card__delete {
   min-width: 0;
-}
-
-.settings-create-block {
-  overflow: visible;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  backdrop-filter: none;
-  box-shadow: none;
 }
 
 .settings-user-list {

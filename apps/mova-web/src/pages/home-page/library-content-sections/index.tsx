@@ -86,6 +86,7 @@ export const LibraryContentSections = ({
                     <h3>{library.name}</h3>
                     <SectionHelp
                       detail="This shelf shows a quick preview from the library. Open it for the full list."
+                      placement="bottom"
                       title={`About ${library.name}`}
                     />
                   </div>

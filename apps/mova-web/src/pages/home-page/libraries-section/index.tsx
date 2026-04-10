@@ -44,6 +44,7 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
         <h3>Libraries</h3>
         <SectionHelp
           detail="Browse every library from here. Open one to see the full catalog view."
+          placement="bottom"
           title="About libraries"
         />
       </div>
