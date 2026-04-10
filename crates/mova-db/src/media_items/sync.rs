@@ -280,11 +280,12 @@ async fn insert_media_item(
             original_title,
             sort_title,
             year,
+            imdb_rating,
             overview,
             poster_path,
             backdrop_path
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         returning id
         "#,
     )
@@ -295,6 +296,7 @@ async fn insert_media_item(
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
     .bind(entry.year)
+    .bind(&entry.imdb_rating)
     .bind(&entry.overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
@@ -322,9 +324,10 @@ async fn update_media_item_from_entry(
             original_title = $5,
             sort_title = $6,
             year = $7,
-            overview = $8,
-            poster_path = $9,
-            backdrop_path = $10,
+            imdb_rating = $8,
+            overview = $9,
+            poster_path = $10,
+            backdrop_path = $11,
             updated_at = now()
         where id = $1
         "#,
@@ -336,6 +339,7 @@ async fn update_media_item_from_entry(
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
     .bind(entry.year)
+    .bind(&entry.imdb_rating)
     .bind(&entry.overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
@@ -360,14 +364,30 @@ pub(super) async fn insert_media_file(
             container,
             file_size,
             duration_seconds,
+            video_title,
             video_codec,
+            video_profile,
+            video_level,
             audio_codec,
             width,
             height,
             bitrate,
+            video_bitrate,
+            video_frame_rate,
+            video_aspect_ratio,
+            video_scan_type,
+            video_color_primaries,
+            video_color_space,
+            video_color_transfer,
+            video_bit_depth,
+            video_pixel_format,
+            video_reference_frames,
             scan_hash
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, null)
+        values (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+            $16, $17, $18, $19, $20, $21, $22, $23, $24, null
+        )
         returning id
         "#,
     )
@@ -377,11 +397,24 @@ pub(super) async fn insert_media_file(
     .bind(&entry.container)
     .bind(entry.file_size)
     .bind(entry.duration_seconds)
+    .bind(&entry.video_title)
     .bind(&entry.video_codec)
+    .bind(&entry.video_profile)
+    .bind(&entry.video_level)
     .bind(&entry.audio_codec)
     .bind(entry.width)
     .bind(entry.height)
     .bind(entry.bitrate)
+    .bind(entry.video_bitrate)
+    .bind(entry.video_frame_rate)
+    .bind(&entry.video_aspect_ratio)
+    .bind(&entry.video_scan_type)
+    .bind(&entry.video_color_primaries)
+    .bind(&entry.video_color_space)
+    .bind(&entry.video_color_transfer)
+    .bind(entry.video_bit_depth)
+    .bind(&entry.video_pixel_format)
+    .bind(entry.video_reference_frames)
     .fetch_one(&mut **tx)
     .await
     .context("failed to insert media file")?;
@@ -406,11 +439,24 @@ pub(super) async fn update_media_file_from_entry(
             container = $3,
             file_size = $4,
             duration_seconds = $5,
-            video_codec = $6,
-            audio_codec = $7,
-            width = $8,
-            height = $9,
-            bitrate = $10,
+            video_title = $6,
+            video_codec = $7,
+            video_profile = $8,
+            video_level = $9,
+            audio_codec = $10,
+            width = $11,
+            height = $12,
+            bitrate = $13,
+            video_bitrate = $14,
+            video_frame_rate = $15,
+            video_aspect_ratio = $16,
+            video_scan_type = $17,
+            video_color_primaries = $18,
+            video_color_space = $19,
+            video_color_transfer = $20,
+            video_bit_depth = $21,
+            video_pixel_format = $22,
+            video_reference_frames = $23,
             updated_at = now()
         where id = $1
         "#,
@@ -420,11 +466,24 @@ pub(super) async fn update_media_file_from_entry(
     .bind(&entry.container)
     .bind(entry.file_size)
     .bind(entry.duration_seconds)
+    .bind(&entry.video_title)
     .bind(&entry.video_codec)
+    .bind(&entry.video_profile)
+    .bind(&entry.video_level)
     .bind(&entry.audio_codec)
     .bind(entry.width)
     .bind(entry.height)
     .bind(entry.bitrate)
+    .bind(entry.video_bitrate)
+    .bind(entry.video_frame_rate)
+    .bind(&entry.video_aspect_ratio)
+    .bind(&entry.video_scan_type)
+    .bind(&entry.video_color_primaries)
+    .bind(&entry.video_color_space)
+    .bind(&entry.video_color_transfer)
+    .bind(entry.video_bit_depth)
+    .bind(&entry.video_pixel_format)
+    .bind(entry.video_reference_frames)
     .execute(&mut **tx)
     .await
     .context("failed to update media file during library sync")?;
@@ -460,9 +519,13 @@ async fn replace_audio_tracks_for_media_file_tx(
                 language,
                 audio_codec,
                 label,
+                channel_layout,
+                channels,
+                bitrate,
+                sample_rate,
                 is_default
             )
-            values ($1, $2, $3, $4, $5, $6)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
         )
         .bind(media_file_id)
@@ -470,6 +533,10 @@ async fn replace_audio_tracks_for_media_file_tx(
         .bind(&audio_track.language)
         .bind(&audio_track.audio_codec)
         .bind(&audio_track.label)
+        .bind(&audio_track.channel_layout)
+        .bind(audio_track.channels)
+        .bind(audio_track.bitrate)
+        .bind(audio_track.sample_rate)
         .bind(audio_track.is_default)
         .execute(&mut **tx)
         .await
@@ -507,9 +574,10 @@ async fn replace_subtitle_files_for_media_file_tx(
                 subtitle_format,
                 label,
                 is_default,
-                is_forced
+                is_forced,
+                is_hearing_impaired
             )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
         )
         .bind(media_file_id)
@@ -521,6 +589,7 @@ async fn replace_subtitle_files_for_media_file_tx(
         .bind(&subtitle.label)
         .bind(subtitle.is_default)
         .bind(subtitle.is_forced)
+        .bind(subtitle.is_hearing_impaired)
         .execute(&mut **tx)
         .await
         .context("failed to insert subtitle file during media sync")?;

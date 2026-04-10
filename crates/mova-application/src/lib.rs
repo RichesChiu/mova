@@ -35,8 +35,8 @@ pub use metadata::{
     MetadataLookup, MetadataLookupCache, MetadataProvider, MetadataProviderConfig,
     NullMetadataProvider, RemoteCastMember, RemoteMetadata, RemoteMetadataSearchResult,
     RemoteSeriesEpisode, RemoteSeriesEpisodeOutline, RemoteSeriesSeason, TmdbMetadataProvider,
-    TmdbMetadataProviderConfig, DEFAULT_TMDB_API_BASE_URL, DEFAULT_TMDB_IMAGE_BASE_URL,
-    DEFAULT_TMDB_LANGUAGE, SUPPORTED_TMDB_LANGUAGES,
+    TmdbMetadataProviderConfig, DEFAULT_OMDB_API_BASE_URL, DEFAULT_TMDB_API_BASE_URL,
+    DEFAULT_TMDB_IMAGE_BASE_URL, DEFAULT_TMDB_LANGUAGE, SUPPORTED_TMDB_LANGUAGES,
 };
 pub use metadata_match::{
     apply_media_item_metadata_match, search_media_item_metadata_matches, ApplyMetadataMatchInput,

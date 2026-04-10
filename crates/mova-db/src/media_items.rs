@@ -3,14 +3,14 @@ mod series;
 mod sync;
 
 pub use query::{
-    count_media_items_for_library, delete_series_episode_outline_cache,
-    get_audio_track, get_library_media_type_counts, get_media_file, get_media_item,
-    get_media_item_playback_header, get_season, get_series_episode_outline_cache,
-    get_subtitle_file, list_audio_tracks_for_media_file, list_episodes_for_season,
-    list_library_media_file_paths, list_media_files_for_media_item, list_media_items_for_library,
-    list_seasons_for_series, list_subtitle_files_for_media_file,
-    replace_audio_tracks_for_media_file, replace_subtitle_files_for_media_file,
-    update_media_file_metadata, update_media_item_metadata, upsert_series_episode_outline_cache,
+    count_media_items_for_library, delete_series_episode_outline_cache, get_audio_track,
+    get_library_media_type_counts, get_media_file, get_media_item, get_media_item_playback_header,
+    get_season, get_series_episode_outline_cache, get_subtitle_file,
+    list_audio_tracks_for_media_file, list_episodes_for_season, list_library_media_file_paths,
+    list_media_files_for_media_item, list_media_items_for_library, list_seasons_for_series,
+    list_subtitle_files_for_media_file, replace_audio_tracks_for_media_file,
+    replace_subtitle_files_for_media_file, update_media_file_metadata, update_media_item_metadata,
+    upsert_series_episode_outline_cache,
 };
 pub use sync::{
     delete_library_media_by_file_path, delete_library_media_by_path_prefix, sync_library_media,
@@ -24,6 +24,10 @@ pub struct CreateAudioTrackParams {
     pub language: Option<String>,
     pub audio_codec: Option<String>,
     pub label: Option<String>,
+    pub channel_layout: Option<String>,
+    pub channels: Option<i32>,
+    pub bitrate: Option<i64>,
+    pub sample_rate: Option<i32>,
     pub is_default: bool,
 }
 
@@ -37,6 +41,7 @@ pub struct CreateSubtitleTrackParams {
     pub label: Option<String>,
     pub is_default: bool,
     pub is_forced: bool,
+    pub is_hearing_impaired: bool,
 }
 
 /// 重建某个媒体库内容时，每个视频文件对应的一组入库参数。
@@ -49,6 +54,7 @@ pub struct CreateMediaEntryParams {
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
     pub year: Option<i32>,
+    pub imdb_rating: Option<String>,
     pub season_number: Option<i32>,
     pub season_title: Option<String>,
     pub season_overview: Option<String>,
@@ -65,11 +71,24 @@ pub struct CreateMediaEntryParams {
     pub container: Option<String>,
     pub file_size: i64,
     pub duration_seconds: Option<i32>,
+    pub video_title: Option<String>,
     pub video_codec: Option<String>,
+    pub video_profile: Option<String>,
+    pub video_level: Option<String>,
     pub audio_codec: Option<String>,
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub bitrate: Option<i64>,
+    pub video_bitrate: Option<i64>,
+    pub video_frame_rate: Option<f64>,
+    pub video_aspect_ratio: Option<String>,
+    pub video_scan_type: Option<String>,
+    pub video_color_primaries: Option<String>,
+    pub video_color_space: Option<String>,
+    pub video_color_transfer: Option<String>,
+    pub video_bit_depth: Option<i32>,
+    pub video_pixel_format: Option<String>,
+    pub video_reference_frames: Option<i32>,
     pub audio_tracks: Vec<CreateAudioTrackParams>,
     pub subtitle_tracks: Vec<CreateSubtitleTrackParams>,
 }
@@ -84,6 +103,7 @@ pub struct UpdateMediaItemMetadataParams {
     pub metadata_provider: Option<String>,
     pub metadata_provider_item_id: Option<i64>,
     pub year: Option<i32>,
+    pub imdb_rating: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
@@ -96,11 +116,24 @@ pub struct UpdateMediaFileMetadataParams {
     pub container: Option<String>,
     pub file_size: i64,
     pub duration_seconds: Option<i32>,
+    pub video_title: Option<String>,
     pub video_codec: Option<String>,
+    pub video_profile: Option<String>,
+    pub video_level: Option<String>,
     pub audio_codec: Option<String>,
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub bitrate: Option<i64>,
+    pub video_bitrate: Option<i64>,
+    pub video_frame_rate: Option<f64>,
+    pub video_aspect_ratio: Option<String>,
+    pub video_scan_type: Option<String>,
+    pub video_color_primaries: Option<String>,
+    pub video_color_space: Option<String>,
+    pub video_color_transfer: Option<String>,
+    pub video_bit_depth: Option<i32>,
+    pub video_pixel_format: Option<String>,
+    pub video_reference_frames: Option<i32>,
 }
 
 #[derive(Debug, Clone)]

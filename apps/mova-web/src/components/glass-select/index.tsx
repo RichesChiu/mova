@@ -8,6 +8,7 @@ export interface GlassSelectOption {
 
 interface GlassSelectProps {
   ariaLabel?: string
+  compact?: boolean
   disabled?: boolean
   onChange: (value: string) => void
   options: GlassSelectOption[]
@@ -16,6 +17,7 @@ interface GlassSelectProps {
 
 export const GlassSelect = ({
   ariaLabel,
+  compact = false,
   disabled = false,
   onChange,
   options,
@@ -61,7 +63,18 @@ export const GlassSelect = ({
   }, [])
 
   return (
-    <div className={isOpen ? 'glass-select glass-select--open' : 'glass-select'} ref={rootRef}>
+    <div
+      className={
+        compact
+          ? isOpen
+            ? 'glass-select glass-select--compact glass-select--open'
+            : 'glass-select glass-select--compact'
+          : isOpen
+            ? 'glass-select glass-select--open'
+            : 'glass-select'
+      }
+      ref={rootRef}
+    >
       <button
         aria-expanded={isOpen}
         aria-haspopup="listbox"

@@ -205,7 +205,9 @@ pub async fn get_audio_track(pool: &PgPool, audio_track_id: i64) -> ApplicationR
     mova_db::get_audio_track(pool, audio_track_id)
         .await
         .map_err(ApplicationError::from)?
-        .ok_or_else(|| ApplicationError::NotFound(format!("audio track not found: {}", audio_track_id)))
+        .ok_or_else(|| {
+            ApplicationError::NotFound(format!("audio track not found: {}", audio_track_id))
+        })
 }
 
 pub async fn list_seasons_for_series(
@@ -776,11 +778,24 @@ pub async fn refresh_media_item_metadata(
             container: discovered_file.container.clone(),
             file_size,
             duration_seconds: discovered_file.duration_seconds,
+            video_title: discovered_file.video_title.clone(),
             video_codec: discovered_file.video_codec.clone(),
+            video_profile: discovered_file.video_profile.clone(),
+            video_level: discovered_file.video_level.clone(),
             audio_codec: discovered_file.audio_codec.clone(),
             width: discovered_file.width,
             height: discovered_file.height,
             bitrate: discovered_file.bitrate,
+            video_bitrate: discovered_file.video_bitrate,
+            video_frame_rate: discovered_file.video_frame_rate,
+            video_aspect_ratio: discovered_file.video_aspect_ratio.clone(),
+            video_scan_type: discovered_file.video_scan_type.clone(),
+            video_color_primaries: discovered_file.video_color_primaries.clone(),
+            video_color_space: discovered_file.video_color_space.clone(),
+            video_color_transfer: discovered_file.video_color_transfer.clone(),
+            video_bit_depth: discovered_file.video_bit_depth,
+            video_pixel_format: discovered_file.video_pixel_format.clone(),
+            video_reference_frames: discovered_file.video_reference_frames,
         },
     )
     .await
@@ -800,6 +815,7 @@ pub async fn refresh_media_item_metadata(
             metadata_provider: media_item.metadata_provider.clone(),
             metadata_provider_item_id: media_item.metadata_provider_item_id,
             year: discovered_file.year,
+            imdb_rating: discovered_file.imdb_rating,
             overview: discovered_file.overview,
             poster_path: discovered_file.poster_path,
             backdrop_path: discovered_file.backdrop_path,

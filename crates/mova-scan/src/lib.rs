@@ -23,6 +23,7 @@ pub struct DiscoveredSubtitleTrack {
     pub label: Option<String>,
     pub is_default: bool,
     pub is_forced: bool,
+    pub is_hearing_impaired: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +32,10 @@ pub struct DiscoveredAudioTrack {
     pub language: Option<String>,
     pub audio_codec: Option<String>,
     pub label: Option<String>,
+    pub channel_layout: Option<String>,
+    pub channels: Option<i32>,
+    pub bitrate: Option<i64>,
+    pub sample_rate: Option<i32>,
     pub is_default: bool,
 }
 
@@ -43,6 +48,7 @@ pub struct DiscoveredMediaFile {
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
     pub year: Option<i32>,
+    pub imdb_rating: Option<String>,
     pub season_number: Option<i32>,
     pub season_title: Option<String>,
     pub season_overview: Option<String>,
@@ -58,11 +64,24 @@ pub struct DiscoveredMediaFile {
     pub file_size: u64,
     pub container: Option<String>,
     pub duration_seconds: Option<i32>,
+    pub video_title: Option<String>,
     pub video_codec: Option<String>,
+    pub video_profile: Option<String>,
+    pub video_level: Option<String>,
     pub audio_codec: Option<String>,
     pub width: Option<i32>,
     pub height: Option<i32>,
     pub bitrate: Option<i64>,
+    pub video_bitrate: Option<i64>,
+    pub video_frame_rate: Option<f64>,
+    pub video_aspect_ratio: Option<String>,
+    pub video_scan_type: Option<String>,
+    pub video_color_primaries: Option<String>,
+    pub video_color_space: Option<String>,
+    pub video_color_transfer: Option<String>,
+    pub video_bit_depth: Option<i32>,
+    pub video_pixel_format: Option<String>,
+    pub video_reference_frames: Option<i32>,
     pub audio_tracks: Vec<DiscoveredAudioTrack>,
     pub subtitle_tracks: Vec<DiscoveredSubtitleTrack>,
 }

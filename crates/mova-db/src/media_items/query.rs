@@ -52,6 +52,7 @@ pub async fn list_media_items_for_library(
             metadata_provider,
             metadata_provider_item_id,
             year,
+            imdb_rating,
             overview,
             poster_path,
             backdrop_path,
@@ -102,6 +103,7 @@ pub async fn get_media_item(pool: &PgPool, media_item_id: i64) -> Result<Option<
             metadata_provider,
             metadata_provider_item_id,
             year,
+            imdb_rating,
             overview,
             poster_path,
             backdrop_path,
@@ -180,9 +182,10 @@ pub async fn update_media_item_metadata(
             metadata_provider = $6,
             metadata_provider_item_id = $7,
             year = $8,
-            overview = $9,
-            poster_path = $10,
-            backdrop_path = $11,
+            imdb_rating = $9,
+            overview = $10,
+            poster_path = $11,
+            backdrop_path = $12,
             updated_at = now()
         where id = $1
         returning
@@ -196,6 +199,7 @@ pub async fn update_media_item_metadata(
             metadata_provider,
             metadata_provider_item_id,
             year,
+            imdb_rating,
             overview,
             poster_path,
             backdrop_path,
@@ -211,6 +215,7 @@ pub async fn update_media_item_metadata(
     .bind(&params.metadata_provider)
     .bind(params.metadata_provider_item_id)
     .bind(params.year)
+    .bind(&params.imdb_rating)
     .bind(&params.overview)
     .bind(&params.poster_path)
     .bind(&params.backdrop_path)
@@ -233,11 +238,24 @@ pub async fn get_media_file(pool: &PgPool, media_file_id: i64) -> Result<Option<
             container,
             file_size,
             duration_seconds,
+            video_title,
             video_codec,
+            video_profile,
+            video_level,
             audio_codec,
             width,
             height,
             bitrate,
+            video_bitrate,
+            video_frame_rate,
+            video_aspect_ratio,
+            video_scan_type,
+            video_color_primaries,
+            video_color_space,
+            video_color_transfer,
+            video_bit_depth,
+            video_pixel_format,
+            video_reference_frames,
             scan_hash,
             created_at,
             updated_at
@@ -267,11 +285,24 @@ pub async fn update_media_file_metadata(
             container = $3,
             file_size = $4,
             duration_seconds = $5,
-            video_codec = $6,
-            audio_codec = $7,
-            width = $8,
-            height = $9,
-            bitrate = $10,
+            video_title = $6,
+            video_codec = $7,
+            video_profile = $8,
+            video_level = $9,
+            audio_codec = $10,
+            width = $11,
+            height = $12,
+            bitrate = $13,
+            video_bitrate = $14,
+            video_frame_rate = $15,
+            video_aspect_ratio = $16,
+            video_scan_type = $17,
+            video_color_primaries = $18,
+            video_color_space = $19,
+            video_color_transfer = $20,
+            video_bit_depth = $21,
+            video_pixel_format = $22,
+            video_reference_frames = $23,
             updated_at = now()
         where id = $1
         returning
@@ -282,11 +313,24 @@ pub async fn update_media_file_metadata(
             container,
             file_size,
             duration_seconds,
+            video_title,
             video_codec,
+            video_profile,
+            video_level,
             audio_codec,
             width,
             height,
             bitrate,
+            video_bitrate,
+            video_frame_rate,
+            video_aspect_ratio,
+            video_scan_type,
+            video_color_primaries,
+            video_color_space,
+            video_color_transfer,
+            video_bit_depth,
+            video_pixel_format,
+            video_reference_frames,
             scan_hash,
             created_at,
             updated_at
@@ -297,11 +341,24 @@ pub async fn update_media_file_metadata(
     .bind(&params.container)
     .bind(params.file_size)
     .bind(params.duration_seconds)
+    .bind(&params.video_title)
     .bind(&params.video_codec)
+    .bind(&params.video_profile)
+    .bind(&params.video_level)
     .bind(&params.audio_codec)
     .bind(params.width)
     .bind(params.height)
     .bind(params.bitrate)
+    .bind(params.video_bitrate)
+    .bind(params.video_frame_rate)
+    .bind(&params.video_aspect_ratio)
+    .bind(&params.video_scan_type)
+    .bind(&params.video_color_primaries)
+    .bind(&params.video_color_space)
+    .bind(&params.video_color_transfer)
+    .bind(params.video_bit_depth)
+    .bind(&params.video_pixel_format)
+    .bind(params.video_reference_frames)
     .fetch_optional(pool)
     .await
     .context("failed to update media file metadata")?;
@@ -324,11 +381,24 @@ pub async fn list_media_files_for_media_item(
             container,
             file_size,
             duration_seconds,
+            video_title,
             video_codec,
+            video_profile,
+            video_level,
             audio_codec,
             width,
             height,
             bitrate,
+            video_bitrate,
+            video_frame_rate,
+            video_aspect_ratio,
+            video_scan_type,
+            video_color_primaries,
+            video_color_space,
+            video_color_transfer,
+            video_bit_depth,
+            video_pixel_format,
+            video_reference_frames,
             scan_hash,
             created_at,
             updated_at
@@ -363,6 +433,7 @@ pub async fn list_subtitle_files_for_media_file(
             label,
             is_default,
             is_forced,
+            is_hearing_impaired,
             created_at,
             updated_at
         from subtitle_files
@@ -396,6 +467,10 @@ pub async fn list_audio_tracks_for_media_file(
             language,
             audio_codec,
             label,
+            channel_layout,
+            channels,
+            bitrate,
+            sample_rate,
             is_default,
             created_at,
             updated_at
@@ -433,6 +508,7 @@ pub async fn get_subtitle_file(
             label,
             is_default,
             is_forced,
+            is_hearing_impaired,
             created_at,
             updated_at
         from subtitle_files
@@ -458,6 +534,10 @@ pub async fn get_audio_track(pool: &PgPool, audio_track_id: i64) -> Result<Optio
             language,
             audio_codec,
             label,
+            channel_layout,
+            channels,
+            bitrate,
+            sample_rate,
             is_default,
             created_at,
             updated_at
@@ -504,8 +584,12 @@ pub async fn replace_audio_tracks_for_media_file(
                 language,
                 audio_codec,
                 label,
+                channel_layout,
+                channels,
+                bitrate,
+                sample_rate,
                 is_default
-            ) values ($1, $2, $3, $4, $5, $6)
+            ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
         )
         .bind(media_file_id)
@@ -513,6 +597,10 @@ pub async fn replace_audio_tracks_for_media_file(
         .bind(&audio_track.language)
         .bind(&audio_track.audio_codec)
         .bind(&audio_track.label)
+        .bind(&audio_track.channel_layout)
+        .bind(audio_track.channels)
+        .bind(audio_track.bitrate)
+        .bind(audio_track.sample_rate)
         .bind(audio_track.is_default)
         .execute(&mut *tx)
         .await
@@ -560,8 +648,9 @@ pub async fn replace_subtitle_files_for_media_file(
                 subtitle_format,
                 label,
                 is_default,
-                is_forced
-            ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                is_forced,
+                is_hearing_impaired
+            ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#,
         )
         .bind(media_file_id)
@@ -573,6 +662,7 @@ pub async fn replace_subtitle_files_for_media_file(
         .bind(&subtitle.label)
         .bind(subtitle.is_default)
         .bind(subtitle.is_forced)
+        .bind(subtitle.is_hearing_impaired)
         .execute(&mut *tx)
         .await
         .context("failed to insert subtitle file")?;
@@ -844,6 +934,7 @@ fn map_media_item_row(row: PgRow) -> MediaItem {
         metadata_provider: row.get("metadata_provider"),
         metadata_provider_item_id: row.get("metadata_provider_item_id"),
         year: row.get("year"),
+        imdb_rating: row.get("imdb_rating"),
         overview: row.get("overview"),
         poster_path: row.get("poster_path"),
         backdrop_path: row.get("backdrop_path"),
@@ -906,11 +997,24 @@ fn map_media_file_row(row: PgRow) -> MediaFile {
         container: row.get("container"),
         file_size: row.get("file_size"),
         duration_seconds: row.get("duration_seconds"),
+        video_title: row.get("video_title"),
         video_codec: row.get("video_codec"),
+        video_profile: row.get("video_profile"),
+        video_level: row.get("video_level"),
         audio_codec: row.get("audio_codec"),
         width: row.get("width"),
         height: row.get("height"),
         bitrate: row.get("bitrate"),
+        video_bitrate: row.get("video_bitrate"),
+        video_frame_rate: row.get("video_frame_rate"),
+        video_aspect_ratio: row.get("video_aspect_ratio"),
+        video_scan_type: row.get("video_scan_type"),
+        video_color_primaries: row.get("video_color_primaries"),
+        video_color_space: row.get("video_color_space"),
+        video_color_transfer: row.get("video_color_transfer"),
+        video_bit_depth: row.get("video_bit_depth"),
+        video_pixel_format: row.get("video_pixel_format"),
+        video_reference_frames: row.get("video_reference_frames"),
         scan_hash: row.get("scan_hash"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
@@ -929,6 +1033,7 @@ fn map_subtitle_file_row(row: PgRow) -> SubtitleFile {
         label: row.get("label"),
         is_default: row.get("is_default"),
         is_forced: row.get("is_forced"),
+        is_hearing_impaired: row.get("is_hearing_impaired"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -942,6 +1047,10 @@ fn map_audio_track_row(row: PgRow) -> AudioTrack {
         language: row.get("language"),
         audio_codec: row.get("audio_codec"),
         label: row.get("label"),
+        channel_layout: row.get("channel_layout"),
+        channels: row.get("channels"),
+        bitrate: row.get("bitrate"),
+        sample_rate: row.get("sample_rate"),
         is_default: row.get("is_default"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),

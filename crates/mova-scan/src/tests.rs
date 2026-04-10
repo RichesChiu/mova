@@ -233,9 +233,22 @@ fn parse_ffprobe_output_extracts_media_probe_fields() {
                 {
                     "codec_type": "video",
                     "codec_name": "h264",
+                    "profile": "High",
+                    "level": 41,
+                    "avg_frame_rate": "24000/1001",
                     "width": 1920,
                     "height": 1080,
-                    "bit_rate": "4000000"
+                    "display_aspect_ratio": "16:9",
+                    "field_order": "progressive",
+                    "bit_rate": "4000000",
+                    "pix_fmt": "yuv420p10le",
+                    "color_space": "bt2020nc",
+                    "color_transfer": "smpte2084",
+                    "color_primaries": "bt2020",
+                    "refs": 4,
+                    "tags": {
+                        "title": "Main Video"
+                    }
                 },
                 {
                     "codec_type": "audio",
@@ -254,11 +267,24 @@ fn parse_ffprobe_output_extracts_media_probe_fields() {
         probe,
         MediaProbe {
             duration_seconds: Some(123),
+            video_title: Some("Main Video".to_string()),
             video_codec: Some("h264".to_string()),
+            video_profile: Some("High".to_string()),
+            video_level: Some("4.1".to_string()),
             audio_codec: Some("aac".to_string()),
             width: Some(1920),
             height: Some(1080),
             bitrate: Some(4_500_000),
+            video_bitrate: Some(4_000_000),
+            video_frame_rate: Some(23.976),
+            video_aspect_ratio: Some("16:9".to_string()),
+            video_scan_type: Some("Progressive".to_string()),
+            video_color_primaries: Some("bt2020".to_string()),
+            video_color_space: Some("bt2020nc".to_string()),
+            video_color_transfer: Some("smpte2084".to_string()),
+            video_bit_depth: Some(10),
+            video_pixel_format: Some("yuv420p10le".to_string()),
+            video_reference_frames: Some(4),
             audio_streams: Vec::new(),
             subtitle_streams: Vec::new(),
         }
@@ -274,6 +300,10 @@ fn parse_ffprobe_output_extracts_embedded_audio_tracks() {
                     "index": 1,
                     "codec_type": "audio",
                     "codec_name": "aac",
+                    "channels": 2,
+                    "channel_layout": "stereo",
+                    "bit_rate": "192000",
+                    "sample_rate": "48000",
                     "tags": {
                         "language": "zh",
                         "title": "Mandarin"
@@ -287,6 +317,10 @@ fn parse_ffprobe_output_extracts_embedded_audio_tracks() {
                     "index": 2,
                     "codec_type": "audio",
                     "codec_name": "ac3",
+                    "channels": 6,
+                    "channel_layout": "5.1(side)",
+                    "bit_rate": "768000",
+                    "sample_rate": "48000",
                     "tags": {
                         "language": "en",
                         "title": "English"
@@ -310,6 +344,10 @@ fn parse_ffprobe_output_extracts_embedded_audio_tracks() {
                 language: Some("zh".to_string()),
                 audio_codec: Some("aac".to_string()),
                 label: Some("Mandarin".to_string()),
+                channel_layout: Some("stereo".to_string()),
+                channels: Some(2),
+                bitrate: Some(192_000),
+                sample_rate: Some(48_000),
                 is_default: true,
             },
             crate::probe::EmbeddedAudioStream {
@@ -317,9 +355,52 @@ fn parse_ffprobe_output_extracts_embedded_audio_tracks() {
                 language: Some("en".to_string()),
                 audio_codec: Some("ac3".to_string()),
                 label: Some("English".to_string()),
+                channel_layout: Some("5.1(side)".to_string()),
+                channels: Some(6),
+                bitrate: Some(768_000),
+                sample_rate: Some(48_000),
                 is_default: false,
             },
         ]
+    );
+}
+
+#[test]
+fn parse_ffprobe_output_extracts_embedded_subtitle_tracks() {
+    let probe = parse_ffprobe_output(
+        br#"{
+            "streams": [
+                {
+                    "index": 5,
+                    "codec_type": "subtitle",
+                    "codec_name": "subrip",
+                    "tags": {
+                        "language": "en",
+                        "title": "SDH"
+                    },
+                    "disposition": {
+                        "default": 0,
+                        "forced": 1,
+                        "hearing_impaired": 1
+                    }
+                }
+            ],
+            "format": {}
+        }"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        probe.subtitle_streams,
+        vec![crate::probe::EmbeddedSubtitleStream {
+            stream_index: 5,
+            language: Some("en".to_string()),
+            subtitle_format: "srt".to_string(),
+            label: Some("SDH".to_string()),
+            is_default: false,
+            is_forced: true,
+            is_hearing_impaired: true,
+        }]
     );
 }
 

@@ -54,6 +54,7 @@ export interface MediaItem {
   original_title: string | null
   sort_title: string | null
   year: number | null
+  imdb_rating?: string | null
   overview: string | null
   poster_path: string | null
   backdrop_path: string | null
@@ -169,11 +170,24 @@ export interface MediaFile {
   container: string | null
   file_size: number
   duration_seconds: number | null
+  video_title?: string | null
   video_codec: string | null
+  video_profile?: string | null
+  video_level?: string | null
   audio_codec: string | null
   width: number | null
   height: number | null
   bitrate: number | null
+  video_bitrate?: number | null
+  video_frame_rate?: number | null
+  video_aspect_ratio?: string | null
+  video_scan_type?: string | null
+  video_color_primaries?: string | null
+  video_color_space?: string | null
+  video_color_transfer?: string | null
+  video_bit_depth?: number | null
+  video_pixel_format?: string | null
+  video_reference_frames?: number | null
   scan_hash: string | null
   created_at: string
   updated_at: string
@@ -190,6 +204,7 @@ export interface SubtitleFile {
   label: string | null
   is_default: boolean
   is_forced: boolean
+  is_hearing_impaired: boolean
   created_at: string
   updated_at: string
 }
@@ -201,6 +216,10 @@ export interface AudioTrack {
   language: string | null
   audio_codec: string | null
   label: string | null
+  channel_layout?: string | null
+  channels?: number | null
+  bitrate?: number | null
+  sample_rate?: number | null
   is_default: boolean
   created_at: string
   updated_at: string

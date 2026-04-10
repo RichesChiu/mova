@@ -13,6 +13,7 @@ struct ParsedSubtitleSidecar {
     label: Option<String>,
     is_default: bool,
     is_forced: bool,
+    is_hearing_impaired: bool,
 }
 
 pub(crate) fn discover_subtitle_tracks(
@@ -30,6 +31,7 @@ pub(crate) fn discover_subtitle_tracks(
             label: stream.label.clone(),
             is_default: stream.is_default,
             is_forced: stream.is_forced,
+            is_hearing_impaired: stream.is_hearing_impaired,
         })
         .collect::<Vec<_>>();
 
@@ -76,6 +78,7 @@ fn discover_external_subtitle_tracks(video_path: &Path) -> Vec<DiscoveredSubtitl
                 label: parsed.label,
                 is_default: parsed.is_default,
                 is_forced: parsed.is_forced,
+                is_hearing_impaired: parsed.is_hearing_impaired,
             })
         })
         .collect()
@@ -148,6 +151,7 @@ fn parse_subtitle_sidecar(path: &Path) -> ParsedSubtitleSidecar {
     let mut language = None;
     let mut is_default = false;
     let mut is_forced = false;
+    let mut is_hearing_impaired = false;
 
     // 外挂字幕常把语言、forced/default 等标记放在文件名结尾；从尾部剥离能更稳地保留真正的资源标题。
     while let Some(token) = tokens.last().cloned() {
@@ -172,8 +176,15 @@ fn parse_subtitle_sidecar(path: &Path) -> ParsedSubtitleSidecar {
 
         if matches!(
             lowered.as_str(),
-            "sdh" | "cc" | "sub" | "subs" | "subtitle" | "subtitles"
+            "sdh" | "cc" | "hi" | "hearing" | "hearing-impaired" | "hearing_impaired"
         ) {
+            is_hearing_impaired = true;
+            label_tokens.push(token);
+            tokens.pop();
+            continue;
+        }
+
+        if matches!(lowered.as_str(), "sub" | "subs" | "subtitle" | "subtitles") {
             label_tokens.push(token);
             tokens.pop();
             continue;
@@ -192,6 +203,7 @@ fn parse_subtitle_sidecar(path: &Path) -> ParsedSubtitleSidecar {
         label,
         is_default,
         is_forced,
+        is_hearing_impaired,
     }
 }
 
@@ -278,6 +290,25 @@ mod tests {
     }
 
     #[test]
+    fn discover_subtitle_tracks_marks_hearing_impaired_sidecars() {
+        let root = temp_dir();
+        let video_path = root.join("movie.mkv");
+        let subtitle_path = root.join("movie.en.sdh.srt");
+        fs::write(&video_path, b"video").unwrap();
+        fs::write(&subtitle_path, b"1\n00:00:00,000 --> 00:00:01,000\nhello").unwrap();
+
+        let tracks = discover_subtitle_tracks(&video_path, &[]);
+        let external = tracks
+            .iter()
+            .find(|track| track.source_kind == "external")
+            .unwrap();
+
+        assert_eq!(external.file_path.as_ref(), Some(&subtitle_path));
+        assert_eq!(external.label.as_deref(), Some("sdh"));
+        assert!(external.is_hearing_impaired);
+    }
+
+    #[test]
     fn discover_subtitle_tracks_keeps_embedded_streams() {
         let root = temp_dir();
         let video_path = root.join("movie.mp4");
@@ -292,6 +323,7 @@ mod tests {
                 label: Some("English".to_string()),
                 is_default: true,
                 is_forced: false,
+                is_hearing_impaired: false,
             }],
         );
 

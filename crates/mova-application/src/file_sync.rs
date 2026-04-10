@@ -231,6 +231,7 @@ fn build_media_entry(
         original_title: file.original_title,
         sort_title: file.sort_title,
         year: file.year,
+        imdb_rating: file.imdb_rating,
         season_number: file.season_number,
         season_title: file.season_title,
         season_overview: file.season_overview,
@@ -247,11 +248,24 @@ fn build_media_entry(
         container: file.container,
         file_size,
         duration_seconds: file.duration_seconds,
+        video_title: file.video_title,
         video_codec: file.video_codec,
+        video_profile: file.video_profile,
+        video_level: file.video_level,
         audio_codec: file.audio_codec,
         width: file.width,
         height: file.height,
         bitrate: file.bitrate,
+        video_bitrate: file.video_bitrate,
+        video_frame_rate: file.video_frame_rate,
+        video_aspect_ratio: file.video_aspect_ratio,
+        video_scan_type: file.video_scan_type,
+        video_color_primaries: file.video_color_primaries,
+        video_color_space: file.video_color_space,
+        video_color_transfer: file.video_color_transfer,
+        video_bit_depth: file.video_bit_depth,
+        video_pixel_format: file.video_pixel_format,
+        video_reference_frames: file.video_reference_frames,
         audio_tracks: file
             .audio_tracks
             .into_iter()
@@ -260,6 +274,10 @@ fn build_media_entry(
                 language: audio_track.language,
                 audio_codec: audio_track.audio_codec,
                 label: audio_track.label,
+                channel_layout: audio_track.channel_layout,
+                channels: audio_track.channels,
+                bitrate: audio_track.bitrate,
+                sample_rate: audio_track.sample_rate,
                 is_default: audio_track.is_default,
             })
             .collect(),
@@ -278,6 +296,7 @@ fn build_media_entry(
                 label: subtitle.label,
                 is_default: subtitle.is_default,
                 is_forced: subtitle.is_forced,
+                is_hearing_impaired: subtitle.is_hearing_impaired,
             })
             .collect(),
     }))

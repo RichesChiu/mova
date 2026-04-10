@@ -15,6 +15,7 @@ pub struct SubtitleFile {
     pub label: Option<String>,
     pub is_default: bool,
     pub is_forced: bool,
+    pub is_hearing_impaired: bool,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }

@@ -90,6 +90,7 @@ impl MetadataEnrichmentContext {
                 &mut file.title,
                 &mut file.original_title,
                 &mut file.year,
+                &mut file.imdb_rating,
                 &mut file.overview,
                 &mut file.poster_path,
                 &mut file.backdrop_path,

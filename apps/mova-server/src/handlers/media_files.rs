@@ -55,7 +55,15 @@ pub async fn stream_media_file(
     headers: HeaderMap,
 ) -> Result<Response<Body>, ApiError> {
     let user = require_user(&state, &jar).await?;
-    build_media_file_stream_response(state, &user, media_file_id, query.audio_track_id, headers, false).await
+    build_media_file_stream_response(
+        state,
+        &user,
+        media_file_id,
+        query.audio_track_id,
+        headers,
+        false,
+    )
+    .await
 }
 
 /// 返回媒体文件的响应头，不返回实体内容。
@@ -67,7 +75,15 @@ pub async fn head_media_file(
     headers: HeaderMap,
 ) -> Result<Response<Body>, ApiError> {
     let user = require_user(&state, &jar).await?;
-    build_media_file_stream_response(state, &user, media_file_id, query.audio_track_id, headers, true).await
+    build_media_file_stream_response(
+        state,
+        &user,
+        media_file_id,
+        query.audio_track_id,
+        headers,
+        true,
+    )
+    .await
 }
 
 async fn build_media_file_stream_response(
@@ -155,8 +171,9 @@ async fn build_file_stream_response(
     let body = if head_only || file_size == 0 {
         Body::empty()
     } else {
-        let mut file =
-            File::open(file_path).await.map_err(|error| map_stream_file_io_error(file_path, error, &not_found_message))?;
+        let mut file = File::open(file_path)
+            .await
+            .map_err(|error| map_stream_file_io_error(file_path, error, &not_found_message))?;
 
         if start > 0 {
             file.seek(SeekFrom::Start(start))
@@ -231,29 +248,26 @@ async fn materialize_audio_track_variant(
         .arg("-c")
         .arg("copy");
 
-    if matches!(
-        media_file.container.as_deref(),
-        Some("mp4" | "m4v" | "mov")
-    ) {
+    if matches!(media_file.container.as_deref(), Some("mp4" | "m4v" | "mov")) {
         command.arg("-movflags").arg("+faststart");
     }
 
-    let output = command
-        .arg(&cached_path)
-        .output()
-        .await
-        .map_err(|error| {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                ApiError::Internal
-            } else {
-                tracing::error!(error = ?error, "failed to spawn ffmpeg audio track remux");
-                ApiError::Internal
-            }
-        })?;
+    let output = command.arg(&cached_path).output().await.map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            ApiError::Internal
+        } else {
+            tracing::error!(error = ?error, "failed to spawn ffmpeg audio track remux");
+            ApiError::Internal
+        }
+    })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        tracing::error!(stderr, audio_track_id = audio_track.id, "ffmpeg audio track remux failed");
+        tracing::error!(
+            stderr,
+            audio_track_id = audio_track.id,
+            "ffmpeg audio track remux failed"
+        );
         return Err(ApiError::BadRequest(format!(
             "failed to prepare the selected audio track for playback: {}",
             if stderr.is_empty() {

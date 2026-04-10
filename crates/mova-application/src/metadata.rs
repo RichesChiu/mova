@@ -10,6 +10,7 @@ pub const DEFAULT_TMDB_LANGUAGE: &str = "zh-CN";
 pub const SUPPORTED_TMDB_LANGUAGES: &[&str] = &["zh-CN", "en-US"];
 pub const DEFAULT_TMDB_API_BASE_URL: &str = "https://api.themoviedb.org/3";
 pub const DEFAULT_TMDB_IMAGE_BASE_URL: &str = "https://image.tmdb.org/t/p/original";
+pub const DEFAULT_OMDB_API_BASE_URL: &str = "https://www.omdbapi.com";
 
 /// 服务启动时解析出的元数据 provider 配置。
 #[derive(Debug, Clone)]
@@ -34,6 +35,7 @@ pub struct RemoteMetadata {
     pub title: Option<String>,
     pub original_title: Option<String>,
     pub year: Option<i32>,
+    pub imdb_rating: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
@@ -156,15 +158,20 @@ pub struct TmdbMetadataProviderConfig {
     pub language: String,
     pub api_base_url: String,
     pub image_base_url: String,
+    pub omdb_api_key: Option<String>,
+    pub omdb_api_base_url: String,
 }
 
 /// 基于 TMDB 的电影/剧集元数据 provider。
 #[derive(Clone)]
 pub struct TmdbMetadataProvider {
     client: Client,
+    omdb_client: Client,
     language: String,
     api_base_url: String,
     image_base_url: String,
+    omdb_api_key: Option<String>,
+    omdb_api_base_url: String,
 }
 
 impl TmdbMetadataProvider {
@@ -183,9 +190,14 @@ impl TmdbMetadataProvider {
 
         Ok(Self {
             client,
+            omdb_client: Client::builder()
+                .user_agent(format!("mova/{}", env!("CARGO_PKG_VERSION")))
+                .build()?,
             language: config.language.trim().to_string(),
             api_base_url: config.api_base_url.trim_end_matches('/').to_string(),
             image_base_url: config.image_base_url.trim_end_matches('/').to_string(),
+            omdb_api_key: normalize_optional_value(Some(config.omdb_api_key.unwrap_or_default())),
+            omdb_api_base_url: config.omdb_api_base_url.trim_end_matches('/').to_string(),
         })
     }
 
@@ -209,7 +221,15 @@ impl TmdbMetadataProvider {
         };
 
         let details = self.fetch_movie_details(movie_id, request_language).await?;
-        Ok(Some(self.map_movie_details(details)))
+        let imdb_rating = self
+            .fetch_imdb_rating(
+                details
+                    .external_ids
+                    .as_ref()
+                    .and_then(|external_ids| external_ids.imdb_id.as_deref()),
+            )
+            .await;
+        Ok(Some(self.map_movie_details(details, imdb_rating)))
     }
 
     async fn search_movie_response(
@@ -289,7 +309,10 @@ impl TmdbMetadataProvider {
         let details = self
             .client
             .get(format!("{}/movie/{}", self.api_base_url, movie_id))
-            .query(&[("language", language)])
+            .query(&[
+                ("language", language),
+                ("append_to_response", "external_ids"),
+            ])
             .send()
             .await?
             .error_for_status()?
@@ -303,7 +326,10 @@ impl TmdbMetadataProvider {
         let details = self
             .client
             .get(format!("{}/tv/{}", self.api_base_url, tv_id))
-            .query(&[("language", language)])
+            .query(&[
+                ("language", language),
+                ("append_to_response", "external_ids"),
+            ])
             .send()
             .await?
             .error_for_status()?
@@ -389,11 +415,20 @@ impl TmdbMetadataProvider {
         let details = self
             .fetch_tv_details(tv_id, self.request_language(lookup))
             .await?;
+        let imdb_rating = self
+            .fetch_imdb_rating(
+                details
+                    .external_ids
+                    .as_ref()
+                    .and_then(|external_ids| external_ids.imdb_id.as_deref()),
+            )
+            .await;
 
         Ok(Some(RemoteMetadata {
             title: empty_to_none(details.name),
             original_title: empty_to_none(details.original_name),
             year: parse_year(details.first_air_date.as_deref()),
+            imdb_rating,
             overview: empty_to_none(details.overview),
             poster_path: details
                 .poster_path
@@ -590,11 +625,59 @@ impl TmdbMetadataProvider {
         }
     }
 
-    fn map_movie_details(&self, details: TmdbMovieDetails) -> RemoteMetadata {
+    async fn fetch_imdb_rating(&self, imdb_id: Option<&str>) -> Option<String> {
+        let imdb_id =
+            imdb_id.and_then(|value| normalize_optional_value(Some(value.to_string())))?;
+        let api_key = self.omdb_api_key.as_deref()?;
+        let response = match self
+            .omdb_client
+            .get(&self.omdb_api_base_url)
+            .query(&[("apikey", api_key), ("i", imdb_id.as_str())])
+            .send()
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                tracing::warn!(imdb_id, error = ?error, "failed to fetch imdb rating from omdb");
+                return None;
+            }
+        };
+        let payload = match response.error_for_status() {
+            Ok(response) => match response.json::<OmdbRatingResponse>().await {
+                Ok(payload) => payload,
+                Err(error) => {
+                    tracing::warn!(
+                        imdb_id,
+                        error = ?error,
+                        "failed to decode imdb rating payload from omdb"
+                    );
+                    return None;
+                }
+            },
+            Err(error) => {
+                tracing::warn!(imdb_id, error = ?error, "omdb imdb rating request failed");
+                return None;
+            }
+        };
+
+        payload
+            .response
+            .filter(|response| response.eq_ignore_ascii_case("true"))?;
+
+        normalize_optional_value(payload.imdb_rating)
+            .filter(|value| !value.eq_ignore_ascii_case("n/a"))
+    }
+
+    fn map_movie_details(
+        &self,
+        details: TmdbMovieDetails,
+        imdb_rating: Option<String>,
+    ) -> RemoteMetadata {
         RemoteMetadata {
             title: empty_to_none(details.title),
             original_title: empty_to_none(details.original_title),
             year: parse_year(details.release_date.as_deref()),
+            imdb_rating,
             overview: empty_to_none(details.overview),
             poster_path: details
                 .poster_path
@@ -736,6 +819,7 @@ pub fn apply_remote_metadata(
     title: &mut String,
     original_title: &mut Option<String>,
     year: &mut Option<i32>,
+    imdb_rating: &mut Option<String>,
     overview: &mut Option<String>,
     poster_path: &mut Option<String>,
     backdrop_path: &mut Option<String>,
@@ -754,6 +838,10 @@ pub fn apply_remote_metadata(
 
     if year.is_none() {
         *year = metadata.year;
+    }
+
+    if imdb_rating.is_none() {
+        *imdb_rating = metadata.imdb_rating;
     }
 
     if overview.is_none() {
@@ -900,6 +988,7 @@ struct TmdbMovieDetails {
     overview: Option<String>,
     poster_path: Option<String>,
     backdrop_path: Option<String>,
+    external_ids: Option<TmdbExternalIds>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -925,8 +1014,14 @@ struct TmdbTvDetails {
     overview: Option<String>,
     poster_path: Option<String>,
     backdrop_path: Option<String>,
+    external_ids: Option<TmdbExternalIds>,
     #[serde(default)]
     seasons: Vec<TmdbTvSeasonSummary>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbExternalIds {
+    imdb_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -975,6 +1070,14 @@ struct TmdbTvAggregateCastCredit {
 struct TmdbTvAggregateRole {
     character: Option<String>,
     episode_count: Option<i32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OmdbRatingResponse {
+    #[serde(rename = "Response")]
+    response: Option<String>,
+    #[serde(rename = "imdbRating")]
+    imdb_rating: Option<String>,
 }
 
 fn select_best_match<'a, T>(
@@ -1095,7 +1198,7 @@ mod tests {
         normalize_metadata_language, normalize_optional_value, normalize_title, parse_year,
         pick_primary_character_name, select_best_match, MetadataLookup, MetadataProviderConfig,
         RemoteMetadata, TmdbMetadataProvider, TmdbMetadataProviderConfig, TmdbMovieSearchResult,
-        TmdbTvAggregateRole,
+        TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL,
     };
 
     #[test]
@@ -1139,6 +1242,7 @@ mod tests {
         let mut title = "Spirited Away".to_string();
         let mut original_title = None;
         let mut year = Some(2001);
+        let mut imdb_rating = None;
         let mut overview = None;
         let mut poster_path = None;
         let mut backdrop_path = Some("/local/backdrop.jpg".to_string());
@@ -1148,6 +1252,7 @@ mod tests {
                 title: Some("Sen to Chihiro no Kamikakushi".to_string()),
                 original_title: Some("Sen to Chihiro no Kamikakushi".to_string()),
                 year: Some(2001),
+                imdb_rating: Some("8.6".to_string()),
                 overview: Some("A girl enters the spirit world.".to_string()),
                 poster_path: Some("https://images.example.com/poster.jpg".to_string()),
                 backdrop_path: Some("https://images.example.com/backdrop.jpg".to_string()),
@@ -1155,6 +1260,7 @@ mod tests {
             &mut title,
             &mut original_title,
             &mut year,
+            &mut imdb_rating,
             &mut overview,
             &mut poster_path,
             &mut backdrop_path,
@@ -1166,6 +1272,7 @@ mod tests {
             Some("Sen to Chihiro no Kamikakushi")
         );
         assert_eq!(year, Some(2001));
+        assert_eq!(imdb_rating.as_deref(), Some("8.6"));
         assert_eq!(overview.as_deref(), Some("A girl enters the spirit world."));
         assert_eq!(
             poster_path.as_deref(),
@@ -1179,6 +1286,7 @@ mod tests {
         let mut title = "Local Title".to_string();
         let mut original_title = None;
         let mut year = None;
+        let mut imdb_rating = None;
         let mut overview = None;
         let mut poster_path = None;
         let mut backdrop_path = None;
@@ -1188,6 +1296,7 @@ mod tests {
                 title: Some("   ".to_string()),
                 original_title: None,
                 year: None,
+                imdb_rating: None,
                 overview: None,
                 poster_path: None,
                 backdrop_path: None,
@@ -1195,6 +1304,7 @@ mod tests {
             &mut title,
             &mut original_title,
             &mut year,
+            &mut imdb_rating,
             &mut overview,
             &mut poster_path,
             &mut backdrop_path,
@@ -1210,6 +1320,8 @@ mod tests {
             language: "zh-CN".to_string(),
             api_base_url: "https://api.themoviedb.org/3".to_string(),
             image_base_url: "https://image.tmdb.org/t/p/original".to_string(),
+            omdb_api_key: None,
+            omdb_api_base_url: DEFAULT_OMDB_API_BASE_URL.to_string(),
         })
         .unwrap();
 

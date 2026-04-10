@@ -15,6 +15,7 @@ pub struct MediaItem {
     pub metadata_provider: Option<String>,
     pub metadata_provider_item_id: Option<i64>,
     pub year: Option<i32>,
+    pub imdb_rating: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
