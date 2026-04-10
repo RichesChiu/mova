@@ -14,7 +14,7 @@
 | --- | --- |
 | `src/main.rs` | 进程入口。负责加载环境变量、初始化 tracing、连接数据库、执行 migration、恢复中断扫描、准备缓存目录、创建 `AppState`、初始化 watcher/runtime，并启动 Axum 服务。 |
 | `src/config.rs` | 读取 `MOVA_HTTP_HOST`、`MOVA_HTTP_PORT`、`MOVA_TIMEZONE`、`MOVA_CACHE_DIR`、`MOVA_WEB_DIST_DIR` 等运行时配置。 |
-| `src/metadata_provider_config.rs` | 解析元数据 provider 相关环境变量，并交给 `mova-application` 构建具体 provider。 |
+| `src/metadata_provider_config.rs` | 解析元数据 provider 相关环境变量，并交给 `mova-application` 构建具体 provider；当前会处理 TMDB token、可选的 OMDb key，以及对应的 base URL。 |
 | `src/app.rs` | 组装顶层 `Router`，把所有子路由统一挂到 `/api` 下，并在有前端构建产物时托管静态文件。 |
 | `src/state.rs` | 定义 `AppState`、进程内扫描注册表、watcher 注册表以及 SSE 事件总线。 |
 | `src/auth.rs` | 公用鉴权与访问控制助手，包括 session cookie、`require_user`、`require_admin`、媒体库/媒体项/媒体文件访问校验。 |
@@ -260,7 +260,7 @@
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/media-items/{id}` | `handlers::media_items::get_media_item` | `auth::require_media_item_access`、`mova_application::list_media_item_cast` | 查询单个媒体条目详情和演员。 |
 | `GET` | `/api/media-items/{id}/playback-header` | `handlers::media_items::get_media_item_playback_header` | `auth::require_media_item_access`、`mova_application::get_media_item_playback_header` | 返回播放器页头部需要的标题、季集和关联系列信息。 |
-| `GET` | `/api/media-items/{id}/files` | `handlers::media_items::list_media_item_files` | `auth::require_media_item_access`、`mova_application::list_media_files_for_media_item` | 查询条目关联的物理媒体文件。 |
+| `GET` | `/api/media-items/{id}/files` | `handlers::media_items::list_media_item_files` | `auth::require_media_item_access`、`mova_application::list_media_files_for_media_item` | 查询条目关联的物理媒体文件，并返回视频探测到的技术字段，例如 profile、level、帧率、色彩参数、位深和参考帧。 |
 | `GET` | `/api/media-items/{id}/seasons` | `handlers::media_items::list_media_item_seasons` | `auth::require_media_item_access`、`mova_application::list_seasons_for_series` | 查询剧集条目的季列表。 |
 | `GET` | `/api/media-items/{id}/episode-outline` | `handlers::media_items::get_media_item_episode_outline` | `auth::require_media_item_access`、`mova_application::series_episode_outline_for_media_item` | 查询全集大纲和本地可用集。 |
 | `GET` | `/api/media-items/{id}/metadata-search` | `handlers::media_items::search_media_item_metadata` | `auth::require_admin`、`auth::require_media_item_access`、`mova_application::search_media_item_metadata_matches` | 管理员手动搜索候选元数据。 |
@@ -287,8 +287,8 @@
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/media-files/{id}/stream` | `handlers::media_files::stream_media_file` | `auth::require_media_file_access`、本地文件读取、`Range` 解析、`ReaderStream`、可选 `ffmpeg -c copy` 音轨 remux 缓存 | 以流方式输出媒体文件内容；当前也支持通过 `audio_track_id` 选择内嵌音轨。 |
 | `HEAD` | `/api/media-files/{id}/stream` | `handlers::media_files::head_media_file` | `auth::require_media_file_access`、本地文件元数据读取、可选音轨变体探测 | 返回媒体文件响应头，不输出实体。 |
-| `GET` | `/api/media-files/{id}/audio-tracks` | `handlers::media_files::list_media_file_audio_tracks` | `auth::require_media_file_access`、`mova_application::list_audio_tracks_for_media_file` | 查询媒体文件可切换的内嵌音轨列表。 |
-| `GET` | `/api/media-files/{id}/subtitles` | `handlers::subtitle_files::list_media_file_subtitles` | `auth::require_media_file_access`、`mova_application::list_subtitle_files_for_media_file` | 查询媒体文件可切换字幕轨道。 |
+| `GET` | `/api/media-files/{id}/audio-tracks` | `handlers::media_files::list_media_file_audio_tracks` | `auth::require_media_file_access`、`mova_application::list_audio_tracks_for_media_file` | 查询媒体文件可切换的内嵌音轨列表，并返回语言、布局、声道、码率和采样率。 |
+| `GET` | `/api/media-files/{id}/subtitles` | `handlers::subtitle_files::list_media_file_subtitles` | `auth::require_media_file_access`、`mova_application::list_subtitle_files_for_media_file` | 查询媒体文件可切换字幕轨道，并返回默认、强制、听障和外挂来源等标记。 |
 
 #### `routes/subtitle_files.rs`
 

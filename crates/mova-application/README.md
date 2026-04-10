@@ -68,7 +68,7 @@
 | `src/file_sync.rs` | watcher / reconcile 触发后的路径级同步与库存对齐。 |
 | `src/media_items.rs` | 媒体条目详情、列表、文件、音轨、剧集 outline、季集查询、元数据刷新。 |
 | `src/media_enrichment.rs` | 扫描过程中对单条媒体做 TMDB / sidecar / 图片补全。 |
-| `src/metadata.rs` | 元数据 provider 抽象、TMDB client、语言归一化、远端查询结构。 |
+| `src/metadata.rs` | 元数据 provider 抽象、TMDB client、可选 OMDb IMDb 评分补齐、语言归一化、远端查询结构。 |
 | `src/metadata_match.rs` | 管理员手动搜索候选元数据并应用匹配。 |
 | `src/media_cast.rs` | 演员列表查询与缓存失效。 |
 | `src/media_classification.rs` | 媒体库类型和电影/剧集归类辅助逻辑。 |

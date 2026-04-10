@@ -72,9 +72,9 @@ src/
 | `/login` | `src/pages/login-page/index.tsx` | 登录页和首个管理员 bootstrap 入口。根据 `bootstrap-status` 决定是“创建第一个管理员”还是普通登录。 | `getCurrentUser`、`getBootstrapStatus`、`login`、`bootstrapAdmin` |
 | `/` | `src/pages/home-page/index.tsx` | 首页。聚合媒体库卡片、继续观看、各媒体库的 shelf；同时消费扫描实时态。 | `listLibraries`、`getLibrary`、`listLibraryMediaItems`、`listContinueWatching`、`getMediaItemEpisodeOutline` |
 | `/libraries/:libraryId` | `src/pages/library-page/index.tsx` | 单库详情页。展示库信息、最新扫描状态、电影/剧集列表，以及扫描中的占位卡。 | `getLibrary`、`listLibraryMediaItems`、`scanRuntimeByLibrary` |
-| `/media-items/:mediaItemId` | `src/pages/media-item-page/index.tsx` | 媒体详情页。电影显示详情与播放入口；剧集显示季/集大纲、演员和管理员元数据工具；当所在媒体库仍在扫描时，这里也会显示当前条目或当前季的同步状态与占位集卡。 | `getMediaItem`、`getMediaItemEpisodeOutline`、`getMediaItemPlaybackProgress`、`getMediaItemPlaybackHeader`、`scanRuntimeByLibrary` |
+| `/media-items/:mediaItemId` | `src/pages/media-item-page/index.tsx` | 媒体详情页。电影显示详情与播放入口，并在标题旁展示带 `IMDb` 标识的评分；hero 区会优先用背景图或海报做模糊大底与光晕层，让标题、海报和评分形成更完整的电影感头图；演员区下方会展示按资源文件拆分的视频、音频、字幕技术卡；每类技术卡头部都有小下拉，可在当前资源、音轨和字幕轨之间切换，字幕卡也会展示默认、强制、听障和外挂标记；剧集显示季/集大纲、演员和管理员元数据工具；当所在媒体库仍在扫描时，这里也会显示当前条目或当前季的同步状态与占位集卡。 | `getMediaItem`、`getMediaItemEpisodeOutline`、`getMediaItemPlaybackProgress`、`getMediaItemPlaybackHeader`、`listMediaItemFiles`、`listMediaFileAudioTracks`、`listMediaFileSubtitles`、`scanRuntimeByLibrary` |
 | `/media-items/:mediaItemId/play` | `src/pages/media-player-page/index.tsx` | 沉浸式播放器页。负责装配播放器标题、副标题、集切换选项，并把实际播放行为交给 `MediaPlayerPanel`。 | `getMediaItemPlaybackHeader`、`getMediaItemEpisodeOutline` |
-| `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。当前主要承接密码修改和账号基础信息展示。 | `changeOwnPassword`、`AppShell` 提供的 `currentUser/libraries` |
+| `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。只展示用户名、角色标签，并通过改密弹窗处理密码更新。 | `changeOwnPassword`、`AppShell` 提供的 `currentUser` |
 | `/settings` | `src/pages/settings-page/index.tsx` | 管理员设置页。承接用户增删改查、媒体库创建、扫描、删除和基础配置编辑；危险操作会走统一确认弹窗。 | `listUsers`、`createUser`、`updateUser`、`deleteUser`、`createLibrary`、`updateLibrary`、`scanLibrary`、`deleteLibrary`、`getLibrary` |
 
 几个页面内还有“页面级子模块”，但它们不算独立路由：
@@ -85,7 +85,7 @@ src/
 
 ## 4. 共享组件
 
-当前 `src/components/` 下有 15 个已实现的公用组件目录；另外还有一个空的 `create-user-form/` 目录，当前还没有实现内容。
+当前 `src/components/` 下有 17 个已实现的公用组件目录；另外还有一个空的 `create-user-form/` 目录，当前还没有实现内容。
 
 ### 4.1 壳层与运行时
 
@@ -109,13 +109,15 @@ src/
 
 | 组件 | 文件 | 作用 | 主要使用位置 |
 | --- | --- | --- | --- |
-| `CreateLibraryForm` | `components/create-library-form/index.tsx` | 建库表单，支持目录树选择、类型选择、元数据语言和启停。 | 设置页 |
-| `LibraryEditorModal` | `components/library-editor-modal/index.tsx` | 编辑媒体库基础配置，当前支持名称、描述、元数据语言和启停状态。 | 设置页 |
+| `CreateLibraryForm` | `components/create-library-form/index.tsx` | 建库表单，支持目录树选择、类型选择、元数据语言和启停；`Library Type` 和 `Root Path` 也会直接给出轻量提示，减少用户理解容器路径和库类型差异的成本。 | `CreateLibraryModal` |
+| `CreateLibraryModal` | `components/create-library-modal/index.tsx` | 设置页里的建库弹窗，负责承接建库入口，不再把表单长期铺在页面底部。 | 设置页 |
+| `LibraryEditorModal` | `components/library-editor-modal/index.tsx` | 编辑媒体库基础配置，当前支持名称、描述、元数据语言和启停状态；只读的库类型和根路径旁边也会给出同一套说明。 | 设置页 |
 | `UserEditorModal` | `components/user-editor-modal/index.tsx` | 创建/编辑用户，支持角色、启停和媒体库授权。 | 设置页 |
 | `ConfirmActionModal` | `components/confirm-action-modal/index.tsx` | 统一承接危险操作确认流和错误提示，当前用于删库、删用户。 | 设置页 |
+| `ChangePasswordModal` | `components/change-password-modal/index.tsx` | 个人页的改密弹窗，统一处理当前密码校验、确认输入和错误反馈。 | 个人页 |
 | `MetadataMatchPanel` | `components/metadata-match-panel/index.tsx` | 管理员手动搜索并替换单条媒体元数据。 | 媒体详情页 |
 | `MediaDirectoryTree` | `components/media-directory-tree/index.tsx` | 递归目录树选择器，用于从容器内 `/media` 目录里选择库根路径。 | `CreateLibraryForm` |
-| `GlassSelect` | `components/glass-select/index.tsx` | 自定义下拉选择器，统一风格与交互。 | 设置页、建库表单、用户编辑弹窗、媒体库编辑弹窗 |
+| `GlassSelect` | `components/glass-select/index.tsx` | 自定义下拉选择器，统一风格与交互；也支持更紧凑的 compact 形态，用在详情页技术卡头部的小下拉。 | 设置页、建库表单、用户编辑弹窗、媒体库编辑弹窗、媒体详情页 |
 
 ### 4.4 轻量 UI 基元
 
@@ -143,6 +145,7 @@ src/
 | `lib/media-routes.ts` | 统一生成媒体详情页和播放页路径，避免各页面自己拼字符串。 |
 | `lib/playback.ts` | 统一收口续播判断、播放入口链接、播放进度衍生状态，以及“接近片尾时视为已看完”的完成判定。 |
 | `lib/audio-tracks.ts` | 统一音轨标签、语言和元信息文案，避免播放器菜单里散落格式化逻辑。 |
+| `lib/media-file-details.ts` | 统一资源技术信息卡片里的视频、音频、字幕字段格式化，包括分辨率、码率、色彩参数、音轨/字幕标题，以及技术卡头部下拉所需的选项标签。 |
 | `lib/player-feedback.ts` | 播放器兼容性提示文案，专门处理自动播放与全屏失败时的非阻断 warning。 |
 | `lib/library-config.ts` | 统一媒体库编辑弹窗的 draft 初始化、变更判断和提交 payload 归一化。 |
 | `lib/settings-admin.ts` | 收口设置页里的用户/媒体库缓存更新、扫描状态文案、本地占位 detail 构建，以及删库/删用户确认文案。 |
@@ -182,6 +185,7 @@ src/
 - `components/app-shell/scan-runtime.test.ts`
 - `components/media-player-panel/media-player-panel.test.tsx`
 - `lib/audio-tracks.test.ts`
+- `lib/media-file-details.test.ts`
 - `lib/playback.test.ts`
 - `lib/player-feedback.test.ts`
 - `lib/library-config.test.ts`
@@ -193,6 +197,7 @@ src/
 - `scan-runtime` 的扫描中文案、占位显示、详情页条目匹配和粗粒度进度计算
 - `MediaPlayerPanel` 的恢复播放、从头播放、切源迁移、音轨切换时的位置保持、切换提示文案、错误文案映射，以及自动播放/全屏失败与字幕失败的非阻断降级
 - `audio-tracks` helper 的音轨菜单标签和元信息格式化
+- `media-file-details` helper 的视频/音频/字幕技术卡字段格式化、头部下拉选项、码率显示和杜比标记识别
 - `playback` helper 的续播判定、默认播放入口、剧集优先选择和接近片尾的完成判定
 - `library-config` helper 的 draft 初始化、变更判断和提交 payload 归一化
 - `settings-admin` helper 的设置页本地缓存更新、扫描状态摘要、确认文案，以及删除/更新/启停后的边界收口

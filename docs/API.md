@@ -49,6 +49,7 @@
   - `416 Range Not Satisfiable`：媒体流的 `Range` 请求越界
   - `500 Internal Server Error`：服务内部错误
 - TMDB provider 现在从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取；但每个媒体库仍可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。
+- 如果额外配置了可选的 `MOVA_OMDB_API_KEY`，服务端会在已拿到 `imdb_id` 的前提下补齐 `imdb_rating`；不配置时该字段保持为空，不影响扫描、入库和播放。
 
 ## 接口总览
 
@@ -659,6 +660,7 @@
 关键字段：
 - `title`：当前前端默认展示名；TMDB 命中后优先使用当前媒体库语言对应的标题
 - `source_title`：文件名解析出的原始资源名，主要用于后续元数据匹配和问题排查，不建议直接作为前端展示名
+- `imdb_rating`：可选的 IMDb 评分字符串；只有在配置了 `MOVA_OMDB_API_KEY` 且当前条目能解析到 `imdb_id` 时才会有值
 - `overview`：简介，可来自本地 sidecar `.nfo` 或 TMDB
 - `poster_path`：海报可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/poster`
 - `backdrop_path`：背景图可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/backdrop`
@@ -676,6 +678,7 @@
   "original_title": "Arcane",
   "sort_title": null,
   "year": 2021,
+  "imdb_rating": "9.0",
   "overview": "……",
   "poster_path": "/api/media-items/3/poster",
   "backdrop_path": "/api/media-items/3/backdrop",
@@ -740,7 +743,11 @@
 - `media_item_id`：所属媒体条目
 - `file_path`：后端内部文件路径
 - `container`：容器格式，如 `mp4` / `mkv`
-- `duration_seconds` / `video_codec` / `audio_codec` / `width` / `height` / `bitrate`：当前多数情况下仍可能为空
+- `duration_seconds` / `video_codec` / `audio_codec` / `width` / `height` / `bitrate`：基础探测字段
+- `video_title` / `video_profile` / `video_level`：视频流标题、profile、level
+- `video_bitrate` / `video_frame_rate` / `video_aspect_ratio` / `video_scan_type`：视频码率、帧率、宽高比、扫描类型
+- `video_color_primaries` / `video_color_space` / `video_color_transfer`：色彩原色、色域、传递特性
+- `video_bit_depth` / `video_pixel_format` / `video_reference_frames`：位深、像素格式、参考帧
 
 说明：
 - 当前前端播放时应先从这个接口拿到 `media_file_id`
@@ -1177,12 +1184,17 @@
 - `language`：语言代码，例如 `zh`、`en`
 - `audio_codec`：音频编码，例如 `aac`、`ac3`
 - `label`：音轨标题，例如 `Mandarin Stereo`
+- `channel_layout`：声道布局，例如 `stereo`、`5.1(side)`
+- `channels`：声道数，例如 `2`、`6`
+- `bitrate`：音轨码率，单位 bps
+- `sample_rate`：采样率，单位 Hz
 - `is_default`：是否是原始文件里的默认音轨
 
 说明：
 - 当前只列出扫描时通过 `ffprobe` 发现的内嵌音轨
 - 外挂音轨暂不在 MVP 范围内
 - 前端通常会额外提供一个 `Auto` 选项，表示不传 `audio_track_id`，直接使用原始文件默认音轨
+- 详情页会把音轨列表收成一张音频技术卡，并通过卡头小下拉切换不同轨道
 
 ### `GET /api/media-files/{id}/subtitles`
 
@@ -1203,12 +1215,18 @@
 - `label`：字幕标题或文件名尾部解析出的补充标记
 - `is_default`：是否默认字幕
 - `is_forced`：是否强制字幕
+- `is_hearing_impaired`：是否是听障字幕（例如 `SDH` / `CC` / `HI`）
+
+说明补充：
+- 详情页当前会把 `/files`、`/audio-tracks`、`/subtitles` 三组数据组合成视频卡、音轨卡和字幕卡
+- 音轨卡和字幕卡都通过卡头小下拉切换当前展示的轨道/字幕，不会把所有轨道一次性堆成很多张卡
 
 说明：
 - 服务端会把外挂字幕和内嵌字幕统一列在这里，前端播放器只需要渲染一份字幕菜单
 - 外挂字幕当前支持：
   - 同目录、同 stem 自动匹配
   - 同目录、季集号一致且目录内唯一时自动匹配，例如 `show.S01E01.mkv` 可匹配 `xxxxx.S01E01.srt`
+- 外挂字幕文件名如果命中 `sdh`、`cc`、`hi` 这类后缀，会被标成 `is_hearing_impaired = true`
 - 如果同目录下同一个 `SxxEyy` 存在多个视频版本，服务端不会只靠季集号盲猜绑定
 - 如果字幕列表查询失败，客户端应当按“字幕暂不可用”降级，主视频播放不应被阻断
 
