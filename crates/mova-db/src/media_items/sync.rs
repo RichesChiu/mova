@@ -363,11 +363,14 @@ async fn insert_media_item(
             sort_title,
             year,
             imdb_rating,
+            country,
+            genres,
+            studio,
             overview,
             poster_path,
             backdrop_path
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         returning id
         "#,
     )
@@ -379,6 +382,9 @@ async fn insert_media_item(
     .bind(&entry.sort_title)
     .bind(entry.year)
     .bind(&entry.imdb_rating)
+    .bind(&entry.country)
+    .bind(&entry.genres)
+    .bind(&entry.studio)
     .bind(&entry.overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
@@ -407,9 +413,12 @@ async fn update_media_item_from_entry(
             sort_title = $6,
             year = $7,
             imdb_rating = $8,
-            overview = $9,
-            poster_path = $10,
-            backdrop_path = $11,
+            country = $9,
+            genres = $10,
+            studio = $11,
+            overview = $12,
+            poster_path = $13,
+            backdrop_path = $14,
             updated_at = now()
         where id = $1
         "#,
@@ -422,6 +431,9 @@ async fn update_media_item_from_entry(
     .bind(&entry.sort_title)
     .bind(entry.year)
     .bind(&entry.imdb_rating)
+    .bind(&entry.country)
+    .bind(&entry.genres)
+    .bind(&entry.studio)
     .bind(&entry.overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
@@ -828,6 +840,9 @@ mod tests {
             sort_title: None,
             year: Some(2025),
             imdb_rating: Some("6.8".to_string()),
+            country: Some("China".to_string()),
+            genres: Some("Fantasy · Adventure".to_string()),
+            studio: Some("Huayi Brothers".to_string()),
             season_number: None,
             season_title: None,
             season_overview: None,
@@ -877,6 +892,9 @@ mod tests {
             sort_title: None,
             year: Some(2024),
             imdb_rating: None,
+            country: Some("Japan".to_string()),
+            genres: Some("Animation · Sci-Fi".to_string()),
+            studio: Some("Studio Trigger".to_string()),
             season_number: Some(1),
             season_title: Some("Season 01".to_string()),
             season_overview: None,

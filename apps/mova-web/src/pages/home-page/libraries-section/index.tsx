@@ -26,8 +26,8 @@ const LibrarySpotlightSkeleton = () => (
     </div>
 
     <div className="library-spotlight__content">
-      <span className="library-spotlight__type">library</span>
       <span className="library-spotlight__line library-spotlight__line--title skeleton-shimmer" />
+      <span className="library-spotlight__line library-spotlight__line--meta skeleton-shimmer" />
 
       <div className="library-spotlight__stats">
         <span className="library-spotlight__stat library-spotlight__stat--loading skeleton-shimmer" />
@@ -107,8 +107,8 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
               </div>
 
               <div className="library-spotlight__content">
-                <span className="library-spotlight__type">{library.library_type}</span>
                 <strong className="library-spotlight__title">{library.name}</strong>
+                <span className="library-spotlight__meta">{library.library_type}</span>
 
                 <div className="library-spotlight__stats">
                   <span className="library-spotlight__stat">

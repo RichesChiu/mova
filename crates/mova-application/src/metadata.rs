@@ -38,6 +38,9 @@ pub struct RemoteMetadata {
     pub original_title: Option<String>,
     pub year: Option<i32>,
     pub imdb_rating: Option<String>,
+    pub country: Option<String>,
+    pub genres: Option<String>,
+    pub studio: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
@@ -478,6 +481,9 @@ impl TmdbMetadataProvider {
             original_title: empty_to_none(details.original_name),
             year: parse_year(details.first_air_date.as_deref()),
             imdb_rating,
+            country: format_country_codes(&details.origin_country),
+            genres: format_named_items(&details.genres),
+            studio: format_named_items(&details.production_companies),
             overview: empty_to_none(details.overview),
             poster_path: details
                 .poster_path
@@ -726,6 +732,9 @@ impl TmdbMetadataProvider {
             original_title: empty_to_none(details.original_title),
             year: parse_year(details.release_date.as_deref()),
             imdb_rating,
+            country: format_production_countries(&details.production_countries),
+            genres: format_named_items(&details.genres),
+            studio: format_named_items(&details.production_companies),
             overview: empty_to_none(details.overview),
             poster_path: details
                 .poster_path
@@ -882,6 +891,9 @@ pub fn apply_remote_metadata(
     original_title: &mut Option<String>,
     year: &mut Option<i32>,
     imdb_rating: &mut Option<String>,
+    country: &mut Option<String>,
+    genres: &mut Option<String>,
+    studio: &mut Option<String>,
     overview: &mut Option<String>,
     poster_path: &mut Option<String>,
     backdrop_path: &mut Option<String>,
@@ -904,6 +916,18 @@ pub fn apply_remote_metadata(
 
     if imdb_rating.is_none() {
         *imdb_rating = metadata.imdb_rating;
+    }
+
+    if country.is_none() {
+        *country = metadata.country;
+    }
+
+    if genres.is_none() {
+        *genres = metadata.genres;
+    }
+
+    if studio.is_none() {
+        *studio = metadata.studio;
     }
 
     if overview.is_none() {
@@ -1050,6 +1074,12 @@ struct TmdbMovieDetails {
     overview: Option<String>,
     poster_path: Option<String>,
     backdrop_path: Option<String>,
+    #[serde(default)]
+    production_countries: Vec<TmdbProductionCountry>,
+    #[serde(default)]
+    genres: Vec<TmdbNamedItem>,
+    #[serde(default)]
+    production_companies: Vec<TmdbNamedItem>,
     external_ids: Option<TmdbExternalIds>,
 }
 
@@ -1076,9 +1106,26 @@ struct TmdbTvDetails {
     overview: Option<String>,
     poster_path: Option<String>,
     backdrop_path: Option<String>,
+    #[serde(default)]
+    origin_country: Vec<String>,
+    #[serde(default)]
+    genres: Vec<TmdbNamedItem>,
+    #[serde(default)]
+    production_companies: Vec<TmdbNamedItem>,
     external_ids: Option<TmdbExternalIds>,
     #[serde(default)]
     seasons: Vec<TmdbTvSeasonSummary>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbProductionCountry {
+    iso_3166_1: Option<String>,
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbNamedItem {
+    name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1239,6 +1286,48 @@ fn empty_to_none(value: Option<String>) -> Option<String> {
     })
 }
 
+fn format_country_codes(codes: &[String]) -> Option<String> {
+    join_non_empty_values(
+        codes
+            .iter()
+            .filter_map(|code| empty_to_none(Some(code.clone())))
+            .collect(),
+    )
+}
+
+fn format_production_countries(countries: &[TmdbProductionCountry]) -> Option<String> {
+    join_non_empty_values(
+        countries
+            .iter()
+            .filter_map(|country| {
+                empty_to_none(country.name.clone())
+                    .or_else(|| empty_to_none(country.iso_3166_1.clone()))
+            })
+            .collect(),
+    )
+}
+
+fn format_named_items(items: &[TmdbNamedItem]) -> Option<String> {
+    join_non_empty_values(
+        items
+            .iter()
+            .filter_map(|item| empty_to_none(item.name.clone()))
+            .collect(),
+    )
+}
+
+fn join_non_empty_values(values: Vec<String>) -> Option<String> {
+    let mut unique_values = Vec::<String>::new();
+
+    for value in values {
+        if !unique_values.iter().any(|existing| existing == &value) {
+            unique_values.push(value);
+        }
+    }
+
+    (!unique_values.is_empty()).then(|| unique_values.join(" · "))
+}
+
 fn pick_primary_character_name(roles: &[TmdbTvAggregateRole]) -> Option<String> {
     roles
         .iter()
@@ -1256,11 +1345,11 @@ pub type MetadataLookupCache = HashMap<MetadataLookup, Option<RemoteMetadata>>;
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_remote_metadata, build_metadata_provider, merge_search_results, normalize_base_url,
-        normalize_metadata_language, normalize_optional_value, normalize_title, parse_year,
-        pick_primary_character_name, select_best_match, MetadataLookup, MetadataProviderConfig,
-        RemoteMetadata, TmdbMetadataProvider, TmdbMetadataProviderConfig, TmdbMovieSearchResult,
-        TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL,
+        apply_remote_metadata, build_metadata_provider, format_country_codes, merge_search_results,
+        normalize_base_url, normalize_metadata_language, normalize_optional_value, normalize_title,
+        parse_year, pick_primary_character_name, select_best_match, MetadataLookup,
+        MetadataProviderConfig, RemoteMetadata, TmdbMetadataProvider, TmdbMetadataProviderConfig,
+        TmdbMovieSearchResult, TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL,
     };
 
     #[test]
@@ -1305,6 +1394,9 @@ mod tests {
         let mut original_title = None;
         let mut year = Some(2001);
         let mut imdb_rating = None;
+        let mut country = None;
+        let mut genres = None;
+        let mut studio = None;
         let mut overview = None;
         let mut poster_path = None;
         let mut backdrop_path = Some("/local/backdrop.jpg".to_string());
@@ -1315,6 +1407,9 @@ mod tests {
                 original_title: Some("Sen to Chihiro no Kamikakushi".to_string()),
                 year: Some(2001),
                 imdb_rating: Some("8.6".to_string()),
+                country: Some("Japan".to_string()),
+                genres: Some("Animation · Fantasy".to_string()),
+                studio: Some("Studio Ghibli".to_string()),
                 overview: Some("A girl enters the spirit world.".to_string()),
                 poster_path: Some("https://images.example.com/poster.jpg".to_string()),
                 backdrop_path: Some("https://images.example.com/backdrop.jpg".to_string()),
@@ -1323,6 +1418,9 @@ mod tests {
             &mut original_title,
             &mut year,
             &mut imdb_rating,
+            &mut country,
+            &mut genres,
+            &mut studio,
             &mut overview,
             &mut poster_path,
             &mut backdrop_path,
@@ -1335,6 +1433,9 @@ mod tests {
         );
         assert_eq!(year, Some(2001));
         assert_eq!(imdb_rating.as_deref(), Some("8.6"));
+        assert_eq!(country.as_deref(), Some("Japan"));
+        assert_eq!(genres.as_deref(), Some("Animation · Fantasy"));
+        assert_eq!(studio.as_deref(), Some("Studio Ghibli"));
         assert_eq!(overview.as_deref(), Some("A girl enters the spirit world."));
         assert_eq!(
             poster_path.as_deref(),
@@ -1349,6 +1450,9 @@ mod tests {
         let mut original_title = None;
         let mut year = None;
         let mut imdb_rating = None;
+        let mut country = None;
+        let mut genres = None;
+        let mut studio = None;
         let mut overview = None;
         let mut poster_path = None;
         let mut backdrop_path = None;
@@ -1359,6 +1463,9 @@ mod tests {
                 original_title: None,
                 year: None,
                 imdb_rating: None,
+                country: None,
+                genres: None,
+                studio: None,
                 overview: None,
                 poster_path: None,
                 backdrop_path: None,
@@ -1367,6 +1474,9 @@ mod tests {
             &mut original_title,
             &mut year,
             &mut imdb_rating,
+            &mut country,
+            &mut genres,
+            &mut studio,
             &mut overview,
             &mut poster_path,
             &mut backdrop_path,
@@ -1390,6 +1500,14 @@ mod tests {
         assert_eq!(
             provider.build_image_url("/poster.jpg"),
             "https://image.tmdb.org/t/p/original/poster.jpg".to_string()
+        );
+    }
+
+    #[test]
+    fn format_country_codes_joins_unique_values() {
+        assert_eq!(
+            format_country_codes(&["JP".to_string(), "US".to_string(), "JP".to_string()]),
+            Some("JP · US".to_string())
         );
     }
 

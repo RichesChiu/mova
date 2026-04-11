@@ -29,34 +29,33 @@
 
 .library-hero__content,
 .library-hero__copy,
-.library-hero__meta,
-.library-hero__actions {
+.library-hero__meta {
   position: relative;
   z-index: 1;
   display: grid;
 }
 
 .library-hero__content {
-  gap: 16px;
+  gap: 14px;
 }
 
 .library-hero__copy {
   gap: 8px;
 }
 
+.library-hero__description {
+  margin: 0;
+  max-width: 72ch;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
 .library-hero__meta {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 220px));
   gap: 12px;
 }
 
-.library-hero__actions {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  align-items: stretch;
-}
-
-.hero-stat,
-.hero-note {
+.hero-stat {
   display: grid;
   gap: 6px;
   padding: 12px 14px;
@@ -72,10 +71,6 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.hero-note {
-  color: var(--text-muted);
 }
 
 .media-grid {

@@ -114,6 +114,13 @@
   animation: select-menu-in 140ms ease;
 }
 
+.glass-select__menu--portal {
+  position: fixed;
+  inset-inline: auto;
+  top: auto;
+  z-index: 80;
+}
+
 .glass-select__option {
   display: block;
   width: 100%;

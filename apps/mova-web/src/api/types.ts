@@ -55,6 +55,9 @@ export interface MediaItem {
   sort_title: string | null
   year: number | null
   imdb_rating?: string | null
+  country?: string | null
+  genres?: string | null
+  studio?: string | null
   overview: string | null
   poster_path: string | null
   backdrop_path: string | null

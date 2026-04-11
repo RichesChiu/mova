@@ -174,11 +174,14 @@ async fn insert_series_item_from_entry(
             original_title,
             sort_title,
             year,
+            country,
+            genres,
+            studio,
             overview,
             poster_path,
             backdrop_path
         )
-        values ($1, 'series', $2, $3, $4, $5, $6, $7, $8, $9)
+        values ($1, 'series', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
         returning id
         "#,
     )
@@ -188,6 +191,9 @@ async fn insert_series_item_from_entry(
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
     .bind(entry.year)
+    .bind(&entry.country)
+    .bind(&entry.genres)
+    .bind(&entry.studio)
     .bind(&entry.overview)
     .bind(poster_path)
     .bind(backdrop_path)
@@ -222,9 +228,12 @@ async fn update_series_item_from_entry(
             original_title = $4,
             sort_title = $5,
             year = $6,
-            overview = $7,
-            poster_path = $8,
-            backdrop_path = $9,
+            country = $7,
+            genres = $8,
+            studio = $9,
+            overview = $10,
+            poster_path = $11,
+            backdrop_path = $12,
             updated_at = now()
         where id = $1
         "#,
@@ -235,6 +244,9 @@ async fn update_series_item_from_entry(
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
     .bind(entry.year)
+    .bind(&entry.country)
+    .bind(&entry.genres)
+    .bind(&entry.studio)
     .bind(&entry.overview)
     .bind(poster_path)
     .bind(backdrop_path)
@@ -314,11 +326,14 @@ async fn insert_episode_media_item(
             original_title,
             sort_title,
             year,
+            country,
+            genres,
+            studio,
             overview,
             poster_path,
             backdrop_path
         )
-        values ($1, 'episode', $2, $3, null, null, null, $4, $5, $6)
+        values ($1, 'episode', $2, $3, null, null, null, null, null, null, $4, $5, $6)
         returning id
         "#,
     )
@@ -359,6 +374,9 @@ async fn update_episode_media_item_from_entry(
             original_title = null,
             sort_title = null,
             year = null,
+            country = null,
+            genres = null,
+            studio = null,
             overview = $4,
             poster_path = $5,
             backdrop_path = $6,

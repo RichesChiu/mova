@@ -681,6 +681,9 @@
 - `title`：当前前端默认展示名；TMDB 命中后优先使用当前媒体库语言对应的标题
 - `source_title`：文件名解析出的原始资源名，主要用于后续元数据匹配和问题排查，不建议直接作为前端展示名
 - `imdb_rating`：可选的 IMDb 评分字符串；只有在配置了 `MOVA_OMDB_API_KEY` 且当前条目能解析到 `imdb_id` 时才会有值
+- `country`：可选的国家/地区信息；电影会优先使用 TMDB 的 production countries，剧集会优先使用 TMDB 的 origin country
+- `genres`：可选的题材类型字符串；来自 TMDB genres，会按展示顺序拼接
+- `studio`：可选的制作公司字符串；来自 TMDB production companies，会按展示顺序拼接
 - `overview`：简介，可来自本地 sidecar `.nfo` 或 TMDB
 - `poster_path`：海报可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/poster`
 - `backdrop_path`：背景图可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/backdrop`
@@ -699,6 +702,9 @@
   "sort_title": null,
   "year": 2021,
   "imdb_rating": "9.0",
+  "country": "US",
+  "genres": "Animation · Action & Adventure · Sci-Fi & Fantasy",
+  "studio": "Fortiche Production",
   "overview": "……",
   "poster_path": "/api/media-items/3/poster",
   "backdrop_path": "/api/media-items/3/backdrop",

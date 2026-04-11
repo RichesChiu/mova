@@ -146,8 +146,7 @@ export const LibraryPage = () => {
     ? getLibraryScanRuntime(scanRuntimeByLibrary, libraryId)
     : null
   const mediaItems = mediaItemsQuery.data?.items ?? []
-  const libraryDescription =
-    currentLibrary?.description?.trim() || 'No library description provided yet.'
+  const libraryDescription = currentLibrary?.description?.trim() || null
   const currentScan = getEffectiveScanJob(currentLibrary?.last_scan, currentScanRuntime)
   const hasFailedScan = hasFailedLibraryScan(currentLibrary?.last_scan, currentScanRuntime)
   const scanItems = shouldShowScanPlaceholder(currentLibrary?.last_scan, currentScanRuntime)
@@ -200,34 +199,20 @@ export const LibraryPage = () => {
       <section className="library-hero library-hero--compact">
         <div className="library-hero__content">
           <div className="library-hero__copy">
-            <p className="eyebrow">Library</p>
             <h2>{currentLibrary?.name ?? 'Loading…'}</h2>
-            <p className="muted">
-              {isMixedLibrary
-                ? 'Mixed library: movies and series are organized automatically.'
-                : 'Browse this library content below.'}
-            </p>
+            {libraryDescription ? (
+              <p className="library-hero__description">{libraryDescription}</p>
+            ) : null}
           </div>
 
           <div className="library-hero__meta">
             <div className="hero-stat">
-              <span className="hero-stat__label">Library Name</span>
-              <strong>{currentLibrary?.name ?? '—'}</strong>
-            </div>
-            <div className="hero-stat">
-              <span className="hero-stat__label">Library Type</span>
+              <span className="hero-stat__label">Type</span>
               <strong>{currentLibrary?.library_type ?? '—'}</strong>
             </div>
             <div className="hero-stat">
-              <span className="hero-stat__label">Resources</span>
+              <span className="hero-stat__label">Items</span>
               <strong>{currentLibrary?.media_count ?? mediaItemsQuery.data?.total ?? 0}</strong>
-            </div>
-          </div>
-
-          <div className="library-hero__actions">
-            <div className="hero-note">
-              <strong>Description</strong>
-              <span>{libraryDescription}</span>
             </div>
           </div>
         </div>
@@ -253,8 +238,9 @@ export const LibraryPage = () => {
 
       {hasFailedScan ? (
         <p className="callout callout--danger">
-          The most recent scan failed.{` ${formatFailedScanCopy(currentLibrary?.last_scan, currentScanRuntime)}`}
-          . Existing items are still available, and an admin can trigger another scan later.
+          The most recent scan failed.
+          {` ${formatFailedScanCopy(currentLibrary?.last_scan, currentScanRuntime)}`}. Existing
+          items are still available, and an admin can trigger another scan later.
         </p>
       ) : null}
 

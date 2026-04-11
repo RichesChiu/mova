@@ -53,6 +53,9 @@ pub async fn list_media_items_for_library(
             metadata_provider_item_id,
             year,
             imdb_rating,
+            country,
+            genres,
+            studio,
             overview,
             poster_path,
             backdrop_path,
@@ -104,6 +107,9 @@ pub async fn get_media_item(pool: &PgPool, media_item_id: i64) -> Result<Option<
             metadata_provider_item_id,
             year,
             imdb_rating,
+            country,
+            genres,
+            studio,
             overview,
             poster_path,
             backdrop_path,
@@ -183,9 +189,12 @@ pub async fn update_media_item_metadata(
             metadata_provider_item_id = $7,
             year = $8,
             imdb_rating = $9,
-            overview = $10,
-            poster_path = $11,
-            backdrop_path = $12,
+            country = $10,
+            genres = $11,
+            studio = $12,
+            overview = $13,
+            poster_path = $14,
+            backdrop_path = $15,
             updated_at = now()
         where id = $1
         returning
@@ -200,6 +209,9 @@ pub async fn update_media_item_metadata(
             metadata_provider_item_id,
             year,
             imdb_rating,
+            country,
+            genres,
+            studio,
             overview,
             poster_path,
             backdrop_path,
@@ -216,6 +228,9 @@ pub async fn update_media_item_metadata(
     .bind(params.metadata_provider_item_id)
     .bind(params.year)
     .bind(&params.imdb_rating)
+    .bind(&params.country)
+    .bind(&params.genres)
+    .bind(&params.studio)
     .bind(&params.overview)
     .bind(&params.poster_path)
     .bind(&params.backdrop_path)
@@ -935,6 +950,9 @@ fn map_media_item_row(row: PgRow) -> MediaItem {
         metadata_provider_item_id: row.get("metadata_provider_item_id"),
         year: row.get("year"),
         imdb_rating: row.get("imdb_rating"),
+        country: row.get("country"),
+        genres: row.get("genres"),
+        studio: row.get("studio"),
         overview: row.get("overview"),
         poster_path: row.get("poster_path"),
         backdrop_path: row.get("backdrop_path"),

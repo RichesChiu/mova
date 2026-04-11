@@ -27,6 +27,7 @@ import { GlassSelect } from '../../components/glass-select'
 import { MediaTypeTag } from '../../components/media-type-tag'
 import { MetadataMatchPanel } from '../../components/metadata-match-panel'
 import { ScrollableRail } from '../../components/scrollable-rail'
+import { formatMediaCountry } from '../../lib/media-country'
 import {
   buildAudioTrackFacts,
   buildAudioTrackOptions,
@@ -411,18 +412,9 @@ export const MediaItemPage = () => {
   const heroEyebrow = isSeriesView ? 'series' : (mediaItemQuery.data?.media_type ?? '')
   const heroTitle = mediaItemQuery.data?.title ?? ''
   const heroImdbRating = mediaItemQuery.data?.imdb_rating?.trim() || null
-  const heroMeta = isSeriesView
-    ? [
-        selectedSeasonLabel,
-        selectedSeasonYear ? String(selectedSeasonYear) : null,
-        mediaItemQuery.data?.original_title &&
-        mediaItemQuery.data.original_title !== mediaItemQuery.data.title
-          ? mediaItemQuery.data.original_title
-          : null,
-      ]
-        .filter(Boolean)
-        .join(' · ')
-    : `${mediaItemQuery.data?.original_title ?? 'No original title'}${mediaItemQuery.data?.year ? ` · ${mediaItemQuery.data.year}` : ''}`
+  const heroCountry = formatMediaCountry(mediaItemQuery.data?.country)
+  const heroGenres = mediaItemQuery.data?.genres?.trim() || null
+  const heroStudio = mediaItemQuery.data?.studio?.trim() || null
   const heroOverview =
     isSeriesView && selectedSeason
       ? (selectedSeason.overview ??
@@ -448,6 +440,18 @@ export const MediaItemPage = () => {
                 value: String(mediaItemQuery.data.year),
               }
             : null,
+        heroGenres
+          ? {
+              label: 'Genres',
+              value: heroGenres,
+            }
+          : null,
+        heroStudio
+          ? {
+              label: 'Studio',
+              value: heroStudio,
+            }
+          : null,
         selectedSeason
           ? {
               label: 'Available episodes',
@@ -457,6 +461,12 @@ export const MediaItemPage = () => {
               label: 'Available seasons',
               value: String(availableSeasons.length),
             },
+        heroCountry
+          ? {
+              label: 'Country',
+              value: heroCountry,
+            }
+          : null,
       ].filter(isHeroFact)
     : [
         mediaItemQuery.data?.original_title &&
@@ -470,6 +480,24 @@ export const MediaItemPage = () => {
           label: 'Release year',
           value: mediaItemQuery.data?.year ? String(mediaItemQuery.data.year) : 'Unknown',
         },
+        heroGenres
+          ? {
+              label: 'Genres',
+              value: heroGenres,
+            }
+          : null,
+        heroStudio
+          ? {
+              label: 'Studio',
+              value: heroStudio,
+            }
+          : null,
+        heroCountry
+          ? {
+              label: 'Country',
+              value: heroCountry,
+            }
+          : null,
       ].filter(isHeroFact)
 
   if (!Number.isFinite(mediaItemId)) {
@@ -554,7 +582,6 @@ export const MediaItemPage = () => {
               </span>
             ) : null}
           </div>
-          <p className="muted">{heroMeta}</p>
           {isSeriesView && availableSeasons.length > 0 ? (
             <div className="detail-hero__season-picker">
               <div className="detail-hero__season-heading">
@@ -812,23 +839,11 @@ export const MediaItemPage = () => {
 
                   <div className="media-tech-stack">
                     <article className="media-tech-card media-tech-card--video">
-                      <div className="media-tech-card__header media-tech-card__header--with-select">
+                      <div className="media-tech-card__header">
                         <div className="media-tech-card__title-block">
                           <p className="media-tech-card__eyebrow">Video</p>
                           <h5>Video Details</h5>
                         </div>
-
-                        {mediaVersionOptions.length > 1 ? (
-                          <div className="media-tech-card__selector">
-                            <GlassSelect
-                              ariaLabel={`Select source file for ${heroTitle}`}
-                              compact
-                              onChange={(value) => setSelectedMediaVersionId(Number(value))}
-                              options={mediaVersionOptions}
-                              value={selectedMediaVersionValue}
-                            />
-                          </div>
-                        ) : null}
                       </div>
 
                       <dl className="media-tech-card__facts">
