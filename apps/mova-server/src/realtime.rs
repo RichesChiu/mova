@@ -144,6 +144,7 @@ mod tests {
             user: User {
                 id: 1,
                 username: "viewer01".to_string(),
+                nickname: "viewer01".to_string(),
                 role,
                 is_enabled: true,
                 created_at: OffsetDateTime::UNIX_EPOCH,

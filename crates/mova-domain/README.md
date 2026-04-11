@@ -41,7 +41,7 @@
 | `src/watch_history_item.rs` | `WatchHistoryItem` |
 | `src/continue_watching_item.rs` | `ContinueWatchingItem` |
 | `src/media_cast_member.rs` | `MediaCastMember` |
-| `src/user.rs` | `User`、`UserRole` |
+| `src/user.rs` | `User`、`UserRole`，其中 `User` 会同时承载登录用户名和用于前端展示的昵称。 |
 | `src/user_profile.rs` | `UserProfile`，包含访问控制所需的用户上下文能力。 |
 
 ## 4. 主要导出对象

@@ -279,6 +279,7 @@ export interface ServerMediaDirectoryNode {
 export interface UserAccount {
   id: number
   username: string
+  nickname: string
   role: UserRole
   is_enabled: boolean
   library_ids: number[]
@@ -302,6 +303,7 @@ export interface BootstrapAdminInput {
 
 export interface CreateUserInput {
   username: string
+  nickname?: string
   password: string
   role: UserRole
   is_enabled: boolean
@@ -310,6 +312,7 @@ export interface CreateUserInput {
 
 export interface UpdateUserInput {
   username?: string
+  nickname?: string
   role?: UserRole
   is_enabled?: boolean
   library_ids?: number[]
@@ -318,4 +321,8 @@ export interface UpdateUserInput {
 export interface ChangeOwnPasswordInput {
   current_password: string
   new_password: string
+}
+
+export interface UpdateOwnProfileInput {
+  nickname: string
 }

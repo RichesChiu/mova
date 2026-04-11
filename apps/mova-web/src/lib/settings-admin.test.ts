@@ -54,6 +54,7 @@ const scanJob: ScanJob = {
 const viewer: UserAccount = {
   id: 11,
   username: 'viewer01',
+  nickname: 'viewer01',
   role: 'viewer',
   is_enabled: true,
   library_ids: [7],
@@ -283,7 +284,7 @@ describe('settings admin helpers', () => {
         },
         [library],
       ),
-    ).toBe('Access: All libraries')
+    ).toBe('')
 
     expect(getScanStatusLabel(scanJob)).toBe('Running')
     expect(getScanStatusTone(scanJob)).toBe('running')

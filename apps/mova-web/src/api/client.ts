@@ -23,6 +23,7 @@ import type {
   ServerMediaDirectoryNode,
   SubtitleFile,
   UpdateLibraryInput,
+  UpdateOwnProfileInput,
   UpdateUserInput,
   UserAccount,
   WatchHistoryItem,
@@ -139,6 +140,12 @@ export const logout = () =>
   })
 
 export const getCurrentUser = () => requestJson<UserAccount>(withApiPrefix('/auth/me'))
+
+export const updateOwnProfile = (input: UpdateOwnProfileInput) =>
+  requestJson<UserAccount>(withApiPrefix('/auth/me'), {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
 
 export const changeOwnPassword = (input: ChangeOwnPasswordInput) =>
   requestJson<UserAccount>(withApiPrefix('/auth/password'), {

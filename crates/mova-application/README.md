@@ -63,7 +63,7 @@
 | 文件 | 作用 |
 | --- | --- |
 | `src/libraries.rs` | 媒体库创建、更新、删除、详情与列表。 |
-| `src/users.rs` | 用户创建、编辑、删除、登录、登出、bootstrap、密码修改、库授权。 |
+| `src/users.rs` | 用户创建、编辑、删除、登录、登出、bootstrap、昵称更新、密码修改、库授权。 |
 | `src/scan_jobs.rs` | 扫描任务入队、执行、进度事件、取消态和任务查询。 |
 | `src/file_sync.rs` | watcher / reconcile 触发后的路径级同步与库存对齐。 |
 | `src/media_items.rs` | 媒体条目详情、列表、文件、音轨、剧集 outline、季集查询、元数据刷新。 |
@@ -96,6 +96,7 @@
 - `login`
 - `logout`
 - `get_user_by_session_token`
+- `update_own_profile`
 - `change_own_password`
 - `create_user`
 - `update_user`

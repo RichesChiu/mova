@@ -55,8 +55,8 @@ pub use scan_jobs::{
 pub use users::{
     bootstrap_admin, bootstrap_required, change_own_password, create_user, delete_user, get_user,
     get_user_by_session_token, list_users, login, logout, replace_user_library_access,
-    reset_user_password, update_user, AuthSession, BootstrapAdminInput, ChangeOwnPasswordInput,
-    CreateUserInput, LoginInput, ResetUserPasswordInput, UpdateUserInput,
-    UpdateUserLibraryAccessInput,
+    reset_user_password, update_own_profile, update_user, AuthSession, BootstrapAdminInput,
+    ChangeOwnPasswordInput, CreateUserInput, LoginInput, ResetUserPasswordInput,
+    UpdateOwnProfileInput, UpdateUserInput, UpdateUserLibraryAccessInput,
 };
 pub use watch_history::list_watch_history;

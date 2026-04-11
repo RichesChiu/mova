@@ -1,6 +1,8 @@
 .section-help {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
+  margin-inline-start: 4px;
 }
 
 .section-help__trigger {

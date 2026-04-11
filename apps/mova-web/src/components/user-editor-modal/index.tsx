@@ -42,6 +42,7 @@ export const UserEditorModal = ({
   user = null,
 }: UserEditorModalProps) => {
   const [username, setUsername] = useState('')
+  const [nickname, setNickname] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<UserRole>('viewer')
   const [isEnabled, setIsEnabled] = useState(true)
@@ -62,6 +63,7 @@ export const UserEditorModal = ({
 
     // 打开弹窗时总是把表单重置到当前模式对应的数据，避免上一次编辑残留到下一次创建。
     setUsername(user?.username ?? '')
+    setNickname(user?.nickname ?? user?.username ?? '')
     setPassword('')
     setRole(user?.role ?? 'viewer')
     setIsEnabled(user?.is_enabled ?? true)
@@ -103,6 +105,7 @@ export const UserEditorModal = ({
     if (mode === 'create') {
       await onCreate({
         username: username.trim(),
+        nickname: nickname.trim(),
         password,
         role,
         is_enabled: role === 'admin' ? true : isEnabled,
@@ -118,6 +121,7 @@ export const UserEditorModal = ({
 
     await onUpdate(user.id, {
       username: username.trim(),
+      nickname: nickname.trim(),
       role,
       is_enabled: role === 'admin' ? true : isEnabled,
       library_ids: role === 'admin' ? [] : selectedLibraryIds,
@@ -154,7 +158,9 @@ export const UserEditorModal = ({
       <div aria-modal="true" className="user-editor-modal__surface" role="dialog">
         <div className="user-editor-modal__header">
           <div className="user-editor-modal__identity">
-            <div className="user-editor-modal__avatar">{avatarInitial(username)}</div>
+            <div className="user-editor-modal__avatar">
+              {avatarInitial(nickname.trim() || username)}
+            </div>
             <div>
               <p className="eyebrow">User Management</p>
               <h3>{title}</h3>
@@ -195,6 +201,17 @@ export const UserEditorModal = ({
                 placeholder="viewer01"
                 type="text"
                 value={username}
+              />
+            </label>
+
+            <label className="field">
+              <span>Nickname</span>
+              <input
+                maxLength={128}
+                onChange={(event) => setNickname(event.target.value)}
+                placeholder="Shown in the app header"
+                type="text"
+                value={nickname}
               />
             </label>
 
@@ -256,9 +273,7 @@ export const UserEditorModal = ({
             <div className="field">
               <span>Library Access</span>
               {sortedLibraries.length === 0 ? (
-                <p className="muted">
-                  Create at least one library before assigning viewer access.
-                </p>
+                <p className="muted">Create at least one library before assigning viewer access.</p>
               ) : (
                 <div className="user-editor-modal__access-grid">
                   {sortedLibraries.map((library) => {

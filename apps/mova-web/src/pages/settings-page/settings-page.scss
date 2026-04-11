@@ -303,6 +303,10 @@
   justify-content: start;
 }
 
+.settings-library-list:empty {
+  display: none;
+}
+
 .settings-user-card {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
@@ -328,16 +332,6 @@
   font-size: 1.42rem;
   font-weight: 800;
   letter-spacing: 0.04em;
-  transition:
-    transform 160ms ease,
-    border-color 160ms ease,
-    box-shadow 160ms ease;
-}
-
-.settings-user-card__avatar:hover {
-  transform: translateY(-1px);
-  border-color: var(--button-primary-border);
-  box-shadow: var(--panel-inset), var(--button-shadow-hover);
 }
 
 .settings-user-card__body {

@@ -9,6 +9,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone)]
 pub struct CreateUserParams {
     pub username: String,
+    pub nickname: String,
     pub password_hash: String,
     pub role: UserRole,
     pub is_enabled: bool,
@@ -18,6 +19,7 @@ pub struct CreateUserParams {
 #[derive(Debug, Clone)]
 pub struct UpdateUserParams {
     pub username: String,
+    pub nickname: String,
     pub role: UserRole,
     pub is_enabled: bool,
     pub library_ids: Vec<i64>,
@@ -70,7 +72,7 @@ pub async fn count_enabled_admin_users(pool: &PgPool) -> Result<i64> {
 pub async fn list_users(pool: &PgPool) -> Result<Vec<UserProfile>> {
     let rows = sqlx::query(
         r#"
-        select id, username, role, is_enabled, created_at, updated_at
+        select id, username, nickname, role, is_enabled, created_at, updated_at
         from users
         order by created_at asc, id asc
         "#,
@@ -92,7 +94,7 @@ pub async fn list_users(pool: &PgPool) -> Result<Vec<UserProfile>> {
 pub async fn get_user(pool: &PgPool, user_id: i64) -> Result<Option<UserProfile>> {
     let row = sqlx::query(
         r#"
-        select id, username, role, is_enabled, created_at, updated_at
+        select id, username, nickname, role, is_enabled, created_at, updated_at
         from users
         where id = $1
         "#,
@@ -118,7 +120,7 @@ pub async fn get_user_by_username(
 ) -> Result<Option<UserAuthenticationRecord>> {
     let row = sqlx::query(
         r#"
-        select id, username, password_hash, role, is_enabled, created_at, updated_at
+        select id, username, nickname, password_hash, role, is_enabled, created_at, updated_at
         from users
         where username = $1
         "#,
@@ -133,6 +135,7 @@ pub async fn get_user_by_username(
         user: User {
             id: row.get("id"),
             username: row.get("username"),
+            nickname: row.get("nickname"),
             role: parse_user_role(row.get::<String, _>("role").as_str()),
             is_enabled: row.get("is_enabled"),
             created_at: row.get("created_at"),
@@ -147,7 +150,7 @@ pub async fn get_user_authentication_record(
 ) -> Result<Option<UserAuthenticationRecord>> {
     let row = sqlx::query(
         r#"
-        select id, username, password_hash, role, is_enabled, created_at, updated_at
+        select id, username, nickname, password_hash, role, is_enabled, created_at, updated_at
         from users
         where id = $1
         "#,
@@ -162,6 +165,7 @@ pub async fn get_user_authentication_record(
         user: User {
             id: row.get("id"),
             username: row.get("username"),
+            nickname: row.get("nickname"),
             role: parse_user_role(row.get::<String, _>("role").as_str()),
             is_enabled: row.get("is_enabled"),
             created_at: row.get("created_at"),
@@ -178,12 +182,13 @@ pub async fn create_user(pool: &PgPool, params: CreateUserParams) -> Result<User
 
     let row = sqlx::query(
         r#"
-        insert into users (username, password_hash, role, is_enabled)
-        values ($1, $2, $3, $4)
-        returning id, username, role, is_enabled, created_at, updated_at
+        insert into users (username, nickname, password_hash, role, is_enabled)
+        values ($1, $2, $3, $4, $5)
+        returning id, username, nickname, role, is_enabled, created_at, updated_at
         "#,
     )
     .bind(params.username)
+    .bind(params.nickname)
     .bind(params.password_hash)
     .bind(params.role.as_str())
     .bind(params.is_enabled)
@@ -218,15 +223,17 @@ pub async fn update_user(
         r#"
         update users
         set username = $2,
-            role = $3,
-            is_enabled = $4,
+            nickname = $3,
+            role = $4,
+            is_enabled = $5,
             updated_at = now()
         where id = $1
-        returning id, username, role, is_enabled, created_at, updated_at
+        returning id, username, nickname, role, is_enabled, created_at, updated_at
         "#,
     )
     .bind(user_id)
     .bind(params.username)
+    .bind(params.nickname)
     .bind(params.role.as_str())
     .bind(params.is_enabled)
     .fetch_one(&mut *tx)
@@ -249,6 +256,32 @@ pub async fn update_user(
         user: map_user_row(row),
         library_ids: params.library_ids,
     })
+}
+
+pub async fn update_user_nickname(
+    pool: &PgPool,
+    user_id: i64,
+    nickname: &str,
+) -> Result<UserProfile> {
+    let row = sqlx::query(
+        r#"
+        update users
+        set nickname = $2,
+            updated_at = now()
+        where id = $1
+        returning id, username, nickname, role, is_enabled, created_at, updated_at
+        "#,
+    )
+    .bind(user_id)
+    .bind(nickname)
+    .fetch_one(pool)
+    .await
+    .context("failed to update user nickname")?;
+
+    let user = map_user_row(row);
+    let library_ids = list_library_ids_for_user(pool, user.id).await?;
+
+    Ok(UserProfile { user, library_ids })
 }
 
 pub async fn replace_user_library_access(
@@ -337,6 +370,7 @@ pub async fn get_user_by_session_token(pool: &PgPool, token: &str) -> Result<Opt
         select
             u.id,
             u.username,
+            u.nickname,
             u.role,
             u.is_enabled,
             u.created_at,
@@ -450,6 +484,7 @@ fn map_user_row(row: PgRow) -> User {
     User {
         id: row.get("id"),
         username: row.get("username"),
+        nickname: row.get("nickname"),
         role: parse_user_role(row.get::<String, _>("role").as_str()),
         is_enabled: row.get("is_enabled"),
         created_at: row.get("created_at"),

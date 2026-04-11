@@ -13,7 +13,10 @@ pub fn router() -> Router<crate::state::AppState> {
         )
         .route("/auth/login", axum::routing::post(handlers::auth::login))
         .route("/auth/logout", axum::routing::post(handlers::auth::logout))
-        .route("/auth/me", get(handlers::auth::current_user))
+        .route(
+            "/auth/me",
+            get(handlers::auth::current_user).patch(handlers::auth::update_own_profile),
+        )
         .route(
             "/auth/password",
             axum::routing::put(handlers::auth::change_password),

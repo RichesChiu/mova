@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import type { UserAccount } from '../../api/types'
+import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
+import { GlassSelect } from '../glass-select'
 import { SettingsGearIcon } from '../settings-gear-icon'
 
 interface ContentHeaderProps {
@@ -10,6 +12,11 @@ interface ContentHeaderProps {
   onSignOut: () => void
 }
 
+const languageOptions = [
+  { label: 'English', value: 'en-US' },
+  { label: 'Chinese', value: 'zh-CN' },
+]
+
 export const ContentHeader = ({
   currentUser,
   canManageServer,
@@ -17,8 +24,10 @@ export const ContentHeader = ({
   onSignOut,
 }: ContentHeaderProps) => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
+  const [selectedLanguage, setSelectedLanguage] = useState('en-US')
   const userMenuRef = useRef<HTMLFieldSetElement | null>(null)
-  const userInitial = currentUser.username.slice(0, 1).toUpperCase()
+  const displayName = getUserDisplayName(currentUser)
+  const userInitial = getUserInitial(currentUser)
 
   useEffect(() => {
     if (!isUserMenuOpen) {
@@ -65,6 +74,19 @@ export const ContentHeader = ({
       </Link>
 
       <div className="content-header__actions">
+        <div className="content-header__locale">
+          <span className="content-header__locale-label">Language</span>
+          <div className="content-header__locale-select">
+            <GlassSelect
+              ariaLabel="Interface language"
+              compact
+              onChange={setSelectedLanguage}
+              options={languageOptions}
+              value={selectedLanguage}
+            />
+          </div>
+        </div>
+
         <fieldset
           className="toolbar-user"
           onBlur={(event) => {
@@ -90,7 +112,7 @@ export const ContentHeader = ({
             type="button"
           >
             <div className="toolbar-user__identity">
-              <strong>{currentUser.username}</strong>
+              <strong>{displayName}</strong>
             </div>
             <span aria-hidden="true" className="toolbar-user__avatar">
               {userInitial}

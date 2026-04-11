@@ -13,10 +13,12 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 const MIN_PASSWORD_LENGTH: usize = 8;
+const MAX_NICKNAME_LENGTH: usize = 128;
 
 #[derive(Debug, Clone)]
 pub struct CreateUserInput {
     pub username: String,
+    pub nickname: Option<String>,
     pub password: String,
     pub role: String,
     pub is_enabled: bool,
@@ -31,6 +33,7 @@ pub struct UpdateUserLibraryAccessInput {
 #[derive(Debug, Clone, Default)]
 pub struct UpdateUserInput {
     pub username: Option<String>,
+    pub nickname: Option<String>,
     pub role: Option<String>,
     pub is_enabled: Option<bool>,
     pub library_ids: Option<Vec<i64>>,
@@ -52,6 +55,11 @@ pub struct BootstrapAdminInput {
 pub struct ChangeOwnPasswordInput {
     pub current_password: String,
     pub new_password: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpdateOwnProfileInput {
+    pub nickname: String,
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +97,7 @@ pub async fn bootstrap_admin(
         pool,
         CreateUserInput {
             username: input.username,
+            nickname: None,
             password: input.password,
             role: UserRole::Admin.as_str().to_string(),
             is_enabled: true,
@@ -192,6 +201,7 @@ pub async fn get_user(pool: &PgPool, user_id: i64) -> ApplicationResult<UserProf
 
 pub async fn create_user(pool: &PgPool, input: CreateUserInput) -> ApplicationResult<UserProfile> {
     let username = normalize_username(input.username)?;
+    let nickname = normalize_nickname(input.nickname, &username)?;
     validate_password("password", &input.password)?;
     let role = normalize_user_role(input.role)?;
     let library_ids = normalize_library_ids(input.library_ids);
@@ -202,6 +212,7 @@ pub async fn create_user(pool: &PgPool, input: CreateUserInput) -> ApplicationRe
         pool,
         mova_db::CreateUserParams {
             username,
+            nickname,
             password_hash,
             role,
             is_enabled: input.is_enabled,
@@ -252,6 +263,7 @@ pub async fn update_user(
         Some(username) => normalize_username(username)?,
         None => existing.user.username.clone(),
     };
+    let nickname = normalize_nickname(input.nickname, &username)?;
     let role = match input.role {
         Some(role) => normalize_user_role(role)?,
         None => existing.user.role,
@@ -271,6 +283,7 @@ pub async fn update_user(
         user_id,
         mova_db::UpdateUserParams {
             username,
+            nickname,
             role,
             is_enabled,
             library_ids,
@@ -339,6 +352,19 @@ pub async fn reset_user_password(
     Ok(())
 }
 
+pub async fn update_own_profile(
+    pool: &PgPool,
+    user_id: i64,
+    input: UpdateOwnProfileInput,
+) -> ApplicationResult<UserProfile> {
+    let existing = get_user(pool, user_id).await?;
+    let nickname = normalize_nickname(Some(input.nickname), &existing.user.username)?;
+
+    mova_db::update_user_nickname(pool, user_id, &nickname)
+        .await
+        .map_err(map_user_write_error)
+}
+
 pub async fn change_own_password(
     pool: &PgPool,
     user_id: i64,
@@ -389,6 +415,22 @@ fn normalize_username(value: String) -> ApplicationResult<String> {
     }
 
     Ok(value)
+}
+
+fn normalize_nickname(value: Option<String>, fallback_username: &str) -> ApplicationResult<String> {
+    let nickname = value
+        .map(|entry| entry.trim().to_string())
+        .filter(|entry| !entry.is_empty())
+        .unwrap_or_else(|| fallback_username.to_string());
+
+    if nickname.chars().count() > MAX_NICKNAME_LENGTH {
+        return Err(ApplicationError::Validation(format!(
+            "nickname must be at most {} characters long",
+            MAX_NICKNAME_LENGTH
+        )));
+    }
+
+    Ok(nickname)
 }
 
 fn validate_password(field_name: &str, value: &str) -> ApplicationResult<()> {
@@ -567,7 +609,7 @@ fn is_unique_violation(error: &SqlxError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        enabled_admin_is_removed, normalize_library_ids, normalize_user_role,
+        enabled_admin_is_removed, normalize_library_ids, normalize_nickname, normalize_user_role,
         validate_self_user_management, UpdateUserInput,
     };
     use crate::error::ApplicationError;
@@ -591,6 +633,14 @@ mod tests {
     #[test]
     fn normalize_library_ids_deduplicates_and_sorts() {
         assert_eq!(normalize_library_ids(vec![3, 2, 3, -1, 1]), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn normalize_nickname_falls_back_to_username_when_blank() {
+        assert_eq!(
+            normalize_nickname(Some("   ".to_string()), "viewer01").unwrap(),
+            "viewer01"
+        );
     }
 
     #[test]

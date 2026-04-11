@@ -609,9 +609,8 @@ export const MediaItemPage = () => {
           {selectedSeasonScanItems.length > 0 ? (
             <p className="muted">
               {selectedSeasonScanItems.length}{' '}
-              {selectedSeasonScanItems.length === 1 ? 'episode is' : 'episodes are'} still
-              syncing in this season. Placeholder cards stay visible until the library write
-              completes.
+              {selectedSeasonScanItems.length === 1 ? 'episode is' : 'episodes are'} still syncing
+              in this season. Placeholder cards stay visible until the library write completes.
             </p>
           ) : null}
 
@@ -772,19 +771,25 @@ export const MediaItemPage = () => {
                       ) : null}
                     </div>
 
-                    <div className="media-file-card__path-block">
-                      <p className="media-file-card__label">Path</p>
-                      <p className="media-file-card__path">{file.file_path}</p>
-                    </div>
+                    <div className="media-file-card__details">
+                      <div className="media-file-card__details-heading">
+                        <p className="media-file-card__eyebrow">Source Details</p>
+                      </div>
 
-                    <dl className="media-file-card__facts">
-                      {sourceFacts.map((fact) => (
-                        <div className="media-file-card__fact" key={`${file.id}-${fact.label}`}>
-                          <dt>{fact.label}</dt>
-                          <dd>{fact.value}</dd>
-                        </div>
-                      ))}
-                    </dl>
+                      <div className="media-file-card__path-block">
+                        <p className="media-file-card__label">Path</p>
+                        <p className="media-file-card__path">{file.file_path}</p>
+                      </div>
+
+                      <dl className="media-file-card__facts">
+                        {sourceFacts.map((fact) => (
+                          <div className="media-file-card__fact" key={`${file.id}-${fact.label}`}>
+                            <dt>{fact.label}</dt>
+                            <dd>{fact.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
 
                     <div className="media-tech-stack">
                       <article className="media-tech-card media-tech-card--video">

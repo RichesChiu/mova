@@ -399,6 +399,7 @@ pub struct WatchHistoryItemResponse {
 pub struct UserResponse {
     pub id: i64,
     pub username: String,
+    pub nickname: String,
     pub role: String,
     pub is_enabled: bool,
     pub library_ids: Vec<i64>,
@@ -585,6 +586,7 @@ impl UserResponse {
         Self {
             id: user.user.id,
             username: user.user.username,
+            nickname: user.user.nickname,
             role: user.user.role.as_str().to_string(),
             is_enabled: user.user.is_enabled,
             library_ids: user.library_ids,

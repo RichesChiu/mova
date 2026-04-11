@@ -25,6 +25,7 @@ impl UserRole {
 pub struct User {
     pub id: i64,
     pub username: String,
+    pub nickname: String,
     pub role: UserRole,
     pub is_enabled: bool,
     pub created_at: OffsetDateTime,

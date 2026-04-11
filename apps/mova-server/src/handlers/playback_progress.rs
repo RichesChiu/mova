@@ -142,6 +142,7 @@ mod tests {
             pool,
             mova_db::CreateUserParams {
                 username: "viewer01".to_string(),
+                nickname: "viewer01".to_string(),
                 password_hash: "hash".to_string(),
                 role: UserRole::Viewer,
                 is_enabled: true,

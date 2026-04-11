@@ -38,9 +38,9 @@ import {
   getScanStatusLabel,
   getScanStatusSummary,
   getScanStatusTone,
-  getUserAvatarInitial,
   getUserLibraryAccessSummary,
 } from '../../lib/settings-admin'
+import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
 
 const USER_SKELETON_COUNT = 4
 const LIBRARY_SKELETON_COUNT = 3
@@ -412,22 +412,22 @@ export const SettingsPage = () => {
 
           {!shouldShowUserSkeleton
             ? users.map((user) => {
+                const libraryAccessSummary = getUserLibraryAccessSummary(user, libraries)
+                const displayName = getUserDisplayName(user)
+                const showUsername = displayName !== user.username
+
                 return (
                   <article className="settings-user-card" key={user.id}>
-                    <button
-                      aria-label={`Edit ${user.username}`}
-                      className="settings-user-card__avatar"
-                      onClick={() => setEditingUser(user)}
-                      type="button"
-                    >
-                      <span>{getUserAvatarInitial(user.username)}</span>
-                    </button>
+                    <div aria-hidden="true" className="settings-user-card__avatar">
+                      <span>{getUserInitial(user)}</span>
+                    </div>
 
                     <div className="settings-user-card__body">
                       <div className="settings-user-card__header">
                         <div>
-                          <strong>{user.username}</strong>
+                          <strong>{displayName}</strong>
                           <p className="muted">
+                            {showUsername ? `@${user.username} · ` : ''}
                             {user.role === 'admin' ? 'Administrator' : 'Viewer'}
                           </p>
                         </div>
@@ -450,40 +450,42 @@ export const SettingsPage = () => {
                             </label>
                           ) : null}
 
-                          <button
-                            aria-label={`Edit ${user.username}`}
-                            className="settings-user-card__edit-icon"
-                            onClick={() => setEditingUser(user)}
-                            type="button"
-                          >
-                            <svg
-                              aria-hidden="true"
-                              fill="none"
-                              focusable="false"
-                              viewBox="0 0 24 24"
+                          {user.role === 'viewer' ? (
+                            <button
+                              aria-label={`Edit ${user.username}`}
+                              className="settings-user-card__edit-icon"
+                              onClick={() => setEditingUser(user)}
+                              type="button"
                             >
-                              <path
-                                d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
-                                stroke="currentColor"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="1.7"
-                              />
-                              <path
-                                d="M12.75 7.05L16.95 11.25"
-                                stroke="currentColor"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="1.7"
-                              />
-                            </svg>
-                          </button>
+                              <svg
+                                aria-hidden="true"
+                                fill="none"
+                                focusable="false"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
+                                  stroke="currentColor"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth="1.7"
+                                />
+                                <path
+                                  d="M12.75 7.05L16.95 11.25"
+                                  stroke="currentColor"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth="1.7"
+                                />
+                              </svg>
+                            </button>
+                          ) : null}
                         </div>
                       </div>
 
-                      <p className="settings-user-card__access">
-                        {getUserLibraryAccessSummary(user, libraries)}
-                      </p>
+                      {libraryAccessSummary ? (
+                        <p className="settings-user-card__access">{libraryAccessSummary}</p>
+                      ) : null}
                     </div>
 
                     <div className="settings-user-card__actions">
@@ -535,129 +537,131 @@ export const SettingsPage = () => {
           </p>
         ) : null}
 
-        <div className="settings-library-list">
-          {shouldShowLibrarySkeleton ? <p className="muted">Loading libraries…</p> : null}
+        {shouldShowLibrarySkeleton || libraries.length > 0 ? (
+          <div className="settings-library-list">
+            {shouldShowLibrarySkeleton ? <p className="muted">Loading libraries…</p> : null}
 
-          {shouldShowLibrarySkeleton
-            ? LIBRARY_SKELETON_KEYS.slice(0, LIBRARY_SKELETON_COUNT).map((key) => (
-                <SettingsLibraryCardSkeleton key={key} />
-              ))
-            : null}
+            {shouldShowLibrarySkeleton
+              ? LIBRARY_SKELETON_KEYS.slice(0, LIBRARY_SKELETON_COUNT).map((key) => (
+                  <SettingsLibraryCardSkeleton key={key} />
+                ))
+              : null}
 
-          {!shouldShowLibrarySkeleton && libraries.length === 0 ? (
-            <article className="settings-library-card">
-              <div className="settings-library-card__body">
-                <span className="summary-card__label">No libraries yet</span>
-                <strong>Create the first library</strong>
-              </div>
-            </article>
-          ) : !shouldShowLibrarySkeleton ? (
-            libraries.map((library) => {
-              const libraryDetail = libraryDetailsById.get(library.id)
-              const lastScan = libraryDetail?.last_scan ?? null
-              const lastScanStatusLabel = getScanStatusLabel(lastScan)
-              const lastScanStatusTone = getScanStatusTone(lastScan)
+            {!shouldShowLibrarySkeleton
+              ? libraries.map((library) => {
+                  const libraryDetail = libraryDetailsById.get(library.id)
+                  const lastScan = libraryDetail?.last_scan ?? null
+                  const lastScanStatusLabel = getScanStatusLabel(lastScan)
+                  const lastScanStatusTone = getScanStatusTone(lastScan)
 
-              return (
-                <article className="settings-library-card" key={library.id}>
-                  <div aria-hidden="true" className="settings-library-card__backdrop">
-                    <span className="settings-library-card__backdrop-glow" />
-                  </div>
-
-                  <div className="settings-library-card__body">
-                    <div className="settings-library-card__header">
-                      <div className="settings-library-card__meta">
-                        <span className="settings-library-card__type">{library.library_type}</span>
-                        <span className="settings-library-card__language">
-                          {library.metadata_language}
-                        </span>
-                        <span className="settings-library-card__status">
-                          {library.is_enabled ? 'enabled' : 'disabled'}
-                        </span>
+                  return (
+                    <article className="settings-library-card" key={library.id}>
+                      <div aria-hidden="true" className="settings-library-card__backdrop">
+                        <span className="settings-library-card__backdrop-glow" />
                       </div>
 
-                      <button
-                        aria-label={`Edit ${library.name}`}
-                        className="settings-library-card__edit-icon"
-                        onClick={() => setEditingLibrary(library)}
-                        type="button"
-                      >
-                        <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24">
-                          <path
-                            d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
-                            stroke="currentColor"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="1.7"
-                          />
-                          <path
-                            d="M12.75 7.05L16.95 11.25"
-                            stroke="currentColor"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="1.7"
-                          />
-                        </svg>
-                      </button>
-                    </div>
+                      <div className="settings-library-card__body">
+                        <div className="settings-library-card__header">
+                          <div className="settings-library-card__meta">
+                            <span className="settings-library-card__type">
+                              {library.library_type}
+                            </span>
+                            <span className="settings-library-card__language">
+                              {library.metadata_language}
+                            </span>
+                            <span className="settings-library-card__status">
+                              {library.is_enabled ? 'enabled' : 'disabled'}
+                            </span>
+                          </div>
 
-                    <strong className="settings-library-card__title">{library.name}</strong>
-                    <p className="settings-library-card__description">
-                      {library.description ?? 'No description'}
-                    </p>
+                          <button
+                            aria-label={`Edit ${library.name}`}
+                            className="settings-library-card__edit-icon"
+                            onClick={() => setEditingLibrary(library)}
+                            type="button"
+                          >
+                            <svg
+                              aria-hidden="true"
+                              fill="none"
+                              focusable="false"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
+                                stroke="currentColor"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="1.7"
+                              />
+                              <path
+                                d="M12.75 7.05L16.95 11.25"
+                                stroke="currentColor"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth="1.7"
+                              />
+                            </svg>
+                          </button>
+                        </div>
 
-                    <div className="settings-library-card__scan">
-                      <div className="settings-library-card__scan-header">
-                        <span className="settings-library-card__path-label">Latest Scan</span>
-                        <span
-                          className={`settings-library-card__scan-badge settings-library-card__scan-badge--${lastScanStatusTone}`}
+                        <strong className="settings-library-card__title">{library.name}</strong>
+                        <p className="settings-library-card__description">
+                          {library.description ?? 'No description'}
+                        </p>
+
+                        <div className="settings-library-card__scan">
+                          <div className="settings-library-card__scan-header">
+                            <span className="settings-library-card__path-label">Latest Scan</span>
+                            <span
+                              className={`settings-library-card__scan-badge settings-library-card__scan-badge--${lastScanStatusTone}`}
+                            >
+                              {lastScanStatusLabel}
+                            </span>
+                          </div>
+                          <p className="settings-library-card__scan-copy">
+                            {getScanStatusSummary(lastScan)}
+                          </p>
+                        </div>
+
+                        <div className="settings-library-card__path-block">
+                          <span className="settings-library-card__path-label">Root path</span>
+                          <code className="settings-library-card__path">{library.root_path}</code>
+                        </div>
+                      </div>
+
+                      <div className="settings-library-card__actions">
+                        <button
+                          className="button"
+                          disabled={scanMutation.isPending}
+                          onClick={() => scanMutation.mutate(library.id)}
+                          type="button"
                         >
-                          {lastScanStatusLabel}
-                        </span>
+                          {scanMutation.isPending ? 'Triggering…' : 'Scan Library'}
+                        </button>
+                        <button
+                          className="button button--danger settings-library-card__delete"
+                          disabled={deleteLibraryMutation.isPending || scanMutation.isPending}
+                          onClick={() => {
+                            deleteLibraryMutation.reset()
+                            setPendingConfirmation({
+                              kind: 'delete-library',
+                              library,
+                            })
+                          }}
+                          type="button"
+                        >
+                          {deleteLibraryMutation.isPending &&
+                          deleteLibraryMutation.variables === library.id
+                            ? 'Deleting…'
+                            : 'Delete Library'}
+                        </button>
                       </div>
-                      <p className="settings-library-card__scan-copy">
-                        {getScanStatusSummary(lastScan)}
-                      </p>
-                    </div>
-
-                    <div className="settings-library-card__path-block">
-                      <span className="settings-library-card__path-label">Root path</span>
-                      <code className="settings-library-card__path">{library.root_path}</code>
-                    </div>
-                  </div>
-
-                  <div className="settings-library-card__actions">
-                    <button
-                      className="button"
-                      disabled={scanMutation.isPending}
-                      onClick={() => scanMutation.mutate(library.id)}
-                      type="button"
-                    >
-                      {scanMutation.isPending ? 'Triggering…' : 'Scan Library'}
-                    </button>
-                    <button
-                      className="button button--danger settings-library-card__delete"
-                      disabled={deleteLibraryMutation.isPending || scanMutation.isPending}
-                      onClick={() => {
-                        deleteLibraryMutation.reset()
-                        setPendingConfirmation({
-                          kind: 'delete-library',
-                          library,
-                        })
-                      }}
-                      type="button"
-                    >
-                      {deleteLibraryMutation.isPending &&
-                      deleteLibraryMutation.variables === library.id
-                        ? 'Deleting…'
-                        : 'Delete Library'}
-                    </button>
-                  </div>
-                </article>
-              )
-            })
-          ) : null}
-        </div>
+                    </article>
+                  )
+                })
+              : null}
+          </div>
+        ) : null}
       </section>
 
       <UserEditorModal

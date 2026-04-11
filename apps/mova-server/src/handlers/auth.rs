@@ -26,6 +26,11 @@ pub struct ChangePasswordRequest {
     pub new_password: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateOwnProfileRequest {
+    pub nickname: String,
+}
+
 pub async fn get_bootstrap_status(
     State(state): State<AppState>,
 ) -> Result<ApiJson<BootstrapStatusResponse>, ApiError> {
@@ -106,6 +111,25 @@ pub async fn current_user(
     jar: CookieJar,
 ) -> Result<ApiJson<UserResponse>, ApiError> {
     let user = require_user(&state, &jar).await?;
+
+    Ok(ok(UserResponse::from_domain(user, state.api_time_offset)))
+}
+
+pub async fn update_own_profile(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Json(request): Json<UpdateOwnProfileRequest>,
+) -> Result<ApiJson<UserResponse>, ApiError> {
+    let current_user = require_user(&state, &jar).await?;
+    let user = mova_application::update_own_profile(
+        &state.db,
+        current_user.user.id,
+        mova_application::UpdateOwnProfileInput {
+            nickname: request.nickname,
+        },
+    )
+    .await
+    .map_err(ApiError::from)?;
 
     Ok(ok(UserResponse::from_domain(user, state.api_time_offset)))
 }

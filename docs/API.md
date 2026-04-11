@@ -61,6 +61,7 @@
 | `POST` | `/api/auth/login` | 登录 |
 | `POST` | `/api/auth/logout` | 登出 |
 | `GET` | `/api/auth/me` | 查询当前用户 |
+| `PATCH` | `/api/auth/me` | 更新当前用户昵称 |
 | `GET` | `/api/events` | 订阅服务端实时事件流（SSE） |
 | `PUT` | `/api/auth/password` | 当前用户修改自己的密码 |
 | `GET` | `/api/users` | 查询用户列表（管理员） |
@@ -190,7 +191,24 @@
 
 返回：
 - `200 OK`
-- 返回字段包括 `id`、`username`、`role`、`is_enabled`、`library_ids`
+- 返回字段包括 `id`、`username`、`nickname`、`role`、`is_enabled`、`library_ids`
+
+### `PATCH /api/auth/me`
+
+作用：
+- 更新当前登录用户的昵称
+
+请求体：
+
+```json
+{
+  "nickname": "Cinema Fan"
+}
+```
+
+说明：
+- 昵称留空时，服务端会自动回退为用户名
+- 成功后会直接返回更新后的当前用户对象
 
 ### `GET /api/events`
 
@@ -282,6 +300,7 @@
 ```json
 {
   "username": "viewer01",
+  "nickname": "Cinema Fan",
   "password": "viewer1234",
   "role": "viewer",
   "is_enabled": true,
@@ -303,6 +322,7 @@
 ```json
 {
   "username": "viewer01",
+  "nickname": "Cinema Fan",
   "role": "viewer",
   "is_enabled": true,
   "library_ids": [1, 2]

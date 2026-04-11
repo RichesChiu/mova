@@ -15,6 +15,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct CreateUserRequest {
     pub username: String,
+    pub nickname: Option<String>,
     pub password: String,
     pub role: String,
     pub is_enabled: Option<bool>,
@@ -29,6 +30,7 @@ pub struct UpdateUserLibraryAccessRequest {
 #[derive(Debug, Deserialize, Default)]
 pub struct UpdateUserRequest {
     pub username: Option<String>,
+    pub nickname: Option<String>,
     pub role: Option<String>,
     pub is_enabled: Option<bool>,
     pub library_ids: Option<Vec<i64>>,
@@ -66,6 +68,7 @@ pub async fn create_user(
         &state.db,
         mova_application::CreateUserInput {
             username: request.username,
+            nickname: request.nickname,
             password: request.password,
             role: request.role,
             is_enabled: request.is_enabled.unwrap_or(true),
@@ -95,6 +98,7 @@ pub async fn update_user(
         user_id,
         mova_application::UpdateUserInput {
             username: request.username,
+            nickname: request.nickname,
             role: request.role,
             is_enabled: request.is_enabled,
             library_ids: request.library_ids,
@@ -224,6 +228,7 @@ mod tests {
             pool,
             mova_db::CreateUserParams {
                 username: username.to_string(),
+                nickname: username.to_string(),
                 password_hash: "hash".to_string(),
                 role,
                 is_enabled: true,

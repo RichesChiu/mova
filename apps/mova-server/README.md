@@ -205,6 +205,7 @@
 | `POST` | `/api/auth/login` | `handlers::auth::login` | `mova_application::login`、`auth::attach_session_cookie` | 用户登录并建立 session。 |
 | `POST` | `/api/auth/logout` | `handlers::auth::logout` | `mova_application::logout`、`auth::clear_session_cookie` | 注销当前 session。 |
 | `GET` | `/api/auth/me` | `handlers::auth::current_user` | `auth::require_user` | 返回当前登录用户。 |
+| `PATCH` | `/api/auth/me` | `handlers::auth::update_own_profile` | `auth::require_user`、`mova_application::update_own_profile` | 当前用户更新自己的昵称。 |
 | `PUT` | `/api/auth/password` | `handlers::auth::change_password` | `auth::require_user`、`mova_application::change_own_password`、`auth::attach_session_cookie` | 当前用户修改自己的密码，并轮换 session。 |
 
 ### 6.3 用户管理
@@ -215,7 +216,7 @@
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/users` | `handlers::users::list_users` | `auth::require_admin`、`mova_application::list_users` | 管理员查询用户列表。 |
 | `POST` | `/api/users` | `handlers::users::create_user` | `auth::require_admin`、`mova_application::create_user` | 管理员创建用户。 |
-| `PATCH` | `/api/users/{id}` | `handlers::users::update_user` | `auth::require_admin`、`mova_application::update_user` | 更新用户角色、启停状态等基础信息。 |
+| `PATCH` | `/api/users/{id}` | `handlers::users::update_user` | `auth::require_admin`、`mova_application::update_user` | 更新用户昵称、角色、启停状态等基础信息。 |
 | `DELETE` | `/api/users/{id}` | `handlers::users::delete_user` | `auth::require_admin`、`mova_application::delete_user` | 删除用户。 |
 | `PUT` | `/api/users/{id}/library-access` | `handlers::users::update_user_library_access` | `auth::require_admin`、`mova_application::replace_user_library_access` | 更新普通用户的媒体库授权范围。 |
 | `PUT` | `/api/users/{id}/password` | `handlers::users::reset_user_password` | `auth::require_admin`、`mova_application::reset_user_password` | 管理员重置指定用户密码。 |

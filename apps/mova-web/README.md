@@ -74,9 +74,9 @@ src/
 | `/login` | `src/pages/login-page/index.tsx` | 登录页和首个管理员 bootstrap 入口。根据 `bootstrap-status` 决定是“创建第一个管理员”还是普通登录。 | `getCurrentUser`、`getBootstrapStatus`、`login`、`bootstrapAdmin` |
 | `/` | `src/pages/home-page/index.tsx` | 首页。聚合媒体库卡片、继续观看、各媒体库的 shelf；同时消费扫描实时态。 | `listLibraries`、`getLibrary`、`listLibraryMediaItems`、`listContinueWatching`、`getMediaItemEpisodeOutline` |
 | `/libraries/:libraryId` | `src/pages/library-page/index.tsx` | 单库详情页。展示库信息、最新扫描状态、电影/剧集列表，以及扫描中的占位卡。 | `getLibrary`、`listLibraryMediaItems`、`scanRuntimeByLibrary` |
-| `/media-items/:mediaItemId` | `src/pages/media-item-page/index.tsx` | 媒体详情页。电影显示详情与播放入口，并在标题旁展示带 `IMDb` 标识的评分；hero 区会优先用背景图或海报做模糊大底与光晕层，让标题、海报和评分形成更完整的电影感头图；演员区下方会展示按资源文件拆分的视频、音频、字幕技术卡；每类技术卡头部都有小下拉，可在当前资源、音轨和字幕轨之间切换，字幕卡也会展示默认、强制、听障和外挂标记；剧集显示季/集大纲、演员和管理员元数据工具；当所在媒体库仍在扫描时，这里也会显示当前条目或当前季的同步状态与占位集卡。 | `getMediaItem`、`getMediaItemEpisodeOutline`、`getMediaItemPlaybackProgress`、`getMediaItemPlaybackHeader`、`listMediaItemFiles`、`listMediaFileAudioTracks`、`listMediaFileSubtitles`、`scanRuntimeByLibrary` |
+| `/media-items/:mediaItemId` | `src/pages/media-item-page/index.tsx` | 媒体详情页。电影显示详情与播放入口，并在标题旁展示带 `IMDb` 标识的评分；hero 区会优先用背景图或海报做模糊大底与光晕层，让标题、海报和评分形成更完整的电影感头图；演员区下方会展示按资源文件拆分的 source details，以及横向并排的视频、音频、字幕技术卡；每类技术卡头部都有小下拉，可在当前资源、音轨和字幕轨之间切换，字幕卡也会展示默认、强制、听障和外挂标记；剧集显示季/集大纲、演员和管理员元数据工具；当所在媒体库仍在扫描时，这里也会显示当前条目或当前季的同步状态与占位集卡。 | `getMediaItem`、`getMediaItemEpisodeOutline`、`getMediaItemPlaybackProgress`、`getMediaItemPlaybackHeader`、`listMediaItemFiles`、`listMediaFileAudioTracks`、`listMediaFileSubtitles`、`scanRuntimeByLibrary` |
 | `/media-items/:mediaItemId/play` | `src/pages/media-player-page/index.tsx` | 沉浸式播放器页。负责装配播放器标题、副标题、集切换选项，并把实际播放行为交给 `MediaPlayerPanel`。 | `getMediaItemPlaybackHeader`、`getMediaItemEpisodeOutline` |
-| `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。只展示用户名、角色标签，并通过改密弹窗处理密码更新。 | `changeOwnPassword`、`AppShell` 提供的 `currentUser` |
+| `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。收成单块资料面板，展示用户名、昵称、角色标签，以及链接式的改密入口；昵称支持通过行内编辑 icon 直接更新，真正的密码修改仍在弹窗里完成。 | `updateOwnProfile`、`changeOwnPassword`、`AppShell` 提供的 `currentUser` |
 | `/settings` | `src/pages/settings-page/index.tsx` | 管理员设置页。承接用户增删改查、媒体库创建、扫描、删除和基础配置编辑；危险操作会走统一确认弹窗。 | `listUsers`、`createUser`、`updateUser`、`deleteUser`、`createLibrary`、`updateLibrary`、`scanLibrary`、`deleteLibrary`、`getLibrary` |
 
 几个页面内还有“页面级子模块”，但它们不算独立路由：
@@ -96,7 +96,7 @@ src/
 | `AppShell` | `components/app-shell/index.tsx` | 登录后壳层，负责当前用户、媒体库列表、SSE、顶栏和 `Outlet` 上下文。 | 所有非登录、非沉浸式播放器页面 |
 | `useServerEvents` | `components/app-shell/use-server-events.ts` | 通过 `EventSource('/api/events')` 订阅 SSE，解析扫描/媒体库/元数据事件，并触发 React Query 刷新。 | `AppShell` |
 | `scan-runtime` | `components/app-shell/scan-runtime.ts` | 把 SSE 运行时扫描数据整理成库级进度、条目级占位卡、详情页同步提示和状态文案。 | 首页、媒体库页、媒体详情页、设置页 |
-| `ContentHeader` | `components/content-header/index.tsx` | 顶部品牌和用户菜单，包括跳转设置页、个人页和登出。 | `AppShell` |
+| `ContentHeader` | `components/content-header/index.tsx` | 顶部品牌、未来 i18n 预留的语言下拉，以及用户菜单；顶栏用户区会优先显示昵称，没有昵称时回退到用户名。 | `AppShell` |
 
 ### 4.2 媒体展示
 
@@ -114,7 +114,7 @@ src/
 | `CreateLibraryForm` | `components/create-library-form/index.tsx` | 建库表单，支持目录树选择、类型选择、元数据语言和启停；`Library Type` 和 `Root Path` 也会直接给出轻量提示，减少用户理解容器路径和库类型差异的成本。 | `CreateLibraryModal` |
 | `CreateLibraryModal` | `components/create-library-modal/index.tsx` | 设置页里的建库弹窗，负责承接建库入口，不再把表单长期铺在页面底部。 | 设置页 |
 | `LibraryEditorModal` | `components/library-editor-modal/index.tsx` | 编辑媒体库基础配置，当前支持名称、描述、元数据语言和启停状态；只读的库类型和根路径旁边也会给出同一套说明。 | 设置页 |
-| `UserEditorModal` | `components/user-editor-modal/index.tsx` | 创建/编辑用户，支持角色、启停和媒体库授权。 | 设置页 |
+| `UserEditorModal` | `components/user-editor-modal/index.tsx` | 创建/编辑用户，支持用户名、昵称、角色、启停和媒体库授权。 | 设置页 |
 | `ConfirmActionModal` | `components/confirm-action-modal/index.tsx` | 统一承接危险操作确认流和错误提示，当前用于删库、删用户。 | 设置页 |
 | `ChangePasswordModal` | `components/change-password-modal/index.tsx` | 个人页的改密弹窗，统一处理当前密码校验、确认输入和错误反馈。 | 个人页 |
 | `MetadataMatchPanel` | `components/metadata-match-panel/index.tsx` | 管理员手动搜索并替换单条媒体元数据。 | 媒体详情页 |
@@ -151,6 +151,7 @@ src/
 | `lib/player-feedback.ts` | 播放器兼容性提示文案，专门处理自动播放与全屏失败时的非阻断 warning。 |
 | `lib/library-config.ts` | 统一媒体库编辑弹窗的 draft 初始化、变更判断和提交 payload 归一化。 |
 | `lib/settings-admin.ts` | 收口设置页里的用户/媒体库缓存更新、扫描状态文案、本地占位 detail 构建，以及删库/删用户确认文案。 |
+| `lib/user-identity.ts` | 统一昵称/用户名回退逻辑和用户头像首字母规则，供顶栏、设置页和个人页复用。 |
 | `lib/viewer.ts` | 当前角色判断工具，决定哪些管理入口只给管理员看。 |
 | `lib/format.ts` | 时间、日期、时长等显示格式化函数。 |
 | `lib/theme.ts` | 启动时应用全局主题。 |

@@ -18,7 +18,7 @@ export const getUserAvatarInitial = (username: string) =>
 
 export const getUserLibraryAccessSummary = (user: UserAccount, libraries: Library[]) => {
   if (user.role === 'admin') {
-    return 'Access: All libraries'
+    return ''
   }
 
   const libraryNames = libraries

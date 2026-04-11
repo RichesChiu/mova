@@ -426,6 +426,7 @@ mod tests {
             pool,
             mova_db::CreateUserParams {
                 username: username.to_string(),
+                nickname: username.to_string(),
                 password_hash: "hash".to_string(),
                 role,
                 is_enabled: true,
