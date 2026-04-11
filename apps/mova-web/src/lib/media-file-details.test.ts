@@ -5,6 +5,7 @@ import {
   buildAudioTrackTitle,
   buildMediaFileFeatureBadges,
   buildMediaSourceFacts,
+  buildMediaVersionOptions,
   buildSubtitleTrackFacts,
   buildSubtitleTrackOptions,
   buildSubtitleTrackTitle,
@@ -164,6 +165,15 @@ describe('media file detail helpers', () => {
     expect(buildVideoTrackOptions(sampleFile)).toEqual([
       {
         label: 'Dune (2021) [DDP Atmos][DoVi].mkv',
+        value: '11',
+      },
+    ])
+  })
+
+  it('builds concise version options for the playback selector', () => {
+    expect(buildMediaVersionOptions([sampleFile])).toEqual([
+      {
+        label: 'Dune (2021) [DDP Atmos][DoVi].mkv · MKV · 3840 × 2160 · 19 Mb/s',
         value: '11',
       },
     ])

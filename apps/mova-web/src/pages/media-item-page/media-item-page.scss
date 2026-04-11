@@ -86,6 +86,13 @@
   gap: 12px;
 }
 
+.detail-hero__eyebrow-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .detail-hero__title-row h2 {
   margin: 0;
 }
@@ -126,6 +133,21 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.detail-hero__version-picker {
+  display: grid;
+  gap: 8px;
+  max-width: 360px;
+}
+
+.detail-hero__version-label {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .detail-hero__overview {
@@ -285,20 +307,20 @@
   gap: 16px;
 }
 
-.media-file-panel__viewport {
-  grid-auto-columns: clamp(320px, 92vw, 1080px);
+.media-file-panel__list {
+  display: grid;
+  gap: 16px;
 }
 
 .media-file-card {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   height: 100%;
   padding: 18px;
   border: 1px solid var(--floating-border);
   border-radius: 22px;
   background: var(--floating-surface);
   box-shadow: var(--panel-inset), var(--floating-shadow);
-  scroll-snap-align: start;
 }
 
 .media-file-card__header,
@@ -308,9 +330,12 @@
   display: grid;
 }
 
-.media-file-card__header,
+.media-file-card__header {
+  gap: 12px;
+}
+
 .media-file-card__title-block {
-  gap: 10px;
+  gap: 6px;
 }
 
 .media-file-card__details {
@@ -430,11 +455,11 @@
 }
 
 .media-tech-card__header {
-  gap: 8px;
+  gap: 6px;
 }
 
 .media-tech-card {
-  gap: 14px;
+  gap: 12px;
   min-height: 100%;
   padding: 16px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 82%, transparent);
@@ -443,13 +468,20 @@
 }
 
 .media-tech-card__header--with-select {
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
-  align-items: start;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .media-tech-card__title-block,
 .media-tech-card__selector {
   min-width: 0;
+}
+
+.media-tech-card__title-block {
+  display: grid;
+  gap: 4px;
 }
 
 .media-tech-card__header h5,
@@ -474,6 +506,11 @@
 
 .media-tech-card__selector .glass-select {
   width: 100%;
+}
+
+.media-tech-card__selector {
+  width: min(220px, 100%);
+  flex: 0 0 min(220px, 100%);
 }
 
 .media-tech-card__facts {
@@ -624,12 +661,14 @@
     max-width: 240px;
   }
 
-  .media-file-panel__viewport {
-    grid-auto-columns: minmax(292px, 88vw);
+  .media-tech-card__header--with-select {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .media-tech-card__header--with-select {
-    grid-template-columns: minmax(0, 1fr);
+  .media-tech-card__selector {
+    width: 100%;
+    flex-basis: auto;
   }
 
   .media-file-card__facts {

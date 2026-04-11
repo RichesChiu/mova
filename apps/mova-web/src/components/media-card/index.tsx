@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { MediaItem } from '../../api/types'
 import { mediaItemPrimaryPath } from '../../lib/media-routes'
+import { MediaTypeTag } from '../media-type-tag'
 
 interface MediaCardProps {
   item: MediaItem
@@ -36,7 +37,7 @@ export const MediaCard = ({ item }: MediaCardProps) => {
 
       <div className="media-card__body">
         <div className="media-card__meta">
-          <span className="chip">{item.media_type}</span>
+          <MediaTypeTag mediaType={item.media_type} />
           {item.year ? <span className="muted">{item.year}</span> : null}
         </div>
         <h3 className="media-card__title" title={title}>

@@ -36,7 +36,7 @@
 | 文件 | 作用 |
 | --- | --- |
 | `src/discover.rs` | 递归发现媒体文件、路径级扫描、支持进度回调和取消信号。 |
-| `src/parse.rs` | 从文件名/路径中识别电影或剧集信号，例如 `S01E02`、`EP02`、`Episode 03`、`第03集`，以及 `Season 01/01.mkv` 这类依赖目录信息的命名。 |
+| `src/parse.rs` | 从文件名/路径中识别电影或剧集信号，例如 `S01E02`、`EP02`、`Episode 03`、`第03集`，以及 `Season 01/01.mkv` 这类依赖目录信息的命名；当文件名很脏时也会优先参考更干净的父目录标题，但会避开 `合集 / collection / box set` 这类合集目录。 |
 | `src/sidecar.rs` | 读取 `.nfo`、海报、背景图等 sidecar 资产。 |
 | `src/probe.rs` | 调用 `ffprobe`，补时长、编码、分辨率和码率。 |
 | `src/subtitle.rs` | 字幕轨道相关发现与归一化。 |

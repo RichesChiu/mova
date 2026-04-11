@@ -80,6 +80,94 @@ fn parse_media_metadata_extracts_parenthesized_year() {
 }
 
 #[test]
+fn parse_media_metadata_decodes_basic_html_entities_in_file_names() {
+    let path = Path::new("A.Writer&#39;s.Odyssey.2025.mkv");
+
+    assert_eq!(
+        parse_media_metadata(path),
+        ParsedMediaMetadata {
+            title: "A Writer's Odyssey".to_string(),
+            source_title: "A Writer's Odyssey".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: Some(2025),
+            season_number: None,
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: None,
+            episode_title: None,
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+        }
+    );
+}
+
+#[test]
+fn parse_media_metadata_prefers_movie_folder_title_when_file_name_is_noisy() {
+    let path = Path::new(
+        "刺杀小说家/刺杀小说家 (2025) [4K蓝光原盘珍藏版]/A Writer&#39;s Odyssey 2 (2025) - 2160p WEB-DL HDR HQ H265 DTS.mkv",
+    );
+
+    assert_eq!(
+        parse_media_metadata(path),
+        ParsedMediaMetadata {
+            title: "刺杀小说家".to_string(),
+            source_title: "刺杀小说家".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: Some(2025),
+            season_number: None,
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: None,
+            episode_title: None,
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+        }
+    );
+}
+
+#[test]
+fn parse_media_metadata_does_not_collapse_collection_folder_into_one_movie_title() {
+    let path = Path::new(
+        "哈利波特系列八部合集/1.Harry.Potter.and.the.Sorcerer's.Stone.2001.UHD.BluRay.2160p.10bit.DoVi.4Audio.DTS-X.MA.7.1.x265-beAst.mkv",
+    );
+
+    assert_eq!(
+        parse_media_metadata(path),
+        ParsedMediaMetadata {
+            title: "Harry Potter and the Sorcerer's Stone".to_string(),
+            source_title: "Harry Potter and the Sorcerer's Stone".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: Some(2001),
+            season_number: None,
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: None,
+            episode_title: None,
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+        }
+    );
+}
+
+#[test]
 fn parse_media_metadata_trims_trailing_separator_before_year() {
     let path = Path::new("新驯龙高手 - 2025.mp4");
 

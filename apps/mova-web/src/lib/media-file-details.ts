@@ -148,6 +148,23 @@ const formatVideoStreamTitle = (file: MediaFile) => file.video_title?.trim() || 
 
 export const getMediaFileDisplayName = (filePath: string) => extractFileName(filePath)
 
+export const buildMediaVersionOptions = (mediaFiles: MediaFile[]): MediaFileTrackOption[] =>
+  mediaFiles.map((file, index) => {
+    const displayName = getMediaFileDisplayName(file.file_path)
+    const meta = [
+      file.container?.trim() ? file.container.trim().toUpperCase() : null,
+      file.width && file.height ? `${file.width} × ${file.height}` : null,
+      formatMediaFileBitrate(file.bitrate),
+    ]
+      .filter((value) => value && value !== '—')
+      .join(' · ')
+
+    return {
+      label: [displayName || `Version ${index + 1}`, meta].filter(Boolean).join(' · '),
+      value: String(file.id),
+    }
+  })
+
 export const formatMediaFileResolution = (file: Pick<MediaFile, 'width' | 'height'>) => {
   if (!file.width || !file.height) {
     return '—'

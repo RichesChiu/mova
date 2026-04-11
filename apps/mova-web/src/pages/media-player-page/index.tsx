@@ -14,6 +14,7 @@ export const MediaPlayerPage = () => {
   const params = useParams()
   const [searchParams] = useSearchParams()
   const mediaItemId = Number(params.mediaItemId)
+  const requestedFileId = Number(searchParams.get('file'))
   const startMode = searchParams.get('fromStart') === '1' ? 'from-start' : 'resume'
 
   const playbackHeaderQuery = useQuery({
@@ -167,6 +168,7 @@ export const MediaPlayerPage = () => {
           episodeSwitchOptions={episodeSwitchOptions}
           mediaItemId={playbackHeaderQuery.data.media_item_id}
           onSelectEpisode={(targetMediaItemId) => navigate(mediaItemPlayPath(targetMediaItemId))}
+          preferredMediaFileId={Number.isFinite(requestedFileId) ? requestedFileId : null}
           startMode={startMode}
           title={playbackHeaderQuery.data.title}
           variant="immersive"

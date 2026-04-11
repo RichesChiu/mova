@@ -183,12 +183,39 @@ async fn upsert_movie_media_entry(
     entry: &CreateMediaEntryParams,
     existing: Option<ExistingLibraryMediaFileRecord>,
 ) -> Result<()> {
+    let movie_group_title = movie_group_title_for_entry(entry);
+    let existing_movie_media_item_id =
+        find_existing_movie_media_item(tx, entry.library_id, &movie_group_title, entry.year)
+            .await?;
+
     if let Some(existing) = existing {
         if !existing.media_type.eq_ignore_ascii_case("movie") {
             delete_media_item(tx, existing.media_item_id).await?;
-            let media_item_id = insert_media_item(tx, entry).await?;
-            insert_media_file(tx, media_item_id, entry).await?;
+
+            if let Some(existing_movie_media_item_id) = existing_movie_media_item_id {
+                update_media_item_from_entry(tx, existing_movie_media_item_id, entry).await?;
+                insert_media_file(tx, existing_movie_media_item_id, entry).await?;
+            } else {
+                let media_item_id = insert_media_item(tx, entry).await?;
+                insert_media_file(tx, media_item_id, entry).await?;
+            }
+
             return Ok(());
+        }
+
+        if let Some(existing_movie_media_item_id) = existing_movie_media_item_id {
+            if existing_movie_media_item_id != existing.media_item_id {
+                update_media_item_from_entry(tx, existing_movie_media_item_id, entry).await?;
+                reassign_media_file_to_media_item(
+                    tx,
+                    existing.media_file_id,
+                    existing_movie_media_item_id,
+                    entry,
+                )
+                .await?;
+                cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
+                return Ok(());
+            }
         }
 
         update_media_item_from_entry(tx, existing.media_item_id, entry).await?;
@@ -196,9 +223,55 @@ async fn upsert_movie_media_entry(
         return Ok(());
     }
 
+    if let Some(existing_movie_media_item_id) = existing_movie_media_item_id {
+        update_media_item_from_entry(tx, existing_movie_media_item_id, entry).await?;
+        insert_media_file(tx, existing_movie_media_item_id, entry).await?;
+        return Ok(());
+    }
+
     let media_item_id = insert_media_item(tx, entry).await?;
     insert_media_file(tx, media_item_id, entry).await?;
     Ok(())
+}
+
+fn movie_group_title_for_entry(entry: &CreateMediaEntryParams) -> String {
+    let source_title = entry.source_title.trim();
+    if !source_title.is_empty() {
+        return source_title.to_string();
+    }
+
+    display_title_for_entry(entry)
+}
+
+async fn find_existing_movie_media_item(
+    tx: &mut Transaction<'_, Postgres>,
+    library_id: i64,
+    source_title: &str,
+    year: Option<i32>,
+) -> Result<Option<i64>> {
+    let row = sqlx::query(
+        r#"
+        select id
+        from media_items
+        where library_id = $1
+          and media_type = 'movie'
+          and source_title = $2
+          and (
+                ($3::int is null and year is null)
+                or year = $3
+              )
+        order by id asc
+        limit 1
+        "#,
+    )
+    .bind(library_id)
+    .bind(source_title)
+    .bind(year)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to find existing movie item")?;
+
+    Ok(row.map(|row| row.get("id")))
 }
 
 #[derive(Debug, Clone)]
@@ -745,6 +818,55 @@ mod tests {
     use super::sync_library_media;
     use crate::{create_library, CreateLibraryParams, CreateMediaEntryParams};
 
+    fn build_movie_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams {
+        CreateMediaEntryParams {
+            library_id,
+            media_type: "movie".to_string(),
+            title: "A Writer's Odyssey".to_string(),
+            source_title: "A Writer's Odyssey".to_string(),
+            original_title: Some("刺杀小说家".to_string()),
+            sort_title: None,
+            year: Some(2025),
+            imdb_rating: Some("6.8".to_string()),
+            season_number: None,
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: None,
+            episode_title: None,
+            overview: Some("A fantasy adventure.".to_string()),
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+            file_path: file_path.to_string(),
+            container: Some("mkv".to_string()),
+            file_size: 1,
+            duration_seconds: Some(7800),
+            video_title: None,
+            video_codec: Some("hevc".to_string()),
+            video_profile: Some("Main 10".to_string()),
+            video_level: Some("5.1".to_string()),
+            audio_codec: Some("eac3".to_string()),
+            width: Some(3840),
+            height: Some(2160),
+            bitrate: Some(18_000_000),
+            video_bitrate: Some(17_000_000),
+            video_frame_rate: Some(23.976),
+            video_aspect_ratio: Some("16:9".to_string()),
+            video_scan_type: Some("progressive".to_string()),
+            video_color_primaries: Some("bt2020".to_string()),
+            video_color_space: Some("bt2020nc".to_string()),
+            video_color_transfer: Some("smpte2084".to_string()),
+            video_bit_depth: Some(10),
+            video_pixel_format: Some("yuv420p10le".to_string()),
+            video_reference_frames: Some(4),
+            audio_tracks: Vec::new(),
+            subtitle_tracks: Vec::new(),
+        }
+    }
+
     fn build_episode_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams {
         CreateMediaEntryParams {
             library_id,
@@ -792,6 +914,71 @@ mod tests {
             audio_tracks: Vec::new(),
             subtitle_tracks: Vec::new(),
         }
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn sync_library_media_reuses_one_movie_record_for_multiple_files(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let library = create_library(
+            &pool,
+            CreateLibraryParams {
+                name: "Movies".to_string(),
+                description: None,
+                library_type: "movie".to_string(),
+                metadata_language: "en-US".to_string(),
+                root_path: "/media/movies".to_string(),
+                is_enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+
+        let entries = vec![
+            build_movie_entry(
+                library.id,
+                "/media/movies/A Writer's Odyssey (2025)/A Writer's Odyssey (2025).2160p.mkv",
+            ),
+            build_movie_entry(
+                library.id,
+                "/media/movies/A Writer's Odyssey (2025)/A Writer's Odyssey (2025).remux.mkv",
+            ),
+        ];
+
+        sync_library_media(&pool, library.id, &entries)
+            .await
+            .unwrap();
+
+        let movie_media_item_count = sqlx::query_scalar::<_, i64>(
+            "select count(*) from media_items where media_type = 'movie'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let media_file_count = sqlx::query_scalar::<_, i64>("select count(*) from media_files")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let linked_file_count = sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)
+            from media_files
+            where media_item_id = (
+                select id
+                from media_items
+                where media_type = 'movie'
+                limit 1
+            )
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(movie_media_item_count, 1);
+        assert_eq!(media_file_count, 2);
+        assert_eq!(linked_file_count, 2);
     }
 
     #[sqlx::test(migrations = "../../migrations")]

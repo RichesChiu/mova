@@ -40,6 +40,7 @@ interface MediaPlayerPanelProps {
   }>
   mediaItemId: number
   onSelectEpisode?: (mediaItemId: number) => void
+  preferredMediaFileId?: number | null
   title: string
   startMode?: 'resume' | 'from-start'
   variant?: 'panel' | 'immersive'
@@ -411,6 +412,7 @@ export const MediaPlayerPanel = ({
   episodeSwitchOptions = [],
   mediaItemId,
   onSelectEpisode,
+  preferredMediaFileId = null,
   startMode = 'resume',
   title,
   variant = 'panel',
@@ -595,13 +597,14 @@ export const MediaPlayerPanel = ({
     // source instead of snapping back to the first file after every refresh.
     const playbackProgress = playbackProgressQuery.data
     const preferredFile =
+      mediaFiles.find((file) => file.id === preferredMediaFileId) ??
       (playbackProgress && mediaFiles.find((file) => file.id === playbackProgress.media_file_id)) ??
       mediaFiles[0]
 
     setSelectedMediaFileId((current) =>
       current && mediaFiles.some((file) => file.id === current) ? current : preferredFile.id,
     )
-  }, [mediaFiles, playbackProgressQuery.data])
+  }, [mediaFiles, playbackProgressQuery.data, preferredMediaFileId])
 
   useEffect(() => {
     restoredForFileRef.current = null
@@ -1259,9 +1262,7 @@ export const MediaPlayerPanel = ({
         </div>
       ) : null}
 
-      {mediaFilesQuery.isLoading ? (
-        <p className="muted">Loading player…</p>
-      ) : null}
+      {mediaFilesQuery.isLoading ? <p className="muted">Loading player…</p> : null}
 
       {mediaFilesQuery.isError ? (
         <p className="callout callout--danger">

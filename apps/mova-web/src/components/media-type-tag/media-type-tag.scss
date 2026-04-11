@@ -1,0 +1,24 @@
+.media-type-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--pill-border) 90%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--pill-background) 90%, transparent);
+  box-shadow: none;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.media-type-tag--movie {
+  color: color-mix(in srgb, var(--accent-strong) 88%, white 12%);
+}
+
+.media-type-tag--series,
+.media-type-tag--episode {
+  color: color-mix(in srgb, var(--text) 78%, var(--accent) 22%);
+}

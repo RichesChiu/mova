@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { type CSSProperties, useEffect, useState } from 'react'
 import { Link, Navigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom'
 import {
@@ -24,6 +24,7 @@ import {
 } from '../../components/app-shell/scan-runtime'
 import { EpisodeCard, EpisodeCardSkeleton } from '../../components/episode-card'
 import { GlassSelect } from '../../components/glass-select'
+import { MediaTypeTag } from '../../components/media-type-tag'
 import { MetadataMatchPanel } from '../../components/metadata-match-panel'
 import { ScrollableRail } from '../../components/scrollable-rail'
 import {
@@ -31,16 +32,15 @@ import {
   buildAudioTrackOptions,
   buildMediaFileFeatureBadges,
   buildMediaSourceFacts,
+  buildMediaVersionOptions,
   buildSubtitleTrackFacts,
   buildSubtitleTrackOptions,
   buildVideoCardFacts,
-  buildVideoTrackOptions,
   getMediaFileDisplayName,
 } from '../../lib/media-file-details'
 import { mediaItemDetailPath, mediaItemPlayPath } from '../../lib/media-routes'
 import {
   buildPlaybackActionLinks,
-  isResumablePlayback,
   pickPreferredPlaybackEpisode,
   playbackPercent,
   playbackStatus,
@@ -174,10 +174,9 @@ export const MediaItemPage = () => {
   const params = useParams()
   const [searchParams] = useSearchParams()
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number | null>(null)
-  const [selectedAudioTrackByFile, setSelectedAudioTrackByFile] = useState<Record<number, string>>(
-    {},
-  )
-  const [selectedSubtitleByFile, setSelectedSubtitleByFile] = useState<Record<number, string>>({})
+  const [selectedMediaVersionId, setSelectedMediaVersionId] = useState<number | null>(null)
+  const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<string>('')
+  const [selectedSubtitleTrackId, setSelectedSubtitleTrackId] = useState<string>('')
   const mediaItemId = Number(params.mediaItemId)
   const requestedSeasonParam = searchParams.get('season')
   const requestedSeasonNumber = requestedSeasonParam ? Number(requestedSeasonParam) : Number.NaN
@@ -222,23 +221,21 @@ export const MediaItemPage = () => {
   const seasons = episodeOutlineQuery.data?.seasons ?? []
   const mediaFiles = mediaFilesQuery.data ?? []
   const shouldShowMediaFilesSection = mediaItemQuery.data?.media_type === 'movie'
-  const audioTrackQueries = useQueries({
-    queries: mediaFiles.map((file) => ({
-      gcTime: MEDIA_QUERY_GC_TIME_MS,
-      enabled: shouldShowMediaFilesSection,
-      queryKey: ['media-file-audio-tracks', file.id],
-      queryFn: () => listMediaFileAudioTracks(file.id),
-      staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
-    })),
+  const selectedMediaFile =
+    mediaFiles.find((file) => file.id === selectedMediaVersionId) ?? mediaFiles[0] ?? null
+  const audioTracksQuery = useQuery({
+    gcTime: MEDIA_QUERY_GC_TIME_MS,
+    enabled: shouldShowMediaFilesSection && selectedMediaFile !== null,
+    queryKey: ['media-file-audio-tracks', selectedMediaFile?.id],
+    queryFn: () => listMediaFileAudioTracks(selectedMediaFile?.id ?? 0),
+    staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
   })
-  const subtitleTrackQueries = useQueries({
-    queries: mediaFiles.map((file) => ({
-      gcTime: MEDIA_QUERY_GC_TIME_MS,
-      enabled: shouldShowMediaFilesSection,
-      queryKey: ['media-file-subtitles', file.id],
-      queryFn: () => listMediaFileSubtitles(file.id),
-      staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
-    })),
+  const subtitleTracksQuery = useQuery({
+    gcTime: MEDIA_QUERY_GC_TIME_MS,
+    enabled: shouldShowMediaFilesSection && selectedMediaFile !== null,
+    queryKey: ['media-file-subtitles', selectedMediaFile?.id],
+    queryFn: () => listMediaFileSubtitles(selectedMediaFile?.id ?? 0),
+    staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
   })
   const availableSeasons = seasons.filter((season) =>
     season.episodes.some((episode) => episode.is_available),
@@ -289,6 +286,31 @@ export const MediaItemPage = () => {
     selectedSeasonNumber,
   ])
 
+  useEffect(() => {
+    if (!shouldShowMediaFilesSection || mediaFiles.length === 0) {
+      setSelectedMediaVersionId(null)
+      return
+    }
+
+    const preferredMediaFile =
+      (moviePlaybackProgressQuery.data &&
+        mediaFiles.find((file) => file.id === moviePlaybackProgressQuery.data?.media_file_id)) ??
+      mediaFiles[0]
+
+    setSelectedMediaVersionId((current) =>
+      current && mediaFiles.some((file) => file.id === current) ? current : preferredMediaFile.id,
+    )
+  }, [mediaFiles, moviePlaybackProgressQuery.data, shouldShowMediaFilesSection])
+
+  useEffect(() => {
+    if (!shouldShowMediaFilesSection && selectedMediaVersionId === null) {
+      return
+    }
+
+    setSelectedAudioTrackId('')
+    setSelectedSubtitleTrackId('')
+  }, [selectedMediaVersionId, shouldShowMediaFilesSection])
+
   const isSeriesView = mediaItemQuery.data?.media_type === 'series'
   const canMatchMetadata =
     canManageLibraries(currentUser) && mediaItemQuery.data?.media_type !== 'episode'
@@ -333,9 +355,33 @@ export const MediaItemPage = () => {
   const playbackTargetMediaItemId = isSeriesView
     ? (selectedSeasonPlayableEpisode?.media_item_id ?? null)
     : (mediaItemQuery.data?.id ?? null)
-  const shouldResumePlayback = isSeriesView
-    ? isResumablePlayback(selectedSeasonPlayableEpisode?.playback_progress)
-    : isResumablePlayback(moviePlaybackProgressQuery.data)
+  const mediaVersionOptions = buildMediaVersionOptions(mediaFiles)
+  const selectedMediaVersionValue =
+    selectedMediaFile !== null
+      ? String(selectedMediaFile.id)
+      : (mediaVersionOptions[0]?.value ?? '')
+  const audioTracks = audioTracksQuery.data ?? []
+  const subtitleTracks = subtitleTracksQuery.data ?? []
+  const audioTrackOptions = buildAudioTrackOptions(audioTracks)
+  const selectedAudioTrackValue = selectedAudioTrackId || audioTrackOptions[0]?.value || ''
+  const selectedAudioTrack =
+    audioTracks.find((audioTrack) => String(audioTrack.id) === selectedAudioTrackValue) ??
+    audioTracks[0] ??
+    null
+  const subtitleTrackOptions = buildSubtitleTrackOptions(subtitleTracks)
+  const selectedSubtitleTrackValue = selectedSubtitleTrackId || subtitleTrackOptions[0]?.value || ''
+  const selectedSubtitleTrack =
+    subtitleTracks.find((subtitle) => String(subtitle.id) === selectedSubtitleTrackValue) ??
+    subtitleTracks[0] ??
+    null
+  const selectedSubtitleTrackIndex = selectedSubtitleTrack
+    ? subtitleTracks.findIndex((subtitle) => subtitle.id === selectedSubtitleTrack.id)
+    : -1
+  const playbackPrimaryPath = playbackTargetMediaItemId
+    ? mediaItemPlayPath(playbackTargetMediaItemId, {
+        fileId: !isSeriesView ? (selectedMediaFile?.id ?? null) : null,
+      })
+    : null
   const playbackActionLinks = playbackTargetMediaItemId
     ? buildPlaybackActionLinks(
         playbackTargetMediaItemId,
@@ -495,7 +541,10 @@ export const MediaItemPage = () => {
         </div>
 
         <div className="detail-hero__body">
-          <p className="eyebrow">{heroEyebrow}</p>
+          <div className="detail-hero__eyebrow-row">
+            <p className="eyebrow">{heroEyebrow}</p>
+            <MediaTypeTag mediaType={mediaItemQuery.data.media_type} />
+          </div>
           <div className="detail-hero__title-row">
             <h2>{heroTitle}</h2>
             {heroImdbRating ? (
@@ -565,26 +614,30 @@ export const MediaItemPage = () => {
               </div>
             </div>
           ) : null}
+          {!isSeriesView && mediaVersionOptions.length > 1 ? (
+            <div className="detail-hero__version-picker">
+              <p className="detail-hero__version-label">Version</p>
+              <GlassSelect
+                ariaLabel={`Select playback version for ${heroTitle}`}
+                onChange={(value) => setSelectedMediaVersionId(Number(value))}
+                options={mediaVersionOptions}
+                value={selectedMediaVersionValue}
+              />
+            </div>
+          ) : null}
           {playbackTargetMediaItemId || canMatchMetadata ? (
             <div className="detail-hero__actions">
               {playbackTargetMediaItemId ? (
-                <>
-                  <Link
-                    className="button button--primary"
-                    to={
-                      playbackActionLinks?.primaryPath ??
-                      mediaItemPlayPath(playbackTargetMediaItemId)
-                    }
-                  >
-                    <span>{playbackActionLinks?.primaryLabel ?? 'Play'}</span>
-                  </Link>
-
-                  {shouldResumePlayback && playbackActionLinks?.secondaryPath ? (
-                    <Link className="button" to={playbackActionLinks.secondaryPath}>
-                      <span>Play from Beginning</span>
-                    </Link>
-                  ) : null}
-                </>
+                <Link
+                  className="button button--primary"
+                  to={
+                    playbackPrimaryPath ??
+                    playbackActionLinks?.primaryPath ??
+                    mediaItemPlayPath(playbackTargetMediaItemId)
+                  }
+                >
+                  <span>{playbackActionLinks?.primaryLabel ?? 'Play'}</span>
+                </Link>
               ) : null}
               {canMatchMetadata ? (
                 <MetadataMatchPanel
@@ -707,267 +760,224 @@ export const MediaItemPage = () => {
           ) : null}
 
           {!mediaFilesQuery.isLoading && !mediaFilesQuery.isError && mediaFiles.length > 0 ? (
-            <ScrollableRail
-              hint="Scroll, drag, or click arrows to compare different source files."
-              viewportClassName="media-file-panel__viewport"
-            >
-              {mediaFiles.map((file, index) => {
-                const badges = buildMediaFileFeatureBadges(file)
-                const sourceFacts = buildMediaSourceFacts(file)
-                const videoFacts = buildVideoCardFacts(file)
-                const audioTrackQuery = audioTrackQueries[index]
-                const subtitleTrackQuery = subtitleTrackQueries[index]
-                const audioTracks = audioTrackQuery?.data ?? []
-                const subtitles = subtitleTrackQuery?.data ?? []
-                const videoOptions = buildVideoTrackOptions(file)
-                const selectedVideoOptionValue = videoOptions[0]?.value ?? String(file.id)
-                const audioOptions = buildAudioTrackOptions(audioTracks)
-                const selectedAudioTrackValue =
-                  selectedAudioTrackByFile[file.id] ?? audioOptions[0]?.value ?? ''
-                const selectedAudioTrack =
-                  audioTracks.find(
-                    (audioTrack) => String(audioTrack.id) === selectedAudioTrackValue,
-                  ) ??
-                  audioTracks[0] ??
-                  null
-                const subtitleOptions = buildSubtitleTrackOptions(subtitles)
-                const selectedSubtitleValue =
-                  selectedSubtitleByFile[file.id] ?? subtitleOptions[0]?.value ?? ''
-                const selectedSubtitle =
-                  subtitles.find((subtitle) => String(subtitle.id) === selectedSubtitleValue) ??
-                  subtitles[0] ??
-                  null
-                const selectedSubtitleIndex = selectedSubtitle
-                  ? subtitles.findIndex((subtitle) => subtitle.id === selectedSubtitle.id)
-                  : -1
-
-                return (
-                  <article className="media-file-card" key={file.id}>
-                    <div className="media-file-card__header">
-                      <div className="media-file-card__title-block">
-                        <p className="media-file-card__eyebrow">Source {index + 1}</p>
-                        <h4>{getMediaFileDisplayName(file.file_path)}</h4>
-                      </div>
-
-                      {badges.length > 0 ? (
-                        <div className="media-file-card__badges">
-                          {badges.map((badge) => {
-                            const isFeatureBadge = badge.startsWith('Dolby')
-
-                            return (
-                              <span
-                                className={
-                                  isFeatureBadge
-                                    ? 'media-file-card__badge media-file-card__badge--feature'
-                                    : 'media-file-card__badge'
-                                }
-                                key={`${file.id}-${badge}`}
-                              >
-                                {badge}
-                              </span>
-                            )
-                          })}
-                        </div>
-                      ) : null}
+            selectedMediaFile ? (
+              <div className="media-file-panel__list">
+                <article className="media-file-card" key={selectedMediaFile.id}>
+                  <div className="media-file-card__header">
+                    <div className="media-file-card__title-block">
+                      <p className="media-file-card__eyebrow">Source Details</p>
+                      <h4>{getMediaFileDisplayName(selectedMediaFile.file_path)}</h4>
                     </div>
 
-                    <div className="media-file-card__details">
-                      <div className="media-file-card__details-heading">
-                        <p className="media-file-card__eyebrow">Source Details</p>
+                    {buildMediaFileFeatureBadges(selectedMediaFile).length > 0 ? (
+                      <div className="media-file-card__badges">
+                        {buildMediaFileFeatureBadges(selectedMediaFile).map((badge) => {
+                          const isFeatureBadge = badge.startsWith('Dolby')
+
+                          return (
+                            <span
+                              className={
+                                isFeatureBadge
+                                  ? 'media-file-card__badge media-file-card__badge--feature'
+                                  : 'media-file-card__badge'
+                              }
+                              key={`${selectedMediaFile.id}-${badge}`}
+                            >
+                              {badge}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="media-file-card__details">
+                    <div className="media-file-card__path-block">
+                      <p className="media-file-card__label">Path</p>
+                      <p className="media-file-card__path">{selectedMediaFile.file_path}</p>
+                    </div>
+
+                    <dl className="media-file-card__facts">
+                      {buildMediaSourceFacts(selectedMediaFile).map((fact) => (
+                        <div
+                          className="media-file-card__fact"
+                          key={`${selectedMediaFile.id}-${fact.label}`}
+                        >
+                          <dt>{fact.label}</dt>
+                          <dd>{fact.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+
+                  <div className="media-tech-stack">
+                    <article className="media-tech-card media-tech-card--video">
+                      <div className="media-tech-card__header media-tech-card__header--with-select">
+                        <div className="media-tech-card__title-block">
+                          <p className="media-tech-card__eyebrow">Video</p>
+                          <h5>Video Details</h5>
+                        </div>
+
+                        {mediaVersionOptions.length > 1 ? (
+                          <div className="media-tech-card__selector">
+                            <GlassSelect
+                              ariaLabel={`Select source file for ${heroTitle}`}
+                              compact
+                              onChange={(value) => setSelectedMediaVersionId(Number(value))}
+                              options={mediaVersionOptions}
+                              value={selectedMediaVersionValue}
+                            />
+                          </div>
+                        ) : null}
                       </div>
 
-                      <div className="media-file-card__path-block">
-                        <p className="media-file-card__label">Path</p>
-                        <p className="media-file-card__path">{file.file_path}</p>
-                      </div>
-
-                      <dl className="media-file-card__facts">
-                        {sourceFacts.map((fact) => (
-                          <div className="media-file-card__fact" key={`${file.id}-${fact.label}`}>
+                      <dl className="media-tech-card__facts">
+                        {buildVideoCardFacts(selectedMediaFile).map((fact) => (
+                          <div
+                            className="media-tech-card__fact"
+                            key={`${selectedMediaFile.id}-video-${fact.label}`}
+                          >
                             <dt>{fact.label}</dt>
                             <dd>{fact.value}</dd>
                           </div>
                         ))}
                       </dl>
-                    </div>
+                    </article>
 
-                    <div className="media-tech-stack">
-                      <article className="media-tech-card media-tech-card--video">
-                        <div className="media-tech-card__header media-tech-card__header--with-select">
-                          <div className="media-tech-card__title-block">
-                            <p className="media-tech-card__eyebrow">Video</p>
-                            <h5>Video Details</h5>
-                          </div>
-
-                          <div className="media-tech-card__selector">
-                            <GlassSelect
-                              ariaLabel={`Select source file for ${getMediaFileDisplayName(file.file_path)}`}
-                              compact
-                              onChange={() => {}}
-                              options={videoOptions}
-                              value={selectedVideoOptionValue}
-                            />
-                          </div>
+                    <article className="media-tech-card">
+                      <div className="media-tech-card__header media-tech-card__header--with-select">
+                        <div className="media-tech-card__title-block">
+                          <p className="media-tech-card__eyebrow">Audio</p>
+                          <h5>Audio Details</h5>
                         </div>
 
+                        <div className="media-tech-card__selector">
+                          <GlassSelect
+                            ariaLabel={`Select audio track for ${getMediaFileDisplayName(selectedMediaFile.file_path)}`}
+                            compact
+                            disabled={audioTrackOptions.length === 0}
+                            onChange={(value) => setSelectedAudioTrackId(value)}
+                            options={
+                              audioTrackOptions.length > 0
+                                ? audioTrackOptions
+                                : [
+                                    {
+                                      label: 'No audio tracks detected',
+                                      value: `empty-audio-${selectedMediaFile.id}`,
+                                    },
+                                  ]
+                            }
+                            value={
+                              audioTrackOptions.length > 0
+                                ? selectedAudioTrackValue
+                                : `empty-audio-${selectedMediaFile.id}`
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      {audioTracksQuery.isLoading ? (
+                        <p className="muted">Loading audio tracks…</p>
+                      ) : null}
+                      {audioTracksQuery.isError ? (
+                        <p className="callout callout--danger">
+                          {audioTracksQuery.error instanceof Error
+                            ? audioTracksQuery.error.message
+                            : 'Failed to load audio tracks'}
+                        </p>
+                      ) : null}
+                      {!audioTracksQuery.isLoading &&
+                      !audioTracksQuery.isError &&
+                      selectedAudioTrack ? (
                         <dl className="media-tech-card__facts">
-                          {videoFacts.map((fact) => (
+                          {buildAudioTrackFacts(selectedAudioTrack).map((fact) => (
                             <div
                               className="media-tech-card__fact"
-                              key={`${file.id}-video-${fact.label}`}
+                              key={`${selectedAudioTrack.id}-${fact.label}`}
                             >
                               <dt>{fact.label}</dt>
                               <dd>{fact.value}</dd>
                             </div>
                           ))}
                         </dl>
-                      </article>
+                      ) : null}
+                      {!audioTracksQuery.isLoading &&
+                      !audioTracksQuery.isError &&
+                      !selectedAudioTrack ? (
+                        <p className="muted">No embedded audio tracks were detected.</p>
+                      ) : null}
+                    </article>
 
-                      <article className="media-tech-card">
-                        <div className="media-tech-card__header media-tech-card__header--with-select">
-                          <div className="media-tech-card__title-block">
-                            <p className="media-tech-card__eyebrow">Audio</p>
-                            <h5>Audio Details</h5>
-                          </div>
-
-                          <div className="media-tech-card__selector">
-                            <GlassSelect
-                              ariaLabel={`Select audio track for ${getMediaFileDisplayName(file.file_path)}`}
-                              compact
-                              disabled={audioOptions.length === 0}
-                              onChange={(value) =>
-                                setSelectedAudioTrackByFile((current) => ({
-                                  ...current,
-                                  [file.id]: value,
-                                }))
-                              }
-                              options={
-                                audioOptions.length > 0
-                                  ? audioOptions
-                                  : [
-                                      {
-                                        label: 'No audio tracks detected',
-                                        value: `empty-audio-${file.id}`,
-                                      },
-                                    ]
-                              }
-                              value={
-                                audioOptions.length > 0
-                                  ? selectedAudioTrackValue
-                                  : `empty-audio-${file.id}`
-                              }
-                            />
-                          </div>
+                    <article className="media-tech-card">
+                      <div className="media-tech-card__header media-tech-card__header--with-select">
+                        <div className="media-tech-card__title-block">
+                          <p className="media-tech-card__eyebrow">Subtitle</p>
+                          <h5>Subtitle Details</h5>
                         </div>
 
-                        {audioTrackQuery?.isLoading ? (
-                          <p className="muted">Loading audio tracks…</p>
-                        ) : null}
-                        {audioTrackQuery?.isError ? (
-                          <p className="callout callout--danger">
-                            {audioTrackQuery.error instanceof Error
-                              ? audioTrackQuery.error.message
-                              : 'Failed to load audio tracks'}
-                          </p>
-                        ) : null}
-                        {!audioTrackQuery?.isLoading &&
-                        !audioTrackQuery?.isError &&
-                        selectedAudioTrack ? (
-                          <dl className="media-tech-card__facts">
-                            {buildAudioTrackFacts(selectedAudioTrack).map((fact) => (
-                              <div
-                                className="media-tech-card__fact"
-                                key={`${selectedAudioTrack.id}-${fact.label}`}
-                              >
-                                <dt>{fact.label}</dt>
-                                <dd>{fact.value}</dd>
-                              </div>
-                            ))}
-                          </dl>
-                        ) : null}
-                        {!audioTrackQuery?.isLoading &&
-                        !audioTrackQuery?.isError &&
-                        !selectedAudioTrack ? (
-                          <p className="muted">No embedded audio tracks were detected.</p>
-                        ) : null}
-                      </article>
-
-                      <article className="media-tech-card">
-                        <div className="media-tech-card__header media-tech-card__header--with-select">
-                          <div className="media-tech-card__title-block">
-                            <p className="media-tech-card__eyebrow">Subtitle</p>
-                            <h5>Subtitle Details</h5>
-                          </div>
-
-                          <div className="media-tech-card__selector">
-                            <GlassSelect
-                              ariaLabel={`Select subtitle track for ${getMediaFileDisplayName(file.file_path)}`}
-                              compact
-                              disabled={subtitleOptions.length === 0}
-                              onChange={(value) =>
-                                setSelectedSubtitleByFile((current) => ({
-                                  ...current,
-                                  [file.id]: value,
-                                }))
-                              }
-                              options={
-                                subtitleOptions.length > 0
-                                  ? subtitleOptions
-                                  : [
-                                      {
-                                        label: 'No subtitles detected',
-                                        value: `empty-subtitle-${file.id}`,
-                                      },
-                                    ]
-                              }
-                              value={
-                                subtitleOptions.length > 0
-                                  ? selectedSubtitleValue
-                                  : `empty-subtitle-${file.id}`
-                              }
-                            />
-                          </div>
+                        <div className="media-tech-card__selector">
+                          <GlassSelect
+                            ariaLabel={`Select subtitle track for ${getMediaFileDisplayName(selectedMediaFile.file_path)}`}
+                            compact
+                            disabled={subtitleTrackOptions.length === 0}
+                            onChange={(value) => setSelectedSubtitleTrackId(value)}
+                            options={
+                              subtitleTrackOptions.length > 0
+                                ? subtitleTrackOptions
+                                : [
+                                    {
+                                      label: 'No subtitles detected',
+                                      value: `empty-subtitle-${selectedMediaFile.id}`,
+                                    },
+                                  ]
+                            }
+                            value={
+                              subtitleTrackOptions.length > 0
+                                ? selectedSubtitleTrackValue
+                                : `empty-subtitle-${selectedMediaFile.id}`
+                            }
+                          />
                         </div>
+                      </div>
 
-                        {subtitleTrackQuery?.isLoading ? (
-                          <p className="muted">Loading subtitles…</p>
-                        ) : null}
-                        {subtitleTrackQuery?.isError ? (
-                          <p className="callout callout--danger">
-                            {subtitleTrackQuery.error instanceof Error
-                              ? subtitleTrackQuery.error.message
-                              : 'Failed to load subtitles'}
-                          </p>
-                        ) : null}
-                        {!subtitleTrackQuery?.isLoading &&
-                        !subtitleTrackQuery?.isError &&
-                        selectedSubtitle ? (
-                          <dl className="media-tech-card__facts">
-                            {buildSubtitleTrackFacts(
-                              selectedSubtitle,
-                              selectedSubtitleIndex >= 0 ? selectedSubtitleIndex : 0,
-                            ).map((fact) => (
-                              <div
-                                className="media-tech-card__fact"
-                                key={`${selectedSubtitle.id}-${fact.label}`}
-                              >
-                                <dt>{fact.label}</dt>
-                                <dd>{fact.value}</dd>
-                              </div>
-                            ))}
-                          </dl>
-                        ) : null}
-                        {!subtitleTrackQuery?.isLoading &&
-                        !subtitleTrackQuery?.isError &&
-                        !selectedSubtitle ? (
-                          <p className="muted">No subtitle tracks were detected.</p>
-                        ) : null}
-                      </article>
-                    </div>
-                  </article>
-                )
-              })}
-            </ScrollableRail>
+                      {subtitleTracksQuery.isLoading ? (
+                        <p className="muted">Loading subtitles…</p>
+                      ) : null}
+                      {subtitleTracksQuery.isError ? (
+                        <p className="callout callout--danger">
+                          {subtitleTracksQuery.error instanceof Error
+                            ? subtitleTracksQuery.error.message
+                            : 'Failed to load subtitles'}
+                        </p>
+                      ) : null}
+                      {!subtitleTracksQuery.isLoading &&
+                      !subtitleTracksQuery.isError &&
+                      selectedSubtitleTrack ? (
+                        <dl className="media-tech-card__facts">
+                          {buildSubtitleTrackFacts(
+                            selectedSubtitleTrack,
+                            selectedSubtitleTrackIndex >= 0 ? selectedSubtitleTrackIndex : 0,
+                          ).map((fact) => (
+                            <div
+                              className="media-tech-card__fact"
+                              key={`${selectedSubtitleTrack.id}-${fact.label}`}
+                            >
+                              <dt>{fact.label}</dt>
+                              <dd>{fact.value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      ) : null}
+                      {!subtitleTracksQuery.isLoading &&
+                      !subtitleTracksQuery.isError &&
+                      !selectedSubtitleTrack ? (
+                        <p className="muted">No subtitle tracks were detected.</p>
+                      ) : null}
+                    </article>
+                  </div>
+                </article>
+              </div>
+            ) : null
           ) : null}
 
           {!mediaFilesQuery.isLoading && !mediaFilesQuery.isError && mediaFiles.length === 0 ? (

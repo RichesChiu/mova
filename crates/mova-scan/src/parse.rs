@@ -33,7 +33,10 @@ pub(crate) fn humanize_file_stem(path: &Path) -> String {
         })
         .collect::<String>();
 
-    normalized.split_whitespace().collect::<Vec<_>>().join(" ")
+    decode_basic_html_entities(&normalized)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,8 +117,11 @@ struct ParsedNameMetadata {
 
 fn parse_media_name(path: &Path) -> ParsedNameMetadata {
     let normalized = humanize_file_stem(path);
+    let has_leading_collection_index = has_leading_collection_index(path);
+    let has_collection_folder = path_has_collection_folder(path);
     let tokens = normalized.split_whitespace().collect::<Vec<_>>();
     let inferred_series_folder_metadata = infer_series_folder_metadata(path);
+    let inferred_movie_folder_metadata = infer_movie_folder_metadata(path);
     let inferred_series_title = inferred_series_folder_metadata
         .as_ref()
         .map(|metadata| metadata.title.clone());
@@ -123,14 +129,29 @@ fn parse_media_name(path: &Path) -> ParsedNameMetadata {
         .as_ref()
         .and_then(|metadata| metadata.year);
     let parsed_name = parse_title_year_from_humanized_name(&normalized);
-    let title = parsed_name.title;
-    let year = parsed_name.year.or(inferred_series_year);
+    let mut title = parsed_name.title.clone();
+    let mut year = parsed_name.year.or(inferred_series_year);
     let fallback_title = inferred_series_title
         .clone()
         .filter(|_| starts_with_episode_only_marker(&tokens))
         .unwrap_or_else(|| normalized.clone());
     let should_prefer_inferred_series_title =
         starts_with_episode_only_marker(&tokens) && inferred_series_title.is_some();
+    let should_prefer_movie_folder = !should_prefer_inferred_series_title
+        && inferred_movie_folder_metadata
+            .as_ref()
+            .is_some_and(|metadata| {
+                should_prefer_movie_folder_metadata(&normalized, &parsed_name, metadata)
+            });
+
+    if should_prefer_movie_folder {
+        if let Some(folder_metadata) = inferred_movie_folder_metadata {
+            title = folder_metadata.title;
+            year = year.or(folder_metadata.year);
+        }
+    } else if has_leading_collection_index && has_collection_folder {
+        title = strip_leading_collection_index(&title);
+    }
 
     ParsedNameMetadata {
         title: if should_prefer_inferred_series_title {
@@ -155,6 +176,23 @@ pub fn infer_series_folder_metadata(path: &Path) -> Option<SeriesFolderMetadata>
         title: parsed_name.title,
         year: parsed_name.year,
     })
+}
+
+fn infer_movie_folder_metadata(path: &Path) -> Option<ParsedNameMetadata> {
+    path.ancestors()
+        .skip(1)
+        .take(3)
+        .filter_map(|ancestor| ancestor.file_name().and_then(|value| value.to_str()))
+        .filter(|component| parse_season_component(component).is_none())
+        .filter_map(|component| {
+            let humanized = humanize_component_name(component);
+            let parsed = parse_title_year_from_humanized_name(&humanized);
+            let score = score_movie_folder_candidate(&humanized, &parsed);
+
+            (score > 0).then_some((parsed, score))
+        })
+        .max_by_key(|(_, score)| *score)
+        .map(|(parsed, _)| parsed)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -375,9 +413,19 @@ fn starts_with_episode_only_marker(tokens: &[&str]) -> bool {
     };
 
     let first_token = tokens[first_content_index];
-    parse_episode_number_token(first_token).is_some()
-        || is_episode_label_token(first_token)
-        || parse_short_number_token(first_token).is_some()
+    if parse_episode_number_token(first_token).is_some() || is_episode_label_token(first_token) {
+        return true;
+    }
+
+    if parse_short_number_token(first_token).is_none() {
+        return false;
+    }
+
+    !tokens
+        .iter()
+        .skip(first_content_index + 1)
+        .filter(|token| !is_separator_token(token))
+        .any(|token| parse_year_token(token).is_some())
 }
 
 fn infer_season_number_from_path(path: &Path) -> Option<i32> {
@@ -388,16 +436,176 @@ fn infer_season_number_from_path(path: &Path) -> Option<i32> {
 }
 
 fn humanize_component_name(component: &str) -> String {
-    component
+    let normalized = component
         .chars()
         .map(|ch| match ch {
             '.' | '_' | '-' => ' ',
             other => other,
         })
-        .collect::<String>()
+        .collect::<String>();
+
+    decode_basic_html_entities(&normalized)
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn decode_basic_html_entities(value: &str) -> String {
+    value
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+        .replace("&quot;", "\"")
+        .replace("&amp;", "&")
+}
+
+fn should_prefer_movie_folder_metadata(
+    normalized_file_name: &str,
+    parsed_name: &ParsedNameMetadata,
+    folder_metadata: &ParsedNameMetadata,
+) -> bool {
+    let file_title = parsed_name.title.trim();
+    let folder_title = folder_metadata.title.trim();
+
+    if folder_title.is_empty()
+        || is_generic_library_folder(folder_title)
+        || is_collection_folder_title(folder_title)
+    {
+        return false;
+    }
+
+    contains_encoded_entity(normalized_file_name)
+        || (contains_cjk(folder_title) && !contains_cjk(file_title))
+        || count_release_tokens(normalized_file_name) >= 2
+        || (folder_metadata.year.is_some() && parsed_name.year.is_none())
+}
+
+fn score_movie_folder_candidate(component: &str, parsed_name: &ParsedNameMetadata) -> i32 {
+    let title = parsed_name.title.trim();
+    if title.is_empty() || is_generic_library_folder(title) || is_collection_folder_title(title) {
+        return 0;
+    }
+
+    let token_count = title.split_whitespace().count();
+    let release_token_count = count_release_tokens(component);
+    let mut score = 0;
+
+    if parsed_name.year.is_some() {
+        score += 5;
+    }
+
+    if contains_cjk(title) {
+        score += 4;
+    }
+
+    if (1..=6).contains(&token_count) {
+        score += 2;
+    }
+
+    if release_token_count == 0 {
+        score += 2;
+    } else {
+        score -= i32::try_from(release_token_count.min(3)).unwrap_or(3);
+    }
+
+    if title.len() <= 32 {
+        score += 1;
+    }
+
+    score
+}
+
+fn contains_encoded_entity(value: &str) -> bool {
+    value.contains("&#") || value.contains("&apos;") || value.contains("&quot;")
+}
+
+fn contains_cjk(value: &str) -> bool {
+    value.chars().any(|ch| {
+        ('\u{4E00}'..='\u{9FFF}').contains(&ch)
+            || ('\u{3400}'..='\u{4DBF}').contains(&ch)
+            || ('\u{3040}'..='\u{30FF}').contains(&ch)
+            || ('\u{AC00}'..='\u{D7AF}').contains(&ch)
+    })
+}
+
+fn count_release_tokens(value: &str) -> usize {
+    value
+        .split_whitespace()
+        .filter(|token| is_release_token(trim_wrapping_punctuation(token)))
+        .count()
+}
+
+fn is_generic_library_folder(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "movie"
+            | "movies"
+            | "film"
+            | "films"
+            | "media"
+            | "video"
+            | "videos"
+            | "series"
+            | "shows"
+            | "tv"
+            | "tv shows"
+    ) || matches!(value.trim(), "电影" | "剧集" | "电视剧" | "动画" | "动漫")
+}
+
+fn is_collection_folder_title(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+
+    normalized.contains("collection")
+        || normalized.contains("box set")
+        || normalized.contains("boxset")
+        || normalized.contains("anthology")
+        || normalized.contains("trilogy")
+        || normalized.contains("tetralogy")
+        || normalized.contains("saga")
+        || matches!(
+            value.trim(),
+            value if value.contains("合集") || value.contains("全集") || value.contains("系列")
+        )
+}
+
+fn has_leading_collection_index(path: &Path) -> bool {
+    let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+        return false;
+    };
+
+    let digit_count = stem.chars().take_while(|ch| ch.is_ascii_digit()).count();
+    if digit_count == 0 || digit_count > 3 {
+        return false;
+    }
+
+    let mut chars = stem.chars().skip(digit_count);
+    let Some(separator) = chars.next() else {
+        return false;
+    };
+
+    matches!(separator, '.' | '_' | '-' | ' ' | '、')
+        && chars.next().is_some_and(|ch| !ch.is_ascii_digit())
+}
+
+fn path_has_collection_folder(path: &Path) -> bool {
+    path.ancestors()
+        .skip(1)
+        .take(3)
+        .filter_map(|ancestor| ancestor.file_name().and_then(|value| value.to_str()))
+        .any(is_collection_folder_title)
+}
+
+fn strip_leading_collection_index(title: &str) -> String {
+    let tokens = title.split_whitespace().collect::<Vec<_>>();
+
+    if tokens.len() >= 3
+        && tokens
+            .first()
+            .is_some_and(|token| parse_short_number_token(token).is_some())
+    {
+        return tokens[1..].join(" ");
+    }
+
+    title.to_string()
 }
 
 fn parse_title_year_from_humanized_name(value: &str) -> ParsedNameMetadata {
