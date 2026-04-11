@@ -13,9 +13,11 @@
 
 - 递归发现媒体文件
 - 识别电影/剧集线索
+- 尽量把剧集目录先归成一个扫描组，而不是先把每一集都当成独立展示单位
 - 读取 `.nfo` / `poster` / `fanart` 等 sidecar
 - 通过 `ffprobe` 补充媒体技术信息
 - 发现内嵌音轨、外挂或内嵌字幕轨道
+- 在远端元数据不可用时，尽量只靠本地命名规则把剧集先聚合起来
 
 它不负责：
 
@@ -34,7 +36,7 @@
 | 文件 | 作用 |
 | --- | --- |
 | `src/discover.rs` | 递归发现媒体文件、路径级扫描、支持进度回调和取消信号。 |
-| `src/parse.rs` | 从文件名/路径中识别电影或剧集信号，例如 `S01E02`。 |
+| `src/parse.rs` | 从文件名/路径中识别电影或剧集信号，例如 `S01E02`、`EP02`、`Episode 03`、`第03集`，以及 `Season 01/01.mkv` 这类依赖目录信息的命名。 |
 | `src/sidecar.rs` | 读取 `.nfo`、海报、背景图等 sidecar 资产。 |
 | `src/probe.rs` | 调用 `ffprobe`，补时长、编码、分辨率和码率。 |
 | `src/subtitle.rs` | 字幕轨道相关发现与归一化。 |
@@ -97,8 +99,9 @@
 1. `mova-application` 调用 `discover_media_files_with_progress_*`
 2. `mova-scan` 递归发现媒体文件
 3. 对每个文件做文件名解析、sidecar 读取、探测
-4. 返回 `DiscoveredMediaFile`
-5. 应用层再决定如何补元数据、如何写库
+4. 对剧集路径优先从目录名里推导“系列展示名 / 远端匹配标题 / 年份”这类组级信息
+5. 返回 `DiscoveredMediaFile`
+6. 应用层再决定如何补元数据、如何写库
 
 另一个使用点是 watcher/reconcile：
 

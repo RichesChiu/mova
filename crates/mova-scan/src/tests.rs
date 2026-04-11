@@ -4,7 +4,7 @@ use super::{
         discover_media_files_with_progress_item_and_cancel, discover_media_paths,
         inspect_media_file,
     },
-    is_likely_episode_path,
+    infer_series_folder_metadata, is_likely_episode_path,
     parse::{humanize_file_stem, parse_media_metadata, ParsedMediaMetadata},
     probe::{parse_ffprobe_output, MediaProbe},
     sidecar::{parse_nfo_metadata, ParsedSidecarMetadata},
@@ -164,6 +164,130 @@ fn parse_media_metadata_extracts_episode_numbers_and_title() {
 }
 
 #[test]
+fn parse_media_metadata_uses_series_folder_for_episode_number_only_files() {
+    let path = Path::new("Arcane/Season 01/01 Some Mysteries Are Better Left Unsolved.mkv");
+
+    assert_eq!(
+        parse_media_metadata(path),
+        ParsedMediaMetadata {
+            title: "Arcane".to_string(),
+            source_title: "Arcane".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: None,
+            season_number: Some(1),
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: Some(1),
+            episode_title: Some("Some Mysteries Are Better Left Unsolved".to_string()),
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+        }
+    );
+}
+
+#[test]
+fn parse_media_metadata_supports_ep_prefixed_episode_tokens() {
+    let path = Path::new("Arcane/Season 01/EP02 Some Mysteries Are Better Left Unsolved.mkv");
+
+    assert_eq!(
+        parse_media_metadata(path),
+        ParsedMediaMetadata {
+            title: "Arcane".to_string(),
+            source_title: "Arcane".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: None,
+            season_number: Some(1),
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: Some(2),
+            episode_title: Some("Some Mysteries Are Better Left Unsolved".to_string()),
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+        }
+    );
+}
+
+#[test]
+fn parse_media_metadata_supports_chinese_episode_tokens() {
+    let path = Path::new("三体/Season 1/第03集 黑暗森林.mkv");
+
+    assert_eq!(
+        parse_media_metadata(path),
+        ParsedMediaMetadata {
+            title: "三体".to_string(),
+            source_title: "三体".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: None,
+            season_number: Some(1),
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: Some(3),
+            episode_title: Some("黑暗森林".to_string()),
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+        }
+    );
+}
+
+#[test]
+fn parse_media_metadata_extracts_trailing_year_from_series_folder_name() {
+    let path = Path::new("神雕侠侣1993/Season 01/神雕侠侣.S01E01.mp4");
+
+    assert_eq!(
+        parse_media_metadata(path),
+        ParsedMediaMetadata {
+            title: "神雕侠侣".to_string(),
+            source_title: "神雕侠侣".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: Some(1993),
+            season_number: Some(1),
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: Some(1),
+            episode_title: None,
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+        }
+    );
+}
+
+#[test]
+fn infer_series_folder_metadata_keeps_display_name_and_lookup_title() {
+    let metadata =
+        infer_series_folder_metadata(Path::new("神雕侠侣1993/Season 01/神雕侠侣.S01E01.mp4"))
+            .expect("series folder metadata should be inferred");
+
+    assert!(metadata.folder_path.ends_with("神雕侠侣1993"));
+    assert_eq!(metadata.display_title, "神雕侠侣1993");
+    assert_eq!(metadata.title, "神雕侠侣");
+    assert_eq!(metadata.year, Some(1993));
+}
+
+#[test]
 fn is_likely_episode_path_detects_sxxexx_file_names() {
     assert!(is_likely_episode_path(Path::new(
         "Arcane.S01E02.Some.Title.mkv"
@@ -175,6 +299,17 @@ fn is_likely_episode_path_detects_sxxexx_file_names() {
 fn is_likely_episode_path_detects_season_directories() {
     assert!(is_likely_episode_path(Path::new(
         "Arcane/Season 01/episode-file.mkv"
+    )));
+}
+
+#[test]
+fn is_likely_episode_path_detects_episode_numbers_inside_season_directories() {
+    assert!(is_likely_episode_path(Path::new("Arcane/Season 01/01.mkv")));
+    assert!(is_likely_episode_path(Path::new(
+        "Arcane/Season 01/EP02.mkv"
+    )));
+    assert!(is_likely_episode_path(Path::new(
+        "三体/Season 1/第03集.mkv"
     )));
 }
 

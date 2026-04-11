@@ -9,7 +9,7 @@ pub use discover::{
     discover_media_files_with_progress_and_cancel,
     discover_media_files_with_progress_item_and_cancel, discover_media_paths, inspect_media_file,
 };
-pub use parse::is_likely_episode_path;
+pub use parse::{infer_series_folder_metadata, is_likely_episode_path, SeriesFolderMetadata};
 
 use std::path::PathBuf;
 

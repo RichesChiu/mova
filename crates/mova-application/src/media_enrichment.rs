@@ -82,11 +82,12 @@ impl MetadataEnrichmentContext {
         };
 
         on_progress(MetadataEnrichmentStage::Metadata, file);
+        let mut resolved_remote_metadata = None;
 
         if self.metadata_provider.is_enabled() && needs_remote_metadata(file) {
             let metadata = self.lookup_remote_metadata_cached(&lookup).await;
             apply_remote_metadata(
-                metadata,
+                metadata.clone(),
                 &mut file.title,
                 &mut file.original_title,
                 &mut file.year,
@@ -95,12 +96,14 @@ impl MetadataEnrichmentContext {
                 &mut file.poster_path,
                 &mut file.backdrop_path,
             );
+            resolved_remote_metadata = metadata;
         }
 
         on_progress(MetadataEnrichmentStage::Artwork, file);
 
         if lookup_type.eq_ignore_ascii_case("series") {
-            self.enrich_episode_like_artwork(&lookup, file).await;
+            self.enrich_episode_like_artwork(&lookup, file, resolved_remote_metadata.is_some())
+                .await;
         }
 
         self.cache_file_artwork(file).await;
@@ -173,6 +176,7 @@ impl MetadataEnrichmentContext {
         &mut self,
         lookup: &MetadataLookup,
         file: &mut DiscoveredMediaFile,
+        allow_remote_outline: bool,
     ) {
         let Some(season_number) = file.season_number else {
             return;
@@ -188,7 +192,7 @@ impl MetadataEnrichmentContext {
             file.series_backdrop_path = file.backdrop_path.clone();
         }
 
-        if self.metadata_provider.is_enabled() {
+        if allow_remote_outline && self.metadata_provider.is_enabled() {
             if let Some(outline) = self.lookup_series_outline_cached(lookup).await {
                 if let Some(remote_season) = outline
                     .seasons

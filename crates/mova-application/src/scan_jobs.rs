@@ -7,9 +7,10 @@ use crate::{
     metadata::MetadataProvider,
 };
 use mova_domain::{Library, ScanJob};
-use mova_scan::DiscoveredMediaFile;
+use mova_scan::{infer_series_folder_metadata, DiscoveredMediaFile};
 use sqlx::postgres::PgPool;
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
@@ -72,6 +73,21 @@ enum ScanItemStage {
 enum DiscoverMediaFilesOutcome {
     Completed(Vec<DiscoveredMediaFile>),
     Cancelled(i32),
+}
+
+#[derive(Debug, Clone)]
+struct ScanPresentationGroup {
+    item_key: String,
+    media_type: String,
+    title: String,
+    lookup_title: String,
+    year: Option<i32>,
+}
+
+#[derive(Debug)]
+struct ScanDiscoveredGroup {
+    presentation: ScanPresentationGroup,
+    files: Vec<DiscoveredMediaFile>,
 }
 
 const SCAN_PHASE_DISCOVERING: &str = "discovering";
@@ -442,7 +458,7 @@ pub async fn execute_scan_job_with_cancellation(
 async fn enrich_discovered_files(
     library: &Library,
     scan_job_id: i64,
-    mut discovered_files: Vec<DiscoveredMediaFile>,
+    discovered_files: Vec<DiscoveredMediaFile>,
     cancellation_flag: Arc<AtomicBool>,
     artwork_cache_dir: PathBuf,
     metadata_provider: Arc<dyn MetadataProvider>,
@@ -453,35 +469,62 @@ async fn enrich_discovered_files(
         metadata_provider,
         library.metadata_language.clone(),
     );
-    let total_items = i32::try_from(discovered_files.len()).unwrap_or(i32::MAX);
+    let mut groups = group_discovered_files_for_scan(library, discovered_files);
+    let total_items = i32::try_from(groups.len()).unwrap_or(i32::MAX);
 
-    for (index, file) in discovered_files.iter_mut().enumerate() {
+    for (index, group) in groups.iter_mut().enumerate() {
         if is_cancelled(&cancellation_flag) {
             break;
         }
 
-        let media_type = classify_media_type(&library.library_type, &file.file_path).to_string();
-        let lookup_type = metadata_lookup_type_for_media_type(&media_type);
+        if group.presentation.media_type.eq_ignore_ascii_case("series") {
+            for file in &mut group.files {
+                file.source_title = group.presentation.lookup_title.clone();
+
+                if file.year.is_none() {
+                    file.year = group.presentation.year;
+                }
+            }
+        }
+
         let item_index = i32::try_from(index + 1).unwrap_or(i32::MAX);
+        let Some((primary_file, remaining_files)) = group.files.split_first_mut() else {
+            continue;
+        };
+
+        let lookup_type = metadata_lookup_type_for_media_type(&group.presentation.media_type);
         let progress_listener = event_listener.clone();
-        let media_type_for_event = media_type.clone();
+        let mut presentation = group.presentation.clone();
 
         enrichment
-            .enrich_file_with_progress(lookup_type, file, move |stage, file| {
-                progress_listener(ScanJobEvent::ItemUpdated(build_scan_item_progress_update(
+            .enrich_file_with_progress(lookup_type, primary_file, move |stage, file| {
+                if stage != MetadataEnrichmentStage::Metadata {
+                    if !file.title.trim().is_empty() {
+                        presentation.title = file.title.clone();
+                    }
+                }
+
+                progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
                     scan_job_id,
                     library.id,
-                    &media_type_for_event,
-                    file,
+                    &presentation,
                     item_index,
                     total_items,
                     stage.into(),
                 )));
             })
             .await;
+
+        if !primary_file.title.trim().is_empty() {
+            group.presentation.title = primary_file.title.clone();
+        }
+
+        for file in remaining_files.iter_mut() {
+            enrichment.enrich_file(lookup_type, file).await;
+        }
     }
 
-    discovered_files
+    groups.into_iter().flat_map(|group| group.files).collect()
 }
 
 async fn discover_media_files(
@@ -544,7 +587,8 @@ async fn discover_media_files(
 
     let cancellation_for_task = cancellation_flag.clone();
     let result = tokio::task::spawn_blocking(move || {
-        let mut discovered_items = 0_i32;
+        let mut discovered_group_count = 0_i32;
+        let mut discovered_groups = HashMap::<String, i32>::new();
 
         mova_scan::discover_media_files_with_progress_item_and_cancel(
             std::path::Path::new(&root_path_for_task),
@@ -552,17 +596,21 @@ async fn discover_media_files(
                 let _ = progress_tx.send(count as i32);
             },
             |file| {
-                discovered_items = discovered_items.saturating_add(1);
-                let media_type =
-                    classify_media_type(&library_type_for_task, &file.file_path).to_string();
+                let presentation = build_scan_presentation_group(&library_type_for_task, file);
 
-                item_event_listener(ScanJobEvent::ItemUpdated(build_scan_item_progress_update(
+                if discovered_groups.contains_key(&presentation.item_key) {
+                    return;
+                }
+
+                discovered_group_count = discovered_group_count.saturating_add(1);
+                discovered_groups.insert(presentation.item_key.clone(), discovered_group_count);
+
+                item_event_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
                     scan_job_id,
                     library_id,
-                    &media_type,
-                    file,
-                    discovered_items,
-                    discovered_items,
+                    &presentation,
+                    discovered_group_count,
+                    discovered_group_count,
                     ScanItemStage::Discovered,
                 )));
             },
@@ -728,11 +776,76 @@ fn scan_phase_label(phase: &str) -> &'static str {
     }
 }
 
-fn build_scan_item_progress_update(
+fn build_scan_presentation_group(
+    library_type: &str,
+    file: &DiscoveredMediaFile,
+) -> ScanPresentationGroup {
+    let media_type = classify_media_type(library_type, &file.file_path);
+
+    if media_type == "episode" {
+        if let Some(folder_metadata) = infer_series_folder_metadata(&file.file_path) {
+            return ScanPresentationGroup {
+                item_key: folder_metadata.folder_path.to_string_lossy().to_string(),
+                media_type: "series".to_string(),
+                title: folder_metadata.display_title,
+                lookup_title: folder_metadata.title,
+                year: folder_metadata.year.or(file.year),
+            };
+        }
+
+        return ScanPresentationGroup {
+            item_key: file.file_path.to_string_lossy().to_string(),
+            media_type: "series".to_string(),
+            title: file.source_title.clone(),
+            lookup_title: file.source_title.clone(),
+            year: file.year,
+        };
+    }
+
+    ScanPresentationGroup {
+        item_key: file.file_path.to_string_lossy().to_string(),
+        media_type: "movie".to_string(),
+        title: file
+            .title
+            .trim()
+            .is_empty()
+            .then(|| file.source_title.clone())
+            .unwrap_or_else(|| file.title.clone()),
+        lookup_title: file.source_title.clone(),
+        year: file.year,
+    }
+}
+
+fn group_discovered_files_for_scan(
+    library: &Library,
+    discovered_files: Vec<DiscoveredMediaFile>,
+) -> Vec<ScanDiscoveredGroup> {
+    let mut groups = Vec::<ScanDiscoveredGroup>::new();
+    let mut group_indexes = HashMap::<String, usize>::new();
+
+    for file in discovered_files {
+        let presentation = build_scan_presentation_group(&library.library_type, &file);
+
+        if let Some(index) = group_indexes.get(&presentation.item_key).copied() {
+            groups[index].files.push(file);
+            continue;
+        }
+
+        let next_index = groups.len();
+        group_indexes.insert(presentation.item_key.clone(), next_index);
+        groups.push(ScanDiscoveredGroup {
+            presentation,
+            files: vec![file],
+        });
+    }
+
+    groups
+}
+
+fn build_scan_group_progress_update(
     scan_job_id: i64,
     library_id: i64,
-    media_type: &str,
-    file: &DiscoveredMediaFile,
+    presentation: &ScanPresentationGroup,
     item_index: i32,
     total_items: i32,
     stage: ScanItemStage,
@@ -743,23 +856,14 @@ fn build_scan_item_progress_update(
         ScanItemStage::Artwork => (SCAN_ITEM_STAGE_ARTWORK, 76),
         ScanItemStage::Completed => (SCAN_ITEM_STAGE_COMPLETED, 100),
     };
-    let title = file
-        .episode_title
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| Some(file.title.as_str()).filter(|value| !value.trim().is_empty()))
-        .or_else(|| Some(file.source_title.as_str()).filter(|value| !value.trim().is_empty()))
-        .unwrap_or("Untitled")
-        .to_string();
-
     ScanJobItemProgressUpdate {
         scan_job_id,
         library_id,
-        item_key: file.file_path.to_string_lossy().to_string(),
-        media_type: media_type.to_string(),
-        title,
-        season_number: file.season_number,
-        episode_number: file.episode_number,
+        item_key: presentation.item_key.clone(),
+        media_type: presentation.media_type.clone(),
+        title: presentation.title.clone(),
+        season_number: None,
+        episode_number: None,
         item_index,
         total_items,
         stage: stage_name.to_string(),
@@ -804,8 +908,10 @@ async fn emit_scan_job_phase(
 #[cfg(test)]
 mod tests {
     use crate::media_classification::{LIBRARY_TYPE_MIXED, LIBRARY_TYPE_SERIES};
+    use mova_domain::Library;
     use mova_scan::DiscoveredMediaFile;
     use std::path::{Path, PathBuf};
+    use time::OffsetDateTime;
 
     fn build_discovered_file() -> DiscoveredMediaFile {
         DiscoveredMediaFile {
@@ -851,6 +957,20 @@ mod tests {
             video_reference_frames: None,
             audio_tracks: Vec::new(),
             subtitle_tracks: Vec::new(),
+        }
+    }
+
+    fn build_library(library_type: &str) -> Library {
+        Library {
+            id: 7,
+            name: "Library".to_string(),
+            description: None,
+            library_type: library_type.to_string(),
+            metadata_language: "zh-CN".to_string(),
+            root_path: "/media".to_string(),
+            is_enabled: true,
+            created_at: OffsetDateTime::now_utc(),
+            updated_at: OffsetDateTime::now_utc(),
         }
     }
 
@@ -909,12 +1029,13 @@ mod tests {
     }
 
     #[test]
-    fn build_scan_item_progress_update_emits_discovered_episode_payload() {
-        let progress = super::build_scan_item_progress_update(
+    fn build_scan_item_progress_update_emits_group_level_series_payload() {
+        let presentation =
+            super::build_scan_presentation_group(LIBRARY_TYPE_SERIES, &build_discovered_file());
+        let progress = super::build_scan_group_progress_update(
             41,
             7,
-            "episode",
-            &build_discovered_file(),
+            &presentation,
             1,
             3,
             super::ScanItemStage::Discovered,
@@ -922,15 +1043,39 @@ mod tests {
 
         assert_eq!(progress.scan_job_id, 41);
         assert_eq!(progress.library_id, 7);
-        assert_eq!(progress.media_type, "episode");
-        assert_eq!(progress.title, "Welcome to the Playground");
-        assert_eq!(progress.season_number, Some(1));
-        assert_eq!(progress.episode_number, Some(1));
+        assert_eq!(progress.media_type, "series");
+        assert_eq!(progress.title, "Arcane");
+        assert_eq!(progress.season_number, None);
+        assert_eq!(progress.episode_number, None);
         assert_eq!(progress.stage, "discovered");
         assert_eq!(progress.progress_percent, 6);
         assert_eq!(progress.item_index, 1);
         assert_eq!(progress.total_items, 3);
-        assert!(progress.item_key.ends_with("Arcane.S01E01.mkv"));
+        assert!(progress.item_key.ends_with("Arcane"));
+    }
+
+    #[test]
+    fn group_discovered_files_for_scan_merges_episode_files_by_series_folder() {
+        let mut first_file = build_discovered_file();
+        first_file.file_path = PathBuf::from("Arcane/Season 01/Arcane.S01E01.mkv");
+        first_file.episode_number = Some(1);
+        first_file.episode_title = Some("Welcome to the Playground".to_string());
+
+        let mut second_file = build_discovered_file();
+        second_file.file_path = PathBuf::from("Arcane/Season 01/Arcane.S01E02.mkv");
+        second_file.episode_number = Some(2);
+        second_file.episode_title = Some("Some Mysteries Are Better Left Unsolved".to_string());
+
+        let groups = super::group_discovered_files_for_scan(
+            &build_library(LIBRARY_TYPE_MIXED),
+            vec![first_file, second_file],
+        );
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].presentation.media_type, "series");
+        assert_eq!(groups[0].presentation.title, "Arcane");
+        assert_eq!(groups[0].files.len(), 2);
+        assert!(groups[0].presentation.item_key.ends_with("Arcane"));
     }
 }
 

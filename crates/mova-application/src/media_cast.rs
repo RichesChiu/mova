@@ -10,6 +10,7 @@ use std::sync::Arc;
 use time::{Duration, OffsetDateTime};
 
 const MEDIA_CAST_CACHE_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
+const MEDIA_CAST_FAILURE_CACHE_TTL_SECONDS: i64 = 30 * 60;
 const MAX_MEDIA_CAST_MEMBERS: usize = 20;
 
 pub async fn list_media_item_cast(
@@ -59,18 +60,44 @@ pub async fn list_media_item_cast(
                 error = ?error,
                 "failed to fetch remote cast metadata"
             );
+
+            if cache_entry.is_none() {
+                persist_cast_members(
+                    pool,
+                    media_item.id,
+                    &[],
+                    now,
+                    MEDIA_CAST_FAILURE_CACHE_TTL_SECONDS,
+                )
+                .await?;
+            }
+
             return Ok(cached_members);
         }
     };
 
     if let Some(remote_cast) = remote_cast {
         let cast_members = normalize_remote_cast(media_item.id, remote_cast);
-        persist_cast_members(pool, media_item.id, &cast_members, now).await?;
+        persist_cast_members(
+            pool,
+            media_item.id,
+            &cast_members,
+            now,
+            MEDIA_CAST_CACHE_TTL_SECONDS,
+        )
+        .await?;
         return Ok(cast_members);
     }
 
     if cache_entry.is_none() {
-        persist_cast_members(pool, media_item.id, &[], now).await?;
+        persist_cast_members(
+            pool,
+            media_item.id,
+            &[],
+            now,
+            MEDIA_CAST_FAILURE_CACHE_TTL_SECONDS,
+        )
+        .await?;
     }
 
     Ok(cached_members)
@@ -90,9 +117,10 @@ async fn persist_cast_members(
     media_item_id: i64,
     members: &[MediaCastMember],
     fetched_at: OffsetDateTime,
+    ttl_seconds: i64,
 ) -> ApplicationResult<()> {
     let expires_at = fetched_at
-        .checked_add(Duration::seconds(MEDIA_CAST_CACHE_TTL_SECONDS))
+        .checked_add(Duration::seconds(ttl_seconds))
         .ok_or_else(|| {
             ApplicationError::Unexpected(anyhow::anyhow!(
                 "failed to calculate cast cache expiration for media item {}",

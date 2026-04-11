@@ -156,7 +156,7 @@
 - `library.deleted`
 - `media_item.metadata.updated`
 
-所有事件都会先经过 `is_visible_to(&UserProfile)` 做库级可见性过滤，再转换成 SSE。
+其中 `scan.item.updated` 现在不再只是“文件级事件”：电影通常仍按文件路径发出，剧集会优先按系列目录组发出一张占位卡，避免前端在元数据拉取前先看到被打散的单集文件。所有事件都会先经过 `is_visible_to(&UserProfile)` 做库级可见性过滤，再转换成 SSE。
 
 ## 5. 路由总览
 

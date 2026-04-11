@@ -4,13 +4,15 @@ use reqwest::{
     Client,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 pub const DEFAULT_TMDB_LANGUAGE: &str = "zh-CN";
 pub const SUPPORTED_TMDB_LANGUAGES: &[&str] = &["zh-CN", "en-US"];
 pub const DEFAULT_TMDB_API_BASE_URL: &str = "https://api.themoviedb.org/3";
 pub const DEFAULT_TMDB_IMAGE_BASE_URL: &str = "https://image.tmdb.org/t/p/original";
 pub const DEFAULT_OMDB_API_BASE_URL: &str = "https://www.omdbapi.com";
+const METADATA_PROVIDER_CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+const METADATA_PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 
 /// 服务启动时解析出的元数据 provider 配置。
 #[derive(Debug, Clone)]
@@ -186,12 +188,16 @@ impl TmdbMetadataProvider {
         let client = Client::builder()
             .default_headers(headers)
             .user_agent(format!("mova/{}", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(METADATA_PROVIDER_CONNECT_TIMEOUT)
+            .timeout(METADATA_PROVIDER_REQUEST_TIMEOUT)
             .build()?;
 
         Ok(Self {
             client,
             omdb_client: Client::builder()
                 .user_agent(format!("mova/{}", env!("CARGO_PKG_VERSION")))
+                .connect_timeout(METADATA_PROVIDER_CONNECT_TIMEOUT)
+                .timeout(METADATA_PROVIDER_REQUEST_TIMEOUT)
                 .build()?,
             language: config.language.trim().to_string(),
             api_base_url: config.api_base_url.trim_end_matches('/').to_string(),
@@ -209,9 +215,8 @@ impl TmdbMetadataProvider {
         let movie_id = match lookup.provider_item_id {
             Some(movie_id) => movie_id,
             None => {
-                let response = self.search_movie_response(lookup).await?;
-                let Some(best_match) =
-                    select_best_match(&lookup.title, lookup.year, &response.results)
+                let candidates = self.search_movie_candidates(lookup).await?;
+                let Some(best_match) = select_best_match(&lookup.title, lookup.year, &candidates)
                 else {
                     return Ok(None);
                 };
@@ -232,9 +237,29 @@ impl TmdbMetadataProvider {
         Ok(Some(self.map_movie_details(details, imdb_rating)))
     }
 
+    async fn search_movie_candidates(
+        &self,
+        lookup: &MetadataLookup,
+    ) -> anyhow::Result<Vec<TmdbMovieSearchResult>> {
+        let primary = self.search_movie_response(lookup, true).await?;
+
+        if lookup.year.is_none() {
+            return Ok(primary.results);
+        }
+
+        let fallback = self.search_movie_response(lookup, false).await?;
+
+        Ok(merge_search_results(
+            primary.results,
+            fallback.results,
+            |result| result.id,
+        ))
+    }
+
     async fn search_movie_response(
         &self,
         lookup: &MetadataLookup,
+        include_year_filter: bool,
     ) -> anyhow::Result<TmdbSearchResponse<TmdbMovieSearchResult>> {
         let request_language = self.request_language(lookup);
         let mut query = vec![
@@ -244,8 +269,10 @@ impl TmdbMetadataProvider {
             ("language", request_language.to_string()),
         ];
 
-        if let Some(year) = lookup.year {
-            query.push(("year", year.to_string()));
+        if include_year_filter {
+            if let Some(year) = lookup.year {
+                query.push(("year", year.to_string()));
+            }
         }
 
         let response = self
@@ -265,16 +292,36 @@ impl TmdbMetadataProvider {
         &self,
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Option<TmdbTvSearchResult>> {
-        let response = self.search_tv_response(lookup).await?;
+        let candidates = self.search_tv_candidates(lookup).await?;
 
-        let best_match = select_best_match(&lookup.title, lookup.year, &response.results).cloned();
+        let best_match = select_best_match(&lookup.title, lookup.year, &candidates).cloned();
 
         Ok(best_match)
+    }
+
+    async fn search_tv_candidates(
+        &self,
+        lookup: &MetadataLookup,
+    ) -> anyhow::Result<Vec<TmdbTvSearchResult>> {
+        let primary = self.search_tv_response(lookup, true).await?;
+
+        if lookup.year.is_none() {
+            return Ok(primary.results);
+        }
+
+        let fallback = self.search_tv_response(lookup, false).await?;
+
+        Ok(merge_search_results(
+            primary.results,
+            fallback.results,
+            |result| result.id,
+        ))
     }
 
     async fn search_tv_response(
         &self,
         lookup: &MetadataLookup,
+        include_year_filter: bool,
     ) -> anyhow::Result<TmdbSearchResponse<TmdbTvSearchResult>> {
         let request_language = self.request_language(lookup);
         let mut query = vec![
@@ -284,8 +331,10 @@ impl TmdbMetadataProvider {
             ("language", request_language.to_string()),
         ];
 
-        if let Some(year) = lookup.year {
-            query.push(("first_air_date_year", year.to_string()));
+        if include_year_filter {
+            if let Some(year) = lookup.year {
+                query.push(("first_air_date_year", year.to_string()));
+            }
         }
 
         let response = self
@@ -537,9 +586,8 @@ impl TmdbMetadataProvider {
         let movie_id = match lookup.provider_item_id {
             Some(movie_id) => movie_id,
             None => {
-                let response = self.search_movie_response(lookup).await?;
-                let Some(best_match) =
-                    select_best_match(&lookup.title, lookup.year, &response.results)
+                let candidates = self.search_movie_candidates(lookup).await?;
+                let Some(best_match) = select_best_match(&lookup.title, lookup.year, &candidates)
                 else {
                     return Ok(None);
                 };
@@ -775,9 +823,8 @@ impl MetadataProvider for TmdbMetadataProvider {
         }
 
         if lookup.library_type.eq_ignore_ascii_case("series") {
-            let response = self.search_tv_response(lookup).await?;
-            return Ok(response
-                .results
+            let results = self.search_tv_candidates(lookup).await?;
+            return Ok(results
                 .into_iter()
                 .filter_map(|result| {
                     self.map_search_result(
@@ -793,9 +840,8 @@ impl MetadataProvider for TmdbMetadataProvider {
                 .collect());
         }
 
-        let response = self.search_movie_response(lookup).await?;
+        let response = self.search_movie_candidates(lookup).await?;
         Ok(response
-            .results
             .into_iter()
             .filter_map(|result| {
                 self.map_search_result(
@@ -810,6 +856,22 @@ impl MetadataProvider for TmdbMetadataProvider {
             })
             .collect())
     }
+}
+
+fn merge_search_results<T, F>(primary: Vec<T>, fallback: Vec<T>, id_fn: F) -> Vec<T>
+where
+    F: Fn(&T) -> i64,
+{
+    let mut merged = Vec::with_capacity(primary.len() + fallback.len());
+    let mut seen_ids = std::collections::HashSet::new();
+
+    for item in primary.into_iter().chain(fallback.into_iter()) {
+        if seen_ids.insert(id_fn(&item)) {
+            merged.push(item);
+        }
+    }
+
+    merged
 }
 
 /// 把远程元数据补到本地扫描结果里。
@@ -1194,7 +1256,7 @@ pub type MetadataLookupCache = HashMap<MetadataLookup, Option<RemoteMetadata>>;
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_remote_metadata, build_metadata_provider, normalize_base_url,
+        apply_remote_metadata, build_metadata_provider, merge_search_results, normalize_base_url,
         normalize_metadata_language, normalize_optional_value, normalize_title, parse_year,
         pick_primary_character_name, select_best_match, MetadataLookup, MetadataProviderConfig,
         RemoteMetadata, TmdbMetadataProvider, TmdbMetadataProviderConfig, TmdbMovieSearchResult,
@@ -1359,6 +1421,64 @@ mod tests {
         let best_match = select_best_match("Castle in the Sky", Some(1986), &candidates).unwrap();
 
         assert_eq!(best_match.id, 1);
+    }
+
+    #[test]
+    fn merge_search_results_keeps_year_filtered_results_first_and_deduplicates() {
+        let merged = merge_search_results(
+            vec![
+                TmdbMovieSearchResult {
+                    id: 2,
+                    title: Some("The Legend of the Condor Heroes".to_string()),
+                    original_title: None,
+                    release_date: Some("1994-01-01".to_string()),
+                    overview: None,
+                    poster_path: None,
+                    backdrop_path: None,
+                    popularity: 50.0,
+                },
+                TmdbMovieSearchResult {
+                    id: 3,
+                    title: Some("Another Result".to_string()),
+                    original_title: None,
+                    release_date: Some("1995-01-01".to_string()),
+                    overview: None,
+                    poster_path: None,
+                    backdrop_path: None,
+                    popularity: 20.0,
+                },
+            ],
+            vec![
+                TmdbMovieSearchResult {
+                    id: 2,
+                    title: Some("The Legend of the Condor Heroes".to_string()),
+                    original_title: None,
+                    release_date: Some("1994-01-01".to_string()),
+                    overview: None,
+                    poster_path: None,
+                    backdrop_path: None,
+                    popularity: 50.0,
+                },
+                TmdbMovieSearchResult {
+                    id: 1,
+                    title: Some("The Legend of the Condor Heroes".to_string()),
+                    original_title: None,
+                    release_date: Some("1983-01-01".to_string()),
+                    overview: None,
+                    poster_path: None,
+                    backdrop_path: None,
+                    popularity: 80.0,
+                },
+            ],
+            |result| result.id,
+        );
+
+        let merged_ids = merged
+            .into_iter()
+            .map(|result| result.id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(merged_ids, vec![2, 3, 1]);
     }
 
     #[test]

@@ -227,6 +227,22 @@ describe('MediaPlayerPanel', () => {
     expect(videoState.getCurrentTime()).toBe(0)
   })
 
+  it('does not block playback while saved progress is still loading', async () => {
+    clientMocks.getMediaItemPlaybackProgress.mockImplementation(() => new Promise(() => {}))
+
+    const { container } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel mediaItemId={31} title="Interstellar" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
+    expect(screen.queryByText('Loading player…')).toBeNull()
+  })
+
   it('migrates the playback position when switching to another source', async () => {
     clientMocks.listMediaItemFiles.mockResolvedValue([
       {

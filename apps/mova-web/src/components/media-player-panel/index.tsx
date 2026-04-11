@@ -459,10 +459,12 @@ export const MediaPlayerPanel = ({
   const mediaFilesQuery = useQuery({
     queryKey: ['media-item-files', mediaItemId],
     queryFn: () => listMediaItemFiles(mediaItemId),
+    retry: false,
   })
   const playbackProgressQuery = useQuery({
     queryKey: ['media-item-playback-progress', mediaItemId],
     queryFn: () => getMediaItemPlaybackProgress(mediaItemId),
+    retry: false,
   })
   const playbackProgressMutation = useMutation({
     mutationFn: (input: {
@@ -1257,7 +1259,7 @@ export const MediaPlayerPanel = ({
         </div>
       ) : null}
 
-      {mediaFilesQuery.isLoading || playbackProgressQuery.isLoading ? (
+      {mediaFilesQuery.isLoading ? (
         <p className="muted">Loading player…</p>
       ) : null}
 

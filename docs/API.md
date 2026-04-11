@@ -232,7 +232,7 @@
   - `enriching`：正在补全元数据和图片
   - `syncing`：正在写入媒体库
   - `finished`：任务已结束
-- `scan.item.updated` 用于扫描中的条目级提示；现在从“刚发现文件”开始就会推送，同一个 `item_key` 会在后续元数据、图片和写库前阶段持续更新，当前结构如下：
+- `scan.item.updated` 用于扫描中的条目级提示；现在从“刚发现新的电影文件或剧集目录组”开始就会推送，同一个 `item_key` 会在后续元数据、图片和写库前阶段持续更新，当前结构如下：
 
 ```json
 {
@@ -240,9 +240,9 @@
   "item": {
     "scan_job_id": 41,
     "library_id": 7,
-    "item_key": "/media/movies/Interstellar (2014)/Interstellar.mkv",
-    "media_type": "movie",
-    "title": "Interstellar",
+    "item_key": "/media/series/Arcane",
+    "media_type": "series",
+    "title": "Arcane",
     "season_number": null,
     "episode_number": null,
     "item_index": 12,
@@ -254,11 +254,11 @@
 ```
 
 字段说明：
-- `item_key`：当前扫描条目的稳定键，第一版直接使用文件路径
+- `item_key`：当前扫描条目的稳定键；电影当前直接使用文件路径，剧集会优先使用系列目录路径，避免前端在扫描中先看到一集一集被打散
 - `item_index` / `total_items`：当前条目在整批扫描里的位置，用于前端估算总进度
 - `stage`：当前条目处理阶段，当前会使用 `discovered` / `metadata` / `artwork` / `completed`
 - `progress_percent`：当前条目自身的粗粒度进度百分比，便于前端直接驱动占位卡进度条
-- 前端可以把同一个 `item_key` 当成一张临时扫描卡：发现文件时先渲染出来，后续收到新事件后只更新这张卡，而不是整块列表突然出现或突然消失
+- 前端可以把同一个 `item_key` 当成一张临时扫描卡：发现文件或目录组时先渲染出来，后续收到新事件后只更新这张卡，而不是整块列表突然出现或突然消失
 - 当某个远端元数据步骤失败但扫描继续时，当前仍以服务端日志为主；日志会明确标出是 metadata enrichment 阶段失败，并说明会回退到本地数据
 
 ### `PUT /api/auth/password`

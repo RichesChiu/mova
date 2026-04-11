@@ -47,8 +47,9 @@
 - 扫描任务状态目前包含 `pending / running / success / failed`。
 - 扫描发现文件时会实时更新 `scan_jobs.scanned_files`。
 - 支持 `GET /api/events` 的 SSE 实时事件流，当前会主动广播 `scan.job.updated`、`scan.job.finished`、`scan.item.updated`、`library.updated`、`library.deleted` 和 `media_item.metadata.updated`。
-- 扫描实时事件已补上 `discovering / enriching / syncing / finished` 阶段，并会在发现新文件时立刻推送条目级占位信息；同一张卡会继续经历元数据、图片和等待写库阶段。
+- 扫描实时事件已补上 `discovering / enriching / syncing / finished` 阶段，并会在发现新电影文件或新剧集目录组时立刻推送条目级占位信息；同一张卡会继续经历元数据、图片和等待写库阶段。
 - 扫描失败时，`scan_job.error_message` 现在会直接带阶段上下文，例如扫描目录失败、元数据补全失败、写库失败。
+- TMDB / OMDb 请求现在有明确超时，远端 metadata 失败时会更快回退到本地解析，不会把整轮扫描长时间卡在 enrichment 阶段。
 
 ### 扫描入库
 
@@ -58,6 +59,8 @@
 - 剧集文件当前会聚合写入 `series`、`seasons`、`episode media_items` 和 `media_files`。
 - 当前扫描会按 `(library_id, file_path)` 做增量同步。
 - `mixed` 库会按单个文件判断类型：命中 `S01E02`、`1x02`、`Season 01/` 等剧集信号时按 `episode` 处理，否则默认按 `movie` 处理。
+- 本地剧集识别已补到不依赖 TMDB 的常见目录命名：`Season 01/01.mkv`、`EP02`、`Episode 03`、`第03集` 这类文件会直接推导出剧名、季号和集号，避免远端超时后整部剧被拆散。
+- 同一季同一集现在支持保留多个本地文件版本：会复用同一个 `episode media_item`，再把不同文件挂到同一集下面，不会因为第二个版本写入而整轮扫描失败。
 - 同路径文件会原地更新，保持原有 `media_item_id` / `media_file_id`。
 - 改名或移动路径的文件会表现成旧路径删除、新路径新增。
 - 已启用媒体库会启动递归 watcher，常见文件新增、删除、修改、改名和目录变化会自动触发路径级同步。
@@ -93,6 +96,7 @@
 - 支持 `GET /api/media-files/{id}/subtitles` 查询媒体文件可切换字幕列表。
 - 支持 `GET /api/subtitle-files/{id}/stream` 输出 WebVTT 字幕轨道。
 - 前端播放器已支持源切换、字幕切换、音轨切换、缓冲状态提示、当前源重试和“从头播放”入口。
+- 播放器页现在会优先等待可播放文件列表返回；播放进度查询即使较慢或失败，也不会再把整页长期卡在 `Loading player…`。
 - 切换到非默认音轨时，服务端会用 `ffmpeg -c copy` 生成缓存的 remux 变体，再继续走同一条媒体流接口，不需要整段转码。
 - 音轨菜单现在会显示当前选中状态，并在切换中、切换完成和音轨列表加载失败时给出更明确的用户提示，而不是直接暴露底层接口错误。
 - 播放器现在会区分媒体源失败、自动播放被浏览器拦截、字幕加载失败和播放进度保存失败；字幕失败和进度保存失败都按非阻断 warning 处理，不会直接打断主视频播放。
@@ -115,7 +119,7 @@
 - 扫描时会基于文件名提取清洗后的标题。
 - 常见电影文件名里的四位年份会写入 `media_items.year`。
 - 扫描时会读取本地 sidecar 元数据，包括 `movie.nfo` / `<video>.nfo`、`poster.jpg`、`fanart.jpg` 等常见文件。
-- 设置 `MOVA_TMDB_ACCESS_TOKEN` 后，扫描会额外查询 TMDB，补齐缺失的 `overview`、`poster_path`、`backdrop_path`、`original_title`、`year`。
+- 设置 `MOVA_TMDB_ACCESS_TOKEN` 后，扫描会额外查询 TMDB，补齐缺失的 `overview`、`poster_path`、`backdrop_path`、`original_title`、`year`；本地文件名或目录里解析出的年份会先参与搜索，但如果这个年份写错了，系统会自动回退到不带年份的搜索结果。
 - 如果额外配置 `MOVA_OMDB_API_KEY`，会在 TMDB 已拿到 `imdb_id` 的前提下补齐 `imdb_rating`，供详情页标题旁展示。
 - TMDB 配置当前从运行时环境变量读取，媒体库仍可单独配置元数据语言。
 - 扫描命中 TMDB 图片时，会优先把海报和背景图下载到本地缓存目录，再写入媒体记录。
@@ -150,7 +154,7 @@
 - `watch_history` 当前只记录用户自己的观看会话；还没有单独的“已看过 / 看过几次 / 最近看完”聚合接口。
 - 扫描时不会解析剧集号、季号、演员、类型等更完整的结构化元数据。
 - `scan_jobs.scanned_files` 目前仍表示“已发现文件数”；后续阶段进度主要依赖 SSE 里的 `phase` 和条目级实时事件，而不是单独落库字段。
-- 条目级扫描卡当前以 `item_key = file_path` 做临时身份标识，在最终写库完成前还不是数据库里的真实媒体项 ID。
+- 条目级扫描卡当前以 `item_key` 做临时身份标识：电影通常是 `file_path`，剧集会优先使用系列目录路径；在最终写库完成前它仍然不是数据库里的真实媒体项 ID。
 - 当前只对“同路径未变化”的文件保持稳定 ID；改名或移动后的路径会被当成新文件处理。
 - watcher 仍可能因为底层文件系统、Docker 挂载或网络盘行为漏掉事件，因此仍然保留手动扫描和定时路径校准作为兜底。
 - 扫描任务是通过 API 进程内的 `tokio::spawn` 执行的，服务重启后任务不会恢复。当前做法是在启动时把中断任务标记为失败，允许手动重新触发。

@@ -1,7 +1,8 @@
 use super::{
     sync::{
-        delete_media_item, display_title_for_entry, insert_media_file,
-        update_media_file_from_entry, ExistingLibraryMediaFileRecord,
+        cleanup_media_item_if_no_files, delete_media_item, display_title_for_entry,
+        insert_media_file, reassign_media_file_to_media_item, update_media_file_from_entry,
+        ExistingLibraryMediaFileRecord,
     },
     CreateMediaEntryParams,
 };
@@ -21,12 +22,36 @@ pub(super) async fn upsert_episode_media_entry(
         .context("episode entry missing episode number")?;
     let series_id = upsert_series_item_from_entry(tx, entry).await?;
     let season_id = upsert_season(tx, series_id, season_number, entry).await?;
+    let existing_episode_media_item_id =
+        find_existing_episode_media_item(tx, season_id, episode_number).await?;
 
     if let Some(existing) = existing {
         if !existing.media_type.eq_ignore_ascii_case("episode") {
             delete_media_item(tx, existing.media_item_id).await?;
-            insert_episode_media_tree(tx, entry, series_id, season_id, episode_number).await?;
+            if let Some(existing_episode_media_item_id) = existing_episode_media_item_id {
+                update_episode_media_item_from_entry(tx, existing_episode_media_item_id, entry)
+                    .await?;
+                insert_media_file(tx, existing_episode_media_item_id, entry).await?;
+            } else {
+                insert_episode_media_tree(tx, entry, series_id, season_id, episode_number).await?;
+            }
             return Ok(());
+        }
+
+        if let Some(existing_episode_media_item_id) = existing_episode_media_item_id {
+            if existing_episode_media_item_id != existing.media_item_id {
+                update_episode_media_item_from_entry(tx, existing_episode_media_item_id, entry)
+                    .await?;
+                reassign_media_file_to_media_item(
+                    tx,
+                    existing.media_file_id,
+                    existing_episode_media_item_id,
+                    entry,
+                )
+                .await?;
+                cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
+                return Ok(());
+            }
         }
 
         update_episode_media_item_from_entry(tx, existing.media_item_id, entry).await?;
@@ -40,6 +65,12 @@ pub(super) async fn upsert_episode_media_entry(
         )
         .await?;
         update_media_file_from_entry(tx, existing.media_file_id, entry).await?;
+        return Ok(());
+    }
+
+    if let Some(existing_episode_media_item_id) = existing_episode_media_item_id {
+        update_episode_media_item_from_entry(tx, existing_episode_media_item_id, entry).await?;
+        insert_media_file(tx, existing_episode_media_item_id, entry).await?;
         return Ok(());
     }
 
@@ -378,6 +409,29 @@ async fn insert_episode_record(
     .context("failed to insert episode record")?;
 
     Ok(())
+}
+
+async fn find_existing_episode_media_item(
+    tx: &mut Transaction<'_, Postgres>,
+    season_id: i64,
+    episode_number: i32,
+) -> Result<Option<i64>> {
+    let row = sqlx::query(
+        r#"
+        select media_item_id
+        from episodes
+        where season_id = $1
+          and episode_number = $2
+        limit 1
+        "#,
+    )
+    .bind(season_id)
+    .bind(episode_number)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to find existing episode record")?;
+
+    Ok(row.map(|row| row.get("media_item_id")))
 }
 
 async fn update_episode_record(

@@ -27,7 +27,8 @@ pub async fn sync_library_media(
 
     for record in existing_by_path.values() {
         if !discovered_paths.contains(record.file_path.as_str()) {
-            delete_media_item(&mut tx, record.media_item_id).await?;
+            delete_media_file_and_cleanup_item(&mut tx, record.media_item_id, record.media_file_id)
+                .await?;
         }
     }
 
@@ -82,7 +83,8 @@ pub async fn delete_library_media_by_file_path(
     let rows_affected = if let Some(existing) =
         get_existing_library_media_file_by_path(&mut tx, library_id, file_path).await?
     {
-        delete_media_item(&mut tx, existing.media_item_id).await?;
+        delete_media_file_and_cleanup_item(&mut tx, existing.media_item_id, existing.media_file_id)
+            .await?;
         series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
         1
     } else {
@@ -109,7 +111,9 @@ pub async fn delete_library_media_by_path_prefix(
 
     let rows = sqlx::query(
         r#"
-        select distinct mi.id as media_item_id
+        select
+            mi.id as media_item_id,
+            mf.id as media_file_id
         from media_items mi
         join media_files mf on mf.media_item_id = mi.id
         where mf.library_id = $1
@@ -122,16 +126,21 @@ pub async fn delete_library_media_by_path_prefix(
     .await
     .context("failed to list media items for directory deletion")?;
 
-    let media_item_ids = rows
+    let media_file_records = rows
         .into_iter()
-        .map(|row| row.get::<i64, _>("media_item_id"))
+        .map(|row| {
+            (
+                row.get::<i64, _>("media_item_id"),
+                row.get::<i64, _>("media_file_id"),
+            )
+        })
         .collect::<Vec<_>>();
 
-    for media_item_id in &media_item_ids {
-        delete_media_item(&mut tx, *media_item_id).await?;
+    for (media_item_id, media_file_id) in &media_file_records {
+        delete_media_file_and_cleanup_item(&mut tx, *media_item_id, *media_file_id).await?;
     }
 
-    if !media_item_ids.is_empty() {
+    if !media_file_records.is_empty() {
         series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
     }
 
@@ -139,7 +148,7 @@ pub async fn delete_library_media_by_path_prefix(
         .await
         .context("failed to commit directory media deletion transaction")?;
 
-    Ok(media_item_ids.len() as u64)
+    Ok(media_file_records.len() as u64)
 }
 
 pub(super) async fn upsert_media_entry(
@@ -598,6 +607,121 @@ async fn replace_subtitle_files_for_media_file_tx(
     Ok(())
 }
 
+pub(super) async fn reassign_media_file_to_media_item(
+    tx: &mut Transaction<'_, Postgres>,
+    media_file_id: i64,
+    target_media_item_id: i64,
+    entry: &CreateMediaEntryParams,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        update media_files
+        set
+            media_item_id = $2,
+            file_path = $3,
+            container = $4,
+            file_size = $5,
+            duration_seconds = $6,
+            video_title = $7,
+            video_codec = $8,
+            video_profile = $9,
+            video_level = $10,
+            audio_codec = $11,
+            width = $12,
+            height = $13,
+            bitrate = $14,
+            video_bitrate = $15,
+            video_frame_rate = $16,
+            video_aspect_ratio = $17,
+            video_scan_type = $18,
+            video_color_primaries = $19,
+            video_color_space = $20,
+            video_color_transfer = $21,
+            video_bit_depth = $22,
+            video_pixel_format = $23,
+            video_reference_frames = $24,
+            updated_at = now()
+        where id = $1
+        "#,
+    )
+    .bind(media_file_id)
+    .bind(target_media_item_id)
+    .bind(&entry.file_path)
+    .bind(&entry.container)
+    .bind(entry.file_size)
+    .bind(entry.duration_seconds)
+    .bind(&entry.video_title)
+    .bind(&entry.video_codec)
+    .bind(&entry.video_profile)
+    .bind(&entry.video_level)
+    .bind(&entry.audio_codec)
+    .bind(entry.width)
+    .bind(entry.height)
+    .bind(entry.bitrate)
+    .bind(entry.video_bitrate)
+    .bind(entry.video_frame_rate)
+    .bind(&entry.video_aspect_ratio)
+    .bind(&entry.video_scan_type)
+    .bind(&entry.video_color_primaries)
+    .bind(&entry.video_color_space)
+    .bind(&entry.video_color_transfer)
+    .bind(entry.video_bit_depth)
+    .bind(&entry.video_pixel_format)
+    .bind(entry.video_reference_frames)
+    .execute(&mut **tx)
+    .await
+    .context("failed to reassign media file during library sync")?;
+
+    replace_audio_tracks_for_media_file_tx(tx, media_file_id, &entry.audio_tracks).await?;
+    replace_subtitle_files_for_media_file_tx(tx, media_file_id, &entry.subtitle_tracks).await?;
+
+    Ok(())
+}
+
+pub(super) async fn delete_media_file_and_cleanup_item(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+    media_file_id: i64,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        delete from media_files
+        where id = $1
+        "#,
+    )
+    .bind(media_file_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to delete removed media file during library sync")?;
+
+    cleanup_media_item_if_no_files(tx, media_item_id).await
+}
+
+pub(super) async fn cleanup_media_item_if_no_files(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+) -> Result<()> {
+    let has_files = sqlx::query_scalar::<_, bool>(
+        r#"
+        select exists(
+            select 1
+            from media_files
+            where media_item_id = $1
+        )
+        "#,
+    )
+    .bind(media_item_id)
+    .fetch_one(&mut **tx)
+    .await
+    .context("failed to check remaining media files during library sync")?;
+
+    if !has_files {
+        delete_media_item(tx, media_item_id).await?;
+    }
+
+    Ok(())
+}
+
 pub(super) async fn delete_media_item(
     tx: &mut Transaction<'_, Postgres>,
     media_item_id: i64,
@@ -614,4 +738,135 @@ pub(super) async fn delete_media_item(
     .context("failed to delete removed media item during library sync")?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sync_library_media;
+    use crate::{create_library, CreateLibraryParams, CreateMediaEntryParams};
+
+    fn build_episode_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams {
+        CreateMediaEntryParams {
+            library_id,
+            media_type: "episode".to_string(),
+            title: "Interstellar Classroom".to_string(),
+            source_title: "Interstellar Classroom".to_string(),
+            original_title: Some("Interstellar Classroom".to_string()),
+            sort_title: None,
+            year: Some(2024),
+            imdb_rating: None,
+            season_number: Some(1),
+            season_title: Some("Season 01".to_string()),
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: Some(1),
+            episode_title: Some("Pilot".to_string()),
+            overview: Some("Pilot episode".to_string()),
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+            file_path: file_path.to_string(),
+            container: Some("mkv".to_string()),
+            file_size: 1,
+            duration_seconds: Some(1800),
+            video_title: None,
+            video_codec: Some("h264".to_string()),
+            video_profile: None,
+            video_level: None,
+            audio_codec: Some("aac".to_string()),
+            width: Some(1920),
+            height: Some(1080),
+            bitrate: Some(4_000_000),
+            video_bitrate: Some(3_500_000),
+            video_frame_rate: Some(23.976),
+            video_aspect_ratio: Some("16:9".to_string()),
+            video_scan_type: Some("progressive".to_string()),
+            video_color_primaries: None,
+            video_color_space: None,
+            video_color_transfer: None,
+            video_bit_depth: Some(8),
+            video_pixel_format: Some("yuv420p".to_string()),
+            video_reference_frames: None,
+            audio_tracks: Vec::new(),
+            subtitle_tracks: Vec::new(),
+        }
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn sync_library_media_reuses_one_episode_record_for_multiple_files(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let library = create_library(
+            &pool,
+            CreateLibraryParams {
+                name: "Shows".to_string(),
+                description: None,
+                library_type: "series".to_string(),
+                metadata_language: "en-US".to_string(),
+                root_path: "/media/shows".to_string(),
+                is_enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+
+        let entries = vec![
+            build_episode_entry(
+                library.id,
+                "/media/shows/Interstellar Classroom/Season 01/S01E01.1080p.mkv",
+            ),
+            build_episode_entry(
+                library.id,
+                "/media/shows/Interstellar Classroom/Season 01/S01E01.4k.mkv",
+            ),
+        ];
+
+        sync_library_media(&pool, library.id, &entries)
+            .await
+            .unwrap();
+
+        let episode_count = sqlx::query_scalar::<_, i64>("select count(*) from episodes")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let episode_media_item_count = sqlx::query_scalar::<_, i64>(
+            "select count(*) from media_items where media_type = 'episode'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let series_media_item_count = sqlx::query_scalar::<_, i64>(
+            "select count(*) from media_items where media_type = 'series'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let media_file_count = sqlx::query_scalar::<_, i64>("select count(*) from media_files")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let linked_file_count = sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)
+            from media_files
+            where media_item_id = (
+                select media_item_id
+                from episodes
+                limit 1
+            )
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(series_media_item_count, 1);
+        assert_eq!(episode_media_item_count, 1);
+        assert_eq!(episode_count, 1);
+        assert_eq!(media_file_count, 2);
+        assert_eq!(linked_file_count, 2);
+    }
 }
