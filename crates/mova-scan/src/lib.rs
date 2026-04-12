@@ -43,6 +43,8 @@ pub struct DiscoveredAudioTrack {
 #[derive(Debug, Clone)]
 pub struct DiscoveredMediaFile {
     pub file_path: PathBuf,
+    pub metadata_provider: Option<String>,
+    pub metadata_provider_item_id: Option<i64>,
     pub title: String,
     pub source_title: String,
     pub original_title: Option<String>,

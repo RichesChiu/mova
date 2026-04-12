@@ -1,8 +1,9 @@
 use super::{
     CreateAudioTrackParams, CreateSubtitleTrackParams, ExistingMediaMetadataSummary,
-    LibraryMediaTypeCounts, ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult,
-    MediaItemPlaybackHeader, SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams,
-    UpdateMediaItemMetadataParams, UpsertSeriesEpisodeOutlineCacheParams,
+    LibraryMediaTypeCounts, ListLibraryMediaItemsNeedingCastRefreshParams,
+    ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult, MediaItemPlaybackHeader,
+    SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams, UpdateMediaItemMetadataParams,
+    UpsertSeriesEpisodeOutlineCacheParams,
 };
 use anyhow::{Context, Result};
 use mova_domain::{AudioTrack, Episode, MediaFile, MediaItem, Season, SubtitleFile};
@@ -89,6 +90,53 @@ pub async fn list_media_items_for_library(
         items: rows.into_iter().map(map_media_item_row).collect(),
         total: total_row.get("total"),
     })
+}
+
+pub async fn list_library_media_items_needing_cast_refresh(
+    pool: &PgPool,
+    params: ListLibraryMediaItemsNeedingCastRefreshParams,
+) -> Result<Vec<MediaItem>> {
+    let rows = sqlx::query(
+        r#"
+        select
+            mi.id,
+            mi.library_id,
+            mi.media_type,
+            mi.title,
+            mi.source_title,
+            mi.original_title,
+            mi.sort_title,
+            mi.metadata_provider,
+            mi.metadata_provider_item_id,
+            mi.year,
+            mi.imdb_rating,
+            mi.country,
+            mi.genres,
+            mi.studio,
+            mi.overview,
+            mi.poster_path,
+            mi.backdrop_path,
+            mi.created_at,
+            mi.updated_at
+        from media_items mi
+        left join media_item_cast_cache cache on cache.media_item_id = mi.id
+        where mi.library_id = $1
+          and mi.media_type in ('movie', 'series')
+          and mi.metadata_provider_item_id is not null
+          and (
+                cache.media_item_id is null
+                or cache.expires_at <= $2
+              )
+        order by mi.id asc
+        "#,
+    )
+    .bind(params.library_id)
+    .bind(params.now)
+    .fetch_all(pool)
+    .await
+    .context("failed to list library media items needing cast refresh")?;
+
+    Ok(rows.into_iter().map(map_media_item_row).collect())
 }
 
 /// 按主键读取单个媒体条目。
@@ -951,6 +999,8 @@ pub async fn list_existing_media_metadata_for_file_paths(
         select
             mf.file_path,
             mi.media_type,
+            mi.metadata_provider,
+            mi.metadata_provider_item_id,
             mi.title,
             mi.source_title,
             mi.original_title,
@@ -1108,6 +1158,8 @@ fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataS
     ExistingMediaMetadataSummary {
         file_path: row.get("file_path"),
         media_type: row.get("media_type"),
+        metadata_provider: row.get("metadata_provider"),
+        metadata_provider_item_id: row.get("metadata_provider_item_id"),
         title: row.get("title"),
         source_title: row.get("source_title"),
         original_title: row.get("original_title"),

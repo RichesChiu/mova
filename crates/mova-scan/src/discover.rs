@@ -189,6 +189,8 @@ fn build_discovered_media_file(
     let probe = probe_media_file(&path, probe_availability);
 
     DiscoveredMediaFile {
+        metadata_provider: None,
+        metadata_provider_item_id: None,
         title: parsed.title,
         source_title: parsed.source_title,
         original_title: parsed.original_title,

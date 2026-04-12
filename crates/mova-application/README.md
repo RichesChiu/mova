@@ -70,7 +70,7 @@
 | `src/media_enrichment.rs` | 扫描过程中对单条媒体做 TMDB / sidecar / 图片补全，并在远端失败时回退到本地解析结果。 |
 | `src/metadata.rs` | 元数据 provider 抽象、TMDB client、可选 OMDb IMDb 评分补齐、国家/地区/题材类型/工作室补齐、语言归一化、远端请求超时，以及“年份先过滤、失败再去年份”的软匹配策略。 |
 | `src/metadata_match.rs` | 管理员手动搜索候选元数据并应用匹配。 |
-| `src/media_cast.rs` | 演员列表查询与缓存失效。 |
+| `src/media_cast.rs` | 演员列表查询、缓存刷新与扫库阶段的 cast 预取。 |
 | `src/media_classification.rs` | 媒体库类型和电影/剧集归类辅助逻辑。 |
 | `src/playback_header.rs` | 播放器页头部信息查询。 |
 | `src/playback_progress.rs` | 单条播放进度、继续观看和播放进度写入。 |

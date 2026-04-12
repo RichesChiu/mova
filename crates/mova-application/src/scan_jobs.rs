@@ -1,6 +1,7 @@
 use crate::{
     error::{ApplicationError, ApplicationResult},
     libraries::get_library,
+    media_cast::refresh_media_item_cast_if_stale,
     media_classification::{classify_media_type, metadata_lookup_type_for_media_type},
     media_enrichment::MetadataEnrichmentContext,
     media_enrichment::MetadataEnrichmentStage,
@@ -17,6 +18,7 @@ use std::{
         Arc,
     },
 };
+use time::OffsetDateTime;
 
 /// 触发媒体库扫描时返回的结果。
 /// `created = false` 表示本次没有新建任务，而是复用了当前库已有的活跃任务。
@@ -373,7 +375,7 @@ pub async fn execute_scan_job_with_cancellation(
         discovered_files,
         cancellation_flag.clone(),
         artwork_cache_dir,
-        metadata_provider,
+        metadata_provider.clone(),
         event_listener.clone(),
     )
     .await;
@@ -467,6 +469,9 @@ pub async fn execute_scan_job_with_cancellation(
             return Err(ApplicationError::Unexpected(error));
         }
     }
+
+    prefetch_library_cast_for_scan(pool, &library, metadata_provider, scan_job_id, total_files)
+        .await;
 
     match mova_db::finalize_scan_job(pool, scan_job_id, "success", total_files, total_files, None)
         .await
@@ -744,6 +749,8 @@ fn build_media_entries(
         entries.push(mova_db::CreateMediaEntryParams {
             library_id: library.id,
             media_type,
+            metadata_provider: file.metadata_provider,
+            metadata_provider_item_id: file.metadata_provider_item_id,
             title: file.title,
             source_title: file.source_title,
             original_title: file.original_title,
@@ -831,6 +838,14 @@ fn apply_existing_media_metadata(
     summary: &mova_db::ExistingMediaMetadataSummary,
 ) {
     if summary.media_type.eq_ignore_ascii_case("episode") {
+        replace_option_if_present(
+            &mut file.metadata_provider,
+            summary.metadata_provider.as_ref(),
+        );
+        replace_copy_if_present(
+            &mut file.metadata_provider_item_id,
+            summary.metadata_provider_item_id,
+        );
         replace_string_if_present(&mut file.title, summary.series_title.as_deref());
         fill_string_if_missing(
             &mut file.source_title,
@@ -871,6 +886,14 @@ fn apply_existing_media_metadata(
         return;
     }
 
+    replace_option_if_present(
+        &mut file.metadata_provider,
+        summary.metadata_provider.as_ref(),
+    );
+    replace_copy_if_present(
+        &mut file.metadata_provider_item_id,
+        summary.metadata_provider_item_id,
+    );
     replace_string_if_present(&mut file.title, Some(summary.title.as_str()));
     fill_string_if_missing(&mut file.source_title, Some(summary.source_title.as_str()));
     replace_option_if_present(&mut file.original_title, summary.original_title.as_ref());
@@ -883,6 +906,54 @@ fn apply_existing_media_metadata(
     replace_option_if_present(&mut file.overview, summary.overview.as_ref());
     fill_option_ref_if_missing(&mut file.poster_path, summary.poster_path.as_ref());
     fill_option_ref_if_missing(&mut file.backdrop_path, summary.backdrop_path.as_ref());
+}
+
+async fn prefetch_library_cast_for_scan(
+    pool: &PgPool,
+    library: &Library,
+    metadata_provider: Arc<dyn MetadataProvider>,
+    scan_job_id: i64,
+    total_files: i32,
+) {
+    if !metadata_provider.is_enabled() || total_files <= 0 {
+        return;
+    }
+
+    let items = match mova_db::list_library_media_items_needing_cast_refresh(
+        pool,
+        mova_db::ListLibraryMediaItemsNeedingCastRefreshParams {
+            library_id: library.id,
+            now: OffsetDateTime::now_utc(),
+        },
+    )
+    .await
+    {
+        Ok(items) => items,
+        Err(error) => {
+            tracing::warn!(
+                library_id = library.id,
+                scan_job_id,
+                error = ?error,
+                "failed to load library media items for cast prefetch"
+            );
+            return;
+        }
+    };
+
+    for media_item in items {
+        if let Err(error) =
+            refresh_media_item_cast_if_stale(pool, &media_item, metadata_provider.clone()).await
+        {
+            tracing::warn!(
+                library_id = library.id,
+                scan_job_id,
+                media_item_id = media_item.id,
+                title = %media_item.title,
+                error = ?error,
+                "failed to prefetch cast during library scan"
+            );
+        }
+    }
 }
 
 fn replace_string_if_present(target: &mut String, candidate: Option<&str>) {
@@ -1087,6 +1158,8 @@ mod tests {
     fn build_discovered_file() -> DiscoveredMediaFile {
         DiscoveredMediaFile {
             file_path: PathBuf::from("/media/series/Arcane/Arcane.S01E01.mkv"),
+            metadata_provider: None,
+            metadata_provider_item_id: None,
             title: "Arcane".to_string(),
             source_title: "Arcane.S01E01".to_string(),
             original_title: None,
@@ -1152,6 +1225,8 @@ mod tests {
         ExistingMediaMetadataSummary {
             file_path: "/media/movies/Arcane.mkv".to_string(),
             media_type: "movie".to_string(),
+            metadata_provider: Some("tmdb".to_string()),
+            metadata_provider_item_id: Some(77),
             title: "Arcane".to_string(),
             source_title: "Arcane".to_string(),
             original_title: Some("Arcane Original".to_string()),
@@ -1188,6 +1263,8 @@ mod tests {
         ExistingMediaMetadataSummary {
             file_path: "/media/series/Arcane/Arcane.S01E01.mkv".to_string(),
             media_type: "episode".to_string(),
+            metadata_provider: Some("tmdb".to_string()),
+            metadata_provider_item_id: Some(88),
             title: "Welcome to the Playground".to_string(),
             source_title: "Arcane.S01E01".to_string(),
             original_title: None,

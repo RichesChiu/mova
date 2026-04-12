@@ -11,6 +11,7 @@ pub const SUPPORTED_TMDB_LANGUAGES: &[&str] = &["zh-CN", "en-US"];
 pub const DEFAULT_TMDB_API_BASE_URL: &str = "https://api.themoviedb.org/3";
 pub const DEFAULT_TMDB_IMAGE_BASE_URL: &str = "https://image.tmdb.org/t/p/original";
 pub const DEFAULT_OMDB_API_BASE_URL: &str = "https://www.omdbapi.com";
+pub const TMDB_PROVIDER_NAME: &str = "tmdb";
 const METADATA_PROVIDER_CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
 const METADATA_PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 
@@ -34,6 +35,7 @@ pub struct MetadataLookup {
 /// 第三方元数据源返回的统一结构。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemoteMetadata {
+    pub provider_item_id: Option<i64>,
     pub title: Option<String>,
     pub original_title: Option<String>,
     pub year: Option<i32>,
@@ -237,7 +239,7 @@ impl TmdbMetadataProvider {
                     .and_then(|external_ids| external_ids.imdb_id.as_deref()),
             )
             .await;
-        Ok(Some(self.map_movie_details(details, imdb_rating)))
+        Ok(Some(self.map_movie_details(movie_id, details, imdb_rating)))
     }
 
     async fn search_movie_candidates(
@@ -477,6 +479,7 @@ impl TmdbMetadataProvider {
             .await;
 
         Ok(Some(RemoteMetadata {
+            provider_item_id: Some(tv_id),
             title: empty_to_none(details.name),
             original_title: empty_to_none(details.original_name),
             year: parse_year(details.first_air_date.as_deref()),
@@ -724,10 +727,12 @@ impl TmdbMetadataProvider {
 
     fn map_movie_details(
         &self,
+        movie_id: i64,
         details: TmdbMovieDetails,
         imdb_rating: Option<String>,
     ) -> RemoteMetadata {
         RemoteMetadata {
+            provider_item_id: Some(movie_id),
             title: empty_to_none(details.title),
             original_title: empty_to_none(details.original_title),
             year: parse_year(details.release_date.as_deref()),
@@ -887,6 +892,8 @@ where
 /// 展示标题会优先使用远端返回的本地化标题；原始文件名标题则单独存到 `source_title`。
 pub fn apply_remote_metadata(
     metadata: Option<RemoteMetadata>,
+    metadata_provider: &mut Option<String>,
+    metadata_provider_item_id: &mut Option<i64>,
     title: &mut String,
     original_title: &mut Option<String>,
     year: &mut Option<i32>,
@@ -901,6 +908,14 @@ pub fn apply_remote_metadata(
     let Some(metadata) = metadata else {
         return;
     };
+
+    if metadata_provider.is_none() && metadata.provider_item_id.is_some() {
+        *metadata_provider = Some(TMDB_PROVIDER_NAME.to_string());
+    }
+
+    if metadata_provider_item_id.is_none() {
+        *metadata_provider_item_id = metadata.provider_item_id;
+    }
 
     if let Some(remote_title) = normalize_optional_value(metadata.title) {
         *title = remote_title;
@@ -1349,7 +1364,7 @@ mod tests {
         normalize_base_url, normalize_metadata_language, normalize_optional_value, normalize_title,
         parse_year, pick_primary_character_name, select_best_match, MetadataLookup,
         MetadataProviderConfig, RemoteMetadata, TmdbMetadataProvider, TmdbMetadataProviderConfig,
-        TmdbMovieSearchResult, TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL,
+        TmdbMovieSearchResult, TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL, TMDB_PROVIDER_NAME,
     };
 
     #[test]
@@ -1390,6 +1405,8 @@ mod tests {
 
     #[test]
     fn apply_remote_metadata_uses_remote_title_for_display() {
+        let mut metadata_provider = None;
+        let mut metadata_provider_item_id = None;
         let mut title = "Spirited Away".to_string();
         let mut original_title = None;
         let mut year = Some(2001);
@@ -1403,6 +1420,7 @@ mod tests {
 
         apply_remote_metadata(
             Some(RemoteMetadata {
+                provider_item_id: Some(129),
                 title: Some("Sen to Chihiro no Kamikakushi".to_string()),
                 original_title: Some("Sen to Chihiro no Kamikakushi".to_string()),
                 year: Some(2001),
@@ -1414,6 +1432,8 @@ mod tests {
                 poster_path: Some("https://images.example.com/poster.jpg".to_string()),
                 backdrop_path: Some("https://images.example.com/backdrop.jpg".to_string()),
             }),
+            &mut metadata_provider,
+            &mut metadata_provider_item_id,
             &mut title,
             &mut original_title,
             &mut year,
@@ -1426,6 +1446,8 @@ mod tests {
             &mut backdrop_path,
         );
 
+        assert_eq!(metadata_provider.as_deref(), Some(TMDB_PROVIDER_NAME));
+        assert_eq!(metadata_provider_item_id, Some(129));
         assert_eq!(title, "Sen to Chihiro no Kamikakushi");
         assert_eq!(
             original_title.as_deref(),
@@ -1446,6 +1468,8 @@ mod tests {
 
     #[test]
     fn apply_remote_metadata_ignores_empty_remote_title() {
+        let mut metadata_provider = None;
+        let mut metadata_provider_item_id = None;
         let mut title = "Local Title".to_string();
         let mut original_title = None;
         let mut year = None;
@@ -1459,6 +1483,7 @@ mod tests {
 
         apply_remote_metadata(
             Some(RemoteMetadata {
+                provider_item_id: Some(321),
                 title: Some("   ".to_string()),
                 original_title: None,
                 year: None,
@@ -1470,6 +1495,8 @@ mod tests {
                 poster_path: None,
                 backdrop_path: None,
             }),
+            &mut metadata_provider,
+            &mut metadata_provider_item_id,
             &mut title,
             &mut original_title,
             &mut year,
@@ -1482,6 +1509,8 @@ mod tests {
             &mut backdrop_path,
         );
 
+        assert_eq!(metadata_provider.as_deref(), Some(TMDB_PROVIDER_NAME));
+        assert_eq!(metadata_provider_item_id, Some(321));
         assert_eq!(title, "Local Title");
     }
 

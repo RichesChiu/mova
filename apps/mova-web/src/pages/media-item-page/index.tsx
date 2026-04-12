@@ -180,13 +180,6 @@ export const MediaItemPage = () => {
   const [selectedMediaVersionId, setSelectedMediaVersionId] = useState<number | null>(null)
   const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<string>('')
   const [selectedSubtitleTrackId, setSelectedSubtitleTrackId] = useState<string>('')
-  const [castRefreshState, setCastRefreshState] = useState<{
-    attempts: number
-    mediaItemId: number
-  }>({
-    attempts: 0,
-    mediaItemId,
-  })
   const requestedSeasonParam = searchParams.get('season')
   const requestedSeasonNumber = requestedSeasonParam ? Number(requestedSeasonParam) : Number.NaN
 
@@ -260,14 +253,6 @@ export const MediaItemPage = () => {
     staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
   })
   const castMembers = castQuery.data ?? []
-  const castRefreshAttempts =
-    castRefreshState.mediaItemId === mediaItemId ? castRefreshState.attempts : 0
-  const shouldRetryCastFetch =
-    !!mediaItemQuery.data &&
-    mediaItemQuery.data.media_type !== 'episode' &&
-    !castQuery.isError &&
-    castMembers.length === 0 &&
-    castRefreshAttempts < 6
   const selectedSeason = availableSeasons.find(
     (season) => season.season_number === selectedSeasonNumber,
   )
@@ -312,22 +297,6 @@ export const MediaItemPage = () => {
     requestedSeasonNumber,
     selectedSeasonNumber,
   ])
-
-  useEffect(() => {
-    if (!shouldRetryCastFetch || castQuery.isFetching) {
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setCastRefreshState((current) => ({
-        attempts: current.mediaItemId === mediaItemId ? current.attempts + 1 : 1,
-        mediaItemId,
-      }))
-      void castQuery.refetch()
-    }, 1200)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [castQuery.isFetching, castQuery.refetch, mediaItemId, shouldRetryCastFetch])
 
   useEffect(() => {
     if (!shouldShowMediaFilesSection || mediaFiles.length === 0) {
@@ -777,7 +746,7 @@ export const MediaItemPage = () => {
       {castQuery.isLoading ||
       castQuery.isFetching ||
       castMembers.length > 0 ||
-      shouldRetryCastFetch ? (
+      castQuery.isError ? (
         <section className="season-card cast-panel">
           <div className="cast-panel__header">
             <div>
@@ -789,10 +758,10 @@ export const MediaItemPage = () => {
             ) : null}
           </div>
 
-          {castQuery.isLoading || castQuery.isFetching || shouldRetryCastFetch ? (
+          {castQuery.isLoading || castQuery.isFetching ? (
             <p className="muted">Loading cast…</p>
           ) : castQuery.isError ? (
-            <p className="muted">Cast details are taking longer than usual.</p>
+            <p className="muted">Cast details are unavailable right now.</p>
           ) : castMembers.length > 0 ? (
             <ScrollableRail
               hint="Scroll, drag, or click arrows to move through the cast list."

@@ -88,6 +88,8 @@ impl MetadataEnrichmentContext {
             let metadata = self.lookup_remote_metadata_cached(&lookup).await;
             apply_remote_metadata(
                 metadata.clone(),
+                &mut file.metadata_provider,
+                &mut file.metadata_provider_item_id,
                 &mut file.title,
                 &mut file.original_title,
                 &mut file.year,

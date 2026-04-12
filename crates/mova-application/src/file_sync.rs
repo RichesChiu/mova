@@ -226,6 +226,8 @@ fn build_media_entry(
     Ok(Some(mova_db::CreateMediaEntryParams {
         library_id: library.id,
         media_type: media_type.to_string(),
+        metadata_provider: file.metadata_provider,
+        metadata_provider_item_id: file.metadata_provider_item_id,
         title: file.title,
         source_title: file.source_title,
         original_title: file.original_title,

@@ -8,10 +8,10 @@ pub use query::{
     get_season, get_series_episode_outline_cache, get_subtitle_file,
     list_audio_tracks_for_media_file, list_episodes_for_season,
     list_existing_media_metadata_for_file_paths, list_library_media_file_paths,
-    list_media_files_for_media_item, list_media_items_for_library, list_seasons_for_series,
-    list_subtitle_files_for_media_file, replace_audio_tracks_for_media_file,
-    replace_subtitle_files_for_media_file, update_media_file_metadata, update_media_item_metadata,
-    upsert_series_episode_outline_cache,
+    list_library_media_items_needing_cast_refresh, list_media_files_for_media_item,
+    list_media_items_for_library, list_seasons_for_series, list_subtitle_files_for_media_file,
+    replace_audio_tracks_for_media_file, replace_subtitle_files_for_media_file,
+    update_media_file_metadata, update_media_item_metadata, upsert_series_episode_outline_cache,
 };
 pub use sync::{
     delete_library_media_by_file_path, delete_library_media_by_path_prefix, sync_library_media,
@@ -51,6 +51,8 @@ pub struct CreateSubtitleTrackParams {
 pub struct CreateMediaEntryParams {
     pub library_id: i64,
     pub media_type: String,
+    pub metadata_provider: Option<String>,
+    pub metadata_provider_item_id: Option<i64>,
     pub title: String,
     pub source_title: String,
     pub original_title: Option<String>,
@@ -183,6 +185,8 @@ pub struct MediaItemPlaybackHeader {
 pub struct ExistingMediaMetadataSummary {
     pub file_path: String,
     pub media_type: String,
+    pub metadata_provider: Option<String>,
+    pub metadata_provider_item_id: Option<i64>,
     pub title: String,
     pub source_title: String,
     pub original_title: Option<String>,
@@ -221,6 +225,12 @@ pub struct SeriesEpisodeOutlineCacheEntry {
     pub fetched_at: OffsetDateTime,
     pub expires_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone)]
+pub struct ListLibraryMediaItemsNeedingCastRefreshParams {
+    pub library_id: i64,
+    pub now: OffsetDateTime,
 }
 
 #[derive(Debug, Clone)]

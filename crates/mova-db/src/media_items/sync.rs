@@ -428,6 +428,8 @@ async fn insert_media_item(
             source_title,
             original_title,
             sort_title,
+            metadata_provider,
+            metadata_provider_item_id,
             year,
             imdb_rating,
             country,
@@ -437,7 +439,7 @@ async fn insert_media_item(
             poster_path,
             backdrop_path
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         returning id
         "#,
     )
@@ -447,6 +449,8 @@ async fn insert_media_item(
     .bind(&entry.source_title)
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
+    .bind(&entry.metadata_provider)
+    .bind(entry.metadata_provider_item_id)
     .bind(entry.year)
     .bind(&entry.imdb_rating)
     .bind(&entry.country)
@@ -478,14 +482,16 @@ async fn update_media_item_from_entry(
             source_title = $4,
             original_title = $5,
             sort_title = $6,
-            year = $7,
-            imdb_rating = $8,
-            country = $9,
-            genres = $10,
-            studio = $11,
-            overview = $12,
-            poster_path = $13,
-            backdrop_path = $14,
+            metadata_provider = $7,
+            metadata_provider_item_id = $8,
+            year = $9,
+            imdb_rating = $10,
+            country = $11,
+            genres = $12,
+            studio = $13,
+            overview = $14,
+            poster_path = $15,
+            backdrop_path = $16,
             updated_at = now()
         where id = $1
         "#,
@@ -496,6 +502,8 @@ async fn update_media_item_from_entry(
     .bind(&entry.source_title)
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
+    .bind(&entry.metadata_provider)
+    .bind(entry.metadata_provider_item_id)
     .bind(entry.year)
     .bind(&entry.imdb_rating)
     .bind(&entry.country)
@@ -901,6 +909,8 @@ mod tests {
         CreateMediaEntryParams {
             library_id,
             media_type: "movie".to_string(),
+            metadata_provider: Some("tmdb".to_string()),
+            metadata_provider_item_id: Some(101),
             title: "A Writer's Odyssey".to_string(),
             source_title: "A Writer's Odyssey".to_string(),
             original_title: Some("刺杀小说家".to_string()),
@@ -953,6 +963,8 @@ mod tests {
         CreateMediaEntryParams {
             library_id,
             media_type: "episode".to_string(),
+            metadata_provider: Some("tmdb".to_string()),
+            metadata_provider_item_id: Some(202),
             title: "Interstellar Classroom".to_string(),
             source_title: "Interstellar Classroom".to_string(),
             original_title: Some("Interstellar Classroom".to_string()),

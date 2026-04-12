@@ -173,6 +173,8 @@ async fn insert_series_item_from_entry(
             source_title,
             original_title,
             sort_title,
+            metadata_provider,
+            metadata_provider_item_id,
             year,
             country,
             genres,
@@ -181,7 +183,7 @@ async fn insert_series_item_from_entry(
             poster_path,
             backdrop_path
         )
-        values ($1, 'series', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        values ($1, 'series', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         returning id
         "#,
     )
@@ -190,6 +192,8 @@ async fn insert_series_item_from_entry(
     .bind(&entry.source_title)
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
+    .bind(&entry.metadata_provider)
+    .bind(entry.metadata_provider_item_id)
     .bind(entry.year)
     .bind(&entry.country)
     .bind(&entry.genres)
@@ -227,13 +231,15 @@ async fn update_series_item_from_entry(
             source_title = $3,
             original_title = $4,
             sort_title = $5,
-            year = $6,
-            country = $7,
-            genres = $8,
-            studio = $9,
-            overview = $10,
-            poster_path = $11,
-            backdrop_path = $12,
+            metadata_provider = $6,
+            metadata_provider_item_id = $7,
+            year = $8,
+            country = $9,
+            genres = $10,
+            studio = $11,
+            overview = $12,
+            poster_path = $13,
+            backdrop_path = $14,
             updated_at = now()
         where id = $1
         "#,
@@ -243,6 +249,8 @@ async fn update_series_item_from_entry(
     .bind(&entry.source_title)
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
+    .bind(&entry.metadata_provider)
+    .bind(entry.metadata_provider_item_id)
     .bind(entry.year)
     .bind(&entry.country)
     .bind(&entry.genres)

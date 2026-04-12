@@ -5,6 +5,7 @@ use crate::{
     media_classification::metadata_lookup_type_for_media_type,
     media_enrichment::MetadataEnrichmentContext,
     metadata::{MetadataLookup, MetadataProvider, RemoteSeriesEpisodeOutline},
+    refresh_media_item_cast_if_stale,
 };
 use mova_domain::{
     AudioTrack, Episode, MediaFile, MediaItem, PlaybackProgress, Season, SubtitleFile,
@@ -761,6 +762,7 @@ pub async fn refresh_media_item_metadata(
 
     let lookup_type = metadata_lookup_type_for_media_type(&media_item.media_type);
     let library = get_library(pool, media_item.library_id).await?;
+    let metadata_provider_for_cast = metadata_provider.clone();
     let mut enrichment = MetadataEnrichmentContext::new(
         artwork_cache_dir,
         metadata_provider,
@@ -812,8 +814,12 @@ pub async fn refresh_media_item_metadata(
             source_title: discovered_file.source_title,
             original_title: discovered_file.original_title,
             sort_title: discovered_file.sort_title,
-            metadata_provider: media_item.metadata_provider.clone(),
-            metadata_provider_item_id: media_item.metadata_provider_item_id,
+            metadata_provider: discovered_file
+                .metadata_provider
+                .or(media_item.metadata_provider.clone()),
+            metadata_provider_item_id: discovered_file
+                .metadata_provider_item_id
+                .or(media_item.metadata_provider_item_id),
             year: discovered_file.year,
             imdb_rating: discovered_file.imdb_rating,
             country: discovered_file.country,
@@ -834,6 +840,8 @@ pub async fn refresh_media_item_metadata(
         invalidate_series_episode_outline_cache(pool, media_item_id).await?;
     }
     invalidate_media_item_cast_cache(pool, media_item_id).await?;
+    refresh_media_item_cast_if_stale(pool, &refreshed_media_item, metadata_provider_for_cast)
+        .await?;
 
     Ok(refreshed_media_item)
 }
