@@ -51,10 +51,8 @@ async fn main() -> anyhow::Result<()> {
         artwork_cache_dir: config.cache_dir.clone(),
         metadata_provider,
         scan_registry: state::ScanRegistry::default(),
-        library_sync_registry: state::LibrarySyncRegistry::default(),
         realtime_hub: state::RealtimeHub::default(),
     };
-    sync_runtime::initialize_library_sync(&state).await;
 
     let app = app::build_router(state, config.web_dist_dir.clone());
     let addr = config.socket_addr()?;

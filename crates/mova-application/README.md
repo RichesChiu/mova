@@ -65,7 +65,7 @@
 | `src/libraries.rs` | 媒体库创建、更新、删除、详情与列表。 |
 | `src/users.rs` | 用户创建、编辑、删除、登录、登出、bootstrap、昵称更新、密码修改、库授权。 |
 | `src/scan_jobs.rs` | 扫描任务入队、执行、进度事件、取消态和任务查询。 |
-| `src/file_sync.rs` | watcher / reconcile 触发后的路径级同步与库存对齐。 |
+| `src/file_sync.rs` | 手动扫库或显式路径同步时的库存对齐与增量写入。 |
 | `src/media_items.rs` | 媒体条目详情、列表、文件、音轨、剧集 outline、季集查询、元数据刷新。 |
 | `src/media_enrichment.rs` | 扫描过程中对单条媒体做 TMDB / sidecar / 图片补全，并在远端失败时回退到本地解析结果。 |
 | `src/metadata.rs` | 元数据 provider 抽象、TMDB client、可选 OMDb IMDb 评分补齐、国家/地区/题材类型/工作室补齐、语言归一化、远端请求超时，以及“年份先过滤、失败再去年份”的软匹配策略。 |

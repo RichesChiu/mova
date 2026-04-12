@@ -194,7 +194,7 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
           onChange={(event) => setIsEnabled(event.target.checked)}
           type="checkbox"
         />
-        <span>Enable watcher and initial scan immediately</span>
+        <span>Enable library</span>
       </label>
 
       {error ? <p className="callout callout--danger">{error}</p> : null}

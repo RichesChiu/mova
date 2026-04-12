@@ -42,7 +42,7 @@
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--panel-background) 94%, rgba(6, 10, 18, 0.96));
+  background: var(--tooltip-background);
   box-shadow:
     var(--panel-inset),
     0 18px 36px rgba(0, 0, 0, 0.26);
@@ -73,7 +73,7 @@
   left: var(--section-help-arrow-left, 50%);
   width: 12px;
   height: 12px;
-  background: color-mix(in srgb, var(--panel-background) 94%, rgba(6, 10, 18, 0.96));
+  background: var(--tooltip-background);
 }
 
 .section-help__tooltip--top::before {

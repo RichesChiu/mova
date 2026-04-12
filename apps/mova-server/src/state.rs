@@ -8,7 +8,7 @@ use std::{
     },
 };
 use time::UtcOffset;
-use tokio::sync::{watch, Notify};
+use tokio::sync::Notify;
 
 pub use crate::realtime::RealtimeHub;
 
@@ -20,7 +20,6 @@ pub struct AppState {
     pub artwork_cache_dir: PathBuf,
     pub metadata_provider: Arc<dyn mova_application::MetadataProvider>,
     pub scan_registry: ScanRegistry,
-    pub library_sync_registry: LibrarySyncRegistry,
     pub realtime_hub: RealtimeHub,
 }
 
@@ -34,19 +33,6 @@ pub struct ScanRegistry {
 struct ScanRegistryInner {
     active_scans: HashMap<i64, ActiveScan>,
     deleting_libraries: HashSet<i64>,
-}
-
-/// 记录文件 watcher 和访问兜底校准状态。
-#[derive(Clone, Default)]
-pub struct LibrarySyncRegistry {
-    inner: Arc<Mutex<LibrarySyncRegistryInner>>,
-}
-
-#[derive(Default)]
-struct LibrarySyncRegistryInner {
-    watchers: HashMap<i64, watch::Sender<bool>>,
-    dirty_libraries: HashSet<i64>,
-    active_syncs: HashSet<i64>,
 }
 
 #[derive(Clone)]
@@ -176,93 +162,6 @@ impl ScanRegistry {
     }
 }
 
-impl LibrarySyncRegistry {
-    pub fn replace_watcher(
-        &self,
-        library_id: i64,
-        stop_tx: watch::Sender<bool>,
-    ) -> Option<watch::Sender<bool>> {
-        let mut inner = self
-            .inner
-            .lock()
-            .expect("library sync registry lock poisoned");
-        inner.watchers.insert(library_id, stop_tx)
-    }
-
-    pub fn stop_watcher(&self, library_id: i64) {
-        let stop_tx = {
-            let mut inner = self
-                .inner
-                .lock()
-                .expect("library sync registry lock poisoned");
-            inner.watchers.remove(&library_id)
-        };
-
-        if let Some(stop_tx) = stop_tx {
-            let _ = stop_tx.send(true);
-        }
-    }
-
-    pub fn mark_dirty(&self, library_id: i64) {
-        let mut inner = self
-            .inner
-            .lock()
-            .expect("library sync registry lock poisoned");
-        inner.dirty_libraries.insert(library_id);
-    }
-
-    pub fn is_dirty(&self, library_id: i64) -> bool {
-        let inner = self
-            .inner
-            .lock()
-            .expect("library sync registry lock poisoned");
-        inner.dirty_libraries.contains(&library_id)
-    }
-
-    pub fn record_reconciled(&self, library_id: i64) {
-        let mut inner = self
-            .inner
-            .lock()
-            .expect("library sync registry lock poisoned");
-        inner.dirty_libraries.remove(&library_id);
-    }
-
-    pub fn begin_sync(&self, library_id: i64) -> bool {
-        let mut inner = self
-            .inner
-            .lock()
-            .expect("library sync registry lock poisoned");
-        if inner.active_syncs.contains(&library_id) {
-            return false;
-        }
-        inner.active_syncs.insert(library_id);
-        true
-    }
-
-    pub fn finish_sync(&self, library_id: i64, success: bool) {
-        let mut inner = self
-            .inner
-            .lock()
-            .expect("library sync registry lock poisoned");
-        inner.active_syncs.remove(&library_id);
-        if success {
-            inner.dirty_libraries.remove(&library_id);
-        } else {
-            inner.dirty_libraries.insert(library_id);
-        }
-    }
-
-    pub fn clear_library(&self, library_id: i64) {
-        self.stop_watcher(library_id);
-        let mut inner = self
-            .inner
-            .lock()
-            .expect("library sync registry lock poisoned");
-        inner.active_syncs.remove(&library_id);
-        inner.dirty_libraries.remove(&library_id);
-    }
-}
-
 impl ActiveScanHandle {
     pub fn scan_job_id(&self) -> i64 {
         self.scan_job_id
@@ -293,7 +192,7 @@ impl Drop for DeleteGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::{BeginDeleteError, LibrarySyncRegistry, RegisterScanError, ScanRegistry};
+    use super::{BeginDeleteError, RegisterScanError, ScanRegistry};
 
     #[tokio::test]
     async fn begin_delete_blocks_new_scan_registration() {
@@ -331,30 +230,5 @@ mod tests {
         let result = registry.begin_delete(3);
 
         assert_eq!(result.err(), Some(BeginDeleteError::AlreadyDeleting));
-    }
-
-    #[test]
-    fn begin_sync_blocks_duplicate_in_progress_syncs() {
-        let registry = LibrarySyncRegistry::default();
-
-        assert!(registry.begin_sync(5));
-        assert!(!registry.begin_sync(5));
-
-        registry.finish_sync(5, true);
-
-        assert!(registry.begin_sync(5));
-    }
-
-    #[test]
-    fn dirty_library_flag_tracks_reconcile_need() {
-        let registry = LibrarySyncRegistry::default();
-
-        assert!(!registry.is_dirty(8));
-
-        registry.mark_dirty(8);
-        assert!(registry.is_dirty(8));
-
-        registry.record_reconciled(8);
-        assert!(!registry.is_dirty(8));
     }
 }

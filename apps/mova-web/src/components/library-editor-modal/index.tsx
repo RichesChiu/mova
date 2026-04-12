@@ -222,7 +222,7 @@ export const LibraryEditorModal = ({
               onChange={(event) => setIsEnabled(event.target.checked)}
               type="checkbox"
             />
-            <span>Enable watcher and automatic background sync</span>
+            <span>Enable library</span>
           </label>
 
           <div className="field">

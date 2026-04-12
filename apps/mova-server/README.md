@@ -12,13 +12,13 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `src/main.rs` | 进程入口。负责加载环境变量、初始化 tracing、连接数据库、执行 migration、恢复中断扫描、准备缓存目录、创建 `AppState`、初始化 watcher/runtime，并启动 Axum 服务。 |
+| `src/main.rs` | 进程入口。负责加载环境变量、初始化 tracing、连接数据库、执行 migration、恢复中断扫描、准备缓存目录、创建 `AppState`，并启动 Axum 服务。 |
 | `src/config.rs` | 读取 `MOVA_HTTP_HOST`、`MOVA_HTTP_PORT`、`MOVA_TIMEZONE`、`MOVA_CACHE_DIR`、`MOVA_WEB_DIST_DIR` 等运行时配置。 |
 | `src/metadata_provider_config.rs` | 解析元数据 provider 相关环境变量，并交给 `mova-application` 构建具体 provider；当前会处理 TMDB token、可选的 OMDb key，以及对应的 base URL。 |
 | `src/app.rs` | 组装顶层 `Router`，把所有子路由统一挂到 `/api` 下，并在有前端构建产物时托管静态文件。 |
-| `src/state.rs` | 定义 `AppState`、进程内扫描注册表、watcher 注册表以及 SSE 事件总线。 |
+| `src/state.rs` | 定义 `AppState`、进程内扫描注册表以及 SSE 事件总线。 |
 | `src/auth.rs` | 公用鉴权与访问控制助手，包括 session cookie、`require_user`、`require_admin`、媒体库/媒体项/媒体文件访问校验。 |
-| `src/sync_runtime.rs` | watcher、后台路径校准、后台扫描入队与扫描任务执行的运行时逻辑。 |
+| `src/sync_runtime.rs` | 后台扫描入队、扫描任务执行和扫描事件广播的运行时逻辑。 |
 | `src/realtime.rs` | SSE 事件总线与事件枚举，负责把扫描、媒体库和元数据变更转换成 `EventSource` 可消费的数据。 |
 | `src/response.rs` | 把领域对象映射成 API response DTO，并统一包裹 JSON envelope。 |
 | `src/error.rs` | 统一的 `ApiError` 和 HTTP 错误响应映射。 |
@@ -37,9 +37,8 @@
 8. 创建缓存目录 `cache_dir`
 9. `mova_application::build_metadata_provider()` 初始化元数据 provider
 10. 构建 `AppState`
-11. `sync_runtime::initialize_library_sync()` 为已启用媒体库启动 watcher 与后台校准
-12. `app::build_router()` 组装路由
-13. `axum::serve()` 开始监听 HTTP
+11. `app::build_router()` 组装路由
+12. `axum::serve()` 开始监听 HTTP
 
 ## 2. 当前后端架构
 
@@ -63,7 +62,7 @@
 | `handlers/` | 协议层。负责请求体解析、鉴权、调用业务层、组装 response DTO。 |
 | `auth.rs` | 会话与访问控制助手。 |
 | `state.rs` | 进程内共享依赖和运行时注册表。 |
-| `sync_runtime.rs` | 文件 watcher、后台 reconcile、扫描入队和扫描执行。 |
+| `sync_runtime.rs` | 手动扫描入队、扫描执行和扫描事件广播。 |
 | `realtime.rs` | SSE 事件总线与事件可见性过滤。 |
 | `response.rs` | API 输出映射。 |
 | `config.rs` | 环境变量解析。 |
@@ -89,7 +88,6 @@
 | `tokio-util` | 媒体文件流 `ReaderStream`。 |
 | `sqlx` | PostgreSQL 连接与查询。 |
 | `tower-http` | 静态文件托管。 |
-| `notify` | 文件系统 watcher。 |
 | `time` | API 响应时区与 session TTL。 |
 | `tracing` / `tracing-subscriber` | 运行日志。 |
 
@@ -104,7 +102,6 @@
 - `artwork_cache_dir: PathBuf`
 - `metadata_provider: Arc<dyn mova_application::MetadataProvider>`
 - `scan_registry: ScanRegistry`
-- `library_sync_registry: LibrarySyncRegistry`
 - `realtime_hub: RealtimeHub`
 
 其中两个注册表很重要：
@@ -113,10 +110,6 @@
   - 跟踪当前活跃扫描
   - 跟踪“正在删除”的媒体库
   - 提供取消扫描和等待扫描结束的能力
-
-- `LibrarySyncRegistry`
-  - 跟踪 watcher 生命周期
-  - 跟踪“脏库”与正在执行的后台校准
 
 ### `src/auth.rs`
 
@@ -139,18 +132,15 @@
 
 这是当前后端里最重要的运行时模块之一，主要负责：
 
-- `initialize_library_sync()`：服务启动后为所有启用库恢复 watcher
-- `start_library_watcher()`：为单个库启动 watcher 和后台校准
-- `maybe_enqueue_initial_library_scan()`：建库/重新启用时自动补一轮扫描
 - `enqueue_background_scan()`：后台扫描入队
 - `spawn_library_scan_job()`：真正启动扫描执行，并把扫描事件转成 SSE 广播
 - `handle_scan_registration_rejected()`：扫描注册冲突或删库冲突时做兜底收尾
 
-当前这里的同步策略已经偏向“轻模式”：
+当前这里的同步策略已经改成“手动扫描优先”：
 
-- watcher 仍然负责实时感知新增、删除和常见路径变化
-- 启动后只会延迟做一次后台校准，避免每次进程起来就立刻全库扫盘
-- 后续周期校准只在库被标记为 dirty 时才会执行，主要用于 watcher 出错或服务重启后的兜底，不再像以前那样固定 5 分钟全库扫一次
+- 服务端不再常驻文件 watcher
+- 建库或重新启用媒体库都不会自动补扫
+- 新增、删除、改名和移动都统一靠手动 `Scan Library` 收敛
 
 ### `src/realtime.rs`
 
@@ -239,10 +229,10 @@
 | Method | Path | Handler | 主要依赖 | 作用 |
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/libraries` | `handlers::libraries::list_libraries` | `auth::require_user`、`mova_application::list_libraries` | 返回当前用户有权限看到的媒体库列表。 |
-| `POST` | `/api/libraries` | `handlers::libraries::create_library` | `auth::require_admin`、`mova_application::create_library`、`sync_runtime::maybe_enqueue_initial_library_scan`、`sync_runtime::start_library_watcher`、`RealtimeEvent::LibraryUpdated` | 创建媒体库；如果启用则立即挂 watcher 并触发首轮扫描。 |
+| `POST` | `/api/libraries` | `handlers::libraries::create_library` | `auth::require_admin`、`mova_application::create_library`、`RealtimeEvent::LibraryUpdated` | 创建媒体库；创建后不会自动扫描，需要显式触发 `Scan Library`。 |
 | `GET` | `/api/libraries/{id}` | `handlers::libraries::get_library` | `auth::require_library_access`、`mova_application::get_library_detail` | 查询单个媒体库详情和最近扫描摘要。 |
-| `PATCH` | `/api/libraries/{id}` | `handlers::libraries::update_library` | `auth::require_admin`、`mova_application::get_library`、`mova_application::update_library`、`state.scan_registry`、`state.library_sync_registry`、`sync_runtime::start_library_watcher`、`sync_runtime::maybe_enqueue_initial_library_scan`、`RealtimeEvent::LibraryUpdated` | 更新媒体库名称、描述、元数据语言和启停状态。 |
-| `DELETE` | `/api/libraries/{id}` | `handlers::libraries::delete_library` | `auth::require_admin`、`state.scan_registry`、`mova_application::delete_library`、`state.library_sync_registry.clear_library`、`RealtimeEvent::LibraryDeleted` | 删除媒体库，并先安全停止相关扫描与 watcher。 |
+| `PATCH` | `/api/libraries/{id}` | `handlers::libraries::update_library` | `auth::require_admin`、`mova_application::get_library`、`mova_application::update_library`、`state.scan_registry`、`RealtimeEvent::LibraryUpdated` | 更新媒体库名称、描述、元数据语言和启停状态。 |
+| `DELETE` | `/api/libraries/{id}` | `handlers::libraries::delete_library` | `auth::require_admin`、`state.scan_registry`、`mova_application::delete_library`、`RealtimeEvent::LibraryDeleted` | 删除媒体库，并先安全停止相关扫描。 |
 | `GET` | `/api/libraries/{id}/media-items` | `handlers::libraries::list_library_media_items` | `auth::require_library_access`、`mova_application::list_media_items_for_library` | 查询某个库下的媒体条目列表。 |
 | `GET` | `/api/libraries/{id}/scan-jobs` | `handlers::libraries::list_library_scan_jobs` | `auth::require_admin`、`mova_application::list_scan_jobs_for_library` | 查询该库扫描历史。 |
 | `GET` | `/api/libraries/{id}/scan-jobs/{scan_job_id}` | `handlers::libraries::get_library_scan_job` | `auth::require_admin`、`mova_application::get_scan_job_for_library` | 查询单个扫描任务状态。 |
@@ -333,7 +323,7 @@
 
 ### 7.2 建库与启用链路
 
-`routes/libraries.rs` -> `handlers::libraries::{create_library, update_library}` -> `mova_application::{create_library, update_library}` -> `sync_runtime::{start_library_watcher, maybe_enqueue_initial_library_scan}` -> `realtime.rs`
+`routes/libraries.rs` -> `handlers::libraries::{create_library, update_library}` -> `mova_application::{create_library, update_library}` -> `realtime.rs`
 
 ### 7.3 手动扫描链路
 
@@ -370,7 +360,7 @@
   - 例如 `handlers/playback_progress.rs` 和 `handlers/realtime.rs` 里的播放进度 / SSE 契约测试
   - `handlers/realtime.rs` 现在还覆盖 SSE 可见性过滤，确认 viewer 只会收到自己有权限媒体库的事件
   - `handlers/users.rs` 里的用户 CRUD 边界测试，覆盖自禁用、自改角色、自删限制，以及禁用/删除用户后的 session 清理
-  - `handlers/libraries.rs` 里的媒体库 CRUD 运行时测试，覆盖删库冲突、停用库时 watcher 停止、删库时取消活跃扫描并清理运行时状态，以及扫描相关接口仍然只允许管理员访问
+  - `handlers/libraries.rs` 里的媒体库 CRUD 运行时测试，覆盖删库冲突、停用库时取消活跃扫描、删库时安全停止活跃扫描，以及扫描相关接口仍然只允许管理员访问
 
 运行建议：
 

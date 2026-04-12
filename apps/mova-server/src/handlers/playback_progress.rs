@@ -100,7 +100,7 @@ mod tests {
     };
     use crate::{
         auth::{attach_session_cookie, SESSION_TTL},
-        state::{AppState, LibrarySyncRegistry, RealtimeHub, ScanRegistry},
+        state::{AppState, RealtimeHub, ScanRegistry},
     };
     use axum::{
         extract::{Path, Query, State},
@@ -119,7 +119,6 @@ mod tests {
             artwork_cache_dir: PathBuf::from("/tmp/mova-test-artwork"),
             metadata_provider: Arc::new(NullMetadataProvider),
             scan_registry: ScanRegistry::default(),
-            library_sync_registry: LibrarySyncRegistry::default(),
             realtime_hub: RealtimeHub::default(),
         }
     }

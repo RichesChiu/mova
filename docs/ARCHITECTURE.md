@@ -9,7 +9,7 @@
 - `apps/mova-web`
   - React + Vite 前端原型、路由、查询层、管理界面
 - `apps/mova-server`
-  - HTTP 入口、Axum 路由、应用启动、进程内 watcher/runtime
+  - HTTP 入口、Axum 路由、应用启动、进程内扫描/runtime
 - `crates/mova-application`
   - 应用层用例、扫描编排、元数据补全、播放进度业务
 - `crates/mova-db`
@@ -35,7 +35,7 @@
 当前阶段不建议：
 
 - 为前端再单独拆 UI component library
-- 为 watcher 单独再拆一个 crate
+- 为扫描 runtime 单独再拆一个 crate
 - 为 TMDB 单独再拆一个 crate
 - 为 HTTP response DTO 再拆一个 crate
 
@@ -71,11 +71,11 @@
 - `crates/mova-application/src/scan_jobs.rs`
   - 同时负责任务执行编排、扫描进度推进、元数据补全接入、媒体条目构建
 - `apps/mova-server/src/sync_runtime.rs`
-  - 同时负责 watcher 生命周期、事件 debounce、后台 reconcile、扫描入队
+  - 当前主要负责后台扫描入队、任务执行和实时事件桥接
 - `apps/mova-server/src/response.rs`
   - 所有 feature 的 response mapping 都堆在一个文件里
 - `apps/mova-server/src/state.rs`
-  - 同时负责扫描注册表、删除流程状态、watcher/sync 注册表
+  - 同时负责扫描注册表、删除流程状态和共享运行时依赖
 
 这些文件继续膨胀的话，后面会出现几个典型问题：
 
@@ -180,7 +180,7 @@ crates/mova-application/src/
 - `sync/`
   - 全库扫描
   - 路径级增量同步
-  - watcher/reconcile 触发后调用的应用层入口
+  - 扫描和显式路径同步调用的应用层入口
 - `metadata/`
   - provider trait
   - TMDB client
@@ -245,7 +245,7 @@ crates/mova-scan/src/
 
 ### 应该聚合的
 
-- 扫描任务、watcher、reconcile、路径级增量同步
+- 扫描任务、路径级增量同步和手动扫库编排
   - 这些本质上都是同一个 “library sync” 能力
 - TMDB provider、标题匹配、metadata merge
   - 这些本质上都是同一个 “metadata enrichment” 能力

@@ -72,19 +72,6 @@
   align-content: end;
   min-height: 220px;
   padding: 18px;
-  transition:
-    transform 180ms ease,
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    background 180ms ease;
-}
-
-.settings-library-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--button-primary-border);
-  box-shadow:
-    var(--panel-inset),
-    0 20px 42px rgba(4, 8, 16, 0.36);
 }
 
 .settings-library-card__body,

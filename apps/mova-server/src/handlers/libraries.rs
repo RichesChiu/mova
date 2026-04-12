@@ -106,8 +106,6 @@ pub async fn create_library(
         .await
         .map_err(ApiError::from)?;
 
-    maybe_enqueue_initial_library_scan(&state, library.id, library.is_enabled).await;
-    sync_runtime::start_library_watcher(&state, library.clone()).await;
     state.realtime_hub.publish(RealtimeEvent::LibraryUpdated {
         library_id: library.id,
     });
@@ -153,12 +151,6 @@ pub async fn update_library(
         if let Some(active_scan) = state.scan_registry.active_scan(library_id) {
             active_scan.cancel();
         }
-        state.library_sync_registry.stop_watcher(library_id);
-    }
-
-    if !previous_library.is_enabled && updated_library.is_enabled {
-        sync_runtime::start_library_watcher(&state, updated_library.clone()).await;
-        maybe_enqueue_initial_library_scan(&state, updated_library.id, true).await;
     }
 
     state
@@ -213,7 +205,6 @@ pub async fn delete_library(
     mova_application::delete_library(&state.db, library_id)
         .await
         .map_err(ApiError::from)?;
-    state.library_sync_registry.clear_library(library_id);
     state
         .realtime_hub
         .publish(RealtimeEvent::LibraryDeleted { library_id });
@@ -328,10 +319,6 @@ pub async fn scan_library(
     })
 }
 
-async fn maybe_enqueue_initial_library_scan(state: &AppState, library_id: i64, is_enabled: bool) {
-    sync_runtime::maybe_enqueue_initial_library_scan(state, library_id, is_enabled).await;
-}
-
 fn spawn_library_scan_job(
     state: &AppState,
     library_id: i64,
@@ -359,7 +346,7 @@ mod tests {
         auth::{attach_session_cookie, SESSION_TTL},
         error::ApiError,
         realtime::RealtimeEvent,
-        state::{AppState, LibrarySyncRegistry, RealtimeHub, ScanRegistry},
+        state::{AppState, RealtimeHub, ScanRegistry},
     };
     use axum::{
         extract::{Path, State},
@@ -373,10 +360,7 @@ mod tests {
         sync::{atomic::Ordering, Arc},
     };
     use time::{OffsetDateTime, UtcOffset};
-    use tokio::{
-        sync::watch,
-        time::{timeout, Duration},
-    };
+    use tokio::time::{timeout, Duration};
 
     fn build_test_state(pool: sqlx::postgres::PgPool) -> AppState {
         AppState {
@@ -385,7 +369,6 @@ mod tests {
             artwork_cache_dir: PathBuf::from("/tmp/mova-test-artwork"),
             metadata_provider: Arc::new(NullMetadataProvider),
             scan_registry: ScanRegistry::default(),
-            library_sync_registry: LibrarySyncRegistry::default(),
             realtime_hub: RealtimeHub::default(),
         }
     }
@@ -513,18 +496,15 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn update_library_disabling_it_stops_the_watcher_and_persists_changes(
+    async fn update_library_disabling_it_cancels_the_active_scan_and_persists_changes(
         pool: sqlx::postgres::PgPool,
     ) {
         let state = build_test_state(pool.clone());
         let (_admin_id, admin_jar) = seed_admin_session(&pool).await;
         let library_id = seed_library(&pool, "Movies", true).await;
-        let (stop_tx, mut stop_rx) = watch::channel(false);
         let mut realtime_rx = state.realtime_hub.subscribe();
-
-        state
-            .library_sync_registry
-            .replace_watcher(library_id, stop_tx);
+        let active_scan = state.scan_registry.register_scan(library_id, 42).unwrap();
+        let cancellation_flag = active_scan.cancellation_flag();
 
         let Json(response) = update_library(
             State(state.clone()),
@@ -548,12 +528,7 @@ mod tests {
         );
         assert_eq!(response.data.metadata_language, "en-US");
         assert!(!response.data.is_enabled);
-
-        timeout(Duration::from_secs(1), stop_rx.changed())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(*stop_rx.borrow_and_update());
+        assert!(cancellation_flag.load(Ordering::SeqCst));
 
         let updated_library = mova_db::get_library(&pool, library_id)
             .await
@@ -576,12 +551,6 @@ mod tests {
             RealtimeEvent::LibraryUpdated { library_id: event_library_id }
                 if event_library_id == library_id
         ));
-
-        let (probe_tx, _probe_rx) = watch::channel(false);
-        assert!(state
-            .library_sync_registry
-            .replace_watcher(library_id, probe_tx)
-            .is_none());
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -592,15 +561,10 @@ mod tests {
         let state = build_test_state(pool.clone());
         let (_admin_id, admin_jar) = seed_admin_session(&pool).await;
         let library_id = seed_library(&pool, "Movies", true).await;
-        let (stop_tx, mut stop_rx) = watch::channel(false);
         let mut realtime_rx = state.realtime_hub.subscribe();
         let active_scan = state.scan_registry.register_scan(library_id, 42).unwrap();
         let cancellation_flag = active_scan.cancellation_flag();
         let finish_state = state.clone();
-
-        state
-            .library_sync_registry
-            .replace_watcher(library_id, stop_tx);
 
         tokio::spawn(async move {
             while !cancellation_flag.load(Ordering::SeqCst) {
@@ -620,12 +584,6 @@ mod tests {
             .is_none());
         assert!(state.scan_registry.active_scan(library_id).is_none());
 
-        timeout(Duration::from_secs(1), stop_rx.changed())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(*stop_rx.borrow_and_update());
-
         let event = timeout(Duration::from_secs(1), realtime_rx.recv())
             .await
             .unwrap()
@@ -635,12 +593,6 @@ mod tests {
             RealtimeEvent::LibraryDeleted { library_id: event_library_id }
                 if event_library_id == library_id
         ));
-
-        let (probe_tx, _probe_rx) = watch::channel(false);
-        assert!(state
-            .library_sync_registry
-            .replace_watcher(library_id, probe_tx)
-            .is_none());
     }
 
     #[sqlx::test(migrations = "../../migrations")]
