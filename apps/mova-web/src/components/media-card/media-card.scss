@@ -128,8 +128,11 @@
 .media-card__summary--scan {
   font-size: 0.84rem;
   line-height: 1.36;
-  min-height: calc(1.36em * 2);
-  -webkit-line-clamp: 2;
+  min-height: 1.36em;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .media-card__scan {

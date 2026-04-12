@@ -3,6 +3,13 @@ use anyhow::{Context, Result};
 use sqlx::{postgres::PgPool, Postgres, Row, Transaction};
 use std::collections::{HashMap, HashSet};
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SyncLibraryMediaBestEffortOutcome {
+    pub removed_count: usize,
+    pub upserted_count: usize,
+    pub failed_count: usize,
+}
+
 /// 按文件路径把最新扫描结果增量同步到某个媒体库。
 /// 同路径文件会原地更新；缺失路径会删除；新增路径会插入。
 pub async fn sync_library_media(
@@ -44,6 +51,66 @@ pub async fn sync_library_media(
         .context("failed to commit media sync transaction")?;
 
     Ok(())
+}
+
+/// 当整库事务同步因为单条脏数据失败时，回退到逐条删除/逐条 upsert。
+/// 这样可以尽量保住其余健康条目，不因为一条异常记录让整轮扫描完全失败。
+pub async fn sync_library_media_best_effort(
+    pool: &PgPool,
+    library_id: i64,
+    entries: &[CreateMediaEntryParams],
+) -> Result<SyncLibraryMediaBestEffortOutcome> {
+    let existing_paths = super::list_library_media_file_paths(pool, library_id)
+        .await
+        .context("failed to list existing library media paths for fallback sync")?;
+    let discovered_paths = entries
+        .iter()
+        .map(|entry| entry.file_path.as_str())
+        .collect::<HashSet<_>>();
+
+    let mut outcome = SyncLibraryMediaBestEffortOutcome::default();
+
+    for existing_path in existing_paths {
+        if discovered_paths.contains(existing_path.as_str()) {
+            continue;
+        }
+
+        match delete_library_media_by_file_path(pool, library_id, &existing_path).await {
+            Ok(_) => {
+                outcome.removed_count += 1;
+            }
+            Err(error) => {
+                outcome.failed_count += 1;
+                tracing::warn!(
+                    library_id,
+                    file_path = %existing_path,
+                    error = ?error,
+                    "best-effort library sync failed to delete missing media path"
+                );
+            }
+        }
+    }
+
+    for entry in entries {
+        match upsert_library_media_entry_by_file_path(pool, library_id, entry).await {
+            Ok(_) => {
+                outcome.upserted_count += 1;
+            }
+            Err(error) => {
+                outcome.failed_count += 1;
+                tracing::warn!(
+                    library_id,
+                    file_path = %entry.file_path,
+                    media_type = %entry.media_type,
+                    title = %entry.title,
+                    error = ?error,
+                    "best-effort library sync failed to upsert media entry"
+                );
+            }
+        }
+    }
+
+    Ok(outcome)
 }
 
 /// 按文件路径增量 upsert 单条媒体记录。
@@ -1073,5 +1140,55 @@ mod tests {
         assert_eq!(episode_count, 1);
         assert_eq!(media_file_count, 2);
         assert_eq!(linked_file_count, 2);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn sync_library_media_best_effort_keeps_healthy_entries_when_one_entry_is_invalid(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let library = create_library(
+            &pool,
+            CreateLibraryParams {
+                name: "Movies".to_string(),
+                description: None,
+                library_type: "movie".to_string(),
+                metadata_language: "en-US".to_string(),
+                root_path: "/media/movies".to_string(),
+                is_enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+
+        let mut invalid_entry =
+            build_movie_entry(library.id, "/media/movies/Broken/Broken.invalid.mkv");
+        invalid_entry.title = "X".repeat(700);
+        invalid_entry.source_title = "X".repeat(700);
+
+        let valid_entry = build_movie_entry(library.id, "/media/movies/Healthy/Healthy.mkv");
+
+        let outcome =
+            super::sync_library_media_best_effort(&pool, library.id, &[invalid_entry, valid_entry])
+                .await
+                .unwrap();
+
+        let media_item_count =
+            sqlx::query_scalar::<_, i64>("select count(*) from media_items where library_id = $1")
+                .bind(library.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let media_file_count =
+            sqlx::query_scalar::<_, i64>("select count(*) from media_files where library_id = $1")
+                .bind(library.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert_eq!(outcome.failed_count, 1);
+        assert_eq!(outcome.upserted_count, 1);
+        assert_eq!(media_item_count, 1);
+        assert_eq!(media_file_count, 1);
     }
 }

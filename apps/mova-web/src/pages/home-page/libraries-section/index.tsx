@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom'
 import {
-  formatFailedScanCopy,
   formatScanJobStatusCopy,
   getEffectiveScanJob,
   getScanJobProgressPercent,
@@ -80,7 +79,7 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
           const scanCopy = isScanning
             ? formatScanJobStatusCopy(lastScan, scanRuntime)
             : hasFailedScan
-              ? formatFailedScanCopy(lastScan, scanRuntime)
+              ? 'Recent scan failed'
               : isSyncingLibraryState
                 ? 'Syncing library state'
                 : null

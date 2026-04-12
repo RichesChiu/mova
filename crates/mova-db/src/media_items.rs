@@ -14,7 +14,8 @@ pub use query::{
 };
 pub use sync::{
     delete_library_media_by_file_path, delete_library_media_by_path_prefix, sync_library_media,
-    upsert_library_media_entry_by_file_path,
+    sync_library_media_best_effort, upsert_library_media_entry_by_file_path,
+    SyncLibraryMediaBestEffortOutcome,
 };
 use time::OffsetDateTime;
 

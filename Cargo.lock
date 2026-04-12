@@ -1096,6 +1096,7 @@ dependencies = [
  "mova-domain",
  "sqlx",
  "time",
+ "tracing",
 ]
 
 [[package]]

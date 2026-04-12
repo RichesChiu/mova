@@ -514,12 +514,6 @@
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
-.player-source-list--overlay {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-}
-
 .player-source {
   display: grid;
   gap: 6px;
@@ -550,15 +544,6 @@
   color: var(--accent-strong);
 }
 
-.player-source--compact {
-  min-height: auto;
-  gap: 2px;
-  padding: 9px 12px;
-  border-radius: 999px;
-  background: rgba(8, 12, 18, 0.78);
-  backdrop-filter: blur(18px) saturate(115%);
-}
-
 .player-source__title {
   font-size: 0.82rem;
   font-weight: 700;
@@ -571,8 +556,4 @@
   color: var(--text-soft);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.player-source--compact .player-source__meta {
-  display: none;
 }

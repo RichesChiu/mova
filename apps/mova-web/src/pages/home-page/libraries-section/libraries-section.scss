@@ -78,10 +78,11 @@
   position: relative;
   z-index: 1;
   display: grid;
-  align-content: end;
-  gap: 8px;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  align-content: stretch;
+  gap: 6px;
   min-height: 100%;
-  padding: 18px;
+  padding: 16px;
 }
 
 .library-spotlight__meta {
@@ -100,6 +101,7 @@
   font-size: 1.18rem;
   font-weight: 700;
   line-height: 1.2;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -122,15 +124,18 @@
 
 .library-spotlight__stats {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-wrap: nowrap;
+  gap: 6px;
   min-height: 30px;
+  overflow: hidden;
 }
 
 .library-spotlight__scan {
   display: grid;
   gap: 7px;
   min-height: 42px;
+  grid-row: 5;
+  align-self: end;
 }
 
 .library-spotlight__scan--failed {
@@ -155,6 +160,7 @@
 }
 
 .library-spotlight__scan-label {
+  flex: 1 1 auto;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -187,6 +193,7 @@
 .library-spotlight__stat {
   display: inline-flex;
   align-items: center;
+  min-width: 0;
   padding: 6px 10px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   border-radius: 999px;
@@ -195,6 +202,9 @@
   box-shadow: var(--panel-inset);
   font-size: 0.78rem;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .library-spotlight__stat--loading {

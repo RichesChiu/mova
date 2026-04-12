@@ -1330,34 +1330,6 @@ export const MediaPlayerPanel = ({
                       <p className="callout">{audioTrackNotice}</p>
                     ) : null}
                   </div>
-
-                  {mediaFiles.length > 1 ? (
-                    <div className="player-source-list player-source-list--overlay">
-                      {mediaFiles.map((file) => {
-                        const isActive = file.id === selectedMediaFile.id
-
-                        return (
-                          <button
-                            className={
-                              isActive
-                                ? 'player-source player-source--active player-source--compact'
-                                : 'player-source player-source--compact'
-                            }
-                            key={file.id}
-                            onClick={() => switchMediaFile(file.id)}
-                            type="button"
-                          >
-                            <span className="player-source__title">
-                              {file.container?.toUpperCase() ?? 'FILE'}
-                            </span>
-                            <span className="player-source__meta">
-                              {formatVideoMeta(file) || file.file_path}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  ) : null}
                 </div>
               ) : null}
 

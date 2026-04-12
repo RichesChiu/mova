@@ -10,3 +10,4 @@ sqlx.workspace = true
 time.workspace = true
 anyhow.workspace = true
 mova-domain = { path = "../mova-domain" }
+tracing.workspace = true

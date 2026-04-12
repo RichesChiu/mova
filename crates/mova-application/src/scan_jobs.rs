@@ -420,24 +420,49 @@ pub async fn execute_scan_job_with_cancellation(
     .await;
 
     if let Err(error) = mova_db::sync_library_media(pool, library.id, &media_entries).await {
-        if let Some(scan_job) = finalize_failed_scan(
-            pool,
+        tracing::warn!(
+            library_id = library.id,
             scan_job_id,
-            total_files,
-            0,
-            &format_scan_phase_error(
+            error = ?error,
+            "full library sync failed, retrying in best-effort mode"
+        );
+
+        let fallback_outcome =
+            mova_db::sync_library_media_best_effort(pool, library.id, &media_entries)
+                .await
+                .map_err(ApplicationError::Unexpected)?;
+
+        if fallback_outcome.failed_count > 0 {
+            tracing::warn!(
+                library_id = library.id,
+                scan_job_id,
+                removed_count = fallback_outcome.removed_count,
+                upserted_count = fallback_outcome.upserted_count,
+                failed_count = fallback_outcome.failed_count,
+                "best-effort library sync skipped one or more problematic media entries"
+            );
+        }
+
+        if fallback_outcome.removed_count == 0
+            && fallback_outcome.upserted_count == 0
+            && fallback_outcome.failed_count > 0
+        {
+            let message = format_scan_phase_error(
                 SCAN_PHASE_SYNCING,
                 format!("Failed to save library data: {}", error),
-            ),
-        )
-        .await
-        {
-            event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
-                scan_job,
-                SCAN_PHASE_FINISHED,
-            )));
+            );
+
+            if let Some(scan_job) =
+                finalize_failed_scan(pool, scan_job_id, total_files, 0, &message).await
+            {
+                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                    scan_job,
+                    SCAN_PHASE_FINISHED,
+                )));
+            }
+
+            return Err(ApplicationError::Unexpected(error));
         }
-        return Err(ApplicationError::Unexpected(error));
     }
 
     match mova_db::finalize_scan_job(pool, scan_job_id, "success", total_files, total_files, None)
