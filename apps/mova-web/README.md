@@ -74,7 +74,7 @@ src/
 | `/login` | `src/pages/login-page/index.tsx` | 登录页和首个管理员 bootstrap 入口。根据 `bootstrap-status` 决定是“创建第一个管理员”还是普通登录。 | `getCurrentUser`、`getBootstrapStatus`、`login`、`bootstrapAdmin` |
 | `/` | `src/pages/home-page/index.tsx` | 首页。聚合媒体库卡片、继续观看、各媒体库的 shelf；同时消费扫描实时态。首页库卡和扫描占位卡都会尽量把标题、进度文案和统计收成固定高度与单行省略，减少同步过程中的布局抖动。 | `listLibraries`、`getLibrary`、`listLibraryMediaItems`、`listContinueWatching`、`getMediaItemEpisodeOutline` |
 | `/libraries/:libraryId` | `src/pages/library-page/index.tsx` | 单库详情页。展示库标题、描述、关键统计、最新扫描状态、电影/剧集列表，以及扫描中的占位卡；页面头部会尽量保持内容页而不是配置页的层级，返回入口也统一成轻量文本链接而不是按钮块。 | `getLibrary`、`listLibraryMediaItems`、`scanRuntimeByLibrary` |
-| `/media-items/:mediaItemId` | `src/pages/media-item-page/index.tsx` | 媒体详情页。电影显示详情与播放入口，并在标题旁展示带 `IMDb` 标识的评分；hero 区会优先用背景图或海报做模糊大底与光晕层，让标题、海报和评分形成更完整的电影感头图，年份、国家/地区、题材类型和工作室则收在 facts 区里避免重复副标题；如果同一部电影存在多个本地版本，播放区会先给版本选择，技术信息区也会跟着当前版本切换；演员区下方会展示当前资源文件的 source details，以及并排的视频、音频、字幕技术卡；音轨和字幕卡头部都有小下拉，当前版本本身则只在播放区选择，字幕卡也会展示默认、强制、听障和外挂标记；剧集显示季/集大纲、演员和管理员元数据工具；当所在媒体库仍在扫描时，这里也会显示当前条目或当前季的同步状态与占位集卡，返回入口也和库页保持同一套轻量文本链接样式。 | `getMediaItem`、`getMediaItemEpisodeOutline`、`getMediaItemPlaybackProgress`、`getMediaItemPlaybackHeader`、`listMediaItemFiles`、`listMediaFileAudioTracks`、`listMediaFileSubtitles`、`scanRuntimeByLibrary` |
+| `/media-items/:mediaItemId` | `src/pages/media-item-page/index.tsx` | 媒体详情页。电影显示详情与播放入口，并在标题旁展示带 `IMDb` 标识的评分；hero 区会优先用背景图或海报做模糊大底与光晕层，让标题、海报和评分形成更完整的电影感头图，年份、国家/地区、题材类型和工作室则收在 facts 区里避免重复副标题；如果同一部电影存在多个本地版本，播放区会先给版本选择，技术信息区也会跟着当前版本切换；演员区会在主体信息先渲染后再异步加载，避免首次打开详情页被远端 cast 刷新拖住；演员区下方会展示当前资源文件的 source details，以及并排的视频、音频、字幕技术卡；音轨和字幕卡头部都有小下拉，当前版本本身则只在播放区选择，字幕卡也会展示默认、强制、听障和外挂标记；剧集显示季/集大纲、演员和管理员元数据工具；当所在媒体库仍在扫描时，这里也会显示当前条目或当前季的同步状态与占位集卡，返回入口也和库页保持同一套轻量文本链接样式。 | `getMediaItem`、`getMediaItemCast`、`getMediaItemEpisodeOutline`、`getMediaItemPlaybackProgress`、`getMediaItemPlaybackHeader`、`listMediaItemFiles`、`listMediaFileAudioTracks`、`listMediaFileSubtitles`、`scanRuntimeByLibrary` |
 | `/media-items/:mediaItemId/play` | `src/pages/media-player-page/index.tsx` | 沉浸式播放器页。负责装配播放器标题、副标题、集切换选项，并把实际播放行为交给 `MediaPlayerPanel`。 | `getMediaItemPlaybackHeader`、`getMediaItemEpisodeOutline` |
 | `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。收成单块资料面板，展示用户名、昵称、角色标签，以及链接式的改密入口；昵称支持通过行内编辑 icon 直接更新，真正的密码修改仍在弹窗里完成。 | `updateOwnProfile`、`changeOwnPassword`、`AppShell` 提供的 `currentUser` |
 | `/settings` | `src/pages/settings-page/index.tsx` | 管理员设置页。承接用户增删改查、媒体库创建、扫描、删除和基础配置编辑；危险操作会走统一确认弹窗。 | `listUsers`、`createUser`、`updateUser`、`deleteUser`、`createLibrary`、`updateLibrary`、`scanLibrary`、`deleteLibrary`、`getLibrary` |
@@ -117,7 +117,7 @@ src/
 | `UserEditorModal` | `components/user-editor-modal/index.tsx` | 创建/编辑用户，支持用户名、昵称、角色、启停和媒体库授权。 | 设置页 |
 | `ConfirmActionModal` | `components/confirm-action-modal/index.tsx` | 统一承接危险操作确认流和错误提示，当前用于删库、删用户。 | 设置页 |
 | `ChangePasswordModal` | `components/change-password-modal/index.tsx` | 个人页的改密弹窗，统一处理当前密码校验、确认输入和错误反馈。 | 个人页 |
-| `MetadataMatchPanel` | `components/metadata-match-panel/index.tsx` | 管理员手动搜索并替换单条媒体元数据。 | 媒体详情页 |
+| `MetadataMatchPanel` | `components/metadata-match-panel/index.tsx` | 管理员手动搜索并替换单条媒体元数据；弹窗头部和搜索表单使用更紧凑的布局，标题、年份和搜索按钮在小屏下也会自然换行。 | 媒体详情页 |
 | `MediaDirectoryTree` | `components/media-directory-tree/index.tsx` | 递归目录树选择器，用于从容器内 `/media` 目录里选择库根路径。 | `CreateLibraryForm` |
 | `GlassSelect` | `components/glass-select/index.tsx` | 自定义下拉选择器，统一风格与交互；也支持更紧凑的 compact 形态，用在详情页技术卡头部的小下拉。菜单会通过 portal 挂到根级浮层，避免被 hero、卡片或容器裁掉；弹出宽度会优先跟随当前选项内容，而不是被 trigger 宽度锁死。 | 设置页、建库表单、用户编辑弹窗、媒体库编辑弹窗、媒体详情页 |
 

@@ -151,19 +151,18 @@ export const MetadataMatchPanel = ({
               <div aria-modal="true" className="metadata-match-modal__surface" role="dialog">
                 <div className="metadata-match-modal__header">
                   <div>
-                    <p className="eyebrow">Admin</p>
                     <h3>Search and Replace Metadata</h3>
                   </div>
 
                   <button
                     aria-label="Close metadata match dialog"
-                    className="button button--icon metadata-match-modal__close"
+                    className="metadata-match-modal__close"
                     onClick={() => setIsOpen(false)}
                     type="button"
                   >
                     <svg
                       aria-hidden="true"
-                      className="button__icon"
+                      className="metadata-match-modal__close-icon"
                       fill="none"
                       viewBox="0 0 24 24"
                     >
