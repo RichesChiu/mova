@@ -119,11 +119,13 @@
   inset-inline: auto;
   top: auto;
   z-index: 80;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 24px));
 }
 
 .glass-select__option {
   display: block;
-  width: 100%;
+  min-width: 100%;
   min-height: 38px;
   border: 1px solid transparent;
   border-radius: 12px;

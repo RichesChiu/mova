@@ -32,7 +32,6 @@ export const GlassSelect = ({
     left: number
     maxHeight: number
     top: number
-    width: number
   } | null>(null)
 
   const selectedOption = useMemo(
@@ -95,11 +94,20 @@ export const GlassSelect = ({
         shouldOpenUpward ? availableTop - 8 : viewportHeight - preferredTop - 16,
       )
 
+      const menuElement = menuRef.current
+      const measuredMenuWidth = menuElement
+        ? Math.ceil(menuElement.getBoundingClientRect().width)
+        : triggerElement.offsetWidth
+      const viewportWidth = window.innerWidth
+      const clampedLeft = Math.min(
+        Math.max(12, rect.left),
+        Math.max(12, viewportWidth - measuredMenuWidth - 12),
+      )
+
       setMenuStyle({
-        left: rect.left,
+        left: clampedLeft,
         maxHeight,
         top: shouldOpenUpward ? Math.max(12, rect.top - maxHeight - 8) : preferredTop,
-        width: rect.width,
       })
     }
 
@@ -150,7 +158,6 @@ export const GlassSelect = ({
                 left: menuStyle.left,
                 maxHeight: menuStyle.maxHeight,
                 top: menuStyle.top,
-                width: menuStyle.width,
               }}
             >
               {options.map((option) => {

@@ -119,7 +119,7 @@ src/
 | `ChangePasswordModal` | `components/change-password-modal/index.tsx` | 个人页的改密弹窗，统一处理当前密码校验、确认输入和错误反馈。 | 个人页 |
 | `MetadataMatchPanel` | `components/metadata-match-panel/index.tsx` | 管理员手动搜索并替换单条媒体元数据。 | 媒体详情页 |
 | `MediaDirectoryTree` | `components/media-directory-tree/index.tsx` | 递归目录树选择器，用于从容器内 `/media` 目录里选择库根路径。 | `CreateLibraryForm` |
-| `GlassSelect` | `components/glass-select/index.tsx` | 自定义下拉选择器，统一风格与交互；也支持更紧凑的 compact 形态，用在详情页技术卡头部的小下拉。菜单会通过 portal 挂到根级浮层，避免被 hero、卡片或容器裁掉。 | 设置页、建库表单、用户编辑弹窗、媒体库编辑弹窗、媒体详情页 |
+| `GlassSelect` | `components/glass-select/index.tsx` | 自定义下拉选择器，统一风格与交互；也支持更紧凑的 compact 形态，用在详情页技术卡头部的小下拉。菜单会通过 portal 挂到根级浮层，避免被 hero、卡片或容器裁掉；弹出宽度会优先跟随当前选项内容，而不是被 trigger 宽度锁死。 | 设置页、建库表单、用户编辑弹窗、媒体库编辑弹窗、媒体详情页 |
 
 ### 4.4 轻量 UI 基元
 
