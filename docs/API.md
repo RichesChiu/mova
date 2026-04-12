@@ -50,6 +50,7 @@
   - `500 Internal Server Error`：服务内部错误
 - TMDB provider 现在从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取；但每个媒体库仍可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。
 - 如果额外配置了可选的 `MOVA_OMDB_API_KEY`，服务端会在已拿到 `imdb_id` 的前提下补齐 `imdb_rating`；不配置时该字段保持为空，不影响扫描、入库和播放。
+- 本地海报和背景图这类图片资源，对外返回的 URL 现在会带版本参数（例如 `/api/media-items/42/poster?v=1704164645`），浏览器可以长期缓存；当媒体元数据更新时，版本参数会变化，前端会自动拿到新图。
 
 ## 接口总览
 

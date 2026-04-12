@@ -478,11 +478,13 @@ impl MediaItemResponse {
                 media_item.id,
                 media_item.poster_path.as_deref(),
                 "poster",
+                media_item.updated_at,
             ),
             backdrop_path: public_media_item_asset_path(
                 media_item.id,
                 media_item.backdrop_path.as_deref(),
                 "backdrop",
+                media_item.updated_at,
             ),
             created_at: format_datetime(media_item.created_at, offset),
             updated_at: format_datetime(media_item.updated_at, offset),
@@ -528,11 +530,13 @@ impl MediaItemDetailResponse {
                 media_item.id,
                 media_item.poster_path.as_deref(),
                 "poster",
+                media_item.updated_at,
             ),
             backdrop_path: public_media_item_asset_path(
                 media_item.id,
                 media_item.backdrop_path.as_deref(),
                 "backdrop",
+                media_item.updated_at,
             ),
             cast: cast
                 .into_iter()
@@ -648,11 +652,13 @@ impl SeasonResponse {
                 season.id,
                 season.poster_path.as_deref(),
                 "poster",
+                season.updated_at,
             ),
             backdrop_path: public_season_asset_path(
                 season.id,
                 season.backdrop_path.as_deref(),
                 "backdrop",
+                season.updated_at,
             ),
             episode_count: season.episode_count,
             created_at: format_datetime(season.created_at, offset),
@@ -675,11 +681,13 @@ impl EpisodeResponse {
                 episode.media_item_id,
                 episode.poster_path.as_deref(),
                 "poster",
+                episode.updated_at,
             ),
             backdrop_path: public_media_item_asset_path(
                 episode.media_item_id,
                 episode.backdrop_path.as_deref(),
                 "backdrop",
+                episode.updated_at,
             ),
             created_at: format_datetime(episode.created_at, offset),
             updated_at: format_datetime(episode.updated_at, offset),
@@ -702,15 +710,21 @@ impl SeriesEpisodeOutlineResponse {
 impl SeriesEpisodeOutlineSeasonResponse {
     fn from_domain(season: SeriesEpisodeOutlineSeason) -> Self {
         let poster_path = match season.season_id {
-            Some(season_id) => {
-                public_season_asset_path(season_id, season.poster_path.as_deref(), "poster")
-            }
+            Some(season_id) => public_season_asset_path(
+                season_id,
+                season.poster_path.as_deref(),
+                "poster",
+                OffsetDateTime::UNIX_EPOCH,
+            ),
             None => season.poster_path.as_deref().map(|value| value.to_string()),
         };
         let backdrop_path = match season.season_id {
-            Some(season_id) => {
-                public_season_asset_path(season_id, season.backdrop_path.as_deref(), "backdrop")
-            }
+            Some(season_id) => public_season_asset_path(
+                season_id,
+                season.backdrop_path.as_deref(),
+                "backdrop",
+                OffsetDateTime::UNIX_EPOCH,
+            ),
             None => season
                 .backdrop_path
                 .as_deref()
@@ -737,13 +751,19 @@ impl SeriesEpisodeOutlineSeasonResponse {
 impl SeriesEpisodeOutlineEpisodeResponse {
     fn from_domain(episode: SeriesEpisodeOutlineEpisode) -> Self {
         let poster_path = episode.media_item_id.and_then(|media_item_id| {
-            public_media_item_asset_path(media_item_id, episode.poster_path.as_deref(), "poster")
+            public_media_item_asset_path(
+                media_item_id,
+                episode.poster_path.as_deref(),
+                "poster",
+                OffsetDateTime::UNIX_EPOCH,
+            )
         });
         let backdrop_path = episode.media_item_id.and_then(|media_item_id| {
             public_media_item_asset_path(
                 media_item_id,
                 episode.backdrop_path.as_deref(),
                 "backdrop",
+                OffsetDateTime::UNIX_EPOCH,
             )
         });
 
@@ -921,12 +941,14 @@ impl ContinueWatchingItemResponse {
             item.playback_progress.media_item_id,
             item.episode_poster_path.as_deref(),
             "poster",
+            item.media_item.updated_at,
         )
         .or(item.episode_poster_path.clone());
         let episode_backdrop_path = public_media_item_asset_path(
             item.playback_progress.media_item_id,
             item.episode_backdrop_path.as_deref(),
             "backdrop",
+            item.media_item.updated_at,
         )
         .or(item.episode_backdrop_path.clone());
 
@@ -975,6 +997,7 @@ fn public_media_item_asset_path(
     media_item_id: i64,
     stored_path: Option<&str>,
     asset_kind: &str,
+    version: OffsetDateTime,
 ) -> Option<String> {
     let stored_path = stored_path?.trim();
 
@@ -985,7 +1008,12 @@ fn public_media_item_asset_path(
     if is_external_url(stored_path) {
         Some(stored_path.to_string())
     } else {
-        Some(format!("/api/media-items/{}/{}", media_item_id, asset_kind))
+        Some(format!(
+            "/api/media-items/{}/{}?v={}",
+            media_item_id,
+            asset_kind,
+            version.unix_timestamp()
+        ))
     }
 }
 
@@ -993,6 +1021,7 @@ fn public_season_asset_path(
     season_id: i64,
     stored_path: Option<&str>,
     asset_kind: &str,
+    version: OffsetDateTime,
 ) -> Option<String> {
     let stored_path = stored_path?.trim();
 
@@ -1003,7 +1032,12 @@ fn public_season_asset_path(
     if is_external_url(stored_path) {
         Some(stored_path.to_string())
     } else {
-        Some(format!("/api/seasons/{}/{}", season_id, asset_kind))
+        Some(format!(
+            "/api/seasons/{}/{}?v={}",
+            season_id,
+            asset_kind,
+            version.unix_timestamp()
+        ))
     }
 }
 
@@ -1015,7 +1049,7 @@ fn is_external_url(value: &str) -> bool {
 mod tests {
     use super::{public_media_item_asset_path, public_season_asset_path, MediaItemResponse};
     use mova_domain::MediaItem;
-    use time::{Date, Month, PrimitiveDateTime, Time, UtcOffset};
+    use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
 
     fn sample_media_item() -> MediaItem {
         let timestamp = PrimitiveDateTime::new(
@@ -1050,8 +1084,13 @@ mod tests {
     #[test]
     fn public_media_item_asset_path_maps_local_files_to_internal_routes() {
         assert_eq!(
-            public_media_item_asset_path(42, Some("/library/poster.jpg"), "poster"),
-            Some("/api/media-items/42/poster".to_string())
+            public_media_item_asset_path(
+                42,
+                Some("/library/poster.jpg"),
+                "poster",
+                OffsetDateTime::UNIX_EPOCH,
+            ),
+            Some("/api/media-items/42/poster?v=0".to_string())
         );
     }
 
@@ -1061,7 +1100,8 @@ mod tests {
             public_media_item_asset_path(
                 42,
                 Some("https://images.example.com/poster.jpg"),
-                "poster"
+                "poster",
+                OffsetDateTime::UNIX_EPOCH,
             ),
             Some("https://images.example.com/poster.jpg".to_string())
         );
@@ -1070,15 +1110,25 @@ mod tests {
     #[test]
     fn public_season_asset_path_maps_local_files_to_internal_routes() {
         assert_eq!(
-            public_season_asset_path(7, Some("/library/season01.jpg"), "poster"),
-            Some("/api/seasons/7/poster".to_string())
+            public_season_asset_path(
+                7,
+                Some("/library/season01.jpg"),
+                "poster",
+                OffsetDateTime::UNIX_EPOCH,
+            ),
+            Some("/api/seasons/7/poster?v=0".to_string())
         );
     }
 
     #[test]
     fn public_season_asset_path_preserves_remote_urls() {
         assert_eq!(
-            public_season_asset_path(7, Some("https://images.example.com/season01.jpg"), "poster"),
+            public_season_asset_path(
+                7,
+                Some("https://images.example.com/season01.jpg"),
+                "poster",
+                OffsetDateTime::UNIX_EPOCH,
+            ),
             Some("https://images.example.com/season01.jpg".to_string())
         );
     }
@@ -1089,7 +1139,7 @@ mod tests {
 
         assert_eq!(
             response.poster_path.as_deref(),
-            Some("/api/media-items/42/poster")
+            Some("/api/media-items/42/poster?v=1704164645")
         );
         assert_eq!(
             response.backdrop_path.as_deref(),

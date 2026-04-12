@@ -364,6 +364,9 @@ pub async fn execute_scan_job_with_cancellation(
     )
     .await;
 
+    let discovered_files =
+        reuse_existing_metadata_for_discovered_files(pool, library.id, discovered_files).await;
+
     let discovered_files = enrich_discovered_files(
         &library,
         scan_job_id,
@@ -550,6 +553,51 @@ async fn enrich_discovered_files(
     }
 
     groups.into_iter().flat_map(|group| group.files).collect()
+}
+
+async fn reuse_existing_metadata_for_discovered_files(
+    pool: &PgPool,
+    library_id: i64,
+    mut discovered_files: Vec<DiscoveredMediaFile>,
+) -> Vec<DiscoveredMediaFile> {
+    let file_paths = discovered_files
+        .iter()
+        .map(|file| file.file_path.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+
+    let existing_metadata = match mova_db::list_existing_media_metadata_for_file_paths(
+        pool,
+        library_id,
+        &file_paths,
+    )
+    .await
+    {
+        Ok(existing_metadata) => existing_metadata,
+        Err(error) => {
+            tracing::warn!(
+                library_id,
+                error = ?error,
+                "failed to load existing media metadata before enrichment; continuing with full enrichment"
+            );
+            return discovered_files;
+        }
+    };
+
+    let existing_by_path = existing_metadata
+        .into_iter()
+        .map(|summary| (summary.file_path.clone(), summary))
+        .collect::<HashMap<_, _>>();
+
+    for file in &mut discovered_files {
+        let file_path = file.file_path.to_string_lossy().to_string();
+        let Some(summary) = existing_by_path.get(file_path.as_str()) else {
+            continue;
+        };
+
+        apply_existing_media_metadata(file, summary);
+    }
+
+    discovered_files
 }
 
 async fn discover_media_files(
@@ -778,6 +826,100 @@ fn build_media_entries(
     Ok(entries)
 }
 
+fn apply_existing_media_metadata(
+    file: &mut DiscoveredMediaFile,
+    summary: &mova_db::ExistingMediaMetadataSummary,
+) {
+    if summary.media_type.eq_ignore_ascii_case("episode") {
+        replace_string_if_present(&mut file.title, summary.series_title.as_deref());
+        fill_string_if_missing(
+            &mut file.source_title,
+            summary.series_source_title.as_deref(),
+        );
+        replace_option_if_present(
+            &mut file.original_title,
+            summary.series_original_title.as_ref(),
+        );
+        replace_option_if_present(&mut file.sort_title, summary.series_sort_title.as_ref());
+        replace_copy_if_present(&mut file.year, summary.series_year);
+        replace_option_if_present(&mut file.imdb_rating, summary.series_imdb_rating.as_ref());
+        replace_option_if_present(&mut file.country, summary.series_country.as_ref());
+        replace_option_if_present(&mut file.genres, summary.series_genres.as_ref());
+        replace_option_if_present(&mut file.studio, summary.series_studio.as_ref());
+        replace_option_if_present(&mut file.overview, summary.series_overview.as_ref());
+        fill_option_ref_if_missing(
+            &mut file.series_poster_path,
+            summary.series_poster_path.as_ref(),
+        );
+        fill_option_ref_if_missing(
+            &mut file.series_backdrop_path,
+            summary.series_backdrop_path.as_ref(),
+        );
+        fill_option_ref_if_missing(&mut file.season_title, summary.season_title.as_ref());
+        fill_option_ref_if_missing(&mut file.season_overview, summary.season_overview.as_ref());
+        fill_option_ref_if_missing(
+            &mut file.season_poster_path,
+            summary.season_poster_path.as_ref(),
+        );
+        fill_option_ref_if_missing(
+            &mut file.season_backdrop_path,
+            summary.season_backdrop_path.as_ref(),
+        );
+        replace_option_if_present(&mut file.episode_title, summary.episode_title.as_ref());
+        fill_option_ref_if_missing(&mut file.poster_path, summary.poster_path.as_ref());
+        fill_option_ref_if_missing(&mut file.backdrop_path, summary.backdrop_path.as_ref());
+        return;
+    }
+
+    replace_string_if_present(&mut file.title, Some(summary.title.as_str()));
+    fill_string_if_missing(&mut file.source_title, Some(summary.source_title.as_str()));
+    replace_option_if_present(&mut file.original_title, summary.original_title.as_ref());
+    replace_option_if_present(&mut file.sort_title, summary.sort_title.as_ref());
+    replace_copy_if_present(&mut file.year, summary.year);
+    replace_option_if_present(&mut file.imdb_rating, summary.imdb_rating.as_ref());
+    replace_option_if_present(&mut file.country, summary.country.as_ref());
+    replace_option_if_present(&mut file.genres, summary.genres.as_ref());
+    replace_option_if_present(&mut file.studio, summary.studio.as_ref());
+    replace_option_if_present(&mut file.overview, summary.overview.as_ref());
+    fill_option_ref_if_missing(&mut file.poster_path, summary.poster_path.as_ref());
+    fill_option_ref_if_missing(&mut file.backdrop_path, summary.backdrop_path.as_ref());
+}
+
+fn replace_string_if_present(target: &mut String, candidate: Option<&str>) {
+    let Some(candidate) = candidate.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+
+    target.clear();
+    target.push_str(candidate);
+}
+
+fn fill_string_if_missing(target: &mut String, candidate: Option<&str>) {
+    if !target.trim().is_empty() {
+        return;
+    }
+
+    replace_string_if_present(target, candidate);
+}
+
+fn fill_option_ref_if_missing<T: Clone>(target: &mut Option<T>, candidate: Option<&T>) {
+    if target.is_some() {
+        return;
+    }
+
+    *target = candidate.cloned();
+}
+
+fn replace_option_if_present<T: Clone>(target: &mut Option<T>, candidate: Option<&T>) {
+    if let Some(candidate) = candidate {
+        *target = Some(candidate.clone());
+    }
+}
+
+fn replace_copy_if_present<T: Copy>(target: &mut Option<T>, candidate: Option<T>) {
+    *target = candidate;
+}
+
 fn is_cancelled(cancellation_flag: &Arc<AtomicBool>) -> bool {
     cancellation_flag.load(Ordering::SeqCst)
 }
@@ -936,6 +1078,7 @@ async fn emit_scan_job_phase(
 #[cfg(test)]
 mod tests {
     use crate::media_classification::{LIBRARY_TYPE_MIXED, LIBRARY_TYPE_SERIES};
+    use mova_db::ExistingMediaMetadataSummary;
     use mova_domain::Library;
     use mova_scan::DiscoveredMediaFile;
     use std::path::{Path, PathBuf};
@@ -1002,6 +1145,78 @@ mod tests {
             is_enabled: true,
             created_at: OffsetDateTime::now_utc(),
             updated_at: OffsetDateTime::now_utc(),
+        }
+    }
+
+    fn build_existing_movie_metadata() -> ExistingMediaMetadataSummary {
+        ExistingMediaMetadataSummary {
+            file_path: "/media/movies/Arcane.mkv".to_string(),
+            media_type: "movie".to_string(),
+            title: "Arcane".to_string(),
+            source_title: "Arcane".to_string(),
+            original_title: Some("Arcane Original".to_string()),
+            sort_title: Some("Arcane, The".to_string()),
+            year: Some(2021),
+            imdb_rating: Some("8.5".to_string()),
+            country: Some("United States".to_string()),
+            genres: Some("Animation, Drama".to_string()),
+            studio: Some("Fortiche".to_string()),
+            overview: Some("Stored overview".to_string()),
+            poster_path: Some("/cache/poster.jpg".to_string()),
+            backdrop_path: Some("/cache/backdrop.jpg".to_string()),
+            series_title: None,
+            series_source_title: None,
+            series_original_title: None,
+            series_sort_title: None,
+            series_year: None,
+            series_imdb_rating: None,
+            series_country: None,
+            series_genres: None,
+            series_studio: None,
+            series_overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_title: None,
+        }
+    }
+
+    fn build_existing_episode_metadata() -> ExistingMediaMetadataSummary {
+        ExistingMediaMetadataSummary {
+            file_path: "/media/series/Arcane/Arcane.S01E01.mkv".to_string(),
+            media_type: "episode".to_string(),
+            title: "Welcome to the Playground".to_string(),
+            source_title: "Arcane.S01E01".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: None,
+            imdb_rating: None,
+            country: None,
+            genres: None,
+            studio: None,
+            overview: Some("Episode overview".to_string()),
+            poster_path: Some("/cache/episode-poster.jpg".to_string()),
+            backdrop_path: Some("/cache/episode-backdrop.jpg".to_string()),
+            series_title: Some("Arcane".to_string()),
+            series_source_title: Some("Arcane".to_string()),
+            series_original_title: Some("Arcane Original".to_string()),
+            series_sort_title: Some("Arcane, The".to_string()),
+            series_year: Some(2021),
+            series_imdb_rating: Some("9.0".to_string()),
+            series_country: Some("United States".to_string()),
+            series_genres: Some("Animation, Drama".to_string()),
+            series_studio: Some("Fortiche".to_string()),
+            series_overview: Some("Series overview".to_string()),
+            series_poster_path: Some("/cache/series-poster.jpg".to_string()),
+            series_backdrop_path: Some("/cache/series-backdrop.jpg".to_string()),
+            season_title: Some("Season 01".to_string()),
+            season_overview: Some("Season overview".to_string()),
+            season_poster_path: Some("/cache/season-poster.jpg".to_string()),
+            season_backdrop_path: Some("/cache/season-backdrop.jpg".to_string()),
+            episode_title: Some("Welcome to the Playground".to_string()),
         }
     }
 
@@ -1107,6 +1322,84 @@ mod tests {
         assert_eq!(groups[0].presentation.title, "Arcane");
         assert_eq!(groups[0].files.len(), 2);
         assert!(groups[0].presentation.item_key.ends_with("Arcane"));
+    }
+
+    #[test]
+    fn apply_existing_movie_metadata_reuses_stored_remote_fields() {
+        let mut file = build_discovered_file();
+        file.file_path = PathBuf::from("/media/movies/Arcane.mkv");
+        file.title = "Arcane.2021.2160p".to_string();
+        file.source_title = "Arcane".to_string();
+        file.original_title = None;
+        file.overview = None;
+        file.poster_path = None;
+        file.backdrop_path = None;
+        file.country = None;
+        file.genres = None;
+        file.studio = None;
+        file.imdb_rating = None;
+
+        super::apply_existing_media_metadata(&mut file, &build_existing_movie_metadata());
+
+        assert_eq!(file.title, "Arcane");
+        assert_eq!(file.original_title.as_deref(), Some("Arcane Original"));
+        assert_eq!(file.overview.as_deref(), Some("Stored overview"));
+        assert_eq!(file.poster_path.as_deref(), Some("/cache/poster.jpg"));
+        assert_eq!(file.backdrop_path.as_deref(), Some("/cache/backdrop.jpg"));
+        assert_eq!(file.country.as_deref(), Some("United States"));
+        assert_eq!(file.genres.as_deref(), Some("Animation, Drama"));
+        assert_eq!(file.studio.as_deref(), Some("Fortiche"));
+        assert_eq!(file.imdb_rating.as_deref(), Some("8.5"));
+        assert_eq!(file.year, Some(2021));
+    }
+
+    #[test]
+    fn apply_existing_episode_metadata_reuses_series_and_episode_fields() {
+        let mut file = build_discovered_file();
+        file.title = "Arcane.S01E01".to_string();
+        file.source_title = "Arcane.S01E01".to_string();
+        file.original_title = None;
+        file.sort_title = None;
+        file.year = Some(2020);
+        file.imdb_rating = None;
+        file.country = None;
+        file.genres = None;
+        file.studio = None;
+        file.overview = None;
+        file.series_poster_path = None;
+        file.series_backdrop_path = None;
+        file.season_title = None;
+        file.season_overview = None;
+        file.season_poster_path = None;
+        file.season_backdrop_path = None;
+        file.poster_path = None;
+        file.backdrop_path = None;
+
+        super::apply_existing_media_metadata(&mut file, &build_existing_episode_metadata());
+
+        assert_eq!(file.title, "Arcane");
+        assert_eq!(file.original_title.as_deref(), Some("Arcane Original"));
+        assert_eq!(file.sort_title.as_deref(), Some("Arcane, The"));
+        assert_eq!(file.year, Some(2021));
+        assert_eq!(file.imdb_rating.as_deref(), Some("9.0"));
+        assert_eq!(file.overview.as_deref(), Some("Series overview"));
+        assert_eq!(
+            file.series_poster_path.as_deref(),
+            Some("/cache/series-poster.jpg")
+        );
+        assert_eq!(file.season_title.as_deref(), Some("Season 01"));
+        assert_eq!(
+            file.episode_title.as_deref(),
+            Some("Welcome to the Playground")
+        );
+        assert_eq!(
+            file.poster_path.as_deref(),
+            Some("/cache/episode-poster.jpg")
+        );
+        assert_eq!(
+            file.backdrop_path.as_deref(),
+            Some("/cache/episode-backdrop.jpg")
+        );
     }
 }
 

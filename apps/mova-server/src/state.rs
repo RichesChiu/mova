@@ -211,6 +211,14 @@ impl LibrarySyncRegistry {
         inner.dirty_libraries.insert(library_id);
     }
 
+    pub fn is_dirty(&self, library_id: i64) -> bool {
+        let inner = self
+            .inner
+            .lock()
+            .expect("library sync registry lock poisoned");
+        inner.dirty_libraries.contains(&library_id)
+    }
+
     pub fn record_reconciled(&self, library_id: i64) {
         let mut inner = self
             .inner
@@ -335,5 +343,18 @@ mod tests {
         registry.finish_sync(5, true);
 
         assert!(registry.begin_sync(5));
+    }
+
+    #[test]
+    fn dirty_library_flag_tracks_reconcile_need() {
+        let registry = LibrarySyncRegistry::default();
+
+        assert!(!registry.is_dirty(8));
+
+        registry.mark_dirty(8);
+        assert!(registry.is_dirty(8));
+
+        registry.record_reconciled(8);
+        assert!(!registry.is_dirty(8));
     }
 }

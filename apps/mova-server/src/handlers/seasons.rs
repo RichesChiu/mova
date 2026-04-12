@@ -13,6 +13,8 @@ use axum::{
 use axum_extra::extract::cookie::CookieJar;
 use std::{io::ErrorKind, path::Path as FsPath};
 
+const ARTWORK_CACHE_CONTROL: &str = "private, max-age=31536000, immutable";
+
 /// 查询某一季下的集列表。
 pub async fn list_season_episodes(
     State(state): State<AppState>,
@@ -120,6 +122,10 @@ async fn serve_season_artwork(
         header::CONTENT_LENGTH,
         HeaderValue::from_str(&content_length.to_string())
             .unwrap_or_else(|_| HeaderValue::from_static("0")),
+    );
+    response_headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(ARTWORK_CACHE_CONTROL),
     );
 
     Ok(response)

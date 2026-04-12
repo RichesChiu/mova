@@ -15,7 +15,8 @@ use tokio::{
 };
 
 const WATCH_DEBOUNCE_WINDOW: Duration = Duration::from_secs(2);
-const PERIODIC_RECONCILE_INTERVAL: Duration = Duration::from_secs(300);
+const INITIAL_RECONCILE_DELAY: Duration = Duration::from_secs(45);
+const PERIODIC_RECONCILE_INTERVAL: Duration = Duration::from_secs(21_600);
 
 /// 为所有已启用媒体库启动 watcher 和定时校准任务。
 pub async fn initialize_library_sync(state: &AppState) {
@@ -47,6 +48,8 @@ pub async fn start_library_watcher(state: &AppState, library: Library) {
     {
         let _ = previous_stop_tx.send(true);
     }
+
+    state.library_sync_registry.mark_dirty(library.id);
 
     let periodic_state = state.clone();
     let periodic_stop_rx = stop_rx.clone();
@@ -306,13 +309,15 @@ async fn run_periodic_library_reconcile(
     library_id: i64,
     mut stop_rx: watch::Receiver<bool>,
 ) {
-    let sleep = tokio::time::sleep(PERIODIC_RECONCILE_INTERVAL);
+    let sleep = tokio::time::sleep(INITIAL_RECONCILE_DELAY);
     tokio::pin!(sleep);
 
     loop {
         tokio::select! {
             _ = &mut sleep => {
-                process_periodic_reconcile(&state, library_id).await;
+                if state.library_sync_registry.is_dirty(library_id) {
+                    process_periodic_reconcile(&state, library_id).await;
+                }
                 sleep.as_mut().reset(Instant::now() + PERIODIC_RECONCILE_INTERVAL);
             }
             changed = stop_rx.changed() => {

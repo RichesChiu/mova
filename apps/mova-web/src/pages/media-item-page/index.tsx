@@ -550,10 +550,19 @@ export const MediaItemPage = () => {
     <div className="page-stack">
       <div className="media-item-toolbar">
         <Link
-          className="text-link media-item-back-link"
+          className="back-link media-item-back-link"
           to={`/libraries/${mediaItemQuery.data.library_id}`}
         >
-          ← Back to Library
+          <svg aria-hidden="true" className="back-link__icon" fill="none" viewBox="0 0 16 16">
+            <path
+              d="M9.5 3.5L5.5 8L9.5 12.5"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.8"
+            />
+          </svg>
+          <span>Back to Library</span>
         </Link>
       </div>
 

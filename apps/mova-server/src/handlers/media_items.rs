@@ -20,6 +20,8 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use std::{io::ErrorKind, path::Path as FsPath};
 
+const ARTWORK_CACHE_CONTROL: &str = "private, max-age=31536000, immutable";
+
 #[derive(Debug, Deserialize)]
 pub struct SearchMediaItemMetadataQuery {
     pub query: String,
@@ -331,6 +333,10 @@ async fn serve_media_item_artwork(
         header::CONTENT_LENGTH,
         HeaderValue::from_str(&content_length.to_string())
             .unwrap_or_else(|_| HeaderValue::from_static("0")),
+    );
+    response_headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(ARTWORK_CACHE_CONTROL),
     );
 
     Ok(response)

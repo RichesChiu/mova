@@ -1,8 +1,8 @@
 use super::{
-    CreateAudioTrackParams, CreateSubtitleTrackParams, LibraryMediaTypeCounts,
-    ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult, MediaItemPlaybackHeader,
-    SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams, UpdateMediaItemMetadataParams,
-    UpsertSeriesEpisodeOutlineCacheParams,
+    CreateAudioTrackParams, CreateSubtitleTrackParams, ExistingMediaMetadataSummary,
+    LibraryMediaTypeCounts, ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult,
+    MediaItemPlaybackHeader, SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams,
+    UpdateMediaItemMetadataParams, UpsertSeriesEpisodeOutlineCacheParams,
 };
 use anyhow::{Context, Result};
 use mova_domain::{AudioTrack, Episode, MediaFile, MediaItem, Season, SubtitleFile};
@@ -937,6 +937,71 @@ pub async fn list_library_media_file_paths(pool: &PgPool, library_id: i64) -> Re
         .collect())
 }
 
+pub async fn list_existing_media_metadata_for_file_paths(
+    pool: &PgPool,
+    library_id: i64,
+    file_paths: &[String],
+) -> Result<Vec<ExistingMediaMetadataSummary>> {
+    if file_paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let rows = sqlx::query(
+        r#"
+        select
+            mf.file_path,
+            mi.media_type,
+            mi.title,
+            mi.source_title,
+            mi.original_title,
+            mi.sort_title,
+            mi.year,
+            mi.imdb_rating,
+            mi.country,
+            mi.genres,
+            mi.studio,
+            mi.overview,
+            mi.poster_path,
+            mi.backdrop_path,
+            series_mi.title as series_title,
+            series_mi.source_title as series_source_title,
+            series_mi.original_title as series_original_title,
+            series_mi.sort_title as series_sort_title,
+            series_mi.year as series_year,
+            series_mi.imdb_rating as series_imdb_rating,
+            series_mi.country as series_country,
+            series_mi.genres as series_genres,
+            series_mi.studio as series_studio,
+            series_mi.overview as series_overview,
+            series_mi.poster_path as series_poster_path,
+            series_mi.backdrop_path as series_backdrop_path,
+            s.title as season_title,
+            s.overview as season_overview,
+            s.poster_path as season_poster_path,
+            s.backdrop_path as season_backdrop_path,
+            e.title as episode_title
+        from media_files mf
+        join media_items mi on mi.id = mf.media_item_id
+        left join episodes e on e.media_item_id = mi.id
+        left join seasons s on s.id = e.season_id
+        left join media_items series_mi on series_mi.id = e.series_id
+        where mf.library_id = $1
+          and mf.file_path = any($2)
+        order by mf.file_path asc
+        "#,
+    )
+    .bind(library_id)
+    .bind(file_paths)
+    .fetch_all(pool)
+    .await
+    .context("failed to list existing media metadata for file paths")?;
+
+    Ok(rows
+        .into_iter()
+        .map(map_existing_media_metadata_summary_row)
+        .collect())
+}
+
 fn map_media_item_row(row: PgRow) -> MediaItem {
     MediaItem {
         id: row.get("id"),
@@ -1036,6 +1101,42 @@ fn map_media_file_row(row: PgRow) -> MediaFile {
         scan_hash: row.get("scan_hash"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
+    }
+}
+
+fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataSummary {
+    ExistingMediaMetadataSummary {
+        file_path: row.get("file_path"),
+        media_type: row.get("media_type"),
+        title: row.get("title"),
+        source_title: row.get("source_title"),
+        original_title: row.get("original_title"),
+        sort_title: row.get("sort_title"),
+        year: row.get("year"),
+        imdb_rating: row.get("imdb_rating"),
+        country: row.get("country"),
+        genres: row.get("genres"),
+        studio: row.get("studio"),
+        overview: row.get("overview"),
+        poster_path: row.get("poster_path"),
+        backdrop_path: row.get("backdrop_path"),
+        series_title: row.get("series_title"),
+        series_source_title: row.get("series_source_title"),
+        series_original_title: row.get("series_original_title"),
+        series_sort_title: row.get("series_sort_title"),
+        series_year: row.get("series_year"),
+        series_imdb_rating: row.get("series_imdb_rating"),
+        series_country: row.get("series_country"),
+        series_genres: row.get("series_genres"),
+        series_studio: row.get("series_studio"),
+        series_overview: row.get("series_overview"),
+        series_poster_path: row.get("series_poster_path"),
+        series_backdrop_path: row.get("series_backdrop_path"),
+        season_title: row.get("season_title"),
+        season_overview: row.get("season_overview"),
+        season_poster_path: row.get("season_poster_path"),
+        season_backdrop_path: row.get("season_backdrop_path"),
+        episode_title: row.get("episode_title"),
     }
 }
 

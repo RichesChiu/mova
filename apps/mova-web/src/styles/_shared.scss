@@ -303,6 +303,35 @@
   font-weight: 700;
 }
 
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--text-soft);
+  font-size: 0.94rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  transition:
+    color 160ms ease,
+    opacity 160ms ease;
+}
+
+.back-link:hover {
+  color: var(--accent-strong);
+  opacity: 1;
+}
+
+.back-link__icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
 .clamp-2,
 .clamp-3 {
   display: -webkit-box;
