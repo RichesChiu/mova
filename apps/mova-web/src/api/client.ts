@@ -11,6 +11,7 @@ import type {
   Library,
   LibraryDetail,
   LoginInput,
+  MediaCastMember,
   MediaFile,
   MediaItem,
   MediaItemDetail,
@@ -286,6 +287,9 @@ export const flushMediaItemPlaybackProgress = (
 
 export const getMediaItem = (mediaItemId: number) =>
   requestJson<MediaItemDetail>(withApiPrefix(`/media-items/${mediaItemId}`))
+
+export const getMediaItemCast = (mediaItemId: number) =>
+  requestJson<MediaCastMember[]>(withApiPrefix(`/media-items/${mediaItemId}/cast`))
 
 export const searchMediaItemMetadata = (
   mediaItemId: number,

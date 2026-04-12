@@ -3,6 +3,7 @@ import { type CSSProperties, useEffect, useState } from 'react'
 import { Link, Navigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom'
 import {
   getMediaItem,
+  getMediaItemCast,
   getMediaItemEpisodeOutline,
   getMediaItemPlaybackHeader,
   getMediaItemPlaybackProgress,
@@ -174,11 +175,18 @@ export const MediaItemPage = () => {
   const { currentUser, scanRuntimeByLibrary } = useOutletContext<AppShellOutletContext>()
   const params = useParams()
   const [searchParams] = useSearchParams()
+  const mediaItemId = Number(params.mediaItemId)
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number | null>(null)
   const [selectedMediaVersionId, setSelectedMediaVersionId] = useState<number | null>(null)
   const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<string>('')
   const [selectedSubtitleTrackId, setSelectedSubtitleTrackId] = useState<string>('')
-  const mediaItemId = Number(params.mediaItemId)
+  const [castRefreshState, setCastRefreshState] = useState<{
+    attempts: number
+    mediaItemId: number
+  }>({
+    attempts: 0,
+    mediaItemId,
+  })
   const requestedSeasonParam = searchParams.get('season')
   const requestedSeasonNumber = requestedSeasonParam ? Number(requestedSeasonParam) : Number.NaN
 
@@ -241,7 +249,25 @@ export const MediaItemPage = () => {
   const availableSeasons = seasons.filter((season) =>
     season.episodes.some((episode) => episode.is_available),
   )
-  const castMembers = mediaItemQuery.data?.cast ?? []
+  const castQuery = useQuery({
+    gcTime: MEDIA_QUERY_GC_TIME_MS,
+    enabled:
+      Number.isFinite(mediaItemId) &&
+      !!mediaItemQuery.data &&
+      mediaItemQuery.data.media_type !== 'episode',
+    queryKey: ['media-item-cast', mediaItemId],
+    queryFn: () => getMediaItemCast(mediaItemId),
+    staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
+  })
+  const castMembers = castQuery.data ?? []
+  const castRefreshAttempts =
+    castRefreshState.mediaItemId === mediaItemId ? castRefreshState.attempts : 0
+  const shouldRetryCastFetch =
+    !!mediaItemQuery.data &&
+    mediaItemQuery.data.media_type !== 'episode' &&
+    !castQuery.isError &&
+    castMembers.length === 0 &&
+    castRefreshAttempts < 6
   const selectedSeason = availableSeasons.find(
     (season) => season.season_number === selectedSeasonNumber,
   )
@@ -286,6 +312,22 @@ export const MediaItemPage = () => {
     requestedSeasonNumber,
     selectedSeasonNumber,
   ])
+
+  useEffect(() => {
+    if (!shouldRetryCastFetch || castQuery.isFetching) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setCastRefreshState((current) => ({
+        attempts: current.mediaItemId === mediaItemId ? current.attempts + 1 : 1,
+        mediaItemId,
+      }))
+      void castQuery.refetch()
+    }, 1200)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [castQuery.isFetching, castQuery.refetch, mediaItemId, shouldRetryCastFetch])
 
   useEffect(() => {
     if (!shouldShowMediaFilesSection || mediaFiles.length === 0) {
@@ -732,44 +774,55 @@ export const MediaItemPage = () => {
         </section>
       ) : null}
 
-      {castMembers.length > 0 ? (
+      {castQuery.isLoading ||
+      castQuery.isFetching ||
+      castMembers.length > 0 ||
+      shouldRetryCastFetch ? (
         <section className="season-card cast-panel">
           <div className="cast-panel__header">
             <div>
               <p className="eyebrow">Cast</p>
               <h3>Main Cast</h3>
             </div>
-            <span className="counter-badge">{castMembers.length}</span>
+            {!castQuery.isLoading ? (
+              <span className="counter-badge">{castMembers.length}</span>
+            ) : null}
           </div>
 
-          <ScrollableRail
-            hint="Scroll, drag, or click arrows to move through the cast list."
-            viewportClassName="cast-panel__viewport"
-          >
-            {castMembers.map((member) => (
-              <article
-                className="cast-card"
-                key={`${member.person_id ?? member.name}-${member.sort_order}`}
-              >
-                <div className="cast-card__portrait">
-                  {member.profile_path ? (
-                    <img alt={member.name} loading="lazy" src={member.profile_path} />
-                  ) : (
-                    <div className="cast-card__placeholder">
-                      <span>{castInitials(member) || '??'}</span>
-                    </div>
-                  )}
-                </div>
+          {castQuery.isLoading || castQuery.isFetching || shouldRetryCastFetch ? (
+            <p className="muted">Loading cast…</p>
+          ) : castQuery.isError ? (
+            <p className="muted">Cast details are taking longer than usual.</p>
+          ) : castMembers.length > 0 ? (
+            <ScrollableRail
+              hint="Scroll, drag, or click arrows to move through the cast list."
+              viewportClassName="cast-panel__viewport"
+            >
+              {castMembers.map((member) => (
+                <article
+                  className="cast-card"
+                  key={`${member.person_id ?? member.name}-${member.sort_order}`}
+                >
+                  <div className="cast-card__portrait">
+                    {member.profile_path ? (
+                      <img alt={member.name} loading="lazy" src={member.profile_path} />
+                    ) : (
+                      <div className="cast-card__placeholder">
+                        <span>{castInitials(member) || '??'}</span>
+                      </div>
+                    )}
+                  </div>
 
-                <div className="cast-card__body">
-                  <p className="cast-card__name">{member.name}</p>
-                  <p className="cast-card__role">
-                    {member.character_name ? `as ${member.character_name}` : 'Actor'}
-                  </p>
-                </div>
-              </article>
-            ))}
-          </ScrollableRail>
+                  <div className="cast-card__body">
+                    <p className="cast-card__name">{member.name}</p>
+                    <p className="cast-card__role">
+                      {member.character_name ? `as ${member.character_name}` : 'Actor'}
+                    </p>
+                  </div>
+                </article>
+              ))}
+            </ScrollableRail>
+          ) : null}
         </section>
       ) : null}
 

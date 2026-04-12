@@ -13,6 +13,10 @@ pub fn router() -> Router<crate::state::AppState> {
             get(handlers::media_items::get_media_item),
         )
         .route(
+            "/media-items/{id}/cast",
+            get(handlers::media_items::list_media_item_cast),
+        )
+        .route(
             "/media-items/{id}/playback-header",
             get(handlers::media_items::get_media_item_playback_header),
         )

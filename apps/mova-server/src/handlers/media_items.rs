@@ -3,7 +3,7 @@ use crate::error::ApiError;
 use crate::realtime::RealtimeEvent;
 use crate::response::{
     ok, ApiJson, MediaFileResponse, MediaItemDetailResponse, MediaItemPlaybackHeaderResponse,
-    MediaItemResponse, MetadataMatchCandidateResponse, SeasonResponse,
+    MediaItemResponse, MediaCastMemberResponse, MetadataMatchCandidateResponse, SeasonResponse,
     SeriesEpisodeOutlineResponse,
 };
 use crate::state::AppState;
@@ -19,6 +19,7 @@ use axum::{
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use std::{io::ErrorKind, path::Path as FsPath};
+use tracing::warn;
 
 const ARTWORK_CACHE_CONTROL: &str = "private, max-age=31536000, immutable";
 
@@ -41,19 +42,54 @@ pub async fn get_media_item(
 ) -> Result<ApiJson<MediaItemDetailResponse>, ApiError> {
     let user = require_user(&state, &jar).await?;
     let media_item = require_media_item_access(&state, &user, media_item_id).await?;
-    let cast = mova_application::list_media_item_cast(
-        &state.db,
-        &media_item,
-        state.metadata_provider.clone(),
-    )
-    .await
-    .map_err(ApiError::from)?;
+    spawn_media_item_cast_refresh(state.clone(), media_item.clone());
 
     Ok(ok(MediaItemDetailResponse::from_domain(
         media_item,
-        cast,
         state.api_time_offset,
     )))
+}
+
+pub async fn list_media_item_cast(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(media_item_id): Path<i64>,
+) -> Result<ApiJson<Vec<MediaCastMemberResponse>>, ApiError> {
+    let user = require_user(&state, &jar).await?;
+    let media_item = require_media_item_access(&state, &user, media_item_id).await?;
+    let cast = mova_application::list_media_item_cast(&state.db, &media_item)
+        .await
+        .map_err(ApiError::from)?;
+    spawn_media_item_cast_refresh(state.clone(), media_item);
+
+    Ok(ok(
+        cast.into_iter()
+            .map(MediaCastMemberResponse::from_domain)
+            .collect(),
+    ))
+}
+
+fn spawn_media_item_cast_refresh(state: AppState, media_item: mova_domain::MediaItem) {
+    if media_item.media_type.eq_ignore_ascii_case("episode") {
+        return;
+    }
+
+    tokio::spawn(async move {
+        if let Err(error) = mova_application::refresh_media_item_cast_if_stale(
+            &state.db,
+            &media_item,
+            state.metadata_provider.clone(),
+        )
+        .await
+        {
+            warn!(
+                media_item_id = media_item.id,
+                title = %media_item.title,
+                error = ?error,
+                "failed to refresh media item cast cache in background"
+            );
+        }
+    });
 }
 
 pub async fn get_media_item_playback_header(

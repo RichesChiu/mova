@@ -157,7 +157,6 @@ pub struct MediaItemDetailResponse {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
-    pub cast: Vec<MediaCastMemberResponse>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -505,11 +504,7 @@ impl MediaCastMemberResponse {
 }
 
 impl MediaItemDetailResponse {
-    pub fn from_domain(
-        media_item: MediaItem,
-        cast: Vec<MediaCastMember>,
-        offset: UtcOffset,
-    ) -> Self {
+    pub fn from_domain(media_item: MediaItem, offset: UtcOffset) -> Self {
         let title = display_media_item_title(&media_item);
 
         Self {
@@ -538,10 +533,6 @@ impl MediaItemDetailResponse {
                 "backdrop",
                 media_item.updated_at,
             ),
-            cast: cast
-                .into_iter()
-                .map(MediaCastMemberResponse::from_domain)
-                .collect(),
             created_at: format_datetime(media_item.created_at, offset),
             updated_at: format_datetime(media_item.updated_at, offset),
         }

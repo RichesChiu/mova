@@ -16,10 +16,23 @@ const MAX_MEDIA_CAST_MEMBERS: usize = 20;
 pub async fn list_media_item_cast(
     pool: &PgPool,
     media_item: &MediaItem,
-    metadata_provider: Arc<dyn MetadataProvider>,
 ) -> ApplicationResult<Vec<MediaCastMember>> {
     if media_item.media_type.eq_ignore_ascii_case("episode") {
         return Ok(Vec::new());
+    }
+
+    mova_db::list_media_item_cast_members(pool, media_item.id)
+        .await
+        .map_err(ApplicationError::from)
+}
+
+pub async fn refresh_media_item_cast_if_stale(
+    pool: &PgPool,
+    media_item: &MediaItem,
+    metadata_provider: Arc<dyn MetadataProvider>,
+) -> ApplicationResult<()> {
+    if media_item.media_type.eq_ignore_ascii_case("episode") || !metadata_provider.is_enabled() {
+        return Ok(());
     }
 
     let now = OffsetDateTime::now_utc();
@@ -32,12 +45,8 @@ pub async fn list_media_item_cast(
 
     if let Some(cache_entry) = cache_entry.as_ref() {
         if cache_entry.expires_at > now {
-            return Ok(cached_members);
+            return Ok(());
         }
-    }
-
-    if !metadata_provider.is_enabled() {
-        return Ok(cached_members);
     }
 
     let library = get_library(pool, media_item.library_id).await?;
@@ -72,7 +81,7 @@ pub async fn list_media_item_cast(
                 .await?;
             }
 
-            return Ok(cached_members);
+            return Ok(());
         }
     };
 
@@ -86,21 +95,19 @@ pub async fn list_media_item_cast(
             MEDIA_CAST_CACHE_TTL_SECONDS,
         )
         .await?;
-        return Ok(cast_members);
+        return Ok(());
     }
 
-    if cache_entry.is_none() {
-        persist_cast_members(
-            pool,
-            media_item.id,
-            &[],
-            now,
-            MEDIA_CAST_FAILURE_CACHE_TTL_SECONDS,
-        )
-        .await?;
-    }
+    persist_cast_members(
+        pool,
+        media_item.id,
+        &cached_members,
+        now,
+        MEDIA_CAST_FAILURE_CACHE_TTL_SECONDS,
+    )
+    .await?;
 
-    Ok(cached_members)
+    Ok(())
 }
 
 pub async fn invalidate_media_item_cast_cache(

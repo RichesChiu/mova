@@ -81,6 +81,7 @@
 | `GET` | `/api/libraries/{id}/scan-jobs/{scan_job_id}` | 查询单个扫描任务状态 |
 | `POST` | `/api/libraries/{id}/scan` | 触发异步扫描 |
 | `GET` | `/api/media-items/{id}` | 查询单个媒体条目详情 |
+| `GET` | `/api/media-items/{id}/cast` | 查询单个媒体条目的演员列表 |
 | `GET` | `/api/media-items/{id}/playback-header` | 查询播放器页头部信息 |
 | `GET` | `/api/media-items/{id}/files` | 查询媒体条目关联文件列表 |
 | `GET` | `/api/media-items/{id}/seasons` | 查询某个剧集条目的季列表 |
@@ -662,7 +663,7 @@
 
 作用：
 - 查询单个媒体条目详情
-- 返回基础元数据，并附带已缓存到本地数据库的主演员列表
+- 返回基础元数据，让详情页主体可以尽快渲染
 
 路径参数：
 - `id`：`media_item_id`
@@ -688,7 +689,6 @@
 - `overview`：简介，可来自本地 sidecar `.nfo` 或 TMDB
 - `poster_path`：海报可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/poster`
 - `backdrop_path`：背景图可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/backdrop`
-- `cast`：主演员列表，当前来自 TMDB credits，并持久化缓存到数据库
 
 返回示例：
 
@@ -709,18 +709,40 @@
   "overview": "……",
   "poster_path": "/api/media-items/3/poster",
   "backdrop_path": "/api/media-items/3/backdrop",
-  "cast": [
-    {
-      "person_id": 12345,
-      "sort_order": 0,
-      "name": "Ella Purnell",
-      "character_name": "Jinx",
-      "profile_path": "https://image.tmdb.org/t/p/original/xxx.jpg"
-    }
-  ],
   "created_at": "2026-03-24T12:00:00+08:00",
   "updated_at": "2026-03-24T12:00:00+08:00"
 }
+```
+
+### `GET /api/media-items/{id}/cast`
+
+作用：
+- 查询单个媒体条目的主演员列表
+- 只返回当前数据库里已经缓存好的演员列表
+- 如果缓存缺失或过期，服务端会在后台异步刷新远端演员信息，但不会阻塞当前请求
+
+路径参数：
+- `id`：`media_item_id`
+
+典型场景：
+- 详情页在主体信息已经渲染后，再异步加载演员区
+
+返回：
+- `200 OK`
+- 返回 `MediaCastMemberResponse[]`
+
+返回示例：
+
+```json
+[
+  {
+    "person_id": 12345,
+    "sort_order": 0,
+    "name": "Ella Purnell",
+    "character_name": "Jinx",
+    "profile_path": "https://image.tmdb.org/t/p/original/xxx.jpg"
+  }
+]
 ```
 
 ### `GET /api/media-items/{id}/playback-header`

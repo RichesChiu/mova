@@ -19,7 +19,9 @@ pub use libraries::{
     create_library, delete_library, get_library, get_library_detail, list_libraries,
     update_library, CreateLibraryInput, UpdateLibraryInput,
 };
-pub use media_cast::{invalidate_media_item_cast_cache, list_media_item_cast};
+pub use media_cast::{
+    invalidate_media_item_cast_cache, list_media_item_cast, refresh_media_item_cast_if_stale,
+};
 pub use media_classification::{LIBRARY_TYPE_MIXED, LIBRARY_TYPE_MOVIE, LIBRARY_TYPE_SERIES};
 pub use media_items::{
     get_audio_track, get_media_file, get_media_item, get_season, get_subtitle_file,

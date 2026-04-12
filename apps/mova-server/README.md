@@ -270,7 +270,8 @@
 
 | Method | Path | Handler | 主要依赖 | 作用 |
 | --- | --- | --- | --- | --- |
-| `GET` | `/api/media-items/{id}` | `handlers::media_items::get_media_item` | `auth::require_media_item_access`、`mova_application::list_media_item_cast` | 查询单个媒体条目详情和演员；详情字段会带当前缓存的 IMDb 评分、国家/地区、题材类型和工作室信息。 |
+| `GET` | `/api/media-items/{id}` | `handlers::media_items::get_media_item` | `auth::require_media_item_access` | 查询单个媒体条目详情；详情字段会带当前缓存的 IMDb 评分、国家/地区、题材类型和工作室信息。 |
+| `GET` | `/api/media-items/{id}/cast` | `handlers::media_items::list_media_item_cast` | `auth::require_media_item_access`、`mova_application::list_media_item_cast`、`mova_application::refresh_media_item_cast_if_stale` | 查询单个媒体条目的演员列表；接口只返回本地缓存，并把缺失或过期的演员刷新放到后台异步执行，避免任何前端请求被远端 cast 刷新阻塞。 |
 | `GET` | `/api/media-items/{id}/playback-header` | `handlers::media_items::get_media_item_playback_header` | `auth::require_media_item_access`、`mova_application::get_media_item_playback_header` | 返回播放器页头部需要的标题、季集和关联系列信息。 |
 | `GET` | `/api/media-items/{id}/files` | `handlers::media_items::list_media_item_files` | `auth::require_media_item_access`、`mova_application::list_media_files_for_media_item` | 查询条目关联的物理媒体文件，并返回视频探测到的技术字段，例如 profile、level、帧率、色彩参数、位深和参考帧。 |
 | `GET` | `/api/media-items/{id}/seasons` | `handlers::media_items::list_media_item_seasons` | `auth::require_media_item_access`、`mova_application::list_seasons_for_series` | 查询剧集条目的季列表。 |

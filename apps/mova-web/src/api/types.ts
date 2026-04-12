@@ -73,9 +73,7 @@ export interface MediaCastMember {
   profile_path: string | null
 }
 
-export interface MediaItemDetail extends MediaItem {
-  cast: MediaCastMember[]
-}
+export interface MediaItemDetail extends MediaItem {}
 
 export interface MetadataSearchResult {
   provider_item_id: number
