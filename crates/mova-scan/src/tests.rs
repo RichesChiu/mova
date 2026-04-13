@@ -376,6 +376,11 @@ fn infer_series_folder_metadata_keeps_display_name_and_lookup_title() {
 }
 
 #[test]
+fn infer_series_folder_metadata_ignores_generic_series_root_for_direct_files() {
+    assert!(infer_series_folder_metadata(Path::new("series/Arcane.S01E01.mkv")).is_none());
+}
+
+#[test]
 fn is_likely_episode_path_detects_sxxexx_file_names() {
     assert!(is_likely_episode_path(Path::new(
         "Arcane.S01E02.Some.Title.mkv"

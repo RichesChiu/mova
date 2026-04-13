@@ -168,6 +168,9 @@ fn parse_media_name(path: &Path) -> ParsedNameMetadata {
 pub fn infer_series_folder_metadata(path: &Path) -> Option<SeriesFolderMetadata> {
     let (folder_path, component_name) = find_series_group_component(path)?;
     let display_title = humanize_component_name(&component_name);
+    if is_generic_library_folder(&display_title) {
+        return None;
+    }
     let parsed_name = parse_title_year_from_humanized_name(&display_title);
 
     Some(SeriesFolderMetadata {
@@ -694,11 +697,24 @@ fn find_series_group_component(path: &Path) -> Option<(PathBuf, String)> {
 
     for (index, (_, component)) in components.iter().enumerate() {
         if parse_season_component(component).is_some() {
-            return components.get(index + 1).cloned();
+            if let Some(candidate) = components
+                .iter()
+                .skip(index + 1)
+                .find(|(_, candidate)| {
+                    !is_generic_library_folder(&humanize_component_name(candidate))
+                })
+                .cloned()
+            {
+                return Some(candidate);
+            }
         }
     }
 
-    components.first().cloned()
+    components
+        .iter()
+        .find(|(_, component)| !is_generic_library_folder(&humanize_component_name(component)))
+        .cloned()
+        .or_else(|| components.first().cloned())
 }
 
 fn is_likely_season_component(component: &str) -> bool {
