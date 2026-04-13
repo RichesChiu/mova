@@ -1,11 +1,9 @@
-export type LibraryType = 'mixed' | 'movie' | 'series'
 export type UserRole = 'admin' | 'viewer'
 
 export interface Library {
   id: number
   name: string
   description: string | null
-  library_type: LibraryType
   metadata_language: string
   root_path: string
   is_enabled: boolean
@@ -258,7 +256,6 @@ export interface WatchHistoryItem {
 export interface CreateLibraryInput {
   name: string
   description?: string
-  library_type: LibraryType
   metadata_language: string
   root_path: string
   is_enabled?: boolean

@@ -560,9 +560,7 @@ export const SettingsPage = () => {
                       <div className="settings-library-card__body">
                         <div className="settings-library-card__header">
                           <div className="settings-library-card__meta">
-                            <span className="settings-library-card__type">
-                              {library.library_type}
-                            </span>
+                            <span className="settings-library-card__type">Auto Detect</span>
                             <span className="settings-library-card__language">
                               {library.metadata_language}
                             </span>

@@ -1,4 +1,25 @@
 services:
+  rust-tooling:
+    image: rust:1-bookworm
+    working_dir: /app
+    environment:
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,database}
+      ALL_PROXY: ${ALL_PROXY:-}
+      http_proxy: ${HTTP_PROXY:-}
+      https_proxy: ${HTTPS_PROXY:-}
+      no_proxy: ${NO_PROXY:-localhost,127.0.0.1,::1,database}
+      all_proxy: ${ALL_PROXY:-}
+      CARGO_HOME: /usr/local/cargo
+    volumes:
+      - .:/app
+      - mova-cargo-registry:/usr/local/cargo/registry
+      - mova-cargo-git:/usr/local/cargo/git
+      - mova-rust-target:/app/target
+    profiles: ["tooling"]
+    command: ["cargo", "--version"]
+
   mova-server:
     build:
       context: .
@@ -28,7 +49,7 @@ services:
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
-        source: ${MOVA_MEDIA_ROOT:-./media}
+        source: ${MOVA_MEDIA_ROOT:?MOVA_MEDIA_ROOT must be set to an existing host media directory}
         target: /media
         read_only: true
     restart: unless-stopped
@@ -51,3 +72,8 @@ services:
       retries: 12
     shm_size: 256mb
     restart: unless-stopped
+
+volumes:
+  mova-cargo-registry:
+  mova-cargo-git:
+  mova-rust-target:

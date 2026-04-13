@@ -19,31 +19,15 @@ interface LibraryEditorModalProps {
 }
 
 const libraryBadge = (library: Library | null) =>
-  library?.name.trim().charAt(0).toUpperCase() ||
-  library?.library_type?.charAt(0).toUpperCase() ||
-  'L'
+  library?.name.trim().charAt(0).toUpperCase() || 'L'
 
 const metadataLanguageOptions: GlassSelectOption[] = [
   { value: 'zh-CN', label: 'Chinese (zh-CN)' },
   { value: 'en-US', label: 'English (en-US)' },
 ]
 
-const LIBRARY_TYPE_HELP = (
-  <span className="section-help__tooltip-list">
-    <span className="section-help__tooltip-item">
-      <span className="section-help__tooltip-label">Mixed</span>
-      <span>Automatically sorts movies and series by filename. Best for mixed folders.</span>
-    </span>
-    <span className="section-help__tooltip-item">
-      <span className="section-help__tooltip-label">Movie</span>
-      <span>Organizes only movies. Best for movie-only folders.</span>
-    </span>
-    <span className="section-help__tooltip-item">
-      <span className="section-help__tooltip-label">Series</span>
-      <span>Organizes only series. Best for dedicated TV show folders.</span>
-    </span>
-  </span>
-)
+const LIBRARY_TYPE_HELP =
+  'Libraries now detect movies and series automatically from the imported files. No manual type selection is required.'
 
 const ROOT_PATH_HELP =
   'This shows the in-container path. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so the /media/... value shown here is the real scan path used by the app.'
@@ -177,10 +161,10 @@ export const LibraryEditorModal = ({
           <div className="library-editor-modal__facts">
             <article className="library-editor-modal__fact">
               <div className="field__label">
-                <span className="field__label-copy">Library Type</span>
-                <SectionHelp detail={LIBRARY_TYPE_HELP} title="Library type help" />
+                <span className="field__label-copy">Detection</span>
+                <SectionHelp detail={LIBRARY_TYPE_HELP} title="Automatic detection" />
               </div>
-              <strong>{library.library_type}</strong>
+              <strong>Automatic</strong>
             </article>
             <article className="library-editor-modal__fact">
               <span>Metadata Language</span>

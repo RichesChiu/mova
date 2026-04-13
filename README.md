@@ -53,8 +53,8 @@ Mova 的前端不是只做“能用”的后台页，而是尽量把首页、媒
 当前同步策略也已经往更轻的方向收了：
 
 - 不再在服务端常驻文件 watcher
-- 默认不做自动扫库，避免网络盘和 Docker 挂载场景下的周期性负载
-- 通过设置页里的 `Scan Library` 手动触发显式扫库，新增、删除、改名和移动都会在手动扫描时收敛出来
+- 新建媒体库时会自动触发一次初始扫描，尽量减少首次导入的手动操作
+- 通过设置页里的 `Scan Library` 手动触发后续显式扫库，新增、删除、改名和移动都会在手动扫描时收敛出来
 
 ### 尽量减少用户操作成本
 
@@ -91,6 +91,13 @@ HTTPS_PROXY=
 docker compose up -d --build
 ```
 
+如果你本机不装 Rust，也可以直接用 Docker 跑后端检查和测试：
+
+```bash
+docker compose --profile tooling run --rm rust-tooling cargo check -p mova-application
+docker compose --profile tooling run --rm rust-tooling cargo test -p mova-application scan_jobs::tests -- --nocapture
+```
+
 启动后的默认访问地址：
 
 - 本机：`http://127.0.0.1:36080`
@@ -100,6 +107,7 @@ docker compose up -d --build
 补充说明：
 
 - `MOVA_MEDIA_ROOT` 是宿主机路径，会以只读方式挂到容器内固定目录 `/media`
+- `MOVA_MEDIA_ROOT` 现在是必填项；未配置时 `docker compose` 会直接报错，不再偷偷回退到 `./media`
 - 前端建库时会直接展示容器内 `/media` 的递归目录树，所以通常不需要手写库路径
 - `MOVA_TMDB_ACCESS_TOKEN` 不配置时，TMDB 自动补全会关闭，但本地扫描、入库和播放仍然可用
 - `MOVA_OMDB_API_KEY` 是可选项；配置后会在 TMDB 已拿到 `imdb_id` 的前提下补齐 IMDb 评分，不配置也不影响扫描和播放

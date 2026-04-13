@@ -10,7 +10,6 @@ use sqlx::{
 pub struct CreateLibraryParams {
     pub name: String,
     pub description: Option<String>,
-    pub library_type: String,
     pub metadata_language: String,
     pub root_path: String,
     pub is_enabled: bool,
@@ -66,13 +65,12 @@ pub async fn create_library(pool: &PgPool, params: CreateLibraryParams) -> Resul
     let row = sqlx::query(
         r#"
         insert into libraries (name, description, library_type, metadata_language, root_path, is_enabled)
-        values ($1, $2, $3, $4, $5, $6)
+        values ($1, $2, 'mixed', $3, $4, $5)
         returning id, name, description, library_type, metadata_language, root_path, is_enabled, created_at, updated_at
         "#,
     )
     .bind(params.name)
     .bind(params.description)
-    .bind(params.library_type)
     .bind(params.metadata_language)
     .bind(params.root_path)
     .bind(params.is_enabled)
@@ -147,7 +145,7 @@ fn map_library_row(row: PgRow) -> Library {
         id: row.get("id"),
         name: row.get("name"),
         description: row.get("description"),
-        library_type: row.get("library_type"),
+        library_type: "mixed".to_string(),
         metadata_language: row.get("metadata_language"),
         root_path: row.get("root_path"),
         is_enabled: row.get("is_enabled"),

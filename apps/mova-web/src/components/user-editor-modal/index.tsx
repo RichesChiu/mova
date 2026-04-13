@@ -287,7 +287,7 @@ export const UserEditorModal = ({
                           type="checkbox"
                         />
                         <span>{library.name}</span>
-                        <small>{library.library_type}</small>
+                        <small>Auto detect</small>
                       </label>
                     )
                   })}

@@ -22,7 +22,7 @@ Use this skill for work in the current Mova repository.
 - The project is still pre-1.0 and still uses a single migration file: `migrations/0001_init.sql`
 - Current product copy is English-first
 - Library watcher is intentionally removed
-- Libraries do **not** auto-scan anymore
+- New libraries auto-scan once after creation when enabled
 - New, renamed, moved, or deleted files are reconciled by manual `Scan Library`
 
 ## Backend Rules

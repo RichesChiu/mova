@@ -24,7 +24,6 @@ const LIBRARY_DELETE_SCAN_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct CreateLibraryRequest {
     pub name: String,
     pub description: Option<String>,
-    pub library_type: String,
     pub metadata_language: Option<String>,
     pub root_path: String,
     pub is_enabled: Option<bool>,
@@ -96,7 +95,6 @@ pub async fn create_library(
     let input = mova_application::CreateLibraryInput {
         name: request.name,
         description: request.description,
-        library_type: request.library_type,
         metadata_language: request.metadata_language,
         root_path: request.root_path,
         is_enabled: request.is_enabled.unwrap_or(true),
@@ -109,6 +107,10 @@ pub async fn create_library(
     state.realtime_hub.publish(RealtimeEvent::LibraryUpdated {
         library_id: library.id,
     });
+
+    if library.is_enabled {
+        trigger_library_scan_after_create(&state, library.id).await;
+    }
 
     Ok(created(LibraryResponse::from_domain(
         library,
@@ -334,6 +336,29 @@ async fn handle_scan_registration_rejected(
     error: RegisterScanError,
 ) {
     sync_runtime::handle_scan_registration_rejected(state, library_id, scan_job_id, error).await;
+}
+
+async fn trigger_library_scan_after_create(state: &AppState, library_id: i64) {
+    let enqueue_result = match mova_application::enqueue_library_scan(&state.db, library_id).await {
+        Ok(result) => result,
+        Err(error) => {
+            tracing::warn!(
+                library_id,
+                error = ?error,
+                "library created but initial scan could not be enqueued"
+            );
+            return;
+        }
+    };
+
+    if !enqueue_result.created {
+        return;
+    }
+
+    if let Err(error) = spawn_library_scan_job(state, library_id, enqueue_result.scan_job.id) {
+        handle_scan_registration_rejected(state, library_id, enqueue_result.scan_job.id, error)
+            .await;
+    }
 }
 
 #[cfg(test)]

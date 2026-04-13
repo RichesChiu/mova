@@ -156,19 +156,6 @@ export const LibraryPage = () => {
   const seriesItems = mediaItems.filter((item) => item.media_type === 'series')
   const movieScanItems = scanItems.filter((item) => item.media_type === 'movie')
   const seriesScanItems = scanItems.filter((item) => item.media_type !== 'movie')
-  const isMixedLibrary = currentLibrary?.library_type === 'mixed'
-  const primarySectionTitle =
-    currentLibrary?.library_type === 'series'
-      ? 'Series'
-      : currentLibrary?.library_type === 'movie'
-        ? 'Movies'
-        : 'Library Items'
-  const primarySkeletonLabel =
-    currentLibrary?.library_type === 'series'
-      ? 'SERIES'
-      : currentLibrary?.library_type === 'movie'
-        ? 'MOVIE'
-        : 'MEDIA'
   const shouldShowMediaSkeleton =
     mediaItemsQuery.isLoading && mediaItems.length === 0 && scanItems.length === 0
   const scanProgressPercent = getScanJobProgressPercent(currentScan, currentScanRuntime)
@@ -177,7 +164,7 @@ export const LibraryPage = () => {
   const pendingScanPlaceholder =
     isScanning && scanItems.length === 0
       ? {
-          placeholderLabel: (currentLibrary?.library_type ?? 'media').toUpperCase(),
+          placeholderLabel: 'MEDIA',
           progressPercent: scanProgressPercent,
           progressText: formatPendingScanPlaceholderCopy(
             currentScan,
@@ -216,8 +203,12 @@ export const LibraryPage = () => {
 
           <div className="library-hero__meta">
             <div className="hero-stat">
-              <span className="hero-stat__label">Type</span>
-              <strong>{currentLibrary?.library_type ?? '—'}</strong>
+              <span className="hero-stat__label">Detected</span>
+              <strong>
+                {(currentLibrary?.movie_count ?? 0) + (currentLibrary?.series_count ?? 0) > 0
+                  ? `${currentLibrary?.movie_count ?? 0} movies / ${currentLibrary?.series_count ?? 0} series`
+                  : 'Auto'}
+              </strong>
             </div>
             <div className="hero-stat">
               <span className="hero-stat__label">Items</span>
@@ -275,47 +266,27 @@ export const LibraryPage = () => {
         ) : null}
 
         {shouldShowMediaSkeleton ? (
-          isMixedLibrary ? (
-            <div className="catalog-stack">
-              <MediaSectionSkeleton placeholderLabel="MOVIE" title="Movies" />
-              <MediaSectionSkeleton placeholderLabel="SERIES" title="Series" />
-            </div>
-          ) : (
-            <div className="catalog-stack">
-              <MediaSectionSkeleton
-                placeholderLabel={primarySkeletonLabel}
-                title={primarySectionTitle}
-              />
-            </div>
-          )
+          <div className="catalog-stack">
+            <MediaSectionSkeleton placeholderLabel="MOVIE" title="Movies" />
+            <MediaSectionSkeleton placeholderLabel="SERIES" title="Series" />
+          </div>
         ) : null}
 
         {!shouldShowMediaSkeleton && (mediaItems.length > 0 || scanItems.length > 0) ? (
-          isMixedLibrary ? (
-            <div className="catalog-stack">
-              <MediaSection
-                items={movieItems}
-                pendingScanPlaceholder={movieScanItems.length === 0 ? pendingScanPlaceholder : null}
-                scanItems={movieScanItems}
-                title="Movies"
-              />
-              <MediaSection
-                items={seriesItems}
-                pendingScanPlaceholder={null}
-                scanItems={seriesScanItems}
-                title="Series"
-              />
-            </div>
-          ) : (
-            <div className="catalog-stack">
-              <MediaSection
-                items={mediaItems}
-                pendingScanPlaceholder={pendingScanPlaceholder}
-                scanItems={scanItems}
-                title={currentLibrary?.library_type === 'series' ? 'Series' : 'Movies'}
-              />
-            </div>
-          )
+          <div className="catalog-stack">
+            <MediaSection
+              items={movieItems}
+              pendingScanPlaceholder={movieScanItems.length === 0 ? pendingScanPlaceholder : null}
+              scanItems={movieScanItems}
+              title="Movies"
+            />
+            <MediaSection
+              items={seriesItems}
+              pendingScanPlaceholder={null}
+              scanItems={seriesScanItems}
+              title="Series"
+            />
+          </div>
         ) : null}
       </section>
     </div>

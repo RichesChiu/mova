@@ -10,7 +10,6 @@ const library: Library = {
   id: 7,
   name: 'Movies',
   description: 'Family movie library',
-  library_type: 'movie',
   metadata_language: 'zh-CN',
   root_path: '/media/movies',
   is_enabled: true,

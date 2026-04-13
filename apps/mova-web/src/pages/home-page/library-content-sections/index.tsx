@@ -158,7 +158,7 @@ export const LibraryContentSections = ({
                         key={`scan-pending-${library.id}`}
                       >
                         <MediaCardScanPlaceholder
-                          placeholderLabel={library.library_type.toUpperCase()}
+                          placeholderLabel="MEDIA"
                           progressPercent={scanProgressPercent}
                           progressText={formatPendingScanPlaceholderCopy(
                             effectiveScanJob,

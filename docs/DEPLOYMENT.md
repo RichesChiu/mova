@@ -39,6 +39,7 @@ HTTPS_PROXY=
 说明：
 
 - `MOVA_MEDIA_ROOT` 是宿主机目录，会挂到容器内固定路径 `/media`
+- `MOVA_MEDIA_ROOT` 是必填项；未配置时 compose 会直接失败，不再默认回退到 `./media`
 - `MOVA_TMDB_ACCESS_TOKEN` 可选；不填时仍然可以扫描、入库和播放，只是不会自动补 TMDB 元数据
 - `NO_PROXY` 不需要手动配置，`docker-compose.yml` 已经内置默认值
 
@@ -67,9 +68,8 @@ docker compose up -d --build
 
 1. 进入设置页
 2. 选择容器内 `/media` 目录树中的一个根路径
-3. 选择库类型
-4. 选择元数据语言
-5. 决定是否启用这个媒体库
+3. 选择元数据语言
+4. 决定是否启用这个媒体库
 
 建库成功后：
 

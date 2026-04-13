@@ -1,6 +1,5 @@
 use crate::{
     error::{ApplicationError, ApplicationResult},
-    media_classification::normalize_library_type,
     metadata::{normalize_metadata_language, DEFAULT_TMDB_LANGUAGE},
 };
 use mova_domain::{Library, LibraryDetail};
@@ -13,7 +12,6 @@ use std::{fs, io::ErrorKind, path::Path};
 pub struct CreateLibraryInput {
     pub name: String,
     pub description: Option<String>,
-    pub library_type: String,
     pub metadata_language: Option<String>,
     pub root_path: String,
     pub is_enabled: bool,
@@ -81,13 +79,11 @@ pub async fn create_library(
 ) -> ApplicationResult<Library> {
     let name = input.name.trim().to_string();
     let description = normalize_optional_text(input.description);
-    let library_type = normalize_library_type(input.library_type)?;
     let metadata_language =
         normalize_metadata_language(input.metadata_language, DEFAULT_TMDB_LANGUAGE)?;
     let root_path = input.root_path.trim().to_string();
 
     validate_required("library name", &name)?;
-    validate_required("library type", &library_type)?;
     validate_required("library root path", &root_path)?;
     // 媒体库引用的是一个现有目录，而不是在创建库时偷偷帮用户创建文件夹。
     validate_root_path(&root_path)?;
@@ -97,7 +93,6 @@ pub async fn create_library(
         mova_db::CreateLibraryParams {
             name,
             description,
-            library_type,
             metadata_language,
             root_path,
             is_enabled: input.is_enabled,
@@ -237,7 +232,7 @@ fn validate_root_path(root_path: &str) -> ApplicationResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_library_type, validate_root_path};
+    use super::validate_root_path;
     use crate::error::ApplicationError;
     use std::{env, fs, path::PathBuf};
     use uuid::Uuid;
@@ -290,13 +285,5 @@ mod tests {
             Err(ApplicationError::Validation(message))
                 if message.contains("must be a directory")
         ));
-    }
-
-    #[test]
-    fn normalize_library_type_accepts_mixed() {
-        assert_eq!(
-            normalize_library_type("mixed".to_string()).unwrap(),
-            "mixed"
-        );
     }
 }

@@ -136,11 +136,11 @@
 - `spawn_library_scan_job()`：真正启动扫描执行，并把扫描事件转成 SSE 广播
 - `handle_scan_registration_rejected()`：扫描注册冲突或删库冲突时做兜底收尾
 
-当前这里的同步策略已经改成“手动扫描优先”：
+当前这里的同步策略已经改成“首次自动扫描 + 后续手动扫描”：
 
 - 服务端不再常驻文件 watcher
-- 建库或重新启用媒体库都不会自动补扫
-- 新增、删除、改名和移动都统一靠手动 `Scan Library` 收敛
+- 新建媒体库后会自动入队一次扫描
+- 重新启用媒体库、新增、删除、改名和移动都统一靠手动 `Scan Library` 收敛
 
 ### `src/realtime.rs`
 
@@ -229,7 +229,7 @@
 | Method | Path | Handler | 主要依赖 | 作用 |
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/libraries` | `handlers::libraries::list_libraries` | `auth::require_user`、`mova_application::list_libraries` | 返回当前用户有权限看到的媒体库列表。 |
-| `POST` | `/api/libraries` | `handlers::libraries::create_library` | `auth::require_admin`、`mova_application::create_library`、`RealtimeEvent::LibraryUpdated` | 创建媒体库；创建后不会自动扫描，需要显式触发 `Scan Library`。 |
+| `POST` | `/api/libraries` | `handlers::libraries::create_library` | `auth::require_admin`、`mova_application::create_library`、`mova_application::enqueue_library_scan`、`RealtimeEvent::LibraryUpdated` | 创建媒体库；启用状态下会自动入队一次初始扫描。 |
 | `GET` | `/api/libraries/{id}` | `handlers::libraries::get_library` | `auth::require_library_access`、`mova_application::get_library_detail` | 查询单个媒体库详情和最近扫描摘要。 |
 | `PATCH` | `/api/libraries/{id}` | `handlers::libraries::update_library` | `auth::require_admin`、`mova_application::get_library`、`mova_application::update_library`、`state.scan_registry`、`RealtimeEvent::LibraryUpdated` | 更新媒体库名称、描述、元数据语言和启停状态。 |
 | `DELETE` | `/api/libraries/{id}` | `handlers::libraries::delete_library` | `auth::require_admin`、`state.scan_registry`、`mova_application::delete_library`、`RealtimeEvent::LibraryDeleted` | 删除媒体库，并先安全停止相关扫描。 |
@@ -363,6 +363,14 @@
   - `handlers/libraries.rs` 里的媒体库 CRUD 运行时测试，覆盖删库冲突、停用库时取消活跃扫描、删库时安全停止活跃扫描，以及扫描相关接口仍然只允许管理员访问
 
 运行建议：
+
+如果本机没有安装 Rust，当前仓库也支持直接通过 Docker 运行：
+
+```bash
+docker compose --profile tooling run --rm rust-tooling cargo test -p mova-server
+```
+
+如果本机已经安装了 Rust，也可以直接运行：
 
 ```bash
 cargo test -p mova-server

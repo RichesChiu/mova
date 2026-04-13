@@ -341,28 +341,6 @@ impl MetadataEnrichmentContext {
     }
 
     async fn ensure_local_episode_artwork(&mut self, file: &mut DiscoveredMediaFile) {
-        let poster_is_external = file.poster_path.as_deref().is_some_and(is_external_url);
-        let backdrop_is_external = file.backdrop_path.as_deref().is_some_and(is_external_url);
-        let poster_is_generic = file
-            .poster_path
-            .as_deref()
-            .is_some_and(is_generic_poster_artwork_path);
-        let backdrop_is_generic = file
-            .backdrop_path
-            .as_deref()
-            .is_some_and(is_generic_backdrop_artwork_path);
-
-        if poster_is_external || backdrop_is_external || poster_is_generic || backdrop_is_generic {
-            if let Some(local_still_path) = self.capture_first_frame_for_file(file).await {
-                if poster_is_external || poster_is_generic {
-                    file.poster_path = Some(local_still_path.clone());
-                }
-                if backdrop_is_external || backdrop_is_generic {
-                    file.backdrop_path = Some(local_still_path.clone());
-                }
-            }
-        }
-
         let poster_is_local = file
             .poster_path
             .as_deref()
@@ -666,8 +644,12 @@ mod tests {
     use super::{
         artwork_file_extension, build_artwork_cache_path, is_generic_backdrop_artwork_path,
         is_generic_poster_artwork_path, should_replace_episode_artwork, stable_artwork_cache_key,
+        MetadataEnrichmentContext,
     };
+    use crate::NullMetadataProvider;
+    use mova_scan::DiscoveredMediaFile;
     use std::path::Path;
+    use std::{path::PathBuf, sync::Arc};
 
     #[test]
     fn artwork_file_extension_uses_tmdb_url_suffix() {
@@ -741,5 +723,114 @@ mod tests {
             Some("/media/Season 01/E01-poster.jpg"),
             is_generic_poster_artwork_path
         ));
+    }
+
+    #[tokio::test]
+    async fn ensure_local_episode_artwork_preserves_cached_episode_artwork() {
+        let mut context = MetadataEnrichmentContext::new(
+            PathBuf::from("/tmp/mova-cache"),
+            Arc::new(NullMetadataProvider),
+            "zh-CN".to_string(),
+        );
+        let mut file = build_discovered_episode();
+        file.poster_path = Some("/tmp/mova-cache/tmdb/poster/episode.jpg".to_string());
+        file.backdrop_path = Some("/tmp/mova-cache/tmdb/backdrop/episode.jpg".to_string());
+
+        context.ensure_local_episode_artwork(&mut file).await;
+
+        assert_eq!(
+            file.poster_path.as_deref(),
+            Some("/tmp/mova-cache/tmdb/poster/episode.jpg")
+        );
+        assert_eq!(
+            file.backdrop_path.as_deref(),
+            Some("/tmp/mova-cache/tmdb/backdrop/episode.jpg")
+        );
+        assert_eq!(
+            file.season_poster_path.as_deref(),
+            Some("/tmp/mova-cache/tmdb/poster/episode.jpg")
+        );
+        assert_eq!(
+            file.season_backdrop_path.as_deref(),
+            Some("/tmp/mova-cache/tmdb/backdrop/episode.jpg")
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_local_episode_artwork_replaces_external_season_artwork_with_local_paths() {
+        let mut context = MetadataEnrichmentContext::new(
+            PathBuf::from("/tmp/mova-cache"),
+            Arc::new(NullMetadataProvider),
+            "zh-CN".to_string(),
+        );
+        let mut file = build_discovered_episode();
+        file.poster_path = Some("/tmp/mova-cache/tmdb/poster/episode.jpg".to_string());
+        file.backdrop_path = Some("/tmp/mova-cache/tmdb/backdrop/episode.jpg".to_string());
+        file.season_poster_path = Some("https://image.tmdb.org/t/p/original/season.jpg".to_string());
+        file.season_backdrop_path =
+            Some("https://image.tmdb.org/t/p/original/season-backdrop.jpg".to_string());
+
+        context.ensure_local_episode_artwork(&mut file).await;
+
+        assert_eq!(
+            file.season_poster_path.as_deref(),
+            Some("/tmp/mova-cache/tmdb/poster/episode.jpg")
+        );
+        assert_eq!(
+            file.season_backdrop_path.as_deref(),
+            Some("/tmp/mova-cache/tmdb/backdrop/episode.jpg")
+        );
+    }
+
+    fn build_discovered_episode() -> DiscoveredMediaFile {
+        DiscoveredMediaFile {
+            file_path: PathBuf::from("/media/series/Show/Season 01/Show.S01E01.mkv"),
+            metadata_provider: None,
+            metadata_provider_item_id: None,
+            title: "Show".to_string(),
+            source_title: "Show".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: Some(2024),
+            imdb_rating: None,
+            country: None,
+            genres: None,
+            studio: None,
+            season_number: Some(1),
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: Some(1),
+            episode_title: None,
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+            file_size: 1024,
+            container: None,
+            duration_seconds: None,
+            video_title: None,
+            video_codec: None,
+            video_profile: None,
+            video_level: None,
+            audio_codec: None,
+            width: None,
+            height: None,
+            bitrate: None,
+            video_bitrate: None,
+            video_frame_rate: None,
+            video_aspect_ratio: None,
+            video_scan_type: None,
+            video_color_primaries: None,
+            video_color_space: None,
+            video_color_transfer: None,
+            video_bit_depth: None,
+            video_pixel_format: None,
+            video_reference_frames: None,
+            audio_tracks: Vec::new(),
+            subtitle_tracks: Vec::new(),
+        }
     }
 }

@@ -107,22 +107,14 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
 
               <div className="library-spotlight__content">
                 <strong className="library-spotlight__title">{library.name}</strong>
-                <span className="library-spotlight__meta">{library.library_type}</span>
+                <span className="library-spotlight__meta">Auto Detect</span>
 
                 <div className="library-spotlight__stats">
                   <span className="library-spotlight__stat">
                     {detailLoading && !detail ? 'syncing…' : `${detail?.media_count ?? 0} items`}
                   </span>
-                  {library.library_type === 'mixed' ? (
-                    <>
-                      <span className="library-spotlight__stat">
-                        {detail?.movie_count ?? 0} movies
-                      </span>
-                      <span className="library-spotlight__stat">
-                        {detail?.series_count ?? 0} series
-                      </span>
-                    </>
-                  ) : null}
+                  <span className="library-spotlight__stat">{detail?.movie_count ?? 0} movies</span>
+                  <span className="library-spotlight__stat">{detail?.series_count ?? 0} series</span>
                 </div>
 
                 {scanCopy ? (

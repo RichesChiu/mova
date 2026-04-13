@@ -11,7 +11,7 @@ use mova_domain::{Library, ScanJob};
 use mova_scan::{infer_series_folder_metadata, DiscoveredMediaFile};
 use sqlx::postgres::PgPool;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
@@ -75,6 +75,15 @@ enum ScanItemStage {
 enum DiscoverMediaFilesOutcome {
     Completed(Vec<DiscoveredMediaFile>),
     Cancelled(i32),
+}
+
+#[derive(Debug, Clone)]
+struct LocalFolderGroup {
+    lookup_title: String,
+    display_title: String,
+    year: Option<i32>,
+    file_indexes: Vec<usize>,
+    classified_episode_count: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -723,10 +732,11 @@ fn build_media_entries(
     library: &Library,
     discovered_files: Vec<DiscoveredMediaFile>,
 ) -> ApplicationResult<Vec<mova_db::CreateMediaEntryParams>> {
+    let discovered_files = normalize_discovered_files_for_local_structure(library, discovered_files);
     let mut entries = Vec::new();
 
     for file in discovered_files {
-        let media_type = classify_media_type(&library.library_type, &file.file_path).to_string();
+        let media_type = effective_media_type(&library.library_type, &file).to_string();
         if media_type == "episode"
             && (file.season_number.is_none() || file.episode_number.is_none())
         {
@@ -831,6 +841,170 @@ fn build_media_entries(
     }
 
     Ok(entries)
+}
+
+fn normalize_discovered_files_for_local_structure(
+    library: &Library,
+    mut discovered_files: Vec<DiscoveredMediaFile>,
+) -> Vec<DiscoveredMediaFile> {
+    discovered_files.sort_by(|left, right| left.file_path.cmp(&right.file_path));
+
+    let mut groups = HashMap::<String, LocalFolderGroup>::new();
+
+    for (index, file) in discovered_files.iter().enumerate() {
+        let Some(folder_metadata) = infer_series_folder_metadata(&file.file_path) else {
+            continue;
+        };
+
+        let item_key = folder_metadata.folder_path.to_string_lossy().to_string();
+        let group = groups.entry(item_key).or_insert_with(|| LocalFolderGroup {
+            lookup_title: folder_metadata.title.clone(),
+            display_title: folder_metadata.display_title.clone(),
+            year: folder_metadata.year,
+            file_indexes: Vec::new(),
+            classified_episode_count: 0,
+        });
+
+        group.file_indexes.push(index);
+
+        if classify_media_type(&library.library_type, &file.file_path).eq_ignore_ascii_case("episode")
+        {
+            group.classified_episode_count += 1;
+        }
+    }
+
+    for group in groups.into_values() {
+        let should_promote_to_series = should_promote_local_folder_group_to_series(
+            library,
+            &discovered_files,
+            &group,
+        );
+
+        if !should_promote_to_series {
+            continue;
+        }
+
+        assign_local_series_structure(&mut discovered_files, &group);
+    }
+
+    discovered_files
+}
+
+fn should_promote_local_folder_group_to_series(
+    library: &Library,
+    discovered_files: &[DiscoveredMediaFile],
+    group: &LocalFolderGroup,
+) -> bool {
+    if library
+        .library_type
+        .eq_ignore_ascii_case(crate::media_classification::LIBRARY_TYPE_SERIES)
+    {
+        return true;
+    }
+
+    if group.classified_episode_count > 0 {
+        return true;
+    }
+
+    if group.file_indexes.len() < 2 {
+        return false;
+    }
+
+    let distinct_titles = group
+        .file_indexes
+        .iter()
+        .map(|index| normalize_title_for_grouping(&discovered_files[*index]))
+        .filter(|title| !title.is_empty())
+        .collect::<HashSet<_>>();
+
+    distinct_titles.len() > 1
+}
+
+fn normalize_title_for_grouping(file: &DiscoveredMediaFile) -> String {
+    let candidate = file
+        .source_title
+        .trim()
+        .is_empty()
+        .then(|| file.title.trim())
+        .unwrap_or(file.source_title.trim());
+
+    candidate.to_ascii_lowercase()
+}
+
+fn assign_local_series_structure(
+    discovered_files: &mut [DiscoveredMediaFile],
+    group: &LocalFolderGroup,
+) {
+    let mut season_episode_indexes = HashMap::<i32, Vec<usize>>::new();
+
+    for index in &group.file_indexes {
+        let file = &mut discovered_files[*index];
+        file.source_title = group.lookup_title.clone();
+        file.title = group.display_title.clone();
+
+        if file.year.is_none() {
+            file.year = group.year;
+        }
+
+        let season_number = file.season_number.unwrap_or(1);
+        file.season_number = Some(season_number);
+        season_episode_indexes
+            .entry(season_number)
+            .or_default()
+            .push(*index);
+    }
+
+    for indexes in season_episode_indexes.values_mut() {
+        indexes.sort_by(|left, right| {
+            discovered_files[*left]
+                .file_path
+                .cmp(&discovered_files[*right].file_path)
+        });
+
+        let mut next_episode_number = 1;
+        let mut used_episode_numbers = HashSet::<i32>::new();
+
+        for index in indexes.iter().copied() {
+            if let Some(existing) = discovered_files[index].episode_number {
+                used_episode_numbers.insert(existing);
+                if existing >= next_episode_number {
+                    next_episode_number = existing + 1;
+                }
+            }
+        }
+
+        for index in indexes.iter().copied() {
+            let file = &mut discovered_files[index];
+
+            if file.episode_number.is_none() {
+                while used_episode_numbers.contains(&next_episode_number) {
+                    next_episode_number += 1;
+                }
+
+                file.episode_number = Some(next_episode_number);
+                used_episode_numbers.insert(next_episode_number);
+                next_episode_number += 1;
+            }
+
+            if file.episode_title.is_none() {
+                file.episode_title = Some(
+                    file.file_path
+                        .file_stem()
+                        .and_then(|value| value.to_str())
+                        .unwrap_or("Episode")
+                        .replace(['.', '_'], " "),
+                );
+            }
+        }
+    }
+}
+
+fn effective_media_type(library_type: &str, file: &DiscoveredMediaFile) -> &'static str {
+    if file.season_number.is_some() && file.episode_number.is_some() {
+        "episode"
+    } else {
+        classify_media_type(library_type, &file.file_path)
+    }
 }
 
 fn apply_existing_media_metadata(
@@ -1021,7 +1195,7 @@ fn build_scan_presentation_group(
     library_type: &str,
     file: &DiscoveredMediaFile,
 ) -> ScanPresentationGroup {
-    let media_type = classify_media_type(library_type, &file.file_path);
+    let media_type = effective_media_type(library_type, file);
 
     if media_type == "episode" {
         if let Some(folder_metadata) = infer_series_folder_metadata(&file.file_path) {
@@ -1061,6 +1235,7 @@ fn group_discovered_files_for_scan(
     library: &Library,
     discovered_files: Vec<DiscoveredMediaFile>,
 ) -> Vec<ScanDiscoveredGroup> {
+    let discovered_files = normalize_discovered_files_for_local_structure(library, discovered_files);
     let mut groups = Vec::<ScanDiscoveredGroup>::new();
     let mut group_indexes = HashMap::<String, usize>::new();
 
@@ -1399,6 +1574,112 @@ mod tests {
         assert_eq!(groups[0].presentation.title, "Arcane");
         assert_eq!(groups[0].files.len(), 2);
         assert!(groups[0].presentation.item_key.ends_with("Arcane"));
+    }
+
+    #[test]
+    fn group_discovered_files_for_scan_promotes_plain_multi_file_folder_to_series() {
+        let mut first_file = build_discovered_file();
+        first_file.file_path = PathBuf::from("a/aa/Pilot.mkv");
+        first_file.title = "Pilot".to_string();
+        first_file.source_title = "Pilot".to_string();
+        first_file.season_number = None;
+        first_file.episode_number = None;
+        first_file.episode_title = None;
+
+        let mut second_file = build_discovered_file();
+        second_file.file_path = PathBuf::from("a/aa/Finale.mkv");
+        second_file.title = "Finale".to_string();
+        second_file.source_title = "Finale".to_string();
+        second_file.season_number = None;
+        second_file.episode_number = None;
+        second_file.episode_title = None;
+
+        let mut movie_file = build_discovered_file();
+        movie_file.file_path = PathBuf::from("a/ab/How.to.Train.Your.Dragon.2025.mkv");
+        movie_file.title = "How to Train Your Dragon".to_string();
+        movie_file.source_title = "How to Train Your Dragon".to_string();
+        movie_file.year = Some(2025);
+        movie_file.season_number = None;
+        movie_file.episode_number = None;
+        movie_file.episode_title = None;
+
+        let groups = super::group_discovered_files_for_scan(
+            &build_library(LIBRARY_TYPE_MIXED),
+            vec![first_file, second_file, movie_file],
+        );
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].presentation.media_type, "series");
+        assert_eq!(groups[0].presentation.title, "aa");
+        assert_eq!(groups[0].files.len(), 2);
+        assert_eq!(groups[1].presentation.media_type, "movie");
+        assert_eq!(groups[1].presentation.title, "How to Train Your Dragon");
+        assert_eq!(groups[1].files.len(), 1);
+    }
+
+    #[test]
+    fn build_media_entries_assigns_local_episode_numbers_for_plain_series_folders() {
+        let mut first_file = build_discovered_file();
+        first_file.file_path = PathBuf::from("/media/Arcane/Pilot.mkv");
+        first_file.title = "Pilot".to_string();
+        first_file.source_title = "Pilot".to_string();
+        first_file.season_number = None;
+        first_file.episode_number = None;
+        first_file.episode_title = None;
+
+        let mut second_file = build_discovered_file();
+        second_file.file_path = PathBuf::from("/media/Arcane/Finale.mkv");
+        second_file.title = "Finale".to_string();
+        second_file.source_title = "Finale".to_string();
+        second_file.season_number = None;
+        second_file.episode_number = None;
+        second_file.episode_title = None;
+
+        let entries = super::build_media_entries(
+            &build_library(LIBRARY_TYPE_SERIES),
+            vec![first_file, second_file],
+        )
+        .unwrap();
+
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().all(|entry| entry.media_type == "episode"));
+        assert!(entries.iter().all(|entry| entry.source_title == "Arcane"));
+        assert!(entries.iter().all(|entry| entry.title == "Arcane"));
+        assert_eq!(entries[0].season_number, Some(1));
+        assert_eq!(entries[0].episode_number, Some(1));
+        assert_eq!(entries[0].episode_title.as_deref(), Some("Finale"));
+        assert_eq!(entries[1].season_number, Some(1));
+        assert_eq!(entries[1].episode_number, Some(2));
+        assert_eq!(entries[1].episode_title.as_deref(), Some("Pilot"));
+    }
+
+    #[test]
+    fn group_discovered_files_for_scan_keeps_multi_version_movie_folder_as_movie() {
+        let mut first_file = build_discovered_file();
+        first_file.file_path = PathBuf::from("Movie/Movie.2025.1080p.mkv");
+        first_file.title = "Movie".to_string();
+        first_file.source_title = "Movie".to_string();
+        first_file.year = Some(2025);
+        first_file.season_number = None;
+        first_file.episode_number = None;
+        first_file.episode_title = None;
+
+        let mut second_file = build_discovered_file();
+        second_file.file_path = PathBuf::from("Movie/Movie.2025.2160p.mkv");
+        second_file.title = "Movie".to_string();
+        second_file.source_title = "Movie".to_string();
+        second_file.year = Some(2025);
+        second_file.season_number = None;
+        second_file.episode_number = None;
+        second_file.episode_title = None;
+
+        let groups = super::group_discovered_files_for_scan(
+            &build_library(LIBRARY_TYPE_MIXED),
+            vec![first_file, second_file],
+        );
+
+        assert_eq!(groups.len(), 2);
+        assert!(groups.iter().all(|group| group.presentation.media_type == "movie"));
     }
 
     #[test]

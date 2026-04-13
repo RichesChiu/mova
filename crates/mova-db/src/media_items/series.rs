@@ -183,7 +183,7 @@ async fn insert_series_item_from_entry(
             poster_path,
             backdrop_path
         )
-        values ($1, 'series', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        values ($1, 'series', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         returning id
         "#,
     )

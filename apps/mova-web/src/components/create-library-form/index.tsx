@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useState } from 'react'
 import { getServerMediaTree } from '../../api/client'
-import type { CreateLibraryInput, LibraryType, ServerMediaDirectoryNode } from '../../api/types'
+import type { CreateLibraryInput, ServerMediaDirectoryNode } from '../../api/types'
 import { GlassSelect, type GlassSelectOption } from '../glass-select'
 import { MediaDirectoryTree } from '../media-directory-tree'
 import { SectionHelp } from '../section-help'
@@ -12,33 +12,10 @@ interface CreateLibraryFormProps {
   onSubmit: (input: CreateLibraryInput) => Promise<unknown>
 }
 
-const libraryTypeOptions: Array<{ value: LibraryType; label: string }> = [
-  { value: 'mixed', label: 'Mixed' },
-  { value: 'movie', label: 'Movie' },
-  { value: 'series', label: 'Series' },
-]
-
 const metadataLanguageOptions: GlassSelectOption[] = [
   { value: 'zh-CN', label: 'Chinese (zh-CN)' },
   { value: 'en-US', label: 'English (en-US)' },
 ]
-
-const LIBRARY_TYPE_HELP = (
-  <span className="section-help__tooltip-list">
-    <span className="section-help__tooltip-item">
-      <span className="section-help__tooltip-label">Mixed</span>
-      <span>Automatically sorts movies and series by filename. Best for mixed folders.</span>
-    </span>
-    <span className="section-help__tooltip-item">
-      <span className="section-help__tooltip-label">Movie</span>
-      <span>Organizes only movies. Best for movie-only folders.</span>
-    </span>
-    <span className="section-help__tooltip-item">
-      <span className="section-help__tooltip-label">Series</span>
-      <span>Organizes only series. Best for dedicated TV show folders.</span>
-    </span>
-  </span>
-)
 
 const ROOT_PATH_HELP =
   'This picker shows in-container paths. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so every /media/... path here maps to the actual library root available to the app.'
@@ -54,7 +31,6 @@ const treeContainsPath = (node: ServerMediaDirectoryNode, path: string): boolean
 export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibraryFormProps) => {
   const [name, setName] = useState('Media')
   const [description, setDescription] = useState('')
-  const [libraryType, setLibraryType] = useState<LibraryType>('mixed')
   const [metadataLanguage, setMetadataLanguage] = useState('zh-CN')
   const [rootPath, setRootPath] = useState('')
   const mediaTreeQuery = useQuery({
@@ -89,7 +65,6 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
       await onSubmit({
         name,
         description: normalizedDescription || undefined,
-        library_type: libraryType,
         metadata_language: metadataLanguage,
         root_path: normalizedRootPath,
       })
@@ -99,11 +74,6 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
   }
 
   const mediaTree = mediaTreeQuery.data ?? null
-  const libraryTypeSelectOptions: GlassSelectOption[] = libraryTypeOptions.map((option) => ({
-    value: option.value,
-    label: option.label,
-  }))
-
   return (
     <form className="stack" onSubmit={handleSubmit}>
       <label className="field">
@@ -125,19 +95,6 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
           value={description}
         />
       </label>
-
-      <div className="field">
-        <div className="field__label">
-          <span className="field__label-copy">Library Type</span>
-          <SectionHelp detail={LIBRARY_TYPE_HELP} title="Library type help" />
-        </div>
-        <GlassSelect
-          ariaLabel="Library type"
-          onChange={(value) => setLibraryType(value as LibraryType)}
-          options={libraryTypeSelectOptions}
-          value={libraryType}
-        />
-      </div>
 
       <div className="field">
         <span>Metadata Language</span>
