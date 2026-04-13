@@ -59,7 +59,6 @@ export const LibraryEditorModal = ({
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [metadataLanguage, setMetadataLanguage] = useState('zh-CN')
-  const [isEnabled, setIsEnabled] = useState(true)
 
   useEffect(() => {
     if (!isOpen) {
@@ -70,7 +69,6 @@ export const LibraryEditorModal = ({
     setName(draft.name)
     setDescription(draft.description)
     setMetadataLanguage(draft.metadataLanguage)
-    setIsEnabled(draft.isEnabled)
   }, [isOpen, library])
 
   useEffect(() => {
@@ -107,7 +105,6 @@ export const LibraryEditorModal = ({
         name,
         description,
         metadataLanguage,
-        isEnabled,
       }),
     )
     onClose()
@@ -122,7 +119,6 @@ export const LibraryEditorModal = ({
     name,
     description,
     metadataLanguage,
-    isEnabled,
   })
 
   return createPortal(
@@ -190,10 +186,6 @@ export const LibraryEditorModal = ({
               <span>Metadata Language</span>
               <strong>{metadataLanguage}</strong>
             </article>
-            <article className="library-editor-modal__fact">
-              <span>Library Status</span>
-              <strong>{isEnabled ? 'Enabled' : 'Disabled'}</strong>
-            </article>
           </div>
 
           <label className="field">
@@ -215,15 +207,6 @@ export const LibraryEditorModal = ({
               value={metadataLanguage}
             />
           </div>
-
-          <label className="toggle">
-            <input
-              checked={isEnabled}
-              onChange={(event) => setIsEnabled(event.target.checked)}
-              type="checkbox"
-            />
-            <span>Enable library</span>
-          </label>
 
           <div className="field">
             <div className="field__label">

@@ -24,23 +24,20 @@ describe('library config helpers', () => {
       name: 'Movies',
       description: 'Family movie library',
       metadataLanguage: 'zh-CN',
-      isEnabled: true,
     })
   })
 
-  it('normalizes description and booleans into the update payload', () => {
+  it('normalizes editable fields into the update payload', () => {
     expect(
       buildLibraryUpdateInput({
         name: '  Cinema  ',
         description: '   ',
         metadataLanguage: 'en-US',
-        isEnabled: false,
       }),
     ).toEqual({
       name: 'Cinema',
       description: null,
       metadata_language: 'en-US',
-      is_enabled: false,
     })
   })
 

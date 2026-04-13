@@ -229,11 +229,8 @@ export const SettingsPage = () => {
     }) => updateLibrary(libraryId, input),
     onSuccess: async (updatedLibrary, { libraryId }) => {
       const currentLibraries = queryClient.getQueryData<Library[]>(['libraries'])
-      const previousLibrary =
-        currentLibraries?.find((library) => library.id === libraryId) ?? editingLibrary
       const nextLibraryCache = buildUpdatedLibraryCacheState({
         currentLibraries,
-        previousLibrary,
         updatedLibrary,
         currentLibraryDetail: queryClient.getQueryData<LibraryDetail>(['library', libraryId]),
         currentHomeLibraryDetail: queryClient.getQueryData<LibraryDetail>([
@@ -568,9 +565,6 @@ export const SettingsPage = () => {
                             </span>
                             <span className="settings-library-card__language">
                               {library.metadata_language}
-                            </span>
-                            <span className="settings-library-card__status">
-                              {library.is_enabled ? 'enabled' : 'disabled'}
                             </span>
                           </div>
 

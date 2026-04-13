@@ -102,7 +102,7 @@ export const buildPlaceholderLibraryDetail = (library: Library): LibraryDetail =
   media_count: 0,
   movie_count: 0,
   series_count: 0,
-  last_scan: library.is_enabled ? buildInitialScanJob(library.id) : null,
+  last_scan: null,
 })
 
 export const upsertLibrary = (libraries: Library[] | undefined, nextLibrary: Library) => {
@@ -136,18 +136,13 @@ export const createEmptyLibraryShelf = (): MediaItemListResponse => ({
 export const mergeUpdatedLibraryDetail = (
   current: LibraryDetail | undefined,
   updatedLibrary: Library,
-  shouldSeedPendingScan: boolean,
 ): LibraryDetail => {
   const currentLastScan = current?.last_scan ?? null
 
   return {
     ...(current ?? buildPlaceholderLibraryDetail(updatedLibrary)),
     ...updatedLibrary,
-    last_scan: shouldSeedPendingScan
-      ? currentLastScan?.status === 'running' || currentLastScan?.status === 'pending'
-        ? currentLastScan
-        : buildInitialScanJob(updatedLibrary.id)
-      : currentLastScan,
+    last_scan: currentLastScan,
   }
 }
 
@@ -178,29 +173,17 @@ export const buildUpdatedLibraryCacheState = ({
   currentHomeLibraryDetail,
   currentLibraryDetail,
   currentLibraries,
-  previousLibrary,
   updatedLibrary,
 }: {
   currentHomeLibraryDetail: LibraryDetail | undefined
   currentLibraryDetail: LibraryDetail | undefined
   currentLibraries: Library[] | undefined
-  previousLibrary: Library | null | undefined
   updatedLibrary: Library
 }) => {
-  const shouldSeedPendingScan = !previousLibrary?.is_enabled && updatedLibrary.is_enabled
-
   return {
     libraries: upsertLibrary(currentLibraries, updatedLibrary),
-    libraryDetail: mergeUpdatedLibraryDetail(
-      currentLibraryDetail,
-      updatedLibrary,
-      shouldSeedPendingScan,
-    ),
-    homeLibraryDetail: mergeUpdatedLibraryDetail(
-      currentHomeLibraryDetail,
-      updatedLibrary,
-      shouldSeedPendingScan,
-    ),
+    libraryDetail: mergeUpdatedLibraryDetail(currentLibraryDetail, updatedLibrary),
+    homeLibraryDetail: mergeUpdatedLibraryDetail(currentHomeLibraryDetail, updatedLibrary),
   }
 }
 

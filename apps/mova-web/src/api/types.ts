@@ -261,7 +261,7 @@ export interface CreateLibraryInput {
   library_type: LibraryType
   metadata_language: string
   root_path: string
-  is_enabled: boolean
+  is_enabled?: boolean
 }
 
 export interface UpdateLibraryInput {

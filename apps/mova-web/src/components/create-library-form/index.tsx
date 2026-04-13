@@ -57,7 +57,6 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
   const [libraryType, setLibraryType] = useState<LibraryType>('mixed')
   const [metadataLanguage, setMetadataLanguage] = useState('zh-CN')
   const [rootPath, setRootPath] = useState('')
-  const [isEnabled, setIsEnabled] = useState(true)
   const mediaTreeQuery = useQuery({
     queryKey: ['server-media-tree'],
     queryFn: getServerMediaTree,
@@ -93,7 +92,6 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
         library_type: libraryType,
         metadata_language: metadataLanguage,
         root_path: normalizedRootPath,
-        is_enabled: isEnabled,
       })
     } catch {
       // Mutation state already exposes the error message in the form.
@@ -187,15 +185,6 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
           </p>
         ) : null}
       </div>
-
-      <label className="toggle">
-        <input
-          checked={isEnabled}
-          onChange={(event) => setIsEnabled(event.target.checked)}
-          type="checkbox"
-        />
-        <span>Enable library</span>
-      </label>
 
       {error ? <p className="callout callout--danger">{error}</p> : null}
 

@@ -111,9 +111,9 @@ src/
 
 | 组件 | 文件 | 作用 | 主要使用位置 |
 | --- | --- | --- | --- |
-| `CreateLibraryForm` | `components/create-library-form/index.tsx` | 建库表单，支持目录树选择、类型选择、元数据语言和启停；`Library Type` 和 `Root Path` 也会直接给出轻量提示，减少用户理解容器路径和库类型差异的成本。 | `CreateLibraryModal` |
+| `CreateLibraryForm` | `components/create-library-form/index.tsx` | 建库表单，支持目录树选择、类型选择和元数据语言；`Library Type` 和 `Root Path` 也会直接给出轻量提示，减少用户理解容器路径和库类型差异的成本。 | `CreateLibraryModal` |
 | `CreateLibraryModal` | `components/create-library-modal/index.tsx` | 设置页里的建库弹窗，负责承接建库入口，不再把表单长期铺在页面底部。 | 设置页 |
-| `LibraryEditorModal` | `components/library-editor-modal/index.tsx` | 编辑媒体库基础配置，当前支持名称、描述、元数据语言和启停状态；只读的库类型和根路径旁边也会给出同一套说明。 | 设置页 |
+| `LibraryEditorModal` | `components/library-editor-modal/index.tsx` | 编辑媒体库基础配置，当前支持名称、描述和元数据语言；只读的库类型和根路径旁边也会给出同一套说明。 | 设置页 |
 | `UserEditorModal` | `components/user-editor-modal/index.tsx` | 创建/编辑用户，支持用户名、昵称、角色、启停和媒体库授权。 | 设置页 |
 | `ConfirmActionModal` | `components/confirm-action-modal/index.tsx` | 统一承接危险操作确认流和错误提示，当前用于删库、删用户。 | 设置页 |
 | `ChangePasswordModal` | `components/change-password-modal/index.tsx` | 个人页的改密弹窗，统一处理当前密码校验、确认输入和错误反馈。 | 个人页 |
@@ -207,7 +207,7 @@ src/
 - `media-file-details` helper 的视频/音频/字幕技术卡字段格式化、头部下拉选项、码率显示和杜比标记识别
 - `playback` helper 的续播判定、默认播放入口、剧集优先选择和接近片尾的完成判定
 - `library-config` helper 的 draft 初始化、变更判断和提交 payload 归一化
-- `settings-admin` helper 的设置页本地缓存更新、扫描状态摘要、确认文案，以及删除/更新/启停后的边界收口
+- `settings-admin` helper 的设置页本地缓存更新、扫描状态摘要、确认文案，以及删除/更新后的边界收口
 
 测试策略上，当前更偏向：
 

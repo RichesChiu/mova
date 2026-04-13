@@ -63,7 +63,7 @@ const viewer: UserAccount = {
 }
 
 describe('settings admin helpers', () => {
-  it('builds a placeholder detail and empty shelf for a new enabled library', () => {
+  it('builds a placeholder detail and empty shelf for a new library', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-04-08T10:00:00Z'))
 
@@ -78,9 +78,7 @@ describe('settings admin helpers', () => {
       media_count: 0,
       movie_count: 0,
       series_count: 0,
-      last_scan: expect.objectContaining({
-        status: 'pending',
-      }),
+      last_scan: null,
     })
     expect(createEmptyLibraryShelf()).toEqual({
       items: [],
@@ -153,7 +151,7 @@ describe('settings admin helpers', () => {
     })
   })
 
-  it('merges library detail updates and seeds pending scan when re-enabled', () => {
+  it('merges library detail updates while preserving the latest scan snapshot', () => {
     const currentDetail: LibraryDetail = {
       ...library,
       is_enabled: false,
@@ -170,19 +168,10 @@ describe('settings admin helpers', () => {
     }
 
     expect(
-      mergeUpdatedLibraryDetail(
-        currentDetail,
-        {
-          ...library,
-          is_enabled: true,
-        },
-        true,
-      ),
+      mergeUpdatedLibraryDetail(currentDetail, { ...library, is_enabled: true }),
     ).toMatchObject({
       is_enabled: true,
-      last_scan: {
-        status: 'pending',
-      },
+      last_scan: currentDetail.last_scan,
     })
 
     expect(mergeTriggeredScanLibraryDetail(undefined, library, scanJob)).toMatchObject({
@@ -192,7 +181,6 @@ describe('settings admin helpers', () => {
     expect(
       buildUpdatedLibraryCacheState({
         currentLibraries: [currentDetail],
-        previousLibrary: currentDetail,
         updatedLibrary: {
           ...library,
           is_enabled: true,
@@ -207,14 +195,10 @@ describe('settings admin helpers', () => {
         }),
       ],
       libraryDetail: {
-        last_scan: {
-          status: 'pending',
-        },
+        last_scan: currentDetail.last_scan,
       },
       homeLibraryDetail: {
-        last_scan: {
-          status: 'pending',
-        },
+        last_scan: currentDetail.last_scan,
       },
     })
     expect(
@@ -241,10 +225,6 @@ describe('settings admin helpers', () => {
             is_enabled: true,
           },
         ],
-        previousLibrary: {
-          ...library,
-          is_enabled: true,
-        },
         updatedLibrary: {
           ...library,
           description: 'Updated description',
