@@ -58,4 +58,8 @@ $RECYCLE.BIN/
 # Local runtime state for Docker-based development.
 data/
 
-/.codex/
+/.codex/*
+!/.codex/skills/
+/.codex/skills/*
+!/.codex/skills/mova-workspace/
+!/.codex/skills/mova-workspace/SKILL.md
