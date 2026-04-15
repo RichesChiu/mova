@@ -51,6 +51,7 @@
 - 健康检查直接调用 `mova_db::ping`
 - 媒体文件流直接读取磁盘并处理 `Range`
 - 字幕流直接做本地缓存和 `ffmpeg` 转换
+- 剧集片头自动检测会在扫描阶段调用 Python 脚本，并由脚本内部继续调用 `ffmpeg`
 - `/server/media-tree` 直接读取容器内 `/media` 目录树
 - `/events` 直接从 `RealtimeHub` 订阅 SSE 事件
 
@@ -141,6 +142,7 @@
 - 服务端不再常驻文件 watcher
 - 新建媒体库后会自动入队一次扫描
 - 重新启用媒体库、新增、删除、改名和移动都统一靠手动 `Scan Library` 收敛
+- 扫描写库后会对样本足够的剧集季自动做一轮片头检测；当前用 Python 脚本做音频比对，并把结果写进 season 级 `intro_start_seconds` / `intro_end_seconds`
 
 ### `src/realtime.rs`
 

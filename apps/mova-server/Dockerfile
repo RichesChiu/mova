@@ -61,11 +61,12 @@ ENV HTTP_PROXY=$HTTP_PROXY \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates ffmpeg \
+    && apt-get install -y --no-install-recommends ca-certificates ffmpeg python3 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/mova-server /usr/local/bin/mova-server
 COPY --from=web-builder /app/apps/mova-web/dist /app/web
+COPY scripts /app/scripts
 
 EXPOSE 36080
 

@@ -811,6 +811,64 @@ pub async fn list_episodes_for_season(pool: &PgPool, season_id: i64) -> Result<V
     Ok(rows.into_iter().map(map_episode_row).collect())
 }
 
+pub async fn list_series_media_item_ids_for_library(
+    pool: &PgPool,
+    library_id: i64,
+) -> Result<Vec<i64>> {
+    sqlx::query_scalar::<_, i64>(
+        r#"
+        select id
+        from media_items
+        where library_id = $1
+          and media_type = 'series'
+        order by id asc
+        "#,
+    )
+    .bind(library_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to list series media items for library")
+}
+
+pub async fn update_season_intro_markers(
+    pool: &PgPool,
+    season_id: i64,
+    intro_start_seconds: Option<i32>,
+    intro_end_seconds: Option<i32>,
+) -> Result<Option<Season>> {
+    let row = sqlx::query(
+        r#"
+        update seasons
+        set
+            intro_start_seconds = $2,
+            intro_end_seconds = $3,
+            updated_at = now()
+        where id = $1
+        returning
+            id,
+            series_id,
+            season_number,
+            title,
+            overview,
+            poster_path,
+            backdrop_path,
+            intro_start_seconds,
+            intro_end_seconds,
+            0::bigint as episode_count,
+            created_at,
+            updated_at
+        "#,
+    )
+    .bind(season_id)
+    .bind(intro_start_seconds)
+    .bind(intro_end_seconds)
+    .fetch_optional(pool)
+    .await
+    .context("failed to update season intro markers")?;
+
+    Ok(row.map(map_season_row))
+}
+
 pub async fn get_season(pool: &PgPool, season_id: i64) -> Result<Option<Season>> {
     let row = sqlx::query(
         r#"

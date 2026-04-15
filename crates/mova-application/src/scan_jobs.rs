@@ -10,6 +10,7 @@ use crate::{
 use mova_domain::{Library, ScanJob};
 use mova_scan::{infer_series_folder_metadata, DiscoveredMediaFile};
 use sqlx::postgres::PgPool;
+use std::process::Command;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -19,6 +20,41 @@ use std::{
     },
 };
 use time::OffsetDateTime;
+use tokio::task;
+
+const INTRO_DETECTOR_SCRIPT_PATH: &str = "scripts/detect_intro.py";
+const INTRO_DETECTION_MIN_EPISODES: usize = 3;
+const INTRO_DETECTION_MIN_DURATION_SECONDS: i32 = 12;
+
+#[derive(Debug, serde::Serialize)]
+struct IntroDetectorRequest {
+    analysis_seconds: i32,
+    max_start_offset_seconds: i32,
+    min_intro_seconds: i32,
+    episodes: Vec<IntroDetectorEpisodeInput>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct IntroDetectorEpisodeInput {
+    episode_number: i32,
+    file_path: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct IntroDetectorResponse {
+    status: String,
+    intro_start_seconds: Option<i32>,
+    intro_end_seconds: Option<i32>,
+    confidence: Option<f64>,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct SeasonIntroDetectionCandidate {
+    season_id: i64,
+    season_number: i32,
+    episodes: Vec<IntroDetectorEpisodeInput>,
+}
 
 /// 触发媒体库扫描时返回的结果。
 /// `created = false` 表示本次没有新建任务，而是复用了当前库已有的活跃任务。
@@ -479,6 +515,15 @@ pub async fn execute_scan_job_with_cancellation(
         }
     }
 
+    if let Err(error) = detect_library_intro_markers(pool, &library).await {
+        tracing::warn!(
+            library_id = library.id,
+            scan_job_id,
+            error = ?error,
+            "automatic intro detection failed; continuing without intro markers"
+        );
+    }
+
     prefetch_library_cast_for_scan(pool, &library, metadata_provider, scan_job_id, total_files)
         .await;
 
@@ -612,6 +657,155 @@ async fn reuse_existing_metadata_for_discovered_files(
     }
 
     discovered_files
+}
+
+async fn detect_library_intro_markers(pool: &PgPool, library: &Library) -> ApplicationResult<()> {
+    let series_ids = mova_db::list_series_media_item_ids_for_library(pool, library.id)
+        .await
+        .map_err(ApplicationError::from)?;
+
+    for series_id in series_ids {
+        let seasons = mova_db::list_seasons_for_series(pool, series_id)
+            .await
+            .map_err(ApplicationError::from)?;
+
+        for season in seasons {
+            let episodes = mova_db::list_episodes_for_season(pool, season.id)
+                .await
+                .map_err(ApplicationError::from)?;
+            if episodes.len() < INTRO_DETECTION_MIN_EPISODES {
+                continue;
+            }
+
+            let mut detection_episodes = Vec::new();
+            for episode in episodes {
+                let Some(primary_media_file) = mova_db::list_media_files_for_media_item(
+                    pool,
+                    episode.media_item_id,
+                )
+                .await
+                .map_err(ApplicationError::from)?
+                .into_iter()
+                .next()
+                else {
+                    continue;
+                };
+
+                detection_episodes.push(IntroDetectorEpisodeInput {
+                    episode_number: episode.episode_number,
+                    file_path: primary_media_file.file_path,
+                });
+            }
+
+            if detection_episodes.len() < INTRO_DETECTION_MIN_EPISODES {
+                continue;
+            }
+
+            let detection = detect_season_intro_with_python(SeasonIntroDetectionCandidate {
+                season_id: season.id,
+                season_number: season.season_number,
+                episodes: detection_episodes,
+            })
+            .await?;
+
+            let Some((intro_start_seconds, intro_end_seconds)) = detection else {
+                continue;
+            };
+
+            mova_db::update_season_intro_markers(
+                pool,
+                season.id,
+                Some(intro_start_seconds),
+                Some(intro_end_seconds),
+            )
+            .await
+            .map_err(ApplicationError::from)?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn detect_season_intro_with_python(
+    season: SeasonIntroDetectionCandidate,
+) -> ApplicationResult<Option<(i32, i32)>> {
+    let request = IntroDetectorRequest {
+        analysis_seconds: 240,
+        max_start_offset_seconds: 150,
+        min_intro_seconds: INTRO_DETECTION_MIN_DURATION_SECONDS,
+        episodes: season.episodes,
+    };
+    let request_json = serde_json::to_vec(&request)
+        .map_err(|error| ApplicationError::Unexpected(anyhow::Error::new(error)))?;
+
+    let response = task::spawn_blocking(move || {
+        let mut command = Command::new("python3");
+        command.arg(INTRO_DETECTOR_SCRIPT_PATH);
+        command.stdin(std::process::Stdio::piped());
+        command.stdout(std::process::Stdio::piped());
+        command.stderr(std::process::Stdio::piped());
+
+        let mut child = command.spawn().map_err(anyhow::Error::new)?;
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            stdin.write_all(&request_json)?;
+        }
+
+        let output = child.wait_with_output().map_err(anyhow::Error::new)?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            anyhow::bail!(
+                "python intro detector failed for season {}: {}",
+                season.season_number,
+                if stderr.is_empty() {
+                    format!("exit status {}", output.status)
+                } else {
+                    stderr
+                }
+            );
+        }
+
+        serde_json::from_slice::<IntroDetectorResponse>(&output.stdout).map_err(anyhow::Error::new)
+    })
+    .await
+    .map_err(|error| ApplicationError::Unexpected(anyhow::Error::new(error)))?
+    .map_err(ApplicationError::Unexpected)?;
+
+    if !response.status.eq_ignore_ascii_case("ok") {
+        if let Some(reason) = response.reason {
+            tracing::debug!(
+                season_id = season.season_id,
+                season_number = season.season_number,
+                reason,
+                "automatic intro detector skipped season"
+            );
+        }
+        return Ok(None);
+    }
+
+    let Some(intro_start_seconds) = response.intro_start_seconds else {
+        return Ok(None);
+    };
+    let Some(intro_end_seconds) = response.intro_end_seconds else {
+        return Ok(None);
+    };
+
+    if intro_end_seconds - intro_start_seconds < INTRO_DETECTION_MIN_DURATION_SECONDS {
+        return Ok(None);
+    }
+
+    if let Some(confidence) = response.confidence {
+        tracing::info!(
+            season_id = season.season_id,
+            season_number = season.season_number,
+            intro_start_seconds,
+            intro_end_seconds,
+            confidence,
+            "detected season intro markers"
+        );
+    }
+
+    Ok(Some((intro_start_seconds, intro_end_seconds)))
 }
 
 async fn discover_media_files(

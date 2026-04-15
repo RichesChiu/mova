@@ -880,6 +880,7 @@
 - TMDB 不可用或匹配失败时，会退化为仅返回本地已入库集。
 - TMDB 侧目前可直接提供季海报（`season poster`）和集剧照（`episode still`）；集背景图与封面会复用剧照。
 - 若集级图片缺失，后端会尝试从本地视频抽取第一帧作为回退（需运行环境可用 `ffmpeg`），并避免把通用目录海报（如 `poster.jpg` / `folder.jpg`）误当成单集封面。
+- `seasons[].intro_start_seconds` / `seasons[].intro_end_seconds` 当前会优先承载扫描后自动检测出来的 season 级片头区间；`episodes[].intro_*` 字段已预留，但当前默认仍为空，方便后续再扩成单集覆盖。
 - 可直接用于前端“可播放集高亮、缺失集置灰”的展示逻辑。
 - 当前会把 TMDB 剧集大纲缓存到 PostgreSQL（`series_episode_outline_cache`），默认 TTL 为 24 小时，避免每次请求都访问 TMDB。
 - 当缓存过期且 TMDB 临时不可用时，会回退到旧缓存并继续返回可用结果。
