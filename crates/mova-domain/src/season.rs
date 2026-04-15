@@ -10,6 +10,8 @@ pub struct Season {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub intro_start_seconds: Option<i32>,
+    pub intro_end_seconds: Option<i32>,
     pub episode_count: i64,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,

@@ -54,6 +54,8 @@ pub struct SeriesEpisodeOutlineSeason {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub intro_start_seconds: Option<i32>,
+    pub intro_end_seconds: Option<i32>,
     pub episodes: Vec<SeriesEpisodeOutlineEpisode>,
 }
 
@@ -64,6 +66,8 @@ pub struct SeriesEpisodeOutlineEpisode {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub intro_start_seconds: Option<i32>,
+    pub intro_end_seconds: Option<i32>,
     pub media_item_id: Option<i64>,
     pub is_available: bool,
     pub playback_progress: Option<PlaybackProgress>,
@@ -76,6 +80,8 @@ struct LocalSeriesSeason {
     overview: Option<String>,
     poster_path: Option<String>,
     backdrop_path: Option<String>,
+    intro_start_seconds: Option<i32>,
+    intro_end_seconds: Option<i32>,
     episodes: BTreeMap<i32, LocalSeriesEpisode>,
 }
 
@@ -86,6 +92,8 @@ struct LocalSeriesEpisode {
     overview: Option<String>,
     poster_path: Option<String>,
     backdrop_path: Option<String>,
+    intro_start_seconds: Option<i32>,
+    intro_end_seconds: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -484,6 +492,8 @@ async fn load_local_series_inventory(
                     overview: episode.overview,
                     poster_path: episode.poster_path,
                     backdrop_path: episode.backdrop_path,
+                    intro_start_seconds: episode.intro_start_seconds,
+                    intro_end_seconds: episode.intro_end_seconds,
                 },
             );
         }
@@ -496,6 +506,8 @@ async fn load_local_series_inventory(
                 overview: season.overview,
                 poster_path: season.poster_path,
                 backdrop_path: season.backdrop_path,
+                intro_start_seconds: season.intro_start_seconds,
+                intro_end_seconds: season.intro_end_seconds,
                 episodes: season_episodes,
             },
         );
@@ -540,6 +552,8 @@ fn build_local_outline(
                     overview: episode.overview.clone(),
                     poster_path: episode.poster_path.clone(),
                     backdrop_path: episode.backdrop_path.clone(),
+                    intro_start_seconds: episode.intro_start_seconds,
+                    intro_end_seconds: episode.intro_end_seconds,
                     media_item_id: Some(episode.media_item_id),
                     is_available: true,
                     playback_progress: playback_progress_by_media_item
@@ -556,6 +570,8 @@ fn build_local_outline(
                 overview: season.overview.clone(),
                 poster_path: season.poster_path.clone(),
                 backdrop_path: season.backdrop_path.clone(),
+                intro_start_seconds: season.intro_start_seconds,
+                intro_end_seconds: season.intro_end_seconds,
                 episodes,
             }
         })
@@ -615,6 +631,8 @@ fn merge_remote_outline_with_local(
                 backdrop_path: local_episode
                     .and_then(|episode| episode.backdrop_path.clone())
                     .or(remote_episode.backdrop_path),
+                intro_start_seconds: local_episode.and_then(|episode| episode.intro_start_seconds),
+                intro_end_seconds: local_episode.and_then(|episode| episode.intro_end_seconds),
                 media_item_id: local_episode.map(|episode| episode.media_item_id),
                 is_available: local_episode.is_some(),
                 playback_progress: local_episode
@@ -635,6 +653,8 @@ fn merge_remote_outline_with_local(
                 overview: local_episode.overview.clone(),
                 poster_path: local_episode.poster_path.clone(),
                 backdrop_path: local_episode.backdrop_path.clone(),
+                intro_start_seconds: local_episode.intro_start_seconds,
+                intro_end_seconds: local_episode.intro_end_seconds,
                 media_item_id: Some(local_episode.media_item_id),
                 is_available: true,
                 playback_progress: playback_progress_by_media_item
@@ -663,6 +683,8 @@ fn merge_remote_outline_with_local(
                     .backdrop_path
                     .clone()
                     .or(remote_season.backdrop_path),
+                intro_start_seconds: local_season.intro_start_seconds,
+                intro_end_seconds: local_season.intro_end_seconds,
                 episodes,
             },
         );
@@ -683,6 +705,8 @@ fn merge_remote_outline_with_local(
                     overview: local_episode.overview.clone(),
                     poster_path: local_episode.poster_path.clone(),
                     backdrop_path: local_episode.backdrop_path.clone(),
+                    intro_start_seconds: local_episode.intro_start_seconds,
+                    intro_end_seconds: local_episode.intro_end_seconds,
                     media_item_id: Some(local_episode.media_item_id),
                     is_available: true,
                     playback_progress: playback_progress_by_media_item
@@ -702,6 +726,8 @@ fn merge_remote_outline_with_local(
                 overview: local_season.overview.clone(),
                 poster_path: local_season.poster_path.clone(),
                 backdrop_path: local_season.backdrop_path.clone(),
+                intro_start_seconds: local_season.intro_start_seconds,
+                intro_end_seconds: local_season.intro_end_seconds,
                 episodes,
             },
         );
@@ -974,6 +1000,8 @@ mod tests {
                 overview: None,
                 poster_path: None,
                 backdrop_path: None,
+                intro_start_seconds: None,
+                intro_end_seconds: None,
             },
         );
         season_1_episodes.insert(
@@ -984,6 +1012,8 @@ mod tests {
                 overview: None,
                 poster_path: None,
                 backdrop_path: None,
+                intro_start_seconds: None,
+                intro_end_seconds: None,
             },
         );
         let mut local_inventory = BTreeMap::new();
@@ -995,6 +1025,8 @@ mod tests {
                 overview: None,
                 poster_path: None,
                 backdrop_path: None,
+                intro_start_seconds: None,
+                intro_end_seconds: None,
                 episodes: season_1_episodes,
             },
         );
@@ -1061,6 +1093,8 @@ mod tests {
                 overview: None,
                 poster_path: Some("/cache/local-episode-poster.jpg".to_string()),
                 backdrop_path: Some("/cache/local-episode-backdrop.jpg".to_string()),
+                intro_start_seconds: None,
+                intro_end_seconds: None,
             },
         );
         let mut local_inventory = BTreeMap::new();
@@ -1072,6 +1106,8 @@ mod tests {
                 overview: None,
                 poster_path: Some("/cache/local-season-poster.jpg".to_string()),
                 backdrop_path: Some("/cache/local-season-backdrop.jpg".to_string()),
+                intro_start_seconds: None,
+                intro_end_seconds: None,
                 episodes: season_1_episodes,
             },
         );
@@ -1135,6 +1171,8 @@ mod tests {
                 overview: None,
                 poster_path: None,
                 backdrop_path: None,
+                intro_start_seconds: None,
+                intro_end_seconds: None,
             },
         );
 
@@ -1147,6 +1185,8 @@ mod tests {
                 overview: None,
                 poster_path: None,
                 backdrop_path: None,
+                intro_start_seconds: None,
+                intro_end_seconds: None,
                 episodes: season_1_episodes,
             },
         );

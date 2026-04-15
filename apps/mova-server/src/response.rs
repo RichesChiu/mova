@@ -201,6 +201,8 @@ pub struct SeasonResponse {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub intro_start_seconds: Option<i32>,
+    pub intro_end_seconds: Option<i32>,
     pub episode_count: i64,
     pub created_at: String,
     pub updated_at: String,
@@ -217,6 +219,8 @@ pub struct EpisodeResponse {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub intro_start_seconds: Option<i32>,
+    pub intro_end_seconds: Option<i32>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -235,6 +239,8 @@ pub struct SeriesEpisodeOutlineSeasonResponse {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub intro_start_seconds: Option<i32>,
+    pub intro_end_seconds: Option<i32>,
     pub episodes: Vec<SeriesEpisodeOutlineEpisodeResponse>,
 }
 
@@ -245,6 +251,8 @@ pub struct SeriesEpisodeOutlineEpisodeResponse {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub intro_start_seconds: Option<i32>,
+    pub intro_end_seconds: Option<i32>,
     pub media_item_id: Option<i64>,
     pub is_available: bool,
     pub playback_progress: Option<EpisodePlaybackProgressResponse>,
@@ -647,6 +655,8 @@ impl SeasonResponse {
                 "backdrop",
                 season.updated_at,
             ),
+            intro_start_seconds: season.intro_start_seconds,
+            intro_end_seconds: season.intro_end_seconds,
             episode_count: season.episode_count,
             created_at: format_datetime(season.created_at, offset),
             updated_at: format_datetime(season.updated_at, offset),
@@ -676,6 +686,8 @@ impl EpisodeResponse {
                 "backdrop",
                 episode.updated_at,
             ),
+            intro_start_seconds: episode.intro_start_seconds,
+            intro_end_seconds: episode.intro_end_seconds,
             created_at: format_datetime(episode.created_at, offset),
             updated_at: format_datetime(episode.updated_at, offset),
         }
@@ -726,6 +738,8 @@ impl SeriesEpisodeOutlineSeasonResponse {
             overview: season.overview,
             poster_path,
             backdrop_path,
+            intro_start_seconds: season.intro_start_seconds,
+            intro_end_seconds: season.intro_end_seconds,
             episodes: season
                 .episodes
                 .into_iter()
@@ -760,6 +774,8 @@ impl SeriesEpisodeOutlineEpisodeResponse {
             overview: episode.overview,
             poster_path: poster_path.or(episode.poster_path),
             backdrop_path: backdrop_path.or(episode.backdrop_path),
+            intro_start_seconds: episode.intro_start_seconds,
+            intro_end_seconds: episode.intro_end_seconds,
             media_item_id: episode.media_item_id,
             is_available: episode.is_available,
             playback_progress: episode

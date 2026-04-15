@@ -749,6 +749,8 @@ pub async fn list_seasons_for_series(pool: &PgPool, series_id: i64) -> Result<Ve
             s.overview,
             s.poster_path,
             s.backdrop_path,
+            s.intro_start_seconds,
+            s.intro_end_seconds,
             count(e.id) as episode_count,
             s.created_at,
             s.updated_at
@@ -763,6 +765,8 @@ pub async fn list_seasons_for_series(pool: &PgPool, series_id: i64) -> Result<Ve
             s.overview,
             s.poster_path,
             s.backdrop_path,
+            s.intro_start_seconds,
+            s.intro_end_seconds,
             s.created_at,
             s.updated_at
         order by s.season_number asc, s.id asc
@@ -789,6 +793,8 @@ pub async fn list_episodes_for_season(pool: &PgPool, season_id: i64) -> Result<V
             mi.overview,
             mi.poster_path,
             mi.backdrop_path,
+            e.intro_start_seconds,
+            e.intro_end_seconds,
             e.created_at,
             e.updated_at
         from episodes e
@@ -816,6 +822,8 @@ pub async fn get_season(pool: &PgPool, season_id: i64) -> Result<Option<Season>>
             s.overview,
             s.poster_path,
             s.backdrop_path,
+            s.intro_start_seconds,
+            s.intro_end_seconds,
             count(e.id) as episode_count,
             s.created_at,
             s.updated_at
@@ -830,6 +838,8 @@ pub async fn get_season(pool: &PgPool, season_id: i64) -> Result<Option<Season>>
             s.overview,
             s.poster_path,
             s.backdrop_path,
+            s.intro_start_seconds,
+            s.intro_end_seconds,
             s.created_at,
             s.updated_at
         "#,
@@ -1100,6 +1110,8 @@ fn map_season_row(row: PgRow) -> Season {
         overview: row.get("overview"),
         poster_path: row.get("poster_path"),
         backdrop_path: row.get("backdrop_path"),
+        intro_start_seconds: row.get("intro_start_seconds"),
+        intro_end_seconds: row.get("intro_end_seconds"),
         episode_count: row.get("episode_count"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
@@ -1117,6 +1129,8 @@ fn map_episode_row(row: PgRow) -> Episode {
         overview: row.get("overview"),
         poster_path: row.get("poster_path"),
         backdrop_path: row.get("backdrop_path"),
+        intro_start_seconds: row.get("intro_start_seconds"),
+        intro_end_seconds: row.get("intro_end_seconds"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }

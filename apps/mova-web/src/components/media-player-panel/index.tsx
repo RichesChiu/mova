@@ -38,7 +38,17 @@ interface MediaPlayerPanelProps {
     label: string
     mediaItemId: number
   }>
+  intro?: {
+    startSeconds: number
+    endSeconds: number
+  } | null
   mediaItemId: number
+  nextEpisode?: {
+    label: string
+    mediaItemId: number
+    seasonNumber: number
+    episodeNumber: number
+  } | null
   onSelectEpisode?: (mediaItemId: number) => void
   preferredMediaFileId?: number | null
   title: string
@@ -50,6 +60,21 @@ interface PendingPlaybackRestore {
   positionSeconds: number
   shouldAutoplay: boolean
   shouldPersistSelection: boolean
+}
+
+const isInteractiveKeyboardTarget = (target: EventTarget | null) => {
+  if (!(target instanceof HTMLElement)) {
+    return false
+  }
+
+  const tagName = target.tagName.toLowerCase()
+  return (
+    target.isContentEditable ||
+    tagName === 'button' ||
+    tagName === 'input' ||
+    tagName === 'select' ||
+    tagName === 'textarea'
+  )
 }
 
 const formatVideoMeta = (file: MediaFile) => {
@@ -410,7 +435,9 @@ export const buildPlaybackSourceErrorMessage = (video: HTMLVideoElement | null) 
 
 export const MediaPlayerPanel = ({
   episodeSwitchOptions = [],
+  intro = null,
   mediaItemId,
+  nextEpisode = null,
   onSelectEpisode,
   preferredMediaFileId = null,
   startMode = 'resume',
@@ -433,6 +460,7 @@ export const MediaPlayerPanel = ({
   const durationSecondsRef = useRef<number | null>(null)
   const restoredForFileRef = useRef<number | null>(null)
   const shouldHonorStartModeRef = useRef(startMode === 'from-start')
+  const shouldAutoplayOnLoadRef = useRef(true)
   const pendingPlaybackRestoreRef = useRef<PendingPlaybackRestore | null>(null)
   const lastReportedSecondsRef = useRef(-1)
   const hasSubmittedProgressRef = useRef(false)
@@ -457,6 +485,7 @@ export const MediaPlayerPanel = ({
   const [isSubtitleMenuOpen, setIsSubtitleMenuOpen] = useState(false)
   const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<number | null>(null)
   const [selectedSubtitleId, setSelectedSubtitleId] = useState<number | null>(null)
+  const [hasSkippedIntro, setHasSkippedIntro] = useState(false)
 
   const mediaFilesQuery = useQuery({
     queryKey: ['media-item-files', mediaItemId],
@@ -575,6 +604,7 @@ export const MediaPlayerPanel = ({
     if (mediaItemChanged) {
       pendingPlaybackRestoreRef.current = null
       pendingAudioTrackSwitchRef.current = null
+      shouldAutoplayOnLoadRef.current = true
 
       if (audioTrackNoticeTimeoutRef.current !== null) {
         window.clearTimeout(audioTrackNoticeTimeoutRef.current)
@@ -621,6 +651,7 @@ export const MediaPlayerPanel = ({
     setPositionSeconds(0)
     setDurationSeconds(selectedMediaFileId === null ? null : selectedMediaFileDuration)
     setIsPlaying(false)
+    setHasSkippedIntro(false)
     pendingAudioTrackSwitchRef.current = null
 
     if (audioTrackNoticeTimeoutRef.current !== null) {
@@ -959,6 +990,17 @@ export const MediaPlayerPanel = ({
       return
     }
 
+    const attemptAutoplay = () => {
+      if (!shouldAutoplayOnLoadRef.current) {
+        return
+      }
+
+      shouldAutoplayOnLoadRef.current = false
+      void video.play().catch((error) => {
+        setInteractionWarning(buildPlaybackInteractionWarningMessage(error))
+      })
+    }
+
     if (Number.isFinite(video.duration) && video.duration > 0) {
       setDurationSeconds(Math.round(video.duration))
     }
@@ -1007,6 +1049,7 @@ export const MediaPlayerPanel = ({
       setPositionSeconds(0)
       lastReportedSecondsRef.current = 0
       restoredForFileRef.current = selectedMediaFile.id
+      attemptAutoplay()
       return
     }
 
@@ -1017,6 +1060,7 @@ export const MediaPlayerPanel = ({
       playbackProgress.media_file_id !== selectedMediaFile.id ||
       playbackProgress.position_seconds <= 0
     ) {
+      attemptAutoplay()
       return
     }
 
@@ -1027,6 +1071,7 @@ export const MediaPlayerPanel = ({
     setPositionSeconds(Math.round(resumePosition))
     lastReportedSecondsRef.current = playbackProgress.position_seconds
     restoredForFileRef.current = selectedMediaFile.id
+    attemptAutoplay()
   }
 
   const handleTimeUpdate = () => {
@@ -1158,14 +1203,28 @@ export const MediaPlayerPanel = ({
   const playedProgressPercent = seekMax > 0 ? Math.min(100, (positionSeconds / seekMax) * 100) : 0
   const bufferedProgressPercent =
     seekMax > 0 ? Math.min(100, (Math.max(bufferedSeconds, positionSeconds) / seekMax) * 100) : 0
-  const shouldShowOverlay = shouldShowImmersiveOverlay({
-    hasInteractionWarning: interactionWarning !== null,
-    hasMultipleSources: mediaFiles.length > 1,
-    hasPlaybackSyncError: playbackSyncError !== null,
-    hasPlayerError: playerError !== null,
-    hasSubtitleWarning: subtitleWarning !== null,
-    isBuffering,
-  })
+  const canSkipIntro =
+    intro !== null &&
+    intro.endSeconds > intro.startSeconds &&
+    !hasSkippedIntro &&
+    positionSeconds >= intro.startSeconds &&
+    positionSeconds < intro.endSeconds
+  const shouldShowNextEpisodePrompt =
+    nextEpisode !== null &&
+    seekMax > 0 &&
+    !playerError &&
+    Math.max(0, seekMax - positionSeconds) <= 30
+  const shouldShowOverlay =
+    canSkipIntro ||
+    shouldShowNextEpisodePrompt ||
+    shouldShowImmersiveOverlay({
+      hasInteractionWarning: interactionWarning !== null,
+      hasMultipleSources: mediaFiles.length > 1,
+      hasPlaybackSyncError: playbackSyncError !== null,
+      hasPlayerError: playerError !== null,
+      hasSubtitleWarning: subtitleWarning !== null,
+      isBuffering,
+    })
   const shouldRenderAudioMenu =
     audioTracks.length > 1 || audioTracksQuery.isError || audioTracksQuery.isLoading
   const timelineStyle = {
@@ -1191,6 +1250,27 @@ export const MediaPlayerPanel = ({
     video.pause()
   }
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isInteractiveKeyboardTarget(event.target)) {
+        return
+      }
+
+      if (event.code !== 'Space' && event.key !== ' ') {
+        return
+      }
+
+      event.preventDefault()
+      void togglePlay()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
+
   const seekTo = (targetSeconds: number) => {
     const video = videoRef.current
     if (!video) {
@@ -1210,6 +1290,24 @@ export const MediaPlayerPanel = ({
     }
 
     seekTo(video.currentTime + deltaSeconds)
+  }
+
+  const skipIntro = () => {
+    if (!intro) {
+      return
+    }
+
+    setHasSkippedIntro(true)
+    seekTo(intro.endSeconds)
+  }
+
+  const goToNextEpisode = () => {
+    if (!nextEpisode || !onSelectEpisode) {
+      return
+    }
+
+    persistProgressBeforeSwitch()
+    onSelectEpisode(nextEpisode.mediaItemId)
   }
 
   const changeVolume = (nextVolume: number) => {
@@ -1299,6 +1397,20 @@ export const MediaPlayerPanel = ({
               {isImmersive && shouldShowOverlay ? (
                 <div className="player-panel__overlay">
                   <div className="player-panel__overlay-status">
+                    {canSkipIntro ? (
+                      <button className="player-panel__floating-action" onClick={skipIntro} type="button">
+                        Skip Intro
+                      </button>
+                    ) : null}
+                    {shouldShowNextEpisodePrompt ? (
+                      <button
+                        className="player-panel__floating-action player-panel__floating-action--accent"
+                        onClick={goToNextEpisode}
+                        type="button"
+                      >
+                        Next Episode
+                      </button>
+                    ) : null}
                     {isBuffering && !playerError ? (
                       <p className="player-panel__status-badge">
                         {audioTrackNotice ?? 'Buffering playback…'}
@@ -1426,6 +1538,17 @@ export const MediaPlayerPanel = ({
 
                   <div className="player-toolbar-cluster player-toolbar-cluster--right">
                     <div className="player-toolbar-pill">
+                      {nextEpisode && onSelectEpisode ? (
+                        <button
+                          aria-label={`Play next episode: ${nextEpisode.label}`}
+                          className="player-control-button player-control-button--toolbar"
+                          onClick={goToNextEpisode}
+                          type="button"
+                        >
+                          Next
+                        </button>
+                      ) : null}
+
                       {episodeSwitchOptions.length > 0 && onSelectEpisode ? (
                         <div
                           className={

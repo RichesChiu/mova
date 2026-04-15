@@ -107,6 +107,9 @@ export const MediaPlayerPage = () => {
   const currentSeason = outlineSeasons.find(
     (season) => season.season_number === playbackHeaderQuery.data.season_number,
   )
+  const currentEpisode = currentSeason?.episodes.find(
+    (episode) => episode.media_item_id === playbackHeaderQuery.data.media_item_id,
+  )
   const episodeSwitchOptions =
     currentSeason?.episodes
       .filter(
@@ -118,6 +121,33 @@ export const MediaPlayerPage = () => {
         label: `E${String(episode.episode_number).padStart(2, '0')} · ${episode.title}`,
         mediaItemId: episode.media_item_id as number,
       })) ?? []
+  const orderedPlayableEpisodes = outlineSeasons.flatMap((season) =>
+    season.episodes
+      .filter((episode) => episode.is_available && episode.media_item_id !== null)
+      .map((episode) => ({
+        seasonNumber: season.season_number,
+        episodeNumber: episode.episode_number,
+        label: `S${String(season.season_number).padStart(2, '0')} · E${String(episode.episode_number).padStart(2, '0')} · ${episode.title}`,
+        mediaItemId: episode.media_item_id as number,
+      })),
+  )
+  const currentEpisodeIndex = orderedPlayableEpisodes.findIndex(
+    (episode) => episode.mediaItemId === playbackHeaderQuery.data.media_item_id,
+  )
+  const nextEpisode =
+    currentEpisodeIndex >= 0 ? orderedPlayableEpisodes[currentEpisodeIndex + 1] ?? null : null
+  const intro =
+    currentEpisode &&
+    typeof (currentEpisode.intro_start_seconds ?? currentSeason?.intro_start_seconds) ===
+      'number' &&
+    typeof (currentEpisode.intro_end_seconds ?? currentSeason?.intro_end_seconds) === 'number'
+      ? {
+          startSeconds:
+            (currentEpisode.intro_start_seconds ?? currentSeason?.intro_start_seconds) as number,
+          endSeconds:
+            (currentEpisode.intro_end_seconds ?? currentSeason?.intro_end_seconds) as number,
+        }
+      : null
 
   return (
     <div className="player-screen">
@@ -166,7 +196,9 @@ export const MediaPlayerPage = () => {
       <main className="player-screen__viewport">
         <MediaPlayerPanel
           episodeSwitchOptions={episodeSwitchOptions}
+          intro={intro}
           mediaItemId={playbackHeaderQuery.data.media_item_id}
+          nextEpisode={nextEpisode}
           onSelectEpisode={(targetMediaItemId) => navigate(mediaItemPlayPath(targetMediaItemId))}
           preferredMediaFileId={Number.isFinite(requestedFileId) ? requestedFileId : null}
           startMode={startMode}

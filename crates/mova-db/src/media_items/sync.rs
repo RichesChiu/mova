@@ -1023,7 +1023,6 @@ mod tests {
             CreateLibraryParams {
                 name: "Movies".to_string(),
                 description: None,
-                library_type: "movie".to_string(),
                 metadata_language: "en-US".to_string(),
                 root_path: "/media/movies".to_string(),
                 is_enabled: true,
@@ -1088,7 +1087,6 @@ mod tests {
             CreateLibraryParams {
                 name: "Shows".to_string(),
                 description: None,
-                library_type: "series".to_string(),
                 metadata_language: "en-US".to_string(),
                 root_path: "/media/shows".to_string(),
                 is_enabled: true,
@@ -1164,7 +1162,6 @@ mod tests {
             CreateLibraryParams {
                 name: "Movies".to_string(),
                 description: None,
-                library_type: "movie".to_string(),
                 metadata_language: "en-US".to_string(),
                 root_path: "/media/movies".to_string(),
                 is_enabled: true,

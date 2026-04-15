@@ -818,6 +818,7 @@
 - 只有 `media_type = series` 的条目适用
 - 每条季记录会带 `episode_count`
 - `overview` 为该季简介（若已从 sidecar/TMDB 补齐）
+- 现在会返回 `intro_start_seconds` / `intro_end_seconds`，可作为该季默认片头区间
 - 现在会返回 `poster_path` / `backdrop_path`：
   - 本地文件会映射成 `/api/seasons/{id}/poster` 或 `/api/seasons/{id}/backdrop`
   - 远程图片（例如 TMDB）保持原始 URL
@@ -838,6 +839,7 @@
 - 返回的是该季下的聚合集列表
 - `media_item_id` 可继续用于详情、文件列表、播放进度和播放接口
 - `overview` 为该集简介（来自本地 sidecar 或 TMDB）
+- 现在会返回 `intro_start_seconds` / `intro_end_seconds`，可用于覆盖季级默认片头区间
 - 每集记录会返回 `poster_path` / `backdrop_path`（优先用集级图，缺失时可能为空）
 
 ### `GET /api/media-items/{id}/episode-outline`
@@ -859,12 +861,16 @@
   - `seasons[].overview`
   - `seasons[].poster_path`
   - `seasons[].backdrop_path`
+  - `seasons[].intro_start_seconds`
+  - `seasons[].intro_end_seconds`
   - `seasons[].episodes[]`
   - `seasons[].episodes[].episode_number`
   - `seasons[].episodes[].title`
   - `seasons[].episodes[].overview`
   - `seasons[].episodes[].poster_path`
   - `seasons[].episodes[].backdrop_path`
+  - `seasons[].episodes[].intro_start_seconds`
+  - `seasons[].episodes[].intro_end_seconds`
   - `seasons[].episodes[].media_item_id`（本地存在时有值）
   - `seasons[].episodes[].is_available`（本地存在时为 `true`）
 

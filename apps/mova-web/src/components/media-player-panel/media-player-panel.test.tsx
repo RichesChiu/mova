@@ -243,6 +243,140 @@ describe('MediaPlayerPanel', () => {
     expect(screen.queryByText('Loading player…')).toBeNull()
   })
 
+  it('starts playback automatically after the player metadata loads', async () => {
+    const { container } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel mediaItemId={31} title="Interstellar" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
+    const video = container.querySelector('video') as HTMLVideoElement
+    installVideoTestState(video)
+
+    fireEvent.loadedMetadata(video)
+
+    await waitFor(() => {
+      expect(video.play).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('toggles playback when pressing the space key', async () => {
+    const { container } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel mediaItemId={31} title="Interstellar" variant="immersive" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
+    const video = container.querySelector('video') as HTMLVideoElement
+    const videoState = installVideoTestState(video)
+
+    fireEvent.loadedMetadata(video)
+    await waitFor(() => {
+      expect(video.play).toHaveBeenCalledTimes(1)
+    })
+
+    vi.mocked(video.play).mockClear()
+
+    fireEvent.keyDown(window, { code: 'Space', key: ' ' })
+
+    expect(video.pause).toHaveBeenCalledTimes(1)
+
+    videoState.setPaused(true)
+    fireEvent.keyDown(window, { code: 'Space', key: ' ' })
+
+    await waitFor(() => {
+      expect(video.play).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('shows skip intro only inside the configured intro window', async () => {
+    const { container } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel
+          intro={{ startSeconds: 15, endSeconds: 75 }}
+          mediaItemId={31}
+          title="Interstellar"
+          variant="immersive"
+        />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
+    const video = container.querySelector('video') as HTMLVideoElement
+    const videoState = installVideoTestState(video)
+    fireEvent.loadedMetadata(video)
+
+    expect(screen.queryByRole('button', { name: 'Skip Intro' })).toBeNull()
+
+    videoState.setCurrentTime(20)
+    fireEvent.timeUpdate(video)
+
+    expect(screen.getByRole('button', { name: 'Skip Intro' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skip Intro' }))
+
+    expect(videoState.getCurrentTime()).toBe(75)
+    expect(screen.queryByRole('button', { name: 'Skip Intro' })).toBeNull()
+  })
+
+  it('shows next episode actions only when a next episode exists', async () => {
+    const onSelectEpisode = vi.fn()
+    const { container, rerender } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel
+          mediaItemId={31}
+          nextEpisode={{
+            label: 'S01 · E02 · Lazarus',
+            mediaItemId: 32,
+            seasonNumber: 1,
+            episodeNumber: 2,
+          }}
+          onSelectEpisode={onSelectEpisode}
+          title="Interstellar"
+          variant="immersive"
+        />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
+    const video = container.querySelector('video') as HTMLVideoElement
+    const videoState = installVideoTestState(video)
+    fireEvent.loadedMetadata(video)
+
+    expect(screen.getByRole('button', { name: /Play next episode/i })).toBeInTheDocument()
+
+    videoState.setCurrentTime(7172)
+    fireEvent.timeUpdate(video)
+
+    expect(screen.getAllByRole('button', { name: 'Next Episode' }).length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: /Play next episode/i }))
+    expect(onSelectEpisode).toHaveBeenCalledWith(32)
+
+    rerender(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel mediaItemId={31} title="Interstellar" variant="immersive" />
+      </QueryClientProvider>,
+    )
+
+    expect(screen.queryByRole('button', { name: /Play next episode/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Next Episode' })).toBeNull()
+  })
+
   it('migrates the playback position when switching to another source', async () => {
     clientMocks.listMediaItemFiles.mockResolvedValue([
       {

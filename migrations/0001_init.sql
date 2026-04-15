@@ -91,6 +91,8 @@ create table if not exists seasons (
     overview text,
     poster_path text,
     backdrop_path text,
+    intro_start_seconds integer,
+    intro_end_seconds integer,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
     unique(series_id, season_number)
@@ -105,10 +107,17 @@ create table if not exists episodes (
     season_id bigint not null references seasons(id) on delete cascade,
     episode_number integer not null,
     title varchar(255) not null,
+    intro_start_seconds integer,
+    intro_end_seconds integer,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
     unique(season_id, episode_number)
     );
+
+alter table seasons add column if not exists intro_start_seconds integer;
+alter table seasons add column if not exists intro_end_seconds integer;
+alter table episodes add column if not exists intro_start_seconds integer;
+alter table episodes add column if not exists intro_end_seconds integer;
 
 create index if not exists idx_episodes_series_id on episodes(series_id);
 create index if not exists idx_episodes_season_id on episodes(season_id);

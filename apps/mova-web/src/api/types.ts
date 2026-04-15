@@ -111,6 +111,8 @@ export interface Season {
   overview: string | null
   poster_path: string | null
   backdrop_path: string | null
+  intro_start_seconds: number | null
+  intro_end_seconds: number | null
   episode_count: number
   created_at: string
   updated_at: string
@@ -126,6 +128,8 @@ export interface Episode {
   overview: string | null
   poster_path: string | null
   backdrop_path: string | null
+  intro_start_seconds: number | null
+  intro_end_seconds: number | null
   created_at: string
   updated_at: string
 }
@@ -142,6 +146,8 @@ export interface EpisodeOutlineSeason {
   overview: string | null
   poster_path: string | null
   backdrop_path: string | null
+  intro_start_seconds: number | null
+  intro_end_seconds: number | null
   episodes: EpisodeOutlineEpisode[]
 }
 
@@ -151,6 +157,8 @@ export interface EpisodeOutlineEpisode {
   overview: string | null
   poster_path: string | null
   backdrop_path: string | null
+  intro_start_seconds: number | null
+  intro_end_seconds: number | null
   media_item_id: number | null
   is_available: boolean
   playback_progress: EpisodeOutlinePlaybackProgress | null
