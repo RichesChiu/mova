@@ -205,7 +205,6 @@ mod tests {
             mova_db::CreateLibraryParams {
                 name: name.to_string(),
                 description: None,
-                library_type: "movie".to_string(),
                 metadata_language: "zh-CN".to_string(),
                 root_path: format!("/media/{}", name.to_lowercase()),
                 is_enabled: true,
