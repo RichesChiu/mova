@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import {
   createLibrary,
@@ -24,6 +24,7 @@ import { ConfirmActionModal } from '../../components/confirm-action-modal'
 import { CreateLibraryModal } from '../../components/create-library-modal'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { SettingsGearIcon } from '../../components/settings-gear-icon'
+import { StatusPill } from '../../components/status-pill'
 import { UserEditorModal } from '../../components/user-editor-modal'
 import {
   buildCreatedLibraryCacheState,
@@ -38,7 +39,6 @@ import {
   getScanStatusLabel,
   getScanStatusSummary,
   getScanStatusTone,
-  getUserLibraryAccessSummary,
 } from '../../lib/settings-admin'
 import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
 
@@ -65,14 +65,11 @@ const SettingsUserCardSkeleton = () => (
         <div className="settings-user-card__controls">
           <span className="settings-user-card__control settings-user-card__control--toggle skeleton-shimmer" />
           <span className="settings-user-card__control settings-user-card__control--icon skeleton-shimmer" />
+          <span className="settings-user-card__control settings-user-card__control--icon skeleton-shimmer" />
         </div>
       </div>
 
       <span className="settings-user-card__line settings-user-card__line--access skeleton-shimmer" />
-    </div>
-
-    <div className="settings-user-card__actions">
-      <span className="settings-user-card__button skeleton-shimmer" />
     </div>
   </article>
 )
@@ -113,8 +110,11 @@ export const SettingsPage = () => {
   const [isCreateUserOpen, setIsCreateUserOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null)
   const [editingLibrary, setEditingLibrary] = useState<Library | null>(null)
+  const [accessEditorUserId, setAccessEditorUserId] = useState<number | null>(null)
+  const [accessEditorLibraryIds, setAccessEditorLibraryIds] = useState<number[]>([])
   const [pendingConfirmation, setPendingConfirmation] =
     useState<PendingSettingsConfirmation | null>(null)
+  const accessEditorRef = useRef<HTMLDivElement | null>(null)
   const usersQuery = useQuery<UserAccount[]>({
     enabled: currentUser.role === 'admin',
     queryKey: ['users'],
@@ -352,6 +352,32 @@ export const SettingsPage = () => {
     libraries.map((library, index) => [library.id, libraryDetailQueries[index]?.data ?? null]),
   )
 
+  useEffect(() => {
+    if (accessEditorUserId === null) {
+      return
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!accessEditorRef.current?.contains(event.target as Node)) {
+        setAccessEditorUserId(null)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAccessEditorUserId(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [accessEditorUserId])
+
   return (
     <div className="settings-shell">
       <section className="settings-hero">
@@ -409,9 +435,16 @@ export const SettingsPage = () => {
 
           {!shouldShowUserSkeleton
             ? users.map((user) => {
-                const libraryAccessSummary = getUserLibraryAccessSummary(user, libraries)
+                const accessibleLibraries =
+                  user.role === 'admin'
+                    ? []
+                    : libraries.filter((library) => user.library_ids.includes(library.id))
+                const previewLibraries = accessibleLibraries.slice(0, 6)
+                const hasAccessOverflow = accessibleLibraries.length > previewLibraries.length
                 const displayName = getUserDisplayName(user)
                 const showUsername = displayName !== user.username
+                const roleLabel = user.role === 'admin' ? 'Administrator' : 'Member'
+                const isAccessEditorOpen = accessEditorUserId === user.id
 
                 return (
                   <article className="settings-user-card" key={user.id}>
@@ -423,13 +456,11 @@ export const SettingsPage = () => {
                       <div className="settings-user-card__header">
                         <div>
                           <strong>{displayName}</strong>
-                          <p className="muted">
-                            {showUsername ? `@${user.username} · ` : ''}
-                            {user.role === 'admin' ? 'Administrator' : 'Viewer'}
-                          </p>
+                          {showUsername ? <p className="muted">@{user.username}</p> : null}
                         </div>
 
                         <div className="settings-user-card__controls">
+                          <StatusPill status={roleLabel} />
                           {user.role === 'viewer' ? (
                             <label className="settings-user-card__switch">
                               <input
@@ -443,8 +474,15 @@ export const SettingsPage = () => {
                                 }
                                 type="checkbox"
                               />
-                              <span className="settings-user-card__switch-track" />
-                            </label>
+                                <span className="settings-user-card__switch-track">
+                                  <span className="settings-user-card__switch-copy settings-user-card__switch-copy--off">
+                                  Off
+                                  </span>
+                                  <span className="settings-user-card__switch-copy settings-user-card__switch-copy--on">
+                                  On
+                                  </span>
+                                </span>
+                              </label>
                           ) : null}
 
                           {user.role === 'viewer' ? (
@@ -477,33 +515,151 @@ export const SettingsPage = () => {
                               </svg>
                             </button>
                           ) : null}
+
+                          {user.id !== currentUser.id ? (
+                            <button
+                              aria-label={`Delete ${user.username}`}
+                              className="settings-user-card__delete-icon"
+                              disabled={deleteUserMutation.isPending}
+                              onClick={() => {
+                                deleteUserMutation.reset()
+                                setPendingConfirmation({
+                                  kind: 'delete-user',
+                                  user,
+                                })
+                              }}
+                              type="button"
+                            >
+                              <svg
+                                aria-hidden="true"
+                                fill="none"
+                                focusable="false"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  d="M9 4.5H15M5.5 7H18.5M8 7V18.5C8 19.05 8.45 19.5 9 19.5H15C15.55 19.5 16 19.05 16 18.5V7M10.5 10.5V16M13.5 10.5V16"
+                                  stroke="currentColor"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth="1.7"
+                                />
+                              </svg>
+                            </button>
+                          ) : null}
                         </div>
                       </div>
 
-                      {libraryAccessSummary ? (
-                        <p className="settings-user-card__access">{libraryAccessSummary}</p>
-                      ) : null}
-                    </div>
+                      <div className="settings-user-card__access">
+                        <span className="settings-user-card__access-label">Library Access</span>
+                        {user.role === 'admin' ? (
+                          <div className="settings-user-card__access-tags">
+                            <span className="chip">All Libraries</span>
+                          </div>
+                        ) : (
+                          <div
+                            className={
+                              isAccessEditorOpen
+                                ? 'settings-user-card__access-shell settings-user-card__access-shell--open'
+                                : 'settings-user-card__access-shell'
+                            }
+                            ref={isAccessEditorOpen ? accessEditorRef : null}
+                          >
+                            <button
+                              aria-expanded={isAccessEditorOpen}
+                              className="settings-user-card__access-trigger"
+                              onClick={() => {
+                                if (isAccessEditorOpen) {
+                                  setAccessEditorUserId(null)
+                                  return
+                                }
 
-                    <div className="settings-user-card__actions">
-                      {user.id !== currentUser.id ? (
-                        <button
-                          className="button button--danger settings-user-card__delete"
-                          disabled={deleteUserMutation.isPending}
-                          onClick={() => {
-                            deleteUserMutation.reset()
-                            setPendingConfirmation({
-                              kind: 'delete-user',
-                              user,
-                            })
-                          }}
-                          type="button"
-                        >
-                          {deleteUserMutation.isPending && deleteUserMutation.variables === user.id
-                            ? 'Deleting…'
-                            : 'Delete'}
-                        </button>
-                      ) : null}
+                                setAccessEditorUserId(user.id)
+                                setAccessEditorLibraryIds(user.library_ids)
+                              }}
+                              type="button"
+                            >
+                              <div className="settings-user-card__access-tags settings-user-card__access-tags--preview">
+                                {previewLibraries.length > 0 ? (
+                                  previewLibraries.map((library) => (
+                                    <span className="chip" key={library.id}>
+                                      {library.name}
+                                    </span>
+                                  ))
+                                ) : (
+                                  <span className="chip">Unassigned</span>
+                                )}
+                                {hasAccessOverflow ? <span className="chip">…</span> : null}
+                              </div>
+                            </button>
+
+                            {isAccessEditorOpen ? (
+                              <div className="settings-user-card__access-popover" role="dialog">
+                                <div className="settings-user-card__access-popover-header">
+                                  <strong>Library Access</strong>
+                                  <span className="muted">Edit the full library list here.</span>
+                                </div>
+
+                                <div className="settings-user-card__access-popover-list">
+                                  {libraries.map((library) => {
+                                    const checked = accessEditorLibraryIds.includes(library.id)
+
+                                    return (
+                                      <label
+                                        className="settings-user-card__access-option"
+                                        key={library.id}
+                                      >
+                                        <span>{library.name}</span>
+                                        <input
+                                          checked={checked}
+                                          className="settings-user-card__access-option-checkbox"
+                                          onChange={() =>
+                                            setAccessEditorLibraryIds((current) =>
+                                              current.includes(library.id)
+                                                ? current.filter((value) => value !== library.id)
+                                                : [...current, library.id],
+                                            )
+                                          }
+                                          type="checkbox"
+                                        />
+                                      </label>
+                                    )
+                                  })}
+                                </div>
+
+                                <div className="settings-user-card__access-popover-footer">
+                                  <button
+                                    className="button"
+                                    onClick={() => setAccessEditorUserId(null)}
+                                    type="button"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    className="button button--primary"
+                                    disabled={updateUserMutation.isPending}
+                                    onClick={() =>
+                                      updateUserMutation.mutate(
+                                        {
+                                          userId: user.id,
+                                          input: { library_ids: accessEditorLibraryIds },
+                                        },
+                                        {
+                                          onSuccess: () => {
+                                            setAccessEditorUserId(null)
+                                          },
+                                        },
+                                      )
+                                    }
+                                    type="button"
+                                  >
+                                    Save
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </article>
                 )

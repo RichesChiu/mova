@@ -7,9 +7,12 @@ description: Work inside the Mova self-hosted media server repository. Use when 
 
 Use this skill for work in the current Mova repository.
 
+`AGENTS.md` defines the repo's highest-priority collaboration rules. This skill should focus on execution details and should not restate policy unless needed for clarity.
+
 ## Minimal Read Order
 
-- Start with `README.md`
+- Start with `AGENTS.md`
+- Then read `README.md`
 - Then read `docs/API.md`
 - Then read `docs/ROADMAP.md`
 - Read area docs only if needed:
@@ -24,6 +27,14 @@ Use this skill for work in the current Mova repository.
 - Library watcher is intentionally removed
 - New libraries auto-scan once after creation when enabled
 - New, renamed, moved, or deleted files are reconciled by manual `Scan Library`
+
+## Database Change Rule
+
+- Editing `migrations/0001_init.sql` does not update existing databases that already applied the migration
+- For schema changes, be explicit about which path is being used:
+  - add a new migration for existing-database compatibility
+  - or require a database rebuild / reset when the project is in destructive pre-1.0 cleanup mode
+- If the change requires rebuilding `data/postgres` or reinitializing the database, say so clearly in the final explanation
 
 ## Backend Rules
 
@@ -52,9 +63,15 @@ Use this skill for work in the current Mova repository.
 ## Validation
 
 - Frontend: run the relevant `biome check`, `tsc -b --pretty false`, and `vite build`
-- Backend: run targeted `cargo check -p ...` and focused tests
+- Backend: prefer Docker-first targeted `cargo check -p ...` and focused tests
 - If an API change affects the frontend, validate both sides
 - Do not claim runtime behavior unless it was actually exercised
+
+## Scope Of This Skill
+
+- Use this file for codebase map, execution flow, validation, and repo-specific implementation habits.
+- Do not use this file as a second roadmap or a second product spec.
+- Keep stable collaboration policy in `AGENTS.md` and evolving product direction in `docs/ROADMAP.md`.
 
 ## Markdown Sync
 

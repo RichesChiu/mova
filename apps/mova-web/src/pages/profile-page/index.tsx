@@ -15,7 +15,7 @@ export const ProfilePage = () => {
   const [nicknameDraft, setNicknameDraft] = useState(currentUser.nickname)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const nicknameInputRef = useRef<HTMLInputElement | null>(null)
-  const roleLabel = currentUser.role === 'admin' ? 'Administrator' : 'Viewer'
+  const roleLabel = currentUser.role === 'admin' ? 'Administrator' : 'Member'
   const nickname = getUserDisplayName(currentUser)
 
   useEffect(() => {

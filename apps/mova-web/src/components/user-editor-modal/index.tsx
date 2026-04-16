@@ -23,8 +23,8 @@ interface UserEditorModalProps {
 }
 
 const roleOptions = [
-  { label: 'Viewer', value: 'viewer' },
-  { label: 'Admin', value: 'admin' },
+  { label: 'Member', value: 'viewer' },
+  { label: 'Administrator', value: 'admin' },
 ]
 
 const avatarInitial = (username: string) => username.trim().charAt(0).toUpperCase() || 'U'
@@ -281,13 +281,16 @@ export const UserEditorModal = ({
 
                     return (
                       <label className="user-editor-modal__access-chip" key={library.id}>
-                        <input
-                          checked={checked}
-                          onChange={() => toggleLibrary(library.id)}
-                          type="checkbox"
-                        />
-                        <span>{library.name}</span>
-                        <small>Auto detect</small>
+                        <span className="user-editor-modal__access-chip-title">{library.name}</span>
+                        <span className="user-editor-modal__access-chip-footer">
+                          <input
+                            aria-label={`${checked ? 'Remove' : 'Grant'} access to ${library.name}`}
+                            className="user-editor-modal__access-checkbox"
+                            checked={checked}
+                            onChange={() => toggleLibrary(library.id)}
+                            type="checkbox"
+                          />
+                        </span>
                       </label>
                     )
                   })}

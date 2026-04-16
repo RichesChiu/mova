@@ -119,10 +119,11 @@
 }
 
 .user-editor-modal__access-chip {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 6px 10px;
+  display: flex;
+  min-height: 92px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
   padding: 12px 14px;
   border: 1px solid var(--panel-border);
   border-radius: 16px;
@@ -130,13 +131,76 @@
   box-shadow: var(--panel-shadow);
 }
 
-.user-editor-modal__access-chip span,
-.user-editor-modal__access-chip small {
-  grid-column: 2;
+.user-editor-modal__access-chip-title {
+  font-weight: 600;
+  line-height: 1.35;
 }
 
-.user-editor-modal__access-chip small {
-  color: var(--text-soft);
+.user-editor-modal__access-chip-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.user-editor-modal__access-checkbox {
+  width: 19px;
+  min-width: 19px;
+  height: 19px;
+  min-height: 19px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 20px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.field .user-editor-modal__access-checkbox {
+  min-height: 19px;
+  padding: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 20px rgba(0, 0, 0, 0.18);
+}
+
+.user-editor-modal__access-checkbox:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+}
+
+.user-editor-modal__access-checkbox:checked {
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+  background:
+    linear-gradient(135deg, rgba(120, 195, 143, 0.96), rgba(74, 164, 102, 0.94));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 12px 24px rgba(48, 116, 70, 0.26);
+}
+
+.user-editor-modal__access-checkbox:checked::after {
+  content: '';
+  display: block;
+  width: 5px;
+  height: 10px;
+  margin: 1px 0 0 5px;
+  border: solid rgba(255, 255, 255, 0.96);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.user-editor-modal__access-checkbox:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 54%, transparent);
+  outline-offset: 2px;
 }
 
 .user-editor-modal__footer {
