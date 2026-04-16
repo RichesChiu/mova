@@ -61,6 +61,16 @@ const EPISODE_SKELETONS = [
   { metaLabel: 'S01 · E04', placeholderLabel: '1-4' },
 ] as const
 
+const GENERATED_EPISODE_STILL_SEGMENT = '/generated/episode-stills/'
+
+function preferHeroArtwork(path: string | null | undefined): string | null {
+  if (!path) {
+    return null
+  }
+
+  return path.includes(GENERATED_EPISODE_STILL_SEGMENT) ? null : path
+}
+
 const SeasonBlock = ({
   scanItems,
   season,
@@ -402,13 +412,15 @@ export const MediaItemPage = () => {
           : moviePlaybackProgressQuery.data,
       )
     : null
+  const seasonHeroPosterPath = preferHeroArtwork(selectedSeason?.poster_path)
+  const seasonHeroBackdropPath = preferHeroArtwork(selectedSeason?.backdrop_path)
   const heroPosterPath =
     isSeriesView && selectedSeason
-      ? (selectedSeason.poster_path ?? mediaItemQuery.data?.poster_path ?? null)
+      ? (seasonHeroPosterPath ?? mediaItemQuery.data?.poster_path ?? null)
       : (mediaItemQuery.data?.poster_path ?? null)
   const heroBackdropPath =
     isSeriesView && selectedSeason
-      ? (selectedSeason.backdrop_path ?? mediaItemQuery.data?.backdrop_path ?? null)
+      ? (seasonHeroBackdropPath ?? mediaItemQuery.data?.backdrop_path ?? null)
       : (mediaItemQuery.data?.backdrop_path ?? null)
   const heroBackgroundImage = heroBackdropPath ?? heroPosterPath
   const heroAccentImage = heroPosterPath ?? heroBackdropPath

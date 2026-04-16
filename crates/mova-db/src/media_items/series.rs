@@ -277,14 +277,8 @@ async fn upsert_season(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| format!("Season {:02}", season_number));
-    let poster_path = entry
-        .season_poster_path
-        .as_ref()
-        .or(entry.poster_path.as_ref());
-    let backdrop_path = entry
-        .season_backdrop_path
-        .as_ref()
-        .or(entry.backdrop_path.as_ref());
+    let poster_path = entry.season_poster_path.as_ref();
+    let backdrop_path = entry.season_backdrop_path.as_ref();
     let row = sqlx::query(
         r#"
         insert into seasons (

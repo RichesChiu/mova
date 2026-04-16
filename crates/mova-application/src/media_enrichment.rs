@@ -113,10 +113,6 @@ impl MetadataEnrichmentContext {
 
         self.cache_file_artwork(file).await;
 
-        if lookup_type.eq_ignore_ascii_case("series") {
-            self.ensure_local_episode_artwork(file).await;
-        }
-
         on_progress(MetadataEnrichmentStage::Completed, file);
     }
 
@@ -339,34 +335,6 @@ impl MetadataEnrichmentContext {
             }
         }
     }
-
-    async fn ensure_local_episode_artwork(&mut self, file: &mut DiscoveredMediaFile) {
-        let poster_is_local = file
-            .poster_path
-            .as_deref()
-            .is_some_and(|value| !is_external_url(value));
-        let backdrop_is_local = file
-            .backdrop_path
-            .as_deref()
-            .is_some_and(|value| !is_external_url(value));
-        let season_poster_is_external = file
-            .season_poster_path
-            .as_deref()
-            .is_some_and(is_external_url);
-        let season_backdrop_is_external = file
-            .season_backdrop_path
-            .as_deref()
-            .is_some_and(is_external_url);
-
-        if (file.season_poster_path.is_none() || season_poster_is_external) && poster_is_local {
-            file.season_poster_path = file.poster_path.clone();
-        }
-        if (file.season_backdrop_path.is_none() || season_backdrop_is_external) && backdrop_is_local
-        {
-            file.season_backdrop_path = file.backdrop_path.clone();
-        }
-    }
-
     async fn cache_file_artwork(&mut self, file: &mut DiscoveredMediaFile) {
         if let Some(series_poster_path) = file.series_poster_path.clone() {
             if let Some(cached_path) = self
@@ -723,63 +691,6 @@ mod tests {
             Some("/media/Season 01/E01-poster.jpg"),
             is_generic_poster_artwork_path
         ));
-    }
-
-    #[tokio::test]
-    async fn ensure_local_episode_artwork_preserves_cached_episode_artwork() {
-        let mut context = MetadataEnrichmentContext::new(
-            PathBuf::from("/tmp/mova-cache"),
-            Arc::new(NullMetadataProvider),
-            "zh-CN".to_string(),
-        );
-        let mut file = build_discovered_episode();
-        file.poster_path = Some("/tmp/mova-cache/tmdb/poster/episode.jpg".to_string());
-        file.backdrop_path = Some("/tmp/mova-cache/tmdb/backdrop/episode.jpg".to_string());
-
-        context.ensure_local_episode_artwork(&mut file).await;
-
-        assert_eq!(
-            file.poster_path.as_deref(),
-            Some("/tmp/mova-cache/tmdb/poster/episode.jpg")
-        );
-        assert_eq!(
-            file.backdrop_path.as_deref(),
-            Some("/tmp/mova-cache/tmdb/backdrop/episode.jpg")
-        );
-        assert_eq!(
-            file.season_poster_path.as_deref(),
-            Some("/tmp/mova-cache/tmdb/poster/episode.jpg")
-        );
-        assert_eq!(
-            file.season_backdrop_path.as_deref(),
-            Some("/tmp/mova-cache/tmdb/backdrop/episode.jpg")
-        );
-    }
-
-    #[tokio::test]
-    async fn ensure_local_episode_artwork_replaces_external_season_artwork_with_local_paths() {
-        let mut context = MetadataEnrichmentContext::new(
-            PathBuf::from("/tmp/mova-cache"),
-            Arc::new(NullMetadataProvider),
-            "zh-CN".to_string(),
-        );
-        let mut file = build_discovered_episode();
-        file.poster_path = Some("/tmp/mova-cache/tmdb/poster/episode.jpg".to_string());
-        file.backdrop_path = Some("/tmp/mova-cache/tmdb/backdrop/episode.jpg".to_string());
-        file.season_poster_path = Some("https://image.tmdb.org/t/p/original/season.jpg".to_string());
-        file.season_backdrop_path =
-            Some("https://image.tmdb.org/t/p/original/season-backdrop.jpg".to_string());
-
-        context.ensure_local_episode_artwork(&mut file).await;
-
-        assert_eq!(
-            file.season_poster_path.as_deref(),
-            Some("/tmp/mova-cache/tmdb/poster/episode.jpg")
-        );
-        assert_eq!(
-            file.season_backdrop_path.as_deref(),
-            Some("/tmp/mova-cache/tmdb/backdrop/episode.jpg")
-        );
     }
 
     fn build_discovered_episode() -> DiscoveredMediaFile {
