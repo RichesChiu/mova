@@ -1,7 +1,7 @@
 # Mova MVP 部署与升级说明
 
 这份文档只描述当前 MVP 阶段最实用的部署方式：单机、`docker compose`、本地媒体目录挂载。  
-如果你要看接口细节，见 [`./API.md`](./API.md)；如果你要看功能现状和后续缺口，见 [`./ROADMAP.md`](./ROADMAP.md)。
+如果你要看接口细节，见 [`./API.md`](./API.md)；如果你要看当前产品范围和能力说明，见 [`../README.md`](../README.md)。
 
 ## 1. 前提
 

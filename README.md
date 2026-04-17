@@ -127,7 +127,6 @@ http://192.168.50.3:36080
 
 - 产品和启动入口看这里
 - API 和 SSE 契约看 `docs/API.md`
-- 功能现状、MVP 缺口和后续开发顺序看 `docs/ROADMAP.md`
 - MVP 阶段的部署和升级步骤看 `docs/DEPLOYMENT.md`
 - 前端实现细节看 `apps/mova-web/README.md`
 - 后端实现细节看 `apps/mova-server/README.md`
@@ -138,9 +137,7 @@ http://192.168.50.3:36080
 ### 顶层文档
 
 - 接口说明：[docs/API.md](docs/API.md)
-- 功能现状与开发路线：[docs/ROADMAP.md](docs/ROADMAP.md)
 - MVP 部署与升级说明：[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
-- 工程结构与重构建议：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ### 应用文档
 

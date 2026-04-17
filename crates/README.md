@@ -18,5 +18,4 @@
 如果你想看系统层面的接口和路线：
 
 - API 契约：[`../docs/API.md`](../docs/API.md)
-- 开发路线：[`../docs/ROADMAP.md`](../docs/ROADMAP.md)
-- 结构建议：[`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md)
+- MVP 部署说明：[`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md)
