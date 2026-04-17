@@ -151,7 +151,7 @@ export const GlassSelect = ({
       {isOpen && menuStyle
         ? createPortal(
             <div
-              className="glass-select__menu glass-select__menu--portal"
+              className="glass-select__menu glass-select__menu--portal glass-popover-surface"
               ref={menuRef}
               role="listbox"
               style={{

@@ -144,11 +144,15 @@ export const MetadataMatchPanel = ({
             <div className="metadata-match-modal">
               <button
                 aria-label="Close metadata match dialog"
-                className="metadata-match-modal__backdrop"
+                className="metadata-match-modal__backdrop glass-overlay-backdrop"
                 onClick={() => setIsOpen(false)}
                 type="button"
               />
-              <div aria-modal="true" className="metadata-match-modal__surface" role="dialog">
+              <div
+                aria-modal="true"
+                className="metadata-match-modal__surface glass-modal-surface"
+                role="dialog"
+              >
                 <div className="metadata-match-modal__header">
                   <div>
                     <h3>Search and Replace Metadata</h3>

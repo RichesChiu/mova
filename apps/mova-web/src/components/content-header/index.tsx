@@ -121,7 +121,9 @@ export const ContentHeader = ({
 
           <div
             className={
-              isUserMenuOpen ? 'toolbar-user__menu toolbar-user__menu--open' : 'toolbar-user__menu'
+              isUserMenuOpen
+                ? 'toolbar-user__menu toolbar-user__menu--open glass-popover-surface'
+                : 'toolbar-user__menu glass-popover-surface'
             }
             role="menu"
           >

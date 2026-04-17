@@ -150,12 +150,16 @@ export const UserEditorModal = ({
     <div className="user-editor-modal">
       <button
         aria-label="Close user editor dialog"
-        className="user-editor-modal__backdrop"
+        className="user-editor-modal__backdrop glass-overlay-backdrop"
         onClick={onClose}
         type="button"
       />
 
-      <div aria-modal="true" className="user-editor-modal__surface" role="dialog">
+      <div
+        aria-modal="true"
+        className="user-editor-modal__surface glass-modal-surface"
+        role="dialog"
+      >
         <div className="user-editor-modal__header">
           <div className="user-editor-modal__identity">
             <div className="user-editor-modal__avatar">
@@ -281,16 +285,14 @@ export const UserEditorModal = ({
 
                     return (
                       <label className="user-editor-modal__access-chip" key={library.id}>
+                        <input
+                          aria-label={`${checked ? 'Remove' : 'Grant'} access to ${library.name}`}
+                          className="user-editor-modal__access-checkbox"
+                          checked={checked}
+                          onChange={() => toggleLibrary(library.id)}
+                          type="checkbox"
+                        />
                         <span className="user-editor-modal__access-chip-title">{library.name}</span>
-                        <span className="user-editor-modal__access-chip-footer">
-                          <input
-                            aria-label={`${checked ? 'Remove' : 'Grant'} access to ${library.name}`}
-                            className="user-editor-modal__access-checkbox"
-                            checked={checked}
-                            onChange={() => toggleLibrary(library.id)}
-                            type="checkbox"
-                          />
-                        </span>
                       </label>
                     )
                   })}

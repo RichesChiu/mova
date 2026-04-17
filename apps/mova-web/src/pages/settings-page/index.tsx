@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import {
   createLibrary,
@@ -68,8 +68,6 @@ const SettingsUserCardSkeleton = () => (
           <span className="settings-user-card__control settings-user-card__control--icon skeleton-shimmer" />
         </div>
       </div>
-
-      <span className="settings-user-card__line settings-user-card__line--access skeleton-shimmer" />
     </div>
   </article>
 )
@@ -110,11 +108,8 @@ export const SettingsPage = () => {
   const [isCreateUserOpen, setIsCreateUserOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null)
   const [editingLibrary, setEditingLibrary] = useState<Library | null>(null)
-  const [accessEditorUserId, setAccessEditorUserId] = useState<number | null>(null)
-  const [accessEditorLibraryIds, setAccessEditorLibraryIds] = useState<number[]>([])
   const [pendingConfirmation, setPendingConfirmation] =
     useState<PendingSettingsConfirmation | null>(null)
-  const accessEditorRef = useRef<HTMLDivElement | null>(null)
   const usersQuery = useQuery<UserAccount[]>({
     enabled: currentUser.role === 'admin',
     queryKey: ['users'],
@@ -352,32 +347,6 @@ export const SettingsPage = () => {
     libraries.map((library, index) => [library.id, libraryDetailQueries[index]?.data ?? null]),
   )
 
-  useEffect(() => {
-    if (accessEditorUserId === null) {
-      return
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!accessEditorRef.current?.contains(event.target as Node)) {
-        setAccessEditorUserId(null)
-      }
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setAccessEditorUserId(null)
-      }
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    window.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [accessEditorUserId])
-
   return (
     <div className="settings-shell">
       <section className="settings-hero">
@@ -390,7 +359,7 @@ export const SettingsPage = () => {
         </div>
       </section>
 
-      <section className="settings-section">
+      <section className="settings-section settings-section--users">
         <div className="section-heading">
           <div>
             <h3>User Management</h3>
@@ -435,16 +404,9 @@ export const SettingsPage = () => {
 
           {!shouldShowUserSkeleton
             ? users.map((user) => {
-                const accessibleLibraries =
-                  user.role === 'admin'
-                    ? []
-                    : libraries.filter((library) => user.library_ids.includes(library.id))
-                const previewLibraries = accessibleLibraries.slice(0, 6)
-                const hasAccessOverflow = accessibleLibraries.length > previewLibraries.length
                 const displayName = getUserDisplayName(user)
                 const showUsername = displayName !== user.username
                 const roleLabel = user.role === 'admin' ? 'Administrator' : 'Member'
-                const isAccessEditorOpen = accessEditorUserId === user.id
 
                 return (
                   <article className="settings-user-card" key={user.id}>
@@ -454,13 +416,15 @@ export const SettingsPage = () => {
 
                     <div className="settings-user-card__body">
                       <div className="settings-user-card__header">
-                        <div>
+                        <div className="settings-user-card__identity">
                           <strong>{displayName}</strong>
                           {showUsername ? <p className="muted">@{user.username}</p> : null}
+                          <div className="settings-user-card__identity-meta">
+                            <StatusPill status={roleLabel} />
+                          </div>
                         </div>
 
-                        <div className="settings-user-card__controls">
-                          <StatusPill status={roleLabel} />
+                        <div className="settings-user-card__toolbar">
                           {user.role === 'viewer' ? (
                             <label className="settings-user-card__switch">
                               <input
@@ -474,15 +438,15 @@ export const SettingsPage = () => {
                                 }
                                 type="checkbox"
                               />
-                                <span className="settings-user-card__switch-track">
-                                  <span className="settings-user-card__switch-copy settings-user-card__switch-copy--off">
+                              <span className="settings-user-card__switch-track">
+                                <span className="settings-user-card__switch-copy settings-user-card__switch-copy--off">
                                   Off
-                                  </span>
-                                  <span className="settings-user-card__switch-copy settings-user-card__switch-copy--on">
-                                  On
-                                  </span>
                                 </span>
-                              </label>
+                                <span className="settings-user-card__switch-copy settings-user-card__switch-copy--on">
+                                  On
+                                </span>
+                              </span>
+                            </label>
                           ) : null}
 
                           {user.role === 'viewer' ? (
@@ -548,118 +512,6 @@ export const SettingsPage = () => {
                           ) : null}
                         </div>
                       </div>
-
-                      <div className="settings-user-card__access">
-                        <span className="settings-user-card__access-label">Library Access</span>
-                        {user.role === 'admin' ? (
-                          <div className="settings-user-card__access-tags">
-                            <span className="chip">All Libraries</span>
-                          </div>
-                        ) : (
-                          <div
-                            className={
-                              isAccessEditorOpen
-                                ? 'settings-user-card__access-shell settings-user-card__access-shell--open'
-                                : 'settings-user-card__access-shell'
-                            }
-                            ref={isAccessEditorOpen ? accessEditorRef : null}
-                          >
-                            <button
-                              aria-expanded={isAccessEditorOpen}
-                              className="settings-user-card__access-trigger"
-                              onClick={() => {
-                                if (isAccessEditorOpen) {
-                                  setAccessEditorUserId(null)
-                                  return
-                                }
-
-                                setAccessEditorUserId(user.id)
-                                setAccessEditorLibraryIds(user.library_ids)
-                              }}
-                              type="button"
-                            >
-                              <div className="settings-user-card__access-tags settings-user-card__access-tags--preview">
-                                {previewLibraries.length > 0 ? (
-                                  previewLibraries.map((library) => (
-                                    <span className="chip" key={library.id}>
-                                      {library.name}
-                                    </span>
-                                  ))
-                                ) : (
-                                  <span className="chip">Unassigned</span>
-                                )}
-                                {hasAccessOverflow ? <span className="chip">…</span> : null}
-                              </div>
-                            </button>
-
-                            {isAccessEditorOpen ? (
-                              <div className="settings-user-card__access-popover" role="dialog">
-                                <div className="settings-user-card__access-popover-header">
-                                  <strong>Library Access</strong>
-                                  <span className="muted">Edit the full library list here.</span>
-                                </div>
-
-                                <div className="settings-user-card__access-popover-list">
-                                  {libraries.map((library) => {
-                                    const checked = accessEditorLibraryIds.includes(library.id)
-
-                                    return (
-                                      <label
-                                        className="settings-user-card__access-option"
-                                        key={library.id}
-                                      >
-                                        <span>{library.name}</span>
-                                        <input
-                                          checked={checked}
-                                          className="settings-user-card__access-option-checkbox"
-                                          onChange={() =>
-                                            setAccessEditorLibraryIds((current) =>
-                                              current.includes(library.id)
-                                                ? current.filter((value) => value !== library.id)
-                                                : [...current, library.id],
-                                            )
-                                          }
-                                          type="checkbox"
-                                        />
-                                      </label>
-                                    )
-                                  })}
-                                </div>
-
-                                <div className="settings-user-card__access-popover-footer">
-                                  <button
-                                    className="button"
-                                    onClick={() => setAccessEditorUserId(null)}
-                                    type="button"
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                    className="button button--primary"
-                                    disabled={updateUserMutation.isPending}
-                                    onClick={() =>
-                                      updateUserMutation.mutate(
-                                        {
-                                          userId: user.id,
-                                          input: { library_ids: accessEditorLibraryIds },
-                                        },
-                                        {
-                                          onSuccess: () => {
-                                            setAccessEditorUserId(null)
-                                          },
-                                        },
-                                      )
-                                    }
-                                    type="button"
-                                  >
-                                    Save
-                                  </button>
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-                        )}
-                      </div>
                     </div>
                   </article>
                 )
@@ -668,7 +520,7 @@ export const SettingsPage = () => {
         </div>
       </section>
 
-      <section className="settings-section">
+      <section className="settings-section settings-section--libraries">
         <div className="section-heading">
           <div>
             <h3>Library Management</h3>

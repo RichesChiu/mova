@@ -109,12 +109,16 @@ export const LibraryEditorModal = ({
     <div className="library-editor-modal">
       <button
         aria-label="Close library editor dialog"
-        className="library-editor-modal__backdrop"
+        className="library-editor-modal__backdrop glass-overlay-backdrop"
         onClick={onClose}
         type="button"
       />
 
-      <div aria-modal="true" className="library-editor-modal__surface" role="dialog">
+      <div
+        aria-modal="true"
+        className="library-editor-modal__surface glass-modal-surface"
+        role="dialog"
+      >
         <div className="library-editor-modal__header">
           <div className="library-editor-modal__identity">
             <div className="library-editor-modal__badge">{libraryBadge(library)}</div>

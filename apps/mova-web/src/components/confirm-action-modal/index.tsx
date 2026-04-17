@@ -51,13 +51,17 @@ export const ConfirmActionModal = ({
     <div className="confirm-action-modal">
       <button
         aria-label="Close confirmation dialog"
-        className="confirm-action-modal__backdrop"
+        className="confirm-action-modal__backdrop glass-overlay-backdrop"
         disabled={isSubmitting}
         onClick={onClose}
         type="button"
       />
 
-      <div aria-modal="true" className="confirm-action-modal__surface" role="dialog">
+      <div
+        aria-modal="true"
+        className="confirm-action-modal__surface glass-modal-surface"
+        role="dialog"
+      >
         <div className="confirm-action-modal__header">
           <div>
             <p className="eyebrow">Confirm Action</p>

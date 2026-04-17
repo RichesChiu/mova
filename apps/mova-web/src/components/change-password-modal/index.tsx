@@ -76,13 +76,17 @@ export const ChangePasswordModal = ({
     <div className="change-password-modal">
       <button
         aria-label="Close change password dialog"
-        className="change-password-modal__backdrop"
+        className="change-password-modal__backdrop glass-overlay-backdrop"
         disabled={isSubmitting}
         onClick={onClose}
         type="button"
       />
 
-      <div aria-modal="true" className="change-password-modal__surface" role="dialog">
+      <div
+        aria-modal="true"
+        className="change-password-modal__surface glass-modal-surface"
+        role="dialog"
+      >
         <div className="change-password-modal__header">
           <div>
             <p className="eyebrow">Security</p>

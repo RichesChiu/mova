@@ -67,6 +67,15 @@
   display: grid;
   gap: 18px;
   overflow: visible;
+  z-index: 1;
+}
+
+.settings-section--users {
+  z-index: 2;
+}
+
+.settings-section--libraries {
+  z-index: 1;
 }
 
 .settings-library-card {
@@ -277,7 +286,7 @@
 .settings-user-list {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 360px));
+  grid-template-columns: repeat(auto-fit, minmax(420px, 520px));
   align-items: stretch;
   justify-content: start;
 }
@@ -326,160 +335,49 @@
   min-width: 0;
 }
 
-.settings-user-card__copy {
+.settings-user-card__copy,
+.settings-user-card__identity {
   display: grid;
   gap: 6px;
 }
 
 .settings-user-card__header,
-.settings-user-card__controls,
+.settings-user-card__toolbar,
+.settings-user-card__meta,
 .settings-user-card__actions {
   display: flex;
   gap: 12px;
 }
 
 .settings-user-card__header {
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
+  display: grid;
+  gap: 12px;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.settings-user-card__controls {
+.settings-user-card__identity {
+  min-width: 0;
+}
+
+.settings-user-card__identity-meta {
+  display: flex;
   align-items: center;
-  flex-wrap: nowrap;
+  justify-content: flex-start;
+  margin-top: 2px;
+}
+
+.settings-user-card__identity-meta .status-pill {
+  padding: 4px 9px;
+  font-size: 0.72rem;
+}
+
+.settings-user-card__toolbar {
+  align-items: center;
   justify-content: flex-end;
   flex: 0 0 auto;
-}
-
-.settings-user-card__access {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-
-.settings-user-card__access-label {
-  color: var(--text-soft);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.settings-user-card__access-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.settings-user-card__access-tags--preview {
-  max-height: 72px;
-  overflow: hidden;
-}
-
-.settings-user-card__access-shell {
-  position: relative;
-}
-
-.settings-user-card__access-trigger {
-  display: block;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  text-align: left;
-}
-
-.settings-user-card__access-trigger:hover:enabled {
-  transform: none;
-  box-shadow: none;
-  background: transparent;
-}
-
-.settings-user-card__access-popover {
-  position: absolute;
-  top: calc(100% + 12px);
-  right: 0;
-  z-index: 40;
-  width: min(420px, calc(100vw - 72px));
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--floating-surface) 92%, rgba(5, 8, 15, 0.96));
-  box-shadow:
-    var(--panel-inset),
-    0 28px 70px rgba(0, 0, 0, 0.34);
-  backdrop-filter: blur(20px) saturate(128%);
-}
-
-.settings-user-card__access-popover-header {
-  display: grid;
-  gap: 4px;
-}
-
-.settings-user-card__access-popover-list {
-  display: grid;
-  gap: 10px;
-  max-height: 280px;
-  overflow: auto;
-}
-
-.settings-user-card__access-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 82%, transparent);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--floating-surface-strong) 72%, transparent);
-}
-
-.settings-user-card__access-option span {
-  min-width: 0;
-  font-weight: 600;
-  line-height: 1.35;
-}
-
-.settings-user-card__access-option-checkbox {
-  width: 18px;
-  min-width: 18px;
-  height: 18px;
-  min-height: 18px;
-  margin: 0;
-  padding: 0;
-  appearance: none;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 86%, transparent);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 8px 16px rgba(0, 0, 0, 0.18);
-}
-
-.settings-user-card__access-option-checkbox:checked {
-  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
-  background: linear-gradient(135deg, rgba(120, 195, 143, 0.96), rgba(74, 164, 102, 0.94));
-}
-
-.settings-user-card__access-option-checkbox:checked::after {
-  content: '';
-  display: block;
-  width: 5px;
-  height: 10px;
-  margin: 1px 0 0 5px;
-  border: solid rgba(255, 255, 255, 0.96);
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
-}
-
-.settings-user-card__access-popover-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
+  justify-self: end;
+  align-self: start;
 }
 
 .settings-user-card__line,
@@ -496,11 +394,6 @@
 .settings-user-card__line--role {
   width: 96px;
   height: 0.78rem;
-}
-
-.settings-user-card__line--access {
-  width: 88%;
-  height: 0.84rem;
 }
 
 .settings-user-card__switch {
@@ -547,6 +440,7 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   color: rgba(241, 245, 255, 0.92);
+  transition: color 160ms ease;
   pointer-events: none;
 }
 
@@ -578,6 +472,16 @@
 .settings-user-card__switch input:checked + .settings-user-card__switch-track {
   border-color: color-mix(in srgb, rgba(91, 196, 120, 0.86) 52%, transparent);
   background: linear-gradient(135deg, rgba(72, 172, 102, 0.9), rgba(36, 105, 58, 0.88));
+}
+
+.settings-user-card__switch input:not(:checked) + .settings-user-card__switch-track .settings-user-card__switch-copy--off,
+.settings-user-card__switch input:checked + .settings-user-card__switch-track .settings-user-card__switch-copy--on {
+  color: rgba(21, 27, 38, 0.9);
+}
+
+.settings-user-card__switch input:not(:checked) + .settings-user-card__switch-track .settings-user-card__switch-copy--on,
+.settings-user-card__switch input:checked + .settings-user-card__switch-track .settings-user-card__switch-copy--off {
+  color: rgba(241, 245, 255, 0.72);
 }
 
 .settings-user-card__switch input:checked + .settings-user-card__switch-track::after {
@@ -702,10 +606,12 @@
 
 @media (max-width: 720px) {
   .settings-user-card__header {
-    flex-wrap: wrap;
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
 
-  .settings-user-card__controls {
+  .settings-user-card__toolbar,
+  .settings-user-card__identity-meta {
     width: 100%;
     justify-content: flex-start;
   }

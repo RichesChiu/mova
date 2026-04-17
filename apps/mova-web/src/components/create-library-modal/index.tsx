@@ -47,13 +47,17 @@ export const CreateLibraryModal = ({
     <div className="create-library-modal">
       <button
         aria-label="Close create library dialog"
-        className="create-library-modal__backdrop"
+        className="create-library-modal__backdrop glass-overlay-backdrop"
         disabled={isSubmitting}
         onClick={onClose}
         type="button"
       />
 
-      <div aria-modal="true" className="create-library-modal__surface" role="dialog">
+      <div
+        aria-modal="true"
+        className="create-library-modal__surface glass-modal-surface"
+        role="dialog"
+      >
         <div className="create-library-modal__header">
           <div>
             <p className="eyebrow">Library Management</p>

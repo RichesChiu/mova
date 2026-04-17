@@ -1,0 +1,29 @@
+.glass-popover {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 20px;
+}
+
+.glass-popover__header {
+  display: grid;
+  gap: 4px;
+}
+
+.glass-popover__header strong {
+  font-size: 0.94rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.glass-popover__body {
+  display: grid;
+  gap: 12px;
+}
+
+.glass-popover__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}

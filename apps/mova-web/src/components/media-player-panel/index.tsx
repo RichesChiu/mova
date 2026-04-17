@@ -1577,7 +1577,10 @@ export const MediaPlayerPanel = ({
                           </button>
 
                           {isEpisodeMenuOpen ? (
-                            <div className="player-popover-menu__bubble" role="menu">
+                            <div
+                              className="player-popover-menu__bubble glass-popover-surface"
+                              role="menu"
+                            >
                               {episodeSwitchOptions.map((episode) => (
                                 <button
                                   className="player-popover-menu__option"
@@ -1628,7 +1631,10 @@ export const MediaPlayerPanel = ({
                           </button>
 
                           {isAudioMenuOpen ? (
-                            <div className="player-popover-menu__bubble" role="menu">
+                            <div
+                              className="player-popover-menu__bubble glass-popover-surface"
+                              role="menu"
+                            >
                               <div className="player-popover-menu__header">
                                 <strong>Audio</strong>
                                 <small>
@@ -1709,7 +1715,10 @@ export const MediaPlayerPanel = ({
                         </button>
 
                         {isSubtitleMenuOpen ? (
-                          <div className="player-popover-menu__bubble" role="menu">
+                          <div
+                            className="player-popover-menu__bubble glass-popover-surface"
+                            role="menu"
+                          >
                             <button
                               className={
                                 selectedSubtitleId === null
