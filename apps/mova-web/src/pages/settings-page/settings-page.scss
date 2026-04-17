@@ -117,30 +117,8 @@
 .settings-library-card__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 10px;
-}
-
-.settings-library-card__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.settings-library-card__type,
-.settings-library-card__language {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--floating-surface) 82%, transparent);
-  box-shadow: var(--panel-inset);
-  color: var(--text-soft);
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .settings-library-card__edit-icon {
@@ -189,6 +167,13 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+}
+
+.settings-library-card__language-note {
+  margin: -2px 0 0;
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  line-height: 1.4;
 }
 
 .settings-library-card__scan {
@@ -286,7 +271,7 @@
 .settings-user-list {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 520px));
+  grid-template-columns: repeat(auto-fit, minmax(360px, 440px));
   align-items: stretch;
   justify-content: start;
 }
@@ -364,12 +349,29 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 2px;
 }
 
 .settings-user-card__identity-meta .status-pill {
   padding: 4px 9px;
   font-size: 0.72rem;
+}
+
+.settings-user-card__self-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 9px;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--floating-surface) 80%, transparent);
+  box-shadow: var(--panel-inset);
+  color: var(--text-soft);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .settings-user-card__toolbar {
@@ -561,19 +563,9 @@
   height: 40px;
 }
 
-.settings-library-card__type--loading,
-.settings-library-card__language--loading {
-  min-height: 30px;
-  color: transparent;
-  background: transparent;
-}
-
-.settings-library-card__type--loading {
-  width: 72px;
-}
-
-.settings-library-card__language--loading {
-  width: 88px;
+.settings-library-card__button--icon {
+  width: 38px;
+  height: 38px;
 }
 
 .settings-library-card__line--title {
@@ -592,6 +584,11 @@
 
 .settings-library-card__line--description-alt {
   width: 78%;
+}
+
+.settings-library-card__line--meta {
+  width: 44%;
+  height: 0.8rem;
 }
 
 .settings-library-card__path--loading {

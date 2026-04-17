@@ -262,6 +262,7 @@ pub struct SeriesEpisodeOutlineEpisodeResponse {
 pub struct EpisodePlaybackProgressResponse {
     pub position_seconds: i32,
     pub duration_seconds: Option<i32>,
+    pub last_watched_at: String,
     pub is_finished: bool,
 }
 
@@ -412,6 +413,7 @@ pub struct UserResponse {
     pub username: String,
     pub nickname: String,
     pub role: String,
+    pub is_primary_admin: bool,
     pub is_enabled: bool,
     pub library_ids: Vec<i64>,
     pub created_at: String,
@@ -599,6 +601,7 @@ impl UserResponse {
             username: user.user.username,
             nickname: user.user.nickname,
             role: user.user.role.as_str().to_string(),
+            is_primary_admin: user.is_primary_admin,
             is_enabled: user.user.is_enabled,
             library_ids: user.library_ids,
             created_at: format_datetime(user.user.created_at, offset),
@@ -790,6 +793,7 @@ impl EpisodePlaybackProgressResponse {
         Self {
             position_seconds: progress.position_seconds,
             duration_seconds: progress.duration_seconds,
+            last_watched_at: format_datetime(progress.last_watched_at, UtcOffset::UTC),
             is_finished: progress.is_finished,
         }
     }

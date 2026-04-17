@@ -10,7 +10,7 @@ import {
   subtitleFileStreamUrl,
   updateMediaItemPlaybackProgress,
 } from '../../api/client'
-import type { MediaFile, SubtitleFile } from '../../api/types'
+import type { EpisodeOutline, MediaFile, SubtitleFile } from '../../api/types'
 import {
   buildAudioTrackLoadErrorMessage,
   buildAudioTrackReadyMessage,
@@ -51,6 +51,7 @@ interface MediaPlayerPanelProps {
   } | null
   onSelectEpisode?: (mediaItemId: number) => void
   preferredMediaFileId?: number | null
+  seriesMediaItemId?: number | null
   title: string
   startMode?: 'resume' | 'from-start'
   variant?: 'panel' | 'immersive'
@@ -440,6 +441,7 @@ export const MediaPlayerPanel = ({
   nextEpisode = null,
   onSelectEpisode,
   preferredMediaFileId = null,
+  seriesMediaItemId = null,
   startMode = 'resume',
   title,
   variant = 'panel',
@@ -487,6 +489,51 @@ export const MediaPlayerPanel = ({
   const [selectedSubtitleId, setSelectedSubtitleId] = useState<number | null>(null)
   const [hasSkippedIntro, setHasSkippedIntro] = useState(false)
 
+  const syncEpisodeOutlinePlaybackProgress = ({
+    duration_seconds,
+    is_finished,
+    last_watched_at,
+    position_seconds,
+  }: {
+    duration_seconds: number | null
+    is_finished: boolean
+    last_watched_at: string
+    position_seconds: number
+  }) => {
+    if (!seriesMediaItemId) {
+      return
+    }
+
+    queryClient.setQueryData<EpisodeOutline>(
+      ['media-episode-outline', seriesMediaItemId],
+      (currentOutline) => {
+        if (!currentOutline) {
+          return currentOutline
+        }
+
+        return {
+          ...currentOutline,
+          seasons: currentOutline.seasons.map((season) => ({
+            ...season,
+            episodes: season.episodes.map((episode) =>
+              episode.media_item_id === mediaItemId
+                ? {
+                    ...episode,
+                    playback_progress: {
+                      position_seconds,
+                      duration_seconds,
+                      last_watched_at,
+                      is_finished,
+                    },
+                  }
+                : episode,
+            ),
+          })),
+        }
+      },
+    )
+  }
+
   const mediaFilesQuery = useQuery({
     queryKey: ['media-item-files', mediaItemId],
     queryFn: () => listMediaItemFiles(mediaItemId),
@@ -509,6 +556,7 @@ export const MediaPlayerPanel = ({
       lastReportedSecondsRef.current = progress.position_seconds
       setPlaybackSyncError(null)
       queryClient.setQueryData(['media-item-playback-progress', mediaItemId], progress)
+      syncEpisodeOutlinePlaybackProgress(progress)
     },
     onError: () => {
       setPlaybackSyncError(PLAYBACK_PROGRESS_SAVE_ERROR)
@@ -965,9 +1013,14 @@ export const MediaPlayerPanel = ({
         void queryClient.invalidateQueries({
           queryKey: ['media-item-playback-progress', mediaItemId],
         })
+        if (seriesMediaItemId) {
+          void queryClient.invalidateQueries({
+            queryKey: ['media-episode-outline', seriesMediaItemId],
+          })
+        }
       }
     }
-  }, [mediaItemId, queryClient])
+  }, [mediaItemId, queryClient, seriesMediaItemId])
 
   useEffect(() => {
     if (!isPlaying || selectedMediaFileId === null) {
@@ -1484,6 +1537,19 @@ export const MediaPlayerPanel = ({
 
             {isImmersive ? (
               <div className="player-stage__controls">
+                {nextEpisode && onSelectEpisode ? (
+                  <div className="player-stage__timeline-actions">
+                    <button
+                      aria-label={`Play next episode: ${nextEpisode.label}`}
+                      className="player-panel__floating-action player-panel__floating-action--timeline"
+                      onClick={goToNextEpisode}
+                      type="button"
+                    >
+                      Next Episode
+                    </button>
+                  </div>
+                ) : null}
+
                 <div className="player-stage__timeline">
                   <input
                     aria-label="Seek playback position"
@@ -1538,17 +1604,6 @@ export const MediaPlayerPanel = ({
 
                   <div className="player-toolbar-cluster player-toolbar-cluster--right">
                     <div className="player-toolbar-pill">
-                      {nextEpisode && onSelectEpisode ? (
-                        <button
-                          aria-label={`Play next episode: ${nextEpisode.label}`}
-                          className="player-control-button player-control-button--toolbar"
-                          onClick={goToNextEpisode}
-                          type="button"
-                        >
-                          Next
-                        </button>
-                      ) : null}
-
                       {episodeSwitchOptions.length > 0 && onSelectEpisode ? (
                         <div
                           className={

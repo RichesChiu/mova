@@ -4,6 +4,7 @@ use serde::Serialize;
 #[derive(Debug, Clone, Serialize)]
 pub struct UserProfile {
     pub user: User,
+    pub is_primary_admin: bool,
     pub library_ids: Vec<i64>,
 }
 

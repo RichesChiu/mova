@@ -80,13 +80,13 @@ const SettingsLibraryCardSkeleton = () => (
 
     <div className="settings-library-card__body">
       <div className="settings-library-card__header">
-        <span className="settings-library-card__type settings-library-card__type--loading skeleton-shimmer" />
-        <span className="settings-library-card__language settings-library-card__language--loading skeleton-shimmer" />
+        <span className="settings-library-card__button settings-library-card__button--icon skeleton-shimmer" />
       </div>
 
       <span className="settings-library-card__line settings-library-card__line--title skeleton-shimmer" />
       <span className="settings-library-card__line settings-library-card__line--description skeleton-shimmer" />
       <span className="settings-library-card__line settings-library-card__line--description-alt skeleton-shimmer" />
+      <span className="settings-library-card__line settings-library-card__line--meta skeleton-shimmer" />
 
       <div className="settings-library-card__path-block">
         <span className="settings-library-card__path-label">Root path</span>
@@ -346,6 +346,7 @@ export const SettingsPage = () => {
   const libraryDetailsById = new Map(
     libraries.map((library, index) => [library.id, libraryDetailQueries[index]?.data ?? null]),
   )
+  const canManageAdminAccounts = currentUser.is_primary_admin
 
   return (
     <div className="settings-shell">
@@ -406,7 +407,15 @@ export const SettingsPage = () => {
             ? users.map((user) => {
                 const displayName = getUserDisplayName(user)
                 const showUsername = displayName !== user.username
-                const roleLabel = user.role === 'admin' ? 'Administrator' : 'Member'
+                const roleLabel = user.is_primary_admin
+                  ? 'Primary Admin'
+                  : user.role === 'admin'
+                    ? 'Administrator'
+                    : 'Member'
+                const canManageThisUser = user.role === 'viewer' || canManageAdminAccounts
+                const canEditUser =
+                  canManageThisUser && user.id !== currentUser.id && !user.is_primary_admin
+                const canDeleteUser = canEditUser
 
                 return (
                   <article className="settings-user-card" key={user.id}>
@@ -421,6 +430,9 @@ export const SettingsPage = () => {
                           {showUsername ? <p className="muted">@{user.username}</p> : null}
                           <div className="settings-user-card__identity-meta">
                             <StatusPill status={roleLabel} />
+                            {user.id === currentUser.id ? (
+                              <span className="settings-user-card__self-badge">You</span>
+                            ) : null}
                           </div>
                         </div>
 
@@ -449,7 +461,7 @@ export const SettingsPage = () => {
                             </label>
                           ) : null}
 
-                          {user.role === 'viewer' ? (
+                          {canEditUser ? (
                             <button
                               aria-label={`Edit ${user.username}`}
                               className="settings-user-card__edit-icon"
@@ -480,7 +492,7 @@ export const SettingsPage = () => {
                             </button>
                           ) : null}
 
-                          {user.id !== currentUser.id ? (
+                          {canDeleteUser ? (
                             <button
                               aria-label={`Delete ${user.username}`}
                               className="settings-user-card__delete-icon"
@@ -567,13 +579,6 @@ export const SettingsPage = () => {
 
                       <div className="settings-library-card__body">
                         <div className="settings-library-card__header">
-                          <div className="settings-library-card__meta">
-                            <span className="settings-library-card__type">Auto Detect</span>
-                            <span className="settings-library-card__language">
-                              {library.metadata_language}
-                            </span>
-                          </div>
-
                           <button
                             aria-label={`Edit ${library.name}`}
                             className="settings-library-card__edit-icon"
@@ -607,6 +612,9 @@ export const SettingsPage = () => {
                         <strong className="settings-library-card__title">{library.name}</strong>
                         <p className="settings-library-card__description">
                           {library.description ?? 'No description'}
+                        </p>
+                        <p className="settings-library-card__language-note">
+                          Metadata language: {library.metadata_language}
                         </p>
 
                         <div className="settings-library-card__scan">
@@ -666,6 +674,7 @@ export const SettingsPage = () => {
 
       <UserEditorModal
         currentUserId={currentUser.id}
+        currentUserIsPrimaryAdmin={currentUser.is_primary_admin}
         error={activeUserModalError}
         isOpen={isCreateUserOpen || editingUser !== null}
         isSubmitting={createUserMutation.isPending || updateUserMutation.isPending}

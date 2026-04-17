@@ -184,7 +184,7 @@
   color: var(--accent-strong);
 }
 
-.status-pill--admin {
+.status-pill--primary-admin {
   border-color: color-mix(in srgb, #ffd15a 48%, transparent);
   background:
     linear-gradient(180deg, rgba(255, 209, 90, 0.2), rgba(255, 209, 90, 0.1)),
@@ -193,6 +193,17 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
     0 10px 24px rgba(255, 191, 64, 0.14);
   color: #ffdb82;
+}
+
+.status-pill--admin {
+  border-color: color-mix(in srgb, #d8e0ef 44%, transparent);
+  background:
+    linear-gradient(180deg, rgba(216, 224, 239, 0.16), rgba(216, 224, 239, 0.08)),
+    color-mix(in srgb, var(--panel-background-soft) 82%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 10px 22px rgba(160, 176, 204, 0.12);
+  color: #dde6f7;
 }
 
 .status-pill--danger {

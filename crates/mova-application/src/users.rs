@@ -93,20 +93,26 @@ pub async fn bootstrap_admin(
         ));
     }
 
-    let user = create_user(
+    let username = normalize_username(input.username)?;
+    let nickname = normalize_nickname(None, &username)?;
+    validate_password("password", &input.password)?;
+    let password_hash = hash_password(&input.password)?;
+
+    let user = mova_db::create_user(
         pool,
-        CreateUserInput {
-            username: input.username,
-            nickname: None,
-            password: input.password,
-            role: UserRole::Admin.as_str().to_string(),
+        mova_db::CreateUserParams {
+            username,
+            nickname,
+            password_hash,
+            role: UserRole::Admin,
             is_enabled: true,
             library_ids: Vec::new(),
         },
     )
-    .await?;
+    .await
+    .map_err(map_user_write_error)?;
 
-    create_session_for_user(pool, user, session_ttl).await
+    create_session_for_user(pool, enrich_user_profile(pool, user).await?, session_ttl).await
 }
 
 pub async fn login(
@@ -145,10 +151,15 @@ pub async fn login(
 
     create_session_for_user(
         pool,
-        UserProfile {
+        enrich_user_profile(
+            pool,
+            UserProfile {
             user: record.user,
+            is_primary_admin: false,
             library_ids,
-        },
+            },
+        )
+        .await?,
         session_ttl,
     )
     .await
@@ -174,7 +185,7 @@ pub async fn get_user_by_session_token(
         )));
     }
 
-    Ok(user)
+    enrich_user_profile(pool, user).await
 }
 
 pub async fn logout(pool: &PgPool, token: &str) -> ApplicationResult<()> {
@@ -186,9 +197,16 @@ pub async fn logout(pool: &PgPool, token: &str) -> ApplicationResult<()> {
 }
 
 pub async fn list_users(pool: &PgPool) -> ApplicationResult<Vec<UserProfile>> {
-    mova_db::list_users(pool)
+    let users = mova_db::list_users(pool)
         .await
-        .map_err(ApplicationError::from)
+        .map_err(ApplicationError::from)?;
+
+    let mut enriched = Vec::with_capacity(users.len());
+    for user in users {
+        enriched.push(enrich_user_profile(pool, user).await?);
+    }
+
+    Ok(enriched)
 }
 
 pub async fn get_user(pool: &PgPool, user_id: i64) -> ApplicationResult<UserProfile> {
@@ -196,19 +214,26 @@ pub async fn get_user(pool: &PgPool, user_id: i64) -> ApplicationResult<UserProf
         .await
         .map_err(ApplicationError::from)?;
 
-    user.ok_or_else(|| ApplicationError::NotFound(format!("user not found: {}", user_id)))
+    let user = user.ok_or_else(|| ApplicationError::NotFound(format!("user not found: {}", user_id)))?;
+
+    enrich_user_profile(pool, user).await
 }
 
-pub async fn create_user(pool: &PgPool, input: CreateUserInput) -> ApplicationResult<UserProfile> {
+pub async fn create_user(
+    pool: &PgPool,
+    actor_user_id: i64,
+    input: CreateUserInput,
+) -> ApplicationResult<UserProfile> {
     let username = normalize_username(input.username)?;
     let nickname = normalize_nickname(input.nickname, &username)?;
     validate_password("password", &input.password)?;
     let role = normalize_user_role(input.role)?;
+    validate_admin_scope_for_role_change(pool, actor_user_id, None, role).await?;
     let library_ids = normalize_library_ids(input.library_ids);
     validate_library_access(pool, role, &library_ids).await?;
     let password_hash = hash_password(&input.password)?;
 
-    mova_db::create_user(
+    let created = mova_db::create_user(
         pool,
         mova_db::CreateUserParams {
             username,
@@ -224,15 +249,19 @@ pub async fn create_user(pool: &PgPool, input: CreateUserInput) -> ApplicationRe
         },
     )
     .await
-    .map_err(map_user_write_error)
+    .map_err(map_user_write_error)?;
+
+    enrich_user_profile(pool, created).await
 }
 
 pub async fn replace_user_library_access(
     pool: &PgPool,
+    actor_user_id: i64,
     user_id: i64,
     input: UpdateUserLibraryAccessInput,
 ) -> ApplicationResult<UserProfile> {
     let existing = get_user(pool, user_id).await?;
+    validate_admin_scope_for_target(pool, actor_user_id, &existing).await?;
     if existing.user.role.is_admin() {
         return Ok(existing);
     }
@@ -246,6 +275,7 @@ pub async fn replace_user_library_access(
 
     Ok(UserProfile {
         user: existing.user,
+        is_primary_admin: existing.is_primary_admin,
         library_ids: updated_library_ids,
     })
 }
@@ -268,6 +298,7 @@ pub async fn update_user(
         Some(role) => normalize_user_role(role)?,
         None => existing.user.role,
     };
+    validate_admin_scope_for_role_change(pool, actor_user_id, Some(&existing), role).await?;
     let is_enabled = input.is_enabled.unwrap_or(existing.user.is_enabled);
     validate_admin_retention(pool, &existing, role, is_enabled).await?;
 
@@ -298,7 +329,7 @@ pub async fn update_user(
             .map_err(ApplicationError::from)?;
     }
 
-    Ok(updated)
+    enrich_user_profile(pool, updated).await
 }
 
 pub async fn delete_user(pool: &PgPool, actor_user_id: i64, user_id: i64) -> ApplicationResult<()> {
@@ -309,6 +340,7 @@ pub async fn delete_user(pool: &PgPool, actor_user_id: i64, user_id: i64) -> App
     }
 
     let existing = get_user(pool, user_id).await?;
+    validate_admin_scope_for_target(pool, actor_user_id, &existing).await?;
     validate_admin_retention(pool, &existing, existing.user.role, false).await?;
 
     let deleted = mova_db::delete_user(pool, user_id)
@@ -338,7 +370,8 @@ pub async fn reset_user_password(
         ));
     }
 
-    get_user(pool, user_id).await?;
+    let target_user = get_user(pool, user_id).await?;
+    validate_admin_scope_for_target(pool, actor_user_id, &target_user).await?;
     validate_password("new_password", &input.new_password)?;
     let password_hash = hash_password(&input.new_password)?;
 
@@ -360,9 +393,11 @@ pub async fn update_own_profile(
     let existing = get_user(pool, user_id).await?;
     let nickname = normalize_nickname(Some(input.nickname), &existing.user.username)?;
 
-    mova_db::update_user_nickname(pool, user_id, &nickname)
+    let updated = mova_db::update_user_nickname(pool, user_id, &nickname)
         .await
-        .map_err(map_user_write_error)
+        .map_err(map_user_write_error)?;
+
+    enrich_user_profile(pool, updated).await
 }
 
 pub async fn change_own_password(
@@ -480,6 +515,61 @@ async fn validate_library_access(
     Ok(())
 }
 
+async fn is_primary_admin_user(pool: &PgPool, user_id: i64) -> ApplicationResult<bool> {
+    let primary_admin_user_id = mova_db::get_primary_admin_user_id(pool)
+        .await
+        .map_err(ApplicationError::from)?;
+
+    Ok(primary_admin_user_id == Some(user_id))
+}
+
+async fn validate_admin_scope_for_target(
+    pool: &PgPool,
+    actor_user_id: i64,
+    target_user: &UserProfile,
+) -> ApplicationResult<()> {
+    if !target_user.user.role.is_admin() {
+        return Ok(());
+    }
+
+    if is_primary_admin_user(pool, actor_user_id).await? {
+        return Ok(());
+    }
+
+    Err(ApplicationError::Forbidden(
+        "only the primary admin can manage administrator accounts".to_string(),
+    ))
+}
+
+async fn validate_admin_scope_for_role_change(
+    pool: &PgPool,
+    actor_user_id: i64,
+    existing_user: Option<&UserProfile>,
+    next_role: UserRole,
+) -> ApplicationResult<()> {
+    if next_role.is_admin() {
+        if is_primary_admin_user(pool, actor_user_id).await? {
+            return Ok(());
+        }
+
+        let is_stable_admin_edit = existing_user
+            .map(|user| user.user.role.is_admin())
+            .unwrap_or(false);
+
+        if !is_stable_admin_edit {
+            return Err(ApplicationError::Forbidden(
+                "only the primary admin can create or promote administrator accounts".to_string(),
+            ));
+        }
+    }
+
+    if let Some(existing_user) = existing_user {
+        validate_admin_scope_for_target(pool, actor_user_id, existing_user).await?;
+    }
+
+    Ok(())
+}
+
 fn validate_self_user_management(
     actor_user_id: i64,
     user_id: i64,
@@ -587,6 +677,14 @@ async fn create_session_for_user(
         token,
         expires_at,
     })
+}
+
+async fn enrich_user_profile(
+    pool: &PgPool,
+    mut user: UserProfile,
+) -> ApplicationResult<UserProfile> {
+    user.is_primary_admin = is_primary_admin_user(pool, user.user.id).await?;
+    Ok(user)
 }
 
 fn map_user_write_error(error: anyhow::Error) -> ApplicationError {

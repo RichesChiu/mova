@@ -167,6 +167,7 @@ export interface EpisodeOutlineEpisode {
 export interface EpisodeOutlinePlaybackProgress {
   position_seconds: number
   duration_seconds: number | null
+  last_watched_at: string
   is_finished: boolean
 }
 
@@ -287,6 +288,7 @@ export interface UserAccount {
   username: string
   nickname: string
   role: UserRole
+  is_primary_admin: boolean
   is_enabled: boolean
   library_ids: number[]
   created_at: string

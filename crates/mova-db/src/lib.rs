@@ -49,8 +49,9 @@ pub use scan_jobs::{
 pub use users::{
     count_admin_users, count_enabled_admin_users, create_session, create_user, delete_session,
     delete_sessions_for_user, delete_user, get_user, get_user_authentication_record,
-    get_user_by_session_token, get_user_by_username, list_library_ids_for_user, list_users,
-    replace_user_library_access, update_user, update_user_nickname, update_user_password,
+    get_primary_admin_user_id, get_user_by_session_token, get_user_by_username,
+    list_library_ids_for_user, list_users, replace_user_library_access, update_user,
+    update_user_nickname, update_user_password,
     CreateSessionParams, CreateUserParams, UpdateUserParams, UserAuthenticationRecord,
 };
 pub use watch_history::{

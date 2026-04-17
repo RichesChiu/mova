@@ -3,6 +3,7 @@ import {
   buildPlaybackActionLinks,
   isResumablePlayback,
   pickPreferredPlaybackEpisode,
+  pickSeriesPlaybackTargetEpisode,
   playbackPercent,
   playbackStatus,
   shouldMarkPlaybackFinished,
@@ -45,12 +46,67 @@ describe('playback helpers', () => {
           playback_progress: {
             position_seconds: 180,
             duration_seconds: 2400,
+            last_watched_at: '2026-04-17T10:00:00Z',
             is_finished: false,
           },
         },
       ]),
     )?.toMatchObject({
       media_item_id: 402,
+    })
+  })
+
+  it('advances to the next episode when the latest watched episode is already finished', () => {
+    expect(
+      pickSeriesPlaybackTargetEpisode(
+        [
+          {
+            is_available: true,
+            media_item_id: 401,
+            playback_progress: null,
+          },
+          {
+            is_available: true,
+            media_item_id: 402,
+            playback_progress: {
+              position_seconds: 2400,
+              duration_seconds: 2400,
+              last_watched_at: '2026-04-17T10:00:00Z',
+              is_finished: true,
+            },
+          },
+          {
+            is_available: true,
+            media_item_id: 403,
+            playback_progress: null,
+          },
+        ],
+        null,
+      ),
+    )?.toMatchObject({
+      media_item_id: 403,
+    })
+  })
+
+  it('falls back to the finished latest episode when there is no next episode', () => {
+    expect(
+      pickSeriesPlaybackTargetEpisode(
+        [
+          {
+            is_available: true,
+            media_item_id: 401,
+            playback_progress: {
+              position_seconds: 2400,
+              duration_seconds: 2400,
+              last_watched_at: '2026-04-17T10:00:00Z',
+              is_finished: true,
+            },
+          },
+        ],
+        null,
+      ),
+    )?.toMatchObject({
+      media_item_id: 401,
     })
   })
 

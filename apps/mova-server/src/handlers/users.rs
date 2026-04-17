@@ -62,10 +62,11 @@ pub async fn create_user(
     jar: CookieJar,
     Json(request): Json<CreateUserRequest>,
 ) -> Result<(StatusCode, ApiJson<UserResponse>), ApiError> {
-    require_admin(&state, &jar).await?;
+    let current_user = require_admin(&state, &jar).await?;
 
     let user = mova_application::create_user(
         &state.db,
+        current_user.user.id,
         mova_application::CreateUserInput {
             username: request.username,
             nickname: request.nickname,
@@ -116,10 +117,11 @@ pub async fn update_user_library_access(
     Path(user_id): Path<i64>,
     Json(request): Json<UpdateUserLibraryAccessRequest>,
 ) -> Result<ApiJson<UserResponse>, ApiError> {
-    require_admin(&state, &jar).await?;
+    let current_user = require_admin(&state, &jar).await?;
 
     let user = mova_application::replace_user_library_access(
         &state.db,
+        current_user.user.id,
         user_id,
         mova_application::UpdateUserLibraryAccessInput {
             library_ids: request.library_ids,

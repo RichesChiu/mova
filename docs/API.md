@@ -193,7 +193,8 @@
 
 返回：
 - `200 OK`
-- 返回字段包括 `id`、`username`、`nickname`、`role`、`is_enabled`、`library_ids`
+- 返回字段包括 `id`、`username`、`nickname`、`role`、`is_primary_admin`、`is_enabled`、`library_ids`
+- `is_primary_admin = true` 只会出现在系统初始化出来的首个管理员身上；它可以创建、提升、编辑和删除普通管理员
 
 ### `PATCH /api/auth/me`
 
@@ -291,6 +292,7 @@
 说明：
 - `admin` 用户的 `library_ids` 始终为空数组，语义上表示“默认拥有全部媒体库访问权”
 - `viewer` 用户的 `library_ids` 表示允许访问的媒体库 ID 列表
+- `is_primary_admin = true` 的管理员表示当前系统的主管理员；普通管理员仍然拥有媒体库管理能力，但不能管理平级管理员，也不能管理主管理员
 
 ### `POST /api/users`
 
@@ -313,6 +315,10 @@
 字段说明：
 - `role`：只支持 `admin` / `viewer`
 - `library_ids`：只对 `viewer` 生效；`admin` 会忽略这个字段
+
+权限约束：
+- 只有主管理员可以创建新的 `admin`
+- 普通管理员只能创建 `viewer`
 
 ### `PATCH /api/users/{id}`
 
@@ -340,6 +346,8 @@
 - 当前用户不能通过该接口修改自己的角色
 - 不能降级、禁用最后一个启用中的管理员
 - 禁用用户后，服务端会清理该用户现有 session
+- 只有主管理员可以编辑普通管理员
+- 普通管理员不能修改或降级其他管理员，也不能修改主管理员
 
 ### `DELETE /api/users/{id}`
 
@@ -350,6 +358,8 @@
 - 当前用户不能删除自己
 - 不能删除最后一个启用中的管理员
 - 删除后会级联清理该用户的库授权、会话和播放进度
+- 只有主管理员可以删除普通管理员
+- 主管理员本身不能通过该接口被删除
 
 返回：
 - `204 No Content`
@@ -371,6 +381,7 @@
 - `new_password` 最少 8 位
 - 当前用户不能通过该接口重置自己的密码；应使用 `PUT /api/auth/password`
 - 重置成功后，该用户现有 session 会全部失效
+- 只有主管理员可以重置普通管理员密码
 
 ### `PUT /api/users/{id}/library-access`
 
@@ -387,6 +398,8 @@
 
 说明：
 - 对 `admin` 调用时会被忽略，管理员仍然默认拥有全部媒体库权限
+- 普通管理员仍然可以管理 `viewer` 的媒体库授权
+- 普通管理员不能通过该接口修改任何管理员的库授权
 
 ## 3. 媒体库
 
@@ -873,6 +886,11 @@
   - `seasons[].episodes[].intro_end_seconds`
   - `seasons[].episodes[].media_item_id`（本地存在时有值）
   - `seasons[].episodes[].is_available`（本地存在时为 `true`）
+  - `seasons[].episodes[].playback_progress`
+  - `seasons[].episodes[].playback_progress.position_seconds`
+  - `seasons[].episodes[].playback_progress.duration_seconds`
+  - `seasons[].episodes[].playback_progress.last_watched_at`
+  - `seasons[].episodes[].playback_progress.is_finished`
 
 说明：
 - 当前会优先尝试 TMDB 剧集大纲，并与本地已入库集进行合并。
@@ -881,6 +899,7 @@
 - TMDB 侧目前可直接提供季海报（`season poster`）和集剧照（`episode still`）；集背景图与封面会复用剧照。
 - 若集级图片缺失，后端会尝试从本地视频抽取第一帧作为回退（需运行环境可用 `ffmpeg`），并避免把通用目录海报（如 `poster.jpg` / `folder.jpg`）误当成单集封面。
 - `seasons[].intro_start_seconds` / `seasons[].intro_end_seconds` 当前会优先承载扫描后自动检测出来的 season 级片头区间；`episodes[].intro_*` 字段已预留，但当前默认仍为空，方便后续再扩成单集覆盖。
+- `episodes[].playback_progress` 会带上该集最近一次播放快照，前端可以据此显示集卡进度、已看完状态，以及“最近一集已播完则默认跳下一集”的续播入口。
 - 可直接用于前端“可播放集高亮、缺失集置灰”的展示逻辑。
 - 当前会把 TMDB 剧集大纲缓存到 PostgreSQL（`series_episode_outline_cache`），默认 TTL 为 24 小时，避免每次请求都访问 TMDB。
 - 当缓存过期且 TMDB 临时不可用时，会回退到旧缓存并继续返回可用结果。

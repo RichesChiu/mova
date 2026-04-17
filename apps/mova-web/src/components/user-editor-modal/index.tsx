@@ -11,6 +11,7 @@ import { GlassSelect } from '../glass-select'
 
 interface UserEditorModalProps {
   currentUserId: number
+  currentUserIsPrimaryAdmin: boolean
   error: string | null
   isOpen: boolean
   isSubmitting: boolean
@@ -22,15 +23,11 @@ interface UserEditorModalProps {
   user?: UserAccount | null
 }
 
-const roleOptions = [
-  { label: 'Member', value: 'viewer' },
-  { label: 'Administrator', value: 'admin' },
-]
-
 const avatarInitial = (username: string) => username.trim().charAt(0).toUpperCase() || 'U'
 
 export const UserEditorModal = ({
   currentUserId,
+  currentUserIsPrimaryAdmin,
   error,
   isOpen,
   isSubmitting,
@@ -48,6 +45,16 @@ export const UserEditorModal = ({
   const [isEnabled, setIsEnabled] = useState(true)
   const [selectedLibraryIds, setSelectedLibraryIds] = useState<number[]>([])
 
+  const roleOptions = useMemo(
+    () =>
+      currentUserIsPrimaryAdmin
+        ? [
+            { label: 'Member', value: 'viewer' },
+            { label: 'Administrator', value: 'admin' },
+          ]
+        : [{ label: 'Member', value: 'viewer' }],
+    [currentUserIsPrimaryAdmin],
+  )
   const sortedLibraries = useMemo(
     () => [...libraries].sort((left, right) => left.name.localeCompare(right.name)),
     [libraries],
@@ -55,6 +62,8 @@ export const UserEditorModal = ({
   const isCreateMode = mode === 'create'
   const isEditingAdmin = !isCreateMode && user?.role === 'admin'
   const isEditingSelf = !isCreateMode && user?.id === currentUserId
+  const canEditRole = currentUserIsPrimaryAdmin && !isEditingSelf
+  const shouldShowRoleField = isCreateMode || (canEditRole && !user?.is_primary_admin)
 
   useEffect(() => {
     if (!isOpen) {
@@ -142,7 +151,7 @@ export const UserEditorModal = ({
       ? 'Saving…'
       : 'Save Changes'
   const gridClassName =
-    isCreateMode || !isEditingAdmin
+    isCreateMode || !isEditingAdmin || shouldShowRoleField
       ? 'user-editor-modal__grid'
       : 'user-editor-modal__grid user-editor-modal__grid--single'
 
@@ -232,7 +241,7 @@ export const UserEditorModal = ({
               </label>
             ) : null}
 
-            {isCreateMode || !isEditingAdmin ? (
+            {shouldShowRoleField ? (
               <div className="field">
                 <span>Role</span>
                 <GlassSelect
@@ -277,7 +286,7 @@ export const UserEditorModal = ({
             <div className="field">
               <span>Library Access</span>
               {sortedLibraries.length === 0 ? (
-                <p className="muted">Create at least one library before assigning viewer access.</p>
+                <p className="muted">No libraries assigned yet. You can save this user first.</p>
               ) : (
                 <div className="user-editor-modal__access-grid">
                   {sortedLibraries.map((library) => {
@@ -314,8 +323,7 @@ export const UserEditorModal = ({
               disabled={
                 isSubmitting ||
                 username.trim().length === 0 ||
-                (isCreateMode && password.length < 8) ||
-                (role === 'viewer' && selectedLibraryIds.length === 0)
+                (isCreateMode && password.length < 8)
               }
               type="submit"
             >

@@ -5,11 +5,13 @@ interface StatusPillProps {
 export const StatusPill = ({ status }: StatusPillProps) => {
   const normalized = status.toLowerCase()
   const className =
-    normalized === 'administrator' ||
-    normalized === 'admin' ||
-    normalized === '管理员'
-      ? 'status-pill status-pill--admin'
-      : normalized === 'success'
+    normalized === 'primary admin'
+      ? 'status-pill status-pill--primary-admin'
+      : normalized === 'administrator' ||
+          normalized === 'admin' ||
+          normalized === '管理员'
+        ? 'status-pill status-pill--admin'
+        : normalized === 'success'
         ? 'status-pill status-pill--success'
         : normalized === 'failed'
           ? 'status-pill status-pill--danger'

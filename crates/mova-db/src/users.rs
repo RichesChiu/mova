@@ -69,6 +69,23 @@ pub async fn count_enabled_admin_users(pool: &PgPool) -> Result<i64> {
     Ok(row.get("total"))
 }
 
+pub async fn get_primary_admin_user_id(pool: &PgPool) -> Result<Option<i64>> {
+    let row = sqlx::query_scalar::<_, i64>(
+        r#"
+        select id
+        from users
+        where role = 'admin'
+        order by created_at asc, id asc
+        limit 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await
+    .context("failed to get primary admin user id")?;
+
+    Ok(row)
+}
+
 pub async fn list_users(pool: &PgPool) -> Result<Vec<UserProfile>> {
     let rows = sqlx::query(
         r#"
@@ -85,7 +102,11 @@ pub async fn list_users(pool: &PgPool) -> Result<Vec<UserProfile>> {
     for row in rows {
         let user = map_user_row(row);
         let library_ids = list_library_ids_for_user(pool, user.id).await?;
-        profiles.push(UserProfile { user, library_ids });
+        profiles.push(UserProfile {
+            user,
+            is_primary_admin: false,
+            library_ids,
+        });
     }
 
     Ok(profiles)
@@ -111,7 +132,11 @@ pub async fn get_user(pool: &PgPool, user_id: i64) -> Result<Option<UserProfile>
     let user = map_user_row(row);
     let library_ids = list_library_ids_for_user(pool, user.id).await?;
 
-    Ok(Some(UserProfile { user, library_ids }))
+    Ok(Some(UserProfile {
+        user,
+        is_primary_admin: false,
+        library_ids,
+    }))
 }
 
 pub async fn get_user_by_username(
@@ -205,6 +230,7 @@ pub async fn create_user(pool: &PgPool, params: CreateUserParams) -> Result<User
 
     Ok(UserProfile {
         user,
+        is_primary_admin: false,
         library_ids: params.library_ids,
     })
 }
@@ -254,6 +280,7 @@ pub async fn update_user(
 
     Ok(UserProfile {
         user: map_user_row(row),
+        is_primary_admin: false,
         library_ids: params.library_ids,
     })
 }
@@ -281,7 +308,11 @@ pub async fn update_user_nickname(
     let user = map_user_row(row);
     let library_ids = list_library_ids_for_user(pool, user.id).await?;
 
-    Ok(UserProfile { user, library_ids })
+    Ok(UserProfile {
+        user,
+        is_primary_admin: false,
+        library_ids,
+    })
 }
 
 pub async fn replace_user_library_access(
@@ -405,7 +436,11 @@ pub async fn get_user_by_session_token(pool: &PgPool, token: &str) -> Result<Opt
     let user = map_user_row(row);
     let library_ids = list_library_ids_for_user(pool, user.id).await?;
 
-    Ok(Some(UserProfile { user, library_ids }))
+    Ok(Some(UserProfile {
+        user,
+        is_primary_admin: false,
+        library_ids,
+    }))
 }
 
 pub async fn delete_session(pool: &PgPool, token: &str) -> Result<()> {

@@ -43,7 +43,7 @@ import {
 import { mediaItemDetailPath, mediaItemPlayPath } from '../../lib/media-routes'
 import {
   buildPlaybackActionLinks,
-  pickPreferredPlaybackEpisode,
+  pickSeriesPlaybackTargetEpisode,
   playbackPercent,
   playbackStatus,
 } from '../../lib/playback'
@@ -372,10 +372,17 @@ export const MediaItemPage = () => {
           ),
       )
     : []
-  // 剧集详情页优先把按钮落到当前季里已有断点的那一集；如果当前季还没播过，再回退到第一集。
-  const selectedSeasonPlayableEpisode = pickPreferredPlaybackEpisode(selectedSeason?.episodes)
+  // 剧集详情页优先沿着“最近一次观看”的那一集继续；如果最近一集已完成，则直接跳到下一集。
+  const seriesPlaybackTargetEpisode = pickSeriesPlaybackTargetEpisode(
+    availableSeasons.flatMap((season) =>
+      season.episodes
+        .filter((episode) => episode.is_available && episode.media_item_id !== null)
+        .map((episode) => episode),
+    ),
+    selectedSeason?.episodes,
+  )
   const playbackTargetMediaItemId = isSeriesView
-    ? (selectedSeasonPlayableEpisode?.media_item_id ?? null)
+    ? (seriesPlaybackTargetEpisode?.media_item_id ?? null)
     : (mediaItemQuery.data?.id ?? null)
   const mediaVersionOptions = buildMediaVersionOptions(mediaFiles)
   const selectedMediaVersionValue =
@@ -408,7 +415,7 @@ export const MediaItemPage = () => {
     ? buildPlaybackActionLinks(
         playbackTargetMediaItemId,
         isSeriesView
-          ? selectedSeasonPlayableEpisode?.playback_progress
+          ? seriesPlaybackTargetEpisode?.playback_progress
           : moviePlaybackProgressQuery.data,
       )
     : null

@@ -80,14 +80,22 @@
   background: rgba(176, 190, 218, 0.82);
 }
 
+.episode-card--complete .episode-card__status-badge {
+  border-color: rgba(102, 201, 133, 0.52);
+  background: linear-gradient(135deg, rgba(78, 172, 106, 0.92), rgba(42, 116, 67, 0.92));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 8px 18px rgba(30, 83, 50, 0.22);
+}
+
 .episode-card--complete .episode-card__status-badge::before {
-  width: 11px;
-  height: 11px;
+  width: 6px;
+  height: 10px;
   background: none;
   border-radius: 0;
-  border-right: 2px solid rgba(176, 190, 218, 0.92);
-  border-bottom: 2px solid rgba(176, 190, 218, 0.92);
-  transform: rotate(45deg) translate(-1px, -1px);
+  border-right: 2px solid rgba(248, 252, 248, 0.96);
+  border-bottom: 2px solid rgba(248, 252, 248, 0.96);
+  transform: translateY(-1px) rotate(45deg);
 }
 
 .episode-card__body {

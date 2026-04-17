@@ -201,6 +201,7 @@ export const MediaPlayerPage = () => {
           nextEpisode={nextEpisode}
           onSelectEpisode={(targetMediaItemId) => navigate(mediaItemPlayPath(targetMediaItemId))}
           preferredMediaFileId={Number.isFinite(requestedFileId) ? requestedFileId : null}
+          seriesMediaItemId={playbackHeaderQuery.data.series_media_item_id}
           startMode={startMode}
           title={playbackHeaderQuery.data.title}
           variant="immersive"
