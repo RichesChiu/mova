@@ -249,7 +249,7 @@ docker compose up -d --build
 
 构建后的前端静态文件会进入 `mova-server` 镜像，由后端直接托管；运行时继续走同域 `/api/*`。
 
-如果你要看更完整的 MVP 阶段部署和升级说明，见 [`../../docs/DEPLOYMENT.md`](../../docs/DEPLOYMENT.md)。
+如果你要看项目入口、部署和升级说明，见 [`../../README.md`](../../README.md)。
 
 ## 9. 质量工具
 

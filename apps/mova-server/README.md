@@ -161,181 +161,73 @@
 另外，扫描落库现在会优先尝试整库事务同步；如果因为单条脏数据导致整批写入失败，会自动回退到 best-effort 模式，尽量让其余健康条目继续写入，而不是整轮扫描直接中断。
 对未改路径、且过去已经成功补过 metadata / 海报的条目，扫描在进入远端 enrichment 前还会先按 `file_path` 回填数据库里已有的 metadata 摘要，从而避免每次重扫都重复请求 TMDB / OMDb 和重新下载图片。
 
-## 5. 路由总览
+## 5. 路由与 feature 划分
 
 当前后端有 12 个 route module，都由 `app.rs` 合并后统一挂到 `/api` 下：
 
 - `routes/health.rs`
 - `routes/auth.rs`
+- `routes/users.rs`
 - `routes/libraries.rs`
 - `routes/server.rs`
 - `routes/realtime.rs`
-- `routes/media_files.rs`
-- `routes/subtitle_files.rs`
 - `routes/media_items.rs`
 - `routes/seasons.rs`
+- `routes/media_files.rs`
+- `routes/subtitle_files.rs`
 - `routes/playback_progress.rs`
-- `routes/users.rs`
 - `routes/watch_history.rs`
 
 如果 `config.web_dist_dir` 存在，`app.rs` 还会把前端构建产物作为 fallback 静态文件托管。
 
-## 6. 路由模块与调用链
+这一层更适合按 feature 来理解，而不是在 README 里重复一整份接口文档：
 
-下面的表格重点说明：
+- 认证与会话
+  - `routes/auth.rs`
+  - bootstrap、登录、登出、当前用户、当前用户改密/改昵称
+- 用户管理
+  - `routes/users.rs`
+  - 管理员创建、更新、删除用户，重置密码，更新成员媒体库授权
+- 媒体库与扫描
+  - `routes/libraries.rs`
+  - 媒体库 CRUD、媒体条目列表、扫描历史、触发扫描
+- 运行时与实时事件
+  - `routes/server.rs`
+  - `routes/realtime.rs`
+  - 容器内 `/media` 目录树、SSE 事件流
+- 媒体详情与元数据
+  - `routes/media_items.rs`
+  - `routes/seasons.rs`
+  - 单条媒体详情、演员、剧集大纲、季/集列表、海报背景图、手动 metadata 操作
+- 播放链路
+  - `routes/media_files.rs`
+  - `routes/subtitle_files.rs`
+  - `routes/playback_progress.rs`
+  - `routes/watch_history.rs`
+  - 文件流、音轨、字幕、继续观看、观看历史、播放进度
 
-- 路由路径
-- 对应 handler
-- 主要依赖的 crate / 方法
-- 这个接口承担的职责
+接口路径、请求体、响应字段和权限语义统一以 [`../../docs/API.md`](../../docs/API.md) 为准。  
+`mova-server/README.md` 不再重复维护逐个接口的 Method / Path 说明，只保留“这些 feature 在代码里落在哪、调用链怎么走”。
 
-### 6.1 健康检查
+## 6. 当前最关键的几个调用链
 
-#### `routes/health.rs`
-
-| Method | Path | Handler | 主要依赖 | 作用 |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/health` | `handlers::health::health` | `mova_db::ping` | 检查 API 进程和数据库是否可用。 |
-
-### 6.2 认证与会话
-
-#### `routes/auth.rs`
-
-| Method | Path | Handler | 主要依赖 | 作用 |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/auth/bootstrap-status` | `handlers::auth::get_bootstrap_status` | `mova_application::bootstrap_required` | 判断系统是否还没有管理员。 |
-| `POST` | `/api/auth/bootstrap-admin` | `handlers::auth::bootstrap_admin` | `mova_application::bootstrap_admin`、`auth::attach_session_cookie` | 初始化首个管理员并立即写入 session cookie。 |
-| `POST` | `/api/auth/login` | `handlers::auth::login` | `mova_application::login`、`auth::attach_session_cookie` | 用户登录并建立 session。 |
-| `POST` | `/api/auth/logout` | `handlers::auth::logout` | `mova_application::logout`、`auth::clear_session_cookie` | 注销当前 session。 |
-| `GET` | `/api/auth/me` | `handlers::auth::current_user` | `auth::require_user` | 返回当前登录用户。 |
-| `PATCH` | `/api/auth/me` | `handlers::auth::update_own_profile` | `auth::require_user`、`mova_application::update_own_profile` | 当前用户更新自己的昵称。 |
-| `PUT` | `/api/auth/password` | `handlers::auth::change_password` | `auth::require_user`、`mova_application::change_own_password`、`auth::attach_session_cookie` | 当前用户修改自己的密码，并轮换 session。 |
-
-### 6.3 用户管理
-
-#### `routes/users.rs`
-
-| Method | Path | Handler | 主要依赖 | 作用 |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/users` | `handlers::users::list_users` | `auth::require_admin`、`mova_application::list_users` | 管理员查询用户列表。 |
-| `POST` | `/api/users` | `handlers::users::create_user` | `auth::require_admin`、`mova_application::create_user` | 管理员创建用户。 |
-| `PATCH` | `/api/users/{id}` | `handlers::users::update_user` | `auth::require_admin`、`mova_application::update_user` | 更新用户昵称、角色、启停状态等基础信息。 |
-| `DELETE` | `/api/users/{id}` | `handlers::users::delete_user` | `auth::require_admin`、`mova_application::delete_user` | 删除用户。 |
-| `PUT` | `/api/users/{id}/library-access` | `handlers::users::update_user_library_access` | `auth::require_admin`、`mova_application::replace_user_library_access` | 更新普通用户的媒体库授权范围。 |
-| `PUT` | `/api/users/{id}/password` | `handlers::users::reset_user_password` | `auth::require_admin`、`mova_application::reset_user_password` | 管理员重置指定用户密码。 |
-
-### 6.4 媒体库管理与扫描
-
-#### `routes/libraries.rs`
-
-| Method | Path | Handler | 主要依赖 | 作用 |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/libraries` | `handlers::libraries::list_libraries` | `auth::require_user`、`mova_application::list_libraries` | 返回当前用户有权限看到的媒体库列表。 |
-| `POST` | `/api/libraries` | `handlers::libraries::create_library` | `auth::require_admin`、`mova_application::create_library`、`mova_application::enqueue_library_scan`、`RealtimeEvent::LibraryUpdated` | 创建媒体库；启用状态下会自动入队一次初始扫描。 |
-| `GET` | `/api/libraries/{id}` | `handlers::libraries::get_library` | `auth::require_library_access`、`mova_application::get_library_detail` | 查询单个媒体库详情和最近扫描摘要。 |
-| `PATCH` | `/api/libraries/{id}` | `handlers::libraries::update_library` | `auth::require_admin`、`mova_application::get_library`、`mova_application::update_library`、`state.scan_registry`、`RealtimeEvent::LibraryUpdated` | 更新媒体库名称、描述、元数据语言和启停状态。 |
-| `DELETE` | `/api/libraries/{id}` | `handlers::libraries::delete_library` | `auth::require_admin`、`state.scan_registry`、`mova_application::delete_library`、`RealtimeEvent::LibraryDeleted` | 删除媒体库，并先安全停止相关扫描。 |
-| `GET` | `/api/libraries/{id}/media-items` | `handlers::libraries::list_library_media_items` | `auth::require_library_access`、`mova_application::list_media_items_for_library` | 查询某个库下的媒体条目列表。 |
-| `GET` | `/api/libraries/{id}/scan-jobs` | `handlers::libraries::list_library_scan_jobs` | `auth::require_admin`、`mova_application::list_scan_jobs_for_library` | 查询该库扫描历史。 |
-| `GET` | `/api/libraries/{id}/scan-jobs/{scan_job_id}` | `handlers::libraries::get_library_scan_job` | `auth::require_admin`、`mova_application::get_scan_job_for_library` | 查询单个扫描任务状态。 |
-| `POST` | `/api/libraries/{id}/scan` | `handlers::libraries::scan_library` | `auth::require_admin`、`mova_application::enqueue_library_scan`、`state.scan_registry`、`sync_runtime::spawn_library_scan_job`、`sync_runtime::handle_scan_registration_rejected` | 手动触发扫描，或复用当前已有活跃扫描。 |
-
-### 6.5 服务器运行时信息
-
-#### `routes/server.rs`
-
-| Method | Path | Handler | 主要依赖 | 作用 |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/server/media-tree` | `handlers::server::get_media_tree` | `auth::require_admin`、本地文件系统递归读取 | 返回容器内 `/media` 目录树，给前端建库时选择库根路径。 |
-
-### 6.6 实时事件
-
-#### `routes/realtime.rs`
-
-| Method | Path | Handler | 主要依赖 | 作用 |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/events` | `handlers::realtime::events` | `auth::require_user`、`state.realtime_hub.subscribe()`、`RealtimeEvent::is_visible_to()` | 建立 SSE 长连接，把扫描、媒体库和元数据事件推给前端。 |
-
-### 6.7 媒体条目与元数据
-
-#### `routes/media_items.rs`
-
-| Method | Path | Handler | 主要依赖 | 作用 |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/media-items/{id}` | `handlers::media_items::get_media_item` | `auth::require_media_item_access` | 查询单个媒体条目详情；详情字段会带当前缓存的 IMDb 评分、国家/地区、题材类型和工作室信息。 |
-| `GET` | `/api/media-items/{id}/cast` | `handlers::media_items::list_media_item_cast` | `auth::require_media_item_access`、`mova_application::list_media_item_cast` | 查询单个媒体条目的演员列表；接口只读取本地缓存，不会在详情页请求里再触发远端 cast 拉取。演员预取会放在扫库和手动 metadata 刷新阶段完成。 |
-| `GET` | `/api/media-items/{id}/playback-header` | `handlers::media_items::get_media_item_playback_header` | `auth::require_media_item_access`、`mova_application::get_media_item_playback_header` | 返回播放器页头部需要的标题、季集和关联系列信息。 |
-| `GET` | `/api/media-items/{id}/files` | `handlers::media_items::list_media_item_files` | `auth::require_media_item_access`、`mova_application::list_media_files_for_media_item` | 查询条目关联的物理媒体文件，并返回视频探测到的技术字段，例如 profile、level、帧率、色彩参数、位深和参考帧。 |
-| `GET` | `/api/media-items/{id}/seasons` | `handlers::media_items::list_media_item_seasons` | `auth::require_media_item_access`、`mova_application::list_seasons_for_series` | 查询剧集条目的季列表。 |
-| `GET` | `/api/media-items/{id}/episode-outline` | `handlers::media_items::get_media_item_episode_outline` | `auth::require_media_item_access`、`mova_application::series_episode_outline_for_media_item` | 查询全集大纲和本地可用集。 |
-| `GET` | `/api/media-items/{id}/metadata-search` | `handlers::media_items::search_media_item_metadata` | `auth::require_admin`、`auth::require_media_item_access`、`mova_application::search_media_item_metadata_matches` | 管理员手动搜索候选元数据。 |
-| `POST` | `/api/media-items/{id}/metadata-match` | `handlers::media_items::apply_media_item_metadata_match` | `auth::require_admin`、`mova_application::apply_media_item_metadata_match`、`RealtimeEvent::MediaItemMetadataUpdated` | 应用管理员选中的元数据匹配结果，并广播更新。 |
-| `POST` | `/api/media-items/{id}/refresh-metadata` | `handlers::media_items::refresh_media_item_metadata` | `auth::require_admin`、`mova_application::refresh_media_item_metadata`、`RealtimeEvent::MediaItemMetadataUpdated` | 手动重拉单条媒体元数据。 |
-| `GET` | `/api/media-items/{id}/poster` | `handlers::media_items::get_media_item_poster` | `auth::require_media_item_access`、本地图片输出 | 返回媒体条目海报图。 |
-| `GET` | `/api/media-items/{id}/backdrop` | `handlers::media_items::get_media_item_backdrop` | `auth::require_media_item_access`、本地图片输出 | 返回媒体条目背景图。 |
-
-### 6.8 季与剧集附属资源
-
-#### `routes/seasons.rs`
-
-| Method | Path | Handler | 主要依赖 | 作用 |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/seasons/{id}/episodes` | `handlers::seasons::list_season_episodes` | `auth::require_season_access`、`mova_application::list_episodes_for_season` | 查询某一季下的集列表。 |
-| `GET` | `/api/seasons/{id}/poster` | `handlers::seasons::get_season_poster` | `auth::require_season_access`、本地图片输出 | 返回季海报图。 |
-| `GET` | `/api/seasons/{id}/backdrop` | `handlers::seasons::get_season_backdrop` | `auth::require_season_access`、本地图片输出 | 返回季背景图。 |
-
-### 6.9 媒体文件与字幕流
-
-#### `routes/media_files.rs`
-
-| Method | Path | Handler | 主要依赖 | 作用 |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/media-files/{id}/stream` | `handlers::media_files::stream_media_file` | `auth::require_media_file_access`、本地文件读取、`Range` 解析、`ReaderStream`、可选 `ffmpeg -c copy` 音轨 remux 缓存 | 以流方式输出媒体文件内容；当前也支持通过 `audio_track_id` 选择内嵌音轨。 |
-| `HEAD` | `/api/media-files/{id}/stream` | `handlers::media_files::head_media_file` | `auth::require_media_file_access`、本地文件元数据读取、可选音轨变体探测 | 返回媒体文件响应头，不输出实体。 |
-| `GET` | `/api/media-files/{id}/audio-tracks` | `handlers::media_files::list_media_file_audio_tracks` | `auth::require_media_file_access`、`mova_application::list_audio_tracks_for_media_file` | 查询媒体文件可切换的内嵌音轨列表，并返回语言、布局、声道、码率和采样率。 |
-| `GET` | `/api/media-files/{id}/subtitles` | `handlers::subtitle_files::list_media_file_subtitles` | `auth::require_media_file_access`、`mova_application::list_subtitle_files_for_media_file` | 查询媒体文件可切换字幕轨道，并返回默认、强制、听障和外挂来源等标记。 |
-
-#### `routes/subtitle_files.rs`
-
-| Method | Path | Handler | 主要依赖 | 作用 |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/subtitle-files/{id}/stream` | `handlers::subtitle_files::stream_subtitle_file` | `auth::require_user`、`mova_application::get_subtitle_file`、`auth::require_media_file_access`、本地缓存、`ffmpeg` 转 WebVTT | 把外挂或内嵌字幕转换成浏览器可直接挂载的 WebVTT 输出。 |
-
-### 6.10 播放进度与观看历史
-
-#### `routes/playback_progress.rs`
-
-| Method | Path | Handler | 主要依赖 | 作用 |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/playback-progress/continue-watching` | `handlers::playback_progress::list_continue_watching` | `auth::require_user`、`mova_application::list_continue_watching` | 返回当前用户的继续观看列表。 |
-| `GET` | `/api/media-items/{id}/playback-progress` | `handlers::playback_progress::get_media_item_playback_progress` | `auth::require_media_item_access`、`mova_application::get_playback_progress_for_media_item` | 查询某个媒体条目的最近播放进度。 |
-| `PUT` | `/api/media-items/{id}/playback-progress` | `handlers::playback_progress::update_media_item_playback_progress` | `auth::require_media_item_access`、`mova_application::update_playback_progress_for_media_item` | 写入或更新当前用户的播放进度，并同步继续观看与观看历史。 |
-
-#### `routes/watch_history.rs`
-
-| Method | Path | Handler | 主要依赖 | 作用 |
-| --- | --- | --- | --- | --- |
-| `GET` | `/api/watch-history` | `handlers::watch_history::list_watch_history` | `auth::require_user`、`mova_application::list_watch_history` | 返回当前用户的观看历史。 |
-
-## 7. 当前最关键的几个调用链
-
-### 7.1 登录链路
+### 6.1 登录链路
 
 `routes/auth.rs` -> `handlers/auth.rs` -> `mova_application::{login, bootstrap_admin, change_own_password}` -> `auth.rs` session cookie helpers
 
-### 7.2 建库与启用链路
+### 6.2 建库与启用链路
 
 `routes/libraries.rs` -> `handlers::libraries::{create_library, update_library}` -> `mova_application::{create_library, update_library}` -> `realtime.rs`
 
-### 7.3 手动扫描链路
+### 6.3 手动扫描链路
 
 `routes/libraries.rs` -> `handlers::libraries::scan_library` -> `mova_application::enqueue_library_scan` -> `sync_runtime::spawn_library_scan_job` -> `mova_application::execute_scan_job_with_cancellation` -> `RealtimeHub`
 
-### 7.4 SSE 链路
+### 6.4 SSE 链路
 
 `sync_runtime.rs` / `handlers::libraries.rs` / `handlers::media_items.rs` 发布 `RealtimeEvent` -> `state.realtime_hub` -> `handlers::realtime::events` -> 浏览器 `EventSource`
 
-### 7.5 播放链路
+### 6.5 播放链路
 
 播放器先请求：
 
@@ -352,7 +244,7 @@
 - `/api/subtitle-files/{id}/stream` 负责把字幕转换成 WebVTT
 - `/api/media-items/{id}/playback-progress` 负责轮询保存进度
 
-## 8. 测试与验证
+## 7. 测试与验证
 
 当前 `mova-server` 里主要有两层测试：
 

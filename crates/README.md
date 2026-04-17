@@ -18,4 +18,4 @@
 如果你想看系统层面的接口和路线：
 
 - API 契约：[`../docs/API.md`](../docs/API.md)
-- MVP 部署说明：[`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md)
+- 产品入口与部署说明：[`../README.md`](../README.md)
