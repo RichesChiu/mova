@@ -3,7 +3,7 @@
 `mova-web` 是 Mova 的前端应用，基于 Vite、React、TypeScript、React Router、TanStack Query 和 SCSS。  
 这份文档不重复接口契约，而是从代码入口、页面结构、共享组件、数据层和测试层来说明当前前端是怎么组织的。
 
-当前产品 UI 文案先统一为英文，后续会在这套英文基线上补中英切换能力。
+当前产品 UI 文案先统一为英文；个人设置里已经提供界面语言偏好入口，当前会先作为本地偏好持久化，为后续更完整的中英切换留接口。
 
 如果你要看接口字段和 HTTP/SSE 契约，优先看 [`../../docs/API.md`](../../docs/API.md)。
 
@@ -76,7 +76,7 @@ src/
 | `/libraries/:libraryId` | `src/pages/library-page/index.tsx` | 单库详情页。展示库标题、描述、关键统计、最新扫描状态、电影/剧集列表，以及扫描中的占位卡；页面头部会尽量保持内容页而不是配置页的层级，返回入口也统一成轻量文本链接而不是按钮块。 | `getLibrary`、`listLibraryMediaItems`、`scanRuntimeByLibrary` |
 | `/media-items/:mediaItemId` | `src/pages/media-item-page/index.tsx` | 媒体详情页。电影显示详情与播放入口，并在标题旁展示带 `IMDb` 标识的评分；hero 区会优先用背景图或海报做模糊大底与光晕层，让标题、海报和评分形成更完整的电影感头图，年份、国家/地区、题材类型和工作室则收在 facts 区里避免重复副标题；如果同一部电影存在多个本地版本，播放区会先给版本选择，技术信息区也会跟着当前版本切换；演员区会在主体信息先渲染后再异步加载，但只读取服务端已经预取好的本地演员缓存，不再在详情页里触发远端 cast 刷新；演员区下方会展示当前资源文件的 source details，以及并排的视频、音频、字幕技术卡；音轨和字幕卡头部都有小下拉，当前版本本身则只在播放区选择，字幕卡也会展示默认、强制、听障和外挂标记；剧集显示季/集大纲、演员和管理员元数据工具；剧集播放入口会优先沿用最近一次观看的那一集，如果最近一集已经播完则自动跳到下一集；当所在媒体库仍在扫描时，这里也会显示当前条目或当前季的同步状态与占位集卡，返回入口也和库页保持同一套轻量文本链接样式。 | `getMediaItem`、`getMediaItemCast`、`getMediaItemEpisodeOutline`、`getMediaItemPlaybackProgress`、`getMediaItemPlaybackHeader`、`listMediaItemFiles`、`listMediaFileAudioTracks`、`listMediaFileSubtitles`、`scanRuntimeByLibrary` |
 | `/media-items/:mediaItemId/play` | `src/pages/media-player-page/index.tsx` | 沉浸式播放器页。负责装配播放器标题、副标题、片头跳过区间、集切换选项和“下一集”目标，并把实际播放行为交给 `MediaPlayerPanel`；播放器写入进度后会同步更新剧集 outline 缓存，这样返回详情页时已完成状态和集卡进度条能立刻跟上。 | `getMediaItemPlaybackHeader`、`getMediaItemEpisodeOutline` |
-| `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。收成单块资料面板，展示用户名、昵称、角色标签，以及链接式的改密入口；昵称支持通过行内编辑 icon 直接更新，真正的密码修改仍在弹窗里完成。 | `updateOwnProfile`、`changeOwnPassword`、`AppShell` 提供的 `currentUser` |
+| `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。收成单块资料面板，展示用户名、昵称、角色标签，并把昵称编辑、改密、界面语言和 `dark / light` 主题偏好都放进同一个资料面板；语言和主题偏好会保存在当前浏览器，本地即时生效。 | `updateOwnProfile`、`changeOwnPassword`、`AppShell` 提供的 `currentUser`、`lib/preferences.ts` |
 | `/settings` | `src/pages/settings-page/index.tsx` | 管理员设置页。承接用户增删改查、媒体库创建、扫描、删除和基础配置编辑；首个初始化管理员会作为 `Primary Admin` 管理普通管理员，普通管理员则只允许管理成员账号和媒体库；危险操作会走统一确认弹窗。 | `listUsers`、`createUser`、`updateUser`、`deleteUser`、`createLibrary`、`updateLibrary`、`scanLibrary`、`deleteLibrary`、`getLibrary` |
 
 几个页面内还有“页面级子模块”，但它们不算独立路由：
@@ -96,7 +96,7 @@ src/
 | `AppShell` | `components/app-shell/index.tsx` | 登录后壳层，负责当前用户、媒体库列表、SSE、顶栏和 `Outlet` 上下文。 | 所有非登录、非沉浸式播放器页面 |
 | `useServerEvents` | `components/app-shell/use-server-events.ts` | 通过 `EventSource('/api/events')` 订阅 SSE，解析扫描/媒体库/元数据事件，并触发 React Query 刷新。 | `AppShell` |
 | `scan-runtime` | `components/app-shell/scan-runtime.ts` | 把 SSE 运行时扫描数据整理成库级进度、条目级占位卡、详情页同步提示和状态文案。 | 首页、媒体库页、媒体详情页、设置页 |
-| `ContentHeader` | `components/content-header/index.tsx` | 顶部品牌、未来 i18n 预留的语言下拉，以及用户菜单；顶栏用户区会优先显示昵称，没有昵称时回退到用户名。 | `AppShell` |
+| `ContentHeader` | `components/content-header/index.tsx` | 顶部品牌和用户菜单；顶栏用户区会优先显示昵称，没有昵称时回退到用户名。语言与主题偏好统一收进个人设置页，不再在 header 里分散放入口。 | `AppShell` |
 
 ### 4.2 媒体展示
 
@@ -157,6 +157,7 @@ src/
 | `lib/viewer.ts` | 当前角色判断工具，决定哪些管理入口只给管理员看。 |
 | `lib/format.ts` | 时间、日期、时长等显示格式化函数。 |
 | `lib/theme.ts` | 启动时应用全局主题。 |
+| `lib/preferences.ts` | 统一管理本地界面偏好，包括 `dark / light` 主题和界面语言的读取、归一化、持久化与首次启动应用。 |
 
 ## 6. 样式与测试
 

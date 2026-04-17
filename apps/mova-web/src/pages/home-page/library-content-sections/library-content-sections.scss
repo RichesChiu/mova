@@ -3,12 +3,31 @@
   gap: 18px;
 }
 
+.library-content-sections__block {
+  overflow: visible;
+}
+
 .library-content-sections__item {
   min-width: 0;
 }
 
 .library-content-sections__viewport {
+  padding-inline: 18px;
+  scroll-padding-inline: 18px;
+}
+
+.library-content-sections__viewport .scrollable-rail__track {
   grid-auto-columns: minmax(340px, 420px);
+  padding-block: 14px 24px;
+}
+
+.library-content-sections__viewport .media-card {
+  box-shadow: var(--panel-inset), inset 0 1px 0 var(--panel-rim-highlight);
+}
+
+.library-content-sections__viewport .media-card:hover {
+  transform: none;
+  box-shadow: var(--panel-inset), inset 0 1px 0 var(--panel-rim-highlight);
 }
 
 .library-content-sections__link {
@@ -19,10 +38,8 @@
   padding: 8px 10px 8px 16px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--floating-surface) 86%, transparent);
-  box-shadow:
-    var(--panel-inset),
-    0 10px 24px rgba(0, 0, 0, 0.14);
+  background: color-mix(in srgb, var(--button-background) 92%, transparent);
+  box-shadow: var(--button-shadow);
   color: var(--text);
   font-size: 0.88rem;
   font-weight: 600;
@@ -36,12 +53,10 @@
 }
 
 .library-content-sections__link:hover {
-  transform: translateY(-1px);
+  transform: none;
   border-color: var(--button-primary-border);
-  background: color-mix(in srgb, var(--floating-surface-strong) 86%, transparent);
-  box-shadow:
-    var(--panel-inset),
-    0 16px 32px rgba(4, 8, 16, 0.24);
+  background: color-mix(in srgb, var(--button-primary-background) 88%, transparent);
+  box-shadow: var(--button-shadow-hover);
   color: var(--accent-strong);
 }
 
@@ -52,7 +67,7 @@
   height: 22px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 78%, transparent);
   border-radius: 999px;
-  background: rgba(8, 12, 18, 0.42);
+  background: color-mix(in srgb, var(--floating-surface) 88%, transparent);
   color: inherit;
   transition:
     transform 160ms ease,
@@ -63,5 +78,5 @@
 .library-content-sections__link:hover .library-content-sections__link-icon {
   transform: translateX(1px);
   border-color: color-mix(in srgb, var(--button-primary-border) 72%, transparent);
-  background: rgba(11, 16, 24, 0.62);
+  background: color-mix(in srgb, var(--button-primary-background) 92%, transparent);
 }

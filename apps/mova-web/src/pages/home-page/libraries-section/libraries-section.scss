@@ -2,6 +2,15 @@
   grid-auto-columns: minmax(248px, 280px);
 }
 
+.libraries-section__viewport .library-spotlight {
+  box-shadow: var(--panel-inset);
+}
+
+.libraries-section__viewport .library-spotlight:hover {
+  transform: none;
+  box-shadow: var(--panel-inset);
+}
+
 .library-spotlight {
   position: relative;
   overflow: hidden;
@@ -9,9 +18,7 @@
   min-height: 196px;
   border: 1px solid var(--floating-border);
   border-radius: 22px;
-  background:
-    linear-gradient(180deg, rgba(7, 11, 18, 0.18), rgba(7, 11, 18, 0.72)),
-    var(--floating-surface);
+  background: var(--floating-surface);
   box-shadow: var(--panel-inset), var(--floating-shadow);
   transition:
     transform 180ms ease,
@@ -26,9 +33,7 @@
   box-shadow:
     var(--panel-inset),
     0 18px 44px rgba(4, 8, 16, 0.42);
-  background:
-    linear-gradient(180deg, rgba(7, 11, 18, 0.12), rgba(7, 11, 18, 0.66)),
-    var(--floating-surface-strong);
+  background: var(--floating-surface-strong);
 }
 
 .library-spotlight--loading {
@@ -50,8 +55,12 @@
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(9, 14, 21, 0.24), rgba(9, 14, 21, 0.72)),
-    radial-gradient(circle at top right, rgba(168, 186, 222, 0.16), transparent 42%);
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--panel-overlay-top) 62%, transparent),
+      color-mix(in srgb, var(--panel-background-strong) 74%, transparent)
+    ),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 16%, transparent), transparent 42%);
 }
 
 .library-spotlight__poster,
@@ -65,35 +74,31 @@
   grid-column: 1 / -1;
   grid-row: 1 / -1;
   background:
-    radial-gradient(circle at top left, rgba(168, 186, 222, 0.22), transparent 34%),
-    linear-gradient(135deg, rgba(25, 35, 49, 0.92), rgba(14, 18, 28, 0.98));
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 22%, transparent), transparent 34%),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--floating-surface-strong) 88%, transparent),
+      color-mix(in srgb, var(--panel-background-strong) 94%, transparent)
+    );
 }
 
 .library-spotlight__fallback--loading {
-  background:
-    linear-gradient(135deg, rgba(25, 35, 49, 0.92), rgba(14, 18, 28, 0.98));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--floating-surface-strong) 88%, transparent),
+    color-mix(in srgb, var(--panel-background-strong) 94%, transparent)
+  );
 }
 
 .library-spotlight__content {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   align-content: stretch;
-  gap: 6px;
+  gap: 8px;
   min-height: 100%;
   padding: 16px;
-}
-
-.library-spotlight__meta {
-  color: var(--text-soft);
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .library-spotlight__title {
@@ -117,25 +122,21 @@
   height: 1.1rem;
 }
 
-.library-spotlight__line--meta {
-  width: 34%;
-  height: 0.8rem;
-}
-
 .library-spotlight__stats {
   display: flex;
   flex-wrap: nowrap;
   gap: 6px;
   min-height: 30px;
   overflow: hidden;
+  grid-row: 4;
+  align-self: end;
 }
 
 .library-spotlight__scan {
   display: grid;
   gap: 7px;
   min-height: 42px;
-  grid-row: 5;
-  align-self: end;
+  grid-row: 3;
 }
 
 .library-spotlight__scan--failed {

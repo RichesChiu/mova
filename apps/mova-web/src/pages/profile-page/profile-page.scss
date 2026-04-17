@@ -15,9 +15,13 @@
 .profile-page__row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-wrap: nowrap;
+  gap: 14px;
   min-height: 28px;
+}
+
+.profile-page__row--setting {
+  align-items: flex-start;
 }
 
 .profile-page__inline-editor {
@@ -50,6 +54,7 @@
 }
 
 .profile-page__label {
+  flex: 0 0 176px;
   color: var(--text-soft);
   font-size: 0.84rem;
   font-weight: 700;
@@ -60,6 +65,24 @@
   color: var(--text);
   font-size: 0.96rem;
   line-height: 1.45;
+}
+
+.profile-page__setting {
+  display: grid;
+  gap: 8px;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.profile-page__select {
+  width: min(220px, 100%);
+}
+
+.profile-page__hint {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 
 .profile-page__input {
@@ -126,6 +149,15 @@
 }
 
 @media (max-width: 640px) {
+  .profile-page__row {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .profile-page__label {
+    flex-basis: 100%;
+  }
+
   .profile-page__editor-surface {
     flex-wrap: wrap;
     align-items: stretch;

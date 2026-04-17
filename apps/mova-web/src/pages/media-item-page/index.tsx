@@ -439,7 +439,6 @@ export const MediaItemPage = () => {
           : 'none',
       } as CSSProperties)
     : undefined
-  const heroEyebrow = isSeriesView ? 'series' : (mediaItemQuery.data?.media_type ?? '')
   const heroTitle = mediaItemQuery.data?.title ?? ''
   const heroImdbRating = mediaItemQuery.data?.imdb_rating?.trim() || null
   const heroCountry = formatMediaCountry(mediaItemQuery.data?.country)
@@ -608,10 +607,7 @@ export const MediaItemPage = () => {
         </div>
 
         <div className="detail-hero__body">
-          <div className="detail-hero__eyebrow-row">
-            <p className="eyebrow">{heroEyebrow}</p>
-            <MediaTypeTag mediaType={mediaItemQuery.data.media_type} />
-          </div>
+          <MediaTypeTag mediaType={mediaItemQuery.data.media_type} />
           <div className="detail-hero__title-row">
             <h2>{heroTitle}</h2>
             {heroImdbRating ? (

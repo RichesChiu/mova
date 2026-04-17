@@ -139,23 +139,39 @@
 .glass-modal-surface {
   border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
   background:
-    linear-gradient(180deg, rgba(11, 16, 24, 0.94), rgba(9, 14, 22, 0.98)),
-    color-mix(in srgb, var(--panel-background) 94%, rgba(2, 4, 10, 0.94));
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--panel-overlay-top) 94%, transparent),
+      color-mix(in srgb, var(--panel-background-strong) 96%, transparent)
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--floating-surface-strong) 92%, transparent),
+      color-mix(in srgb, var(--panel-background) 96%, transparent)
+    );
   backdrop-filter: blur(30px) saturate(140%);
   box-shadow:
-    0 40px 120px rgba(0, 0, 0, 0.44),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    0 40px 120px color-mix(in srgb, var(--accent) 8%, rgba(0, 0, 0, 0.24)),
+    var(--panel-inset);
 }
 
 .glass-popover-surface {
   border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
   background:
-    linear-gradient(180deg, rgba(10, 16, 24, 0.96), rgba(8, 13, 21, 0.985)),
-    color-mix(in srgb, var(--floating-surface) 94%, rgba(4, 8, 14, 0.98));
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--panel-overlay-top) 92%, transparent),
+      color-mix(in srgb, var(--floating-surface-strong) 96%, transparent)
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--floating-surface-strong) 92%, transparent),
+      color-mix(in srgb, var(--panel-background) 94%, transparent)
+    );
   backdrop-filter: blur(26px) saturate(138%);
   box-shadow:
-    0 28px 70px rgba(0, 0, 0, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    0 28px 70px color-mix(in srgb, var(--accent) 8%, rgba(0, 0, 0, 0.18)),
+    var(--panel-inset);
 }
 
 .counter-badge,

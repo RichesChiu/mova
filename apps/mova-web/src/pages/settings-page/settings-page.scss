@@ -99,9 +99,17 @@
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(7, 11, 18, 0.18), rgba(7, 11, 18, 0.8)),
-    radial-gradient(circle at top right, rgba(168, 186, 222, 0.14), transparent 40%),
-    linear-gradient(135deg, rgba(25, 35, 49, 0.92), rgba(14, 18, 28, 0.98));
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--panel-overlay-top) 78%, transparent),
+      color-mix(in srgb, var(--panel-background-strong) 94%, transparent)
+    ),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 18%, transparent), transparent 40%),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--floating-surface-strong) 88%, transparent),
+      color-mix(in srgb, var(--panel-background-strong) 96%, transparent)
+    );
 }
 
 .settings-library-card__backdrop-glow {
@@ -110,7 +118,7 @@
   width: 160px;
   height: 160px;
   border-radius: 999px;
-  background: radial-gradient(circle, rgba(110, 145, 255, 0.22), transparent 68%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 28%, transparent), transparent 68%);
   filter: blur(4px);
 }
 

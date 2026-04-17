@@ -48,12 +48,16 @@
 }
 
 .scrollable-rail__viewport {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+}
+
+.scrollable-rail__track {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 304px;
   gap: 12px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding: 4px 2px 10px;
-  scroll-snap-type: x proximity;
+  width: max-content;
+  padding: 12px 2px 18px;
 }

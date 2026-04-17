@@ -2,9 +2,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles/global.scss'
 import App from './App.tsx'
-import { applyTheme } from './lib/theme'
+import { initializeAppPreferences } from './lib/preferences'
 
-applyTheme()
+initializeAppPreferences()
 
 const rootElement = document.getElementById('root')
 

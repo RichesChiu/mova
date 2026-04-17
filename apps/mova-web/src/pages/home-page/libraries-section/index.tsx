@@ -26,7 +26,6 @@ const LibrarySpotlightSkeleton = () => (
 
     <div className="library-spotlight__content">
       <span className="library-spotlight__line library-spotlight__line--title skeleton-shimmer" />
-      <span className="library-spotlight__line library-spotlight__line--meta skeleton-shimmer" />
 
       <div className="library-spotlight__stats">
         <span className="library-spotlight__stat library-spotlight__stat--loading skeleton-shimmer" />
@@ -107,15 +106,6 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
 
               <div className="library-spotlight__content">
                 <strong className="library-spotlight__title">{library.name}</strong>
-                <span className="library-spotlight__meta">Auto Detect</span>
-
-                <div className="library-spotlight__stats">
-                  <span className="library-spotlight__stat">
-                    {detailLoading && !detail ? 'syncing…' : `${detail?.media_count ?? 0} items`}
-                  </span>
-                  <span className="library-spotlight__stat">{detail?.movie_count ?? 0} movies</span>
-                  <span className="library-spotlight__stat">{detail?.series_count ?? 0} series</span>
-                </div>
 
                 {scanCopy ? (
                   <div
@@ -142,6 +132,14 @@ export const LibrariesSection = ({ isLoading, libraryModules }: LibrariesSection
                     ) : null}
                   </div>
                 ) : null}
+
+                <div className="library-spotlight__stats">
+                  <span className="library-spotlight__stat">
+                    {detailLoading && !detail ? 'syncing…' : `${detail?.media_count ?? 0} items`}
+                  </span>
+                  <span className="library-spotlight__stat">{detail?.movie_count ?? 0} movies</span>
+                  <span className="library-spotlight__stat">{detail?.series_count ?? 0} series</span>
+                </div>
               </div>
             </Link>
           )

@@ -102,7 +102,7 @@ export const ScrollableRail = ({
           onWheel={handleWheel}
           ref={listRef}
         >
-          {children}
+          <div className="scrollable-rail__track">{children}</div>
         </div>
 
         <button

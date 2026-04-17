@@ -4,8 +4,27 @@ import { useOutletContext } from 'react-router-dom'
 import { changeOwnPassword, updateOwnProfile } from '../../api/client'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import { ChangePasswordModal } from '../../components/change-password-modal'
+import { GlassSelect, type GlassSelectOption } from '../../components/glass-select'
 import { StatusPill } from '../../components/status-pill'
+import {
+  INTERFACE_LANGUAGES,
+  readStoredInterfaceLanguagePreference,
+  readStoredThemePreference,
+  setInterfaceLanguagePreference,
+  setThemePreference,
+} from '../../lib/preferences'
+import { THEMES } from '../../lib/theme'
 import { getUserDisplayName } from '../../lib/user-identity'
+
+const interfaceLanguageOptions: GlassSelectOption[] = [
+  { label: 'English', value: INTERFACE_LANGUAGES.english },
+  { label: 'Chinese', value: INTERFACE_LANGUAGES.chinese },
+]
+
+const themeOptions: GlassSelectOption[] = [
+  { label: 'Dark', value: THEMES.noir },
+  { label: 'Light', value: THEMES.frost },
+]
 
 export const ProfilePage = () => {
   const { currentUser } = useOutletContext<AppShellOutletContext>()
@@ -13,6 +32,10 @@ export const ProfilePage = () => {
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false)
   const [isEditingNickname, setIsEditingNickname] = useState(false)
   const [nicknameDraft, setNicknameDraft] = useState(currentUser.nickname)
+  const [interfaceLanguage, setInterfaceLanguage] = useState(() =>
+    readStoredInterfaceLanguagePreference(),
+  )
+  const [themePreference, setThemePreferenceState] = useState(() => readStoredThemePreference())
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const nicknameInputRef = useRef<HTMLInputElement | null>(null)
   const roleLabel = currentUser.is_primary_admin
@@ -177,6 +200,46 @@ export const ProfilePage = () => {
           <div className="profile-page__row">
             <span className="profile-page__label">Role:</span>
             <StatusPill status={roleLabel} />
+          </div>
+
+          <div className="profile-page__row profile-page__row--setting">
+            <span className="profile-page__label">Interface Language:</span>
+            <div className="profile-page__setting">
+              <div className="profile-page__select">
+                <GlassSelect
+                  ariaLabel="Interface language"
+                  onChange={(value) => {
+                    const nextLanguage = setInterfaceLanguagePreference(value)
+                    setInterfaceLanguage(nextLanguage)
+                  }}
+                  options={interfaceLanguageOptions}
+                  value={interfaceLanguage}
+                />
+              </div>
+              <p className="profile-page__hint">
+                Stored locally on this browser for your interface preference.
+              </p>
+            </div>
+          </div>
+
+          <div className="profile-page__row profile-page__row--setting">
+            <span className="profile-page__label">Theme:</span>
+            <div className="profile-page__setting">
+              <div className="profile-page__select">
+                <GlassSelect
+                  ariaLabel="Theme preference"
+                  onChange={(value) => {
+                    const nextTheme = setThemePreference(value)
+                    setThemePreferenceState(nextTheme)
+                  }}
+                  options={themeOptions}
+                  value={themePreference}
+                />
+              </div>
+              <p className="profile-page__hint">
+                Switch between the dark and light glass surfaces instantly.
+              </p>
+            </div>
           </div>
 
           <div className="profile-page__row">
