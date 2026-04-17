@@ -1,93 +1,72 @@
 ---
 name: mova-workspace
-description: Work inside the Mova self-hosted media server repository. Use when changing Rust backend code, the React/Vite frontend, Docker Compose setup, Postgres-backed media-library features, playback UI, scanning logic, or related docs.
+description: 在 Mova 仓库中处理通用仓库工作流、Rust 后端、数据库、扫描链路、Docker 运行方式和文档同步。前端 UI/交互细节请配合 mova-frontend skill 使用。
 ---
 
 # Mova Workspace
 
-Use this skill for work in the current Mova repository.
+这个 skill 用于当前 Mova 仓库的通用工作流。  
+`AGENTS.md` 负责最高优先级协作规则；这个 skill 主要负责执行路径、代码地图、验证方式和仓库事实。
 
-`AGENTS.md` defines the repo's highest-priority collaboration rules. This skill should focus on execution details and should not restate policy unless needed for clarity.
+## 最小阅读顺序
 
-## Minimal Read Order
+- 先看 `AGENTS.md`
+- 再看 `README.md`
+- 再看 `docs/API.md`
+- 再看 `docs/ROADMAP.md`
+- 需要时再看分区文档：
+  - 前端：`apps/mova-web/README.md`
+  - 后端：`apps/mova-server/README.md`
+  - crates：`crates/README.md`
 
-- Start with `AGENTS.md`
-- Then read `README.md`
-- Then read `docs/API.md`
-- Then read `docs/ROADMAP.md`
-- Read area docs only if needed:
-  - Frontend: `apps/mova-web/README.md`
-  - Backend: `apps/mova-server/README.md`
-  - Crates: `crates/README.md`
+## 当前仓库事实
 
-## Current Project Truths
+- 项目仍处于 pre-1.0 阶段
+- 目前数据库仍是单迁移文件：`migrations/0001_init.sql`
+- Library watcher 已经移除
+- 新建且启用的媒体库会自动触发一次扫描
+- 新增、重命名、移动、删除文件统一通过手动 `Scan Library` 做 reconcile
 
-- The project is still pre-1.0 and still uses a single migration file: `migrations/0001_init.sql`
-- Current product copy is English-first
-- Library watcher is intentionally removed
-- New libraries auto-scan once after creation when enabled
-- New, renamed, moved, or deleted files are reconciled by manual `Scan Library`
+## 数据库改动规则
 
-## Database Change Rule
+- 修改 `migrations/0001_init.sql` 不会自动更新已经执行过迁移的旧数据库
+- 做 schema 变更时，必须明确当前走的是哪条路径：
+  - 新增 migration，兼容旧数据库
+  - 或者在当前激进开发阶段要求重建数据库 / 重置数据目录
+- 如果需要重建 `data/postgres` 或重新初始化数据库，最终说明里必须明确写出来
 
-- Editing `migrations/0001_init.sql` does not update existing databases that already applied the migration
-- For schema changes, be explicit about which path is being used:
-  - add a new migration for existing-database compatibility
-  - or require a database rebuild / reset when the project is in destructive pre-1.0 cleanup mode
-- If the change requires rebuilding `data/postgres` or reinitializing the database, say so clearly in the final explanation
+## 后端职责边界
 
-## Backend Rules
+- `apps/mova-server` 只放 HTTP、bootstrap、runtime glue
+- 业务逻辑放 `crates/mova-application`
+- SQL 和持久化放 `crates/mova-db`
+- 共享领域模型放 `crates/mova-domain`
+- 扫描、解析、探测、sidecar 逻辑放 `crates/mova-scan`
+- API 路由统一保持在 `/api`
 
-- `apps/mova-server` is HTTP/bootstrap/runtime glue only
-- Put business logic in `crates/mova-application`
-- Put SQL and persistence in `crates/mova-db`
-- Put shared domain models in `crates/mova-domain`
-- Put scan/parse/probe/sidecar logic in `crates/mova-scan`
-- Keep routes under `/api`
+## 验证方式
 
-## Frontend Rules
+- Rust 侧优先走 Docker-first 的定向验证，例如 `cargo check -p ...`
+- 前后端一起改时，要验证两边
 
-- `apps/mova-web` is a standalone Vite app
-- Keep features as `feature-name/index.tsx` plus `feature-name.scss`
-- Use arrow functions across frontend code, including `src/lib`
-- Reuse shared UI primitives instead of re-implementing interactions
-- If a control looks raw or awkward, polish it in the same pass
+## 这个 Skill 负责什么
 
-## Frontend Test Strategy
+- 仓库结构认知
+- 后端 / 数据库 / 扫描链路改动入口
+- Docker-first 工作流
+- markdown 同步范围
+- 提交风格
 
-- Avoid low-value page/component `tsx` tests
-- Prefer pure helper and hook tests
-- Move decision logic into `src/lib/` when that makes testing simpler
-- Keep `tsx` tests for high-risk stateful flows like realtime and player behavior
+## 这个 Skill 不负责什么
 
-## Validation
+- 不把自己写成第二份 roadmap
+- 不把自己写成第二份产品规格文档
+- 具体前端 UI / 交互 / 视觉细则交给 `mova-frontend` skill
 
-- Frontend: run the relevant `biome check`, `tsc -b --pretty false`, and `vite build`
-- Backend: prefer Docker-first targeted `cargo check -p ...` and focused tests
-- If an API change affects the frontend, validate both sides
-- Do not claim runtime behavior unless it was actually exercised
+## Markdown 同步
 
-## Scope Of This Skill
-
-- Use this file for codebase map, execution flow, validation, and repo-specific implementation habits.
-- Do not use this file as a second roadmap or a second product spec.
-- Keep stable collaboration policy in `AGENTS.md` and evolving product direction in `docs/ROADMAP.md`.
-
-## Markdown Sync
-
-- Markdown sync is part of the same task
-- Feature or behavior changes: update `README.md` and `docs/ROADMAP.md`
-- API changes: update `docs/API.md`
-- Frontend structure/responsibility changes: update `apps/mova-web/README.md`
-- Backend startup/routes/runtime changes: update `apps/mova-server/README.md`
-- Crate responsibility changes: update the affected `crates/*/README.md`
-
-## Commit Style
-
-- Use conventional commits:
-  - `feat(scope): ...`
-  - `fix(scope): ...`
-  - `refactor(scope): ...`
-  - `docs(scope): ...`
-  - `chore(scope): ...`
-- Keep scope concrete, such as `player`, `scan`, `settings`, `libraries`, `auth`, or `api`
+- 具体文档同步规则以 `AGENTS.md` 为准
+- 这个 skill 只补充执行层面的定位：
+  - 前端结构/职责变化：更新 `apps/mova-web/README.md`
+  - 后端启动/路由/runtime 变化：更新 `apps/mova-server/README.md`
+  - crate 职责变化：更新对应的 `crates/*/README.md`

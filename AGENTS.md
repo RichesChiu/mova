@@ -1,44 +1,59 @@
 # AGENTS
 
-This file is intentionally short. It exists to capture the highest-priority AI collaboration rules for this repository without duplicating `README.md`, `docs/ROADMAP.md`, or `.codex/skills/mova-workspace/SKILL.md`.
+这份文件保持简短，只记录当前仓库里最高优先级、最稳定的 AI 协作规则，不重复 `README.md`、`docs/ROADMAP.md` 和 `.codex/skills/` 里的执行细节。
 
-If guidance conflicts, follow this priority:
-1. direct user instructions
+如果规则冲突，按下面顺序执行：
+1. 当前用户在对话里的明确要求
 2. `AGENTS.md`
-3. repo skill guidance
-4. supporting project docs
+3. 仓库内 skill 说明
+4. 其他项目文档
 
-## Working Rules
+## 协作规则
 
-- Prefer Docker-first workflows. Do not require the host machine to install Rust or Python unless there is no practical alternative.
-- Keep user-facing product copy English-first unless the task explicitly calls for another language.
-- When implementing features during the current development phase, update the relevant markdown docs in the same change when behavior, APIs, setup, or product direction changes.
-- Do not preserve compatibility for removed fields or removed UI during this phase. Remove obsolete code directly instead of layering compatibility shims.
-- Prefer more aggressive cleanup/refactor behavior during implementation. If a path is obsolete and clearly replaced, delete it rather than keeping fallback logic.
-- Prefer deletion over migration-heavy compatibility work when the project is clearly replacing an obsolete path during this pre-1.0 phase.
-- Before committing, run the relevant scoped verification for the area you changed, such as `cargo check`, frontend `tsc`, frontend build, or targeted tests.
-- When uncertain, inspect the code first. Do not rely on assumptions or stale context when changing behavior.
-- For database schema changes, explicitly call out whether existing databases can migrate safely or whether a database rebuild / data directory reset is required.
+- 默认优先使用 Docker，不要求宿主机安装 Rust 或 Python，除非确实没有可行替代方案。
+- 用户可见文案默认以英文为主，除非当前任务明确要求中文或其他语言。
+- 当前开发阶段改动可以更激进，废弃字段、废弃 UI、废弃路径不做兼容保留，能删就删。
+- 如果一条旧路径已经明确被替代，优先删除旧逻辑，不要额外叠兼容层。
+- 功能、API、行为、运行方式、产品方向发生变化时，同一轮改动里同步更新相关 markdown，不要把文档更新留到后续补。
+- 项目功能改造默认要检查并更新 `README.md`；如果涉及 API 变动，默认还要检查并更新 `docs/API.md` 以及受影响模块的相关 markdown。
+- 做文档同步时，不只看单一文件，要主动关注相关文档是否也需要一起更新，例如：
+  - 总体使用方式或能力变化：`README.md`
+  - API、请求/响应、路由、字段变化：`docs/API.md`
+  - 产品方向或阶段目标变化：`docs/ROADMAP.md`
+  - 分区职责、运行方式、模块行为变化：对应 `apps/*/README.md`、`crates/*/README.md`、`docs/*`
+- 提交前至少跑与改动范围对应的检查，例如 `cargo check`、前端 `tsc`、前端 `vite build`、定向测试。
+- 只说明自己真的跑过的检查、测试和构建结果，不要把推测运行效果写成“已经验证通过”。
+- 提交信息统一使用 conventional commits，例如：
+  - `feat(scope): ...`
+  - `fix(scope): ...`
+  - `refactor(scope): ...`
+  - `docs(scope): ...`
+  - `chore(scope): ...`
+- `scope` 尽量具体，优先使用类似 `player`、`scan`、`settings`、`libraries`、`auth`、`api` 这类明确范围。
+- 不确定时先读代码再改，不凭印象、不凭过时上下文直接下手。
+- 涉及数据库 schema 改动时，必须明确说明：
+  - 旧数据库是否可以平滑迁移
+  - 还是需要重建数据库 / 清理数据目录
 
-## Project Structure
+## 项目结构速览
 
 - `apps/mova-server`
-  Rust HTTP server and runtime entrypoint.
+  Rust HTTP 服务和运行时入口。
 - `apps/mova-web`
-  React + Vite frontend.
+  React + Vite 前端。
 - `crates/mova-application`
-  Application-layer business logic.
+  应用层业务逻辑。
 - `crates/mova-db`
-  SQL queries, persistence, and sync logic.
-- `crates/mova-domain`, `crates/mova-scan`
-  Shared models and media discovery/probing.
+  SQL、持久化、同步逻辑。
+- `crates/mova-domain`、`crates/mova-scan`
+  共享模型、媒体发现与探测。
 - `migrations`
-  Database schema migrations.
+  数据库迁移。
 - `scripts`
-  Helper scripts, including Python-based media analysis tasks.
+  辅助脚本，包括 Python 媒体分析任务。
 
-## Notes For AI Contributors
+## 给 AI 的补充说明
 
-- Read code paths near the change before editing.
-- Keep modifications aligned with the current product direction rather than preserving outdated behavior.
-- If behavior changed, document the new expected behavior clearly.
+- 修改前先读变更附近的真实代码路径。
+- 让实现对齐当前产品方向，不要主动保留过时行为。
+- 如果行为变了，要把新的预期行为写清楚。

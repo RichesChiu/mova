@@ -64,3 +64,6 @@ data/
 !/.codex/skills/mova-workspace/
 /.codex/skills/mova-workspace/*
 !/.codex/skills/mova-workspace/SKILL.md
+!/.codex/skills/mova-frontend/
+/.codex/skills/mova-frontend/*
+!/.codex/skills/mova-frontend/SKILL.md
