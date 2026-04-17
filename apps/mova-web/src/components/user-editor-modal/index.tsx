@@ -64,6 +64,8 @@ export const UserEditorModal = ({
   const isEditingSelf = !isCreateMode && user?.id === currentUserId
   const canEditRole = currentUserIsPrimaryAdmin && !isEditingSelf
   const shouldShowRoleField = isCreateMode || (canEditRole && !user?.is_primary_admin)
+  const canManageEnabledState =
+    !isEditingSelf && !user?.is_primary_admin && (role === 'viewer' || currentUserIsPrimaryAdmin)
 
   useEffect(() => {
     if (!isOpen) {
@@ -117,7 +119,7 @@ export const UserEditorModal = ({
         nickname: nickname.trim(),
         password,
         role,
-        is_enabled: role === 'admin' ? true : isEnabled,
+        is_enabled: isEnabled,
         library_ids: role === 'admin' ? [] : selectedLibraryIds,
       })
       onClose()
@@ -132,7 +134,7 @@ export const UserEditorModal = ({
       username: username.trim(),
       nickname: nickname.trim(),
       role,
-      is_enabled: role === 'admin' ? true : isEnabled,
+      is_enabled: isEnabled,
       library_ids: role === 'admin' ? [] : selectedLibraryIds,
     })
     onClose()
@@ -250,7 +252,6 @@ export const UserEditorModal = ({
                     const nextRole = value as UserRole
                     setRole(nextRole)
                     if (nextRole === 'admin') {
-                      setIsEnabled(true)
                       setSelectedLibraryIds([])
                     }
                   }}
@@ -261,24 +262,25 @@ export const UserEditorModal = ({
             ) : null}
           </div>
 
-          {role === 'viewer' ? (
+          {canManageEnabledState ? (
             <>
               <label className={isEditingSelf ? 'toggle toggle--disabled' : 'toggle'}>
                 <input
                   checked={isEnabled}
-                  disabled={isEditingSelf}
+                  disabled={!canManageEnabledState}
                   onChange={(event) => setIsEnabled(event.target.checked)}
                   type="checkbox"
                 />
                 <span>Account enabled</span>
               </label>
-              {isEditingSelf ? (
-                <p className="muted">You cannot change your own enabled state here.</p>
-              ) : null}
             </>
           ) : (
             <p className="muted">
-              Admin accounts stay enabled and do not expose an enable or disable toggle here.
+              {isEditingSelf
+                ? 'You cannot change your own enabled state here.'
+                : user?.is_primary_admin
+                  ? 'Primary Admin stays enabled here.'
+                  : 'This account cannot be enabled or disabled from this dialog.'}
             </p>
           )}
 

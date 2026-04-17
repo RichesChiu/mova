@@ -416,6 +416,7 @@ export const SettingsPage = () => {
                 const canEditUser =
                   canManageThisUser && user.id !== currentUser.id && !user.is_primary_admin
                 const canDeleteUser = canEditUser
+                const canToggleUser = canEditUser
 
                 return (
                   <article className="settings-user-card" key={user.id}>
@@ -437,7 +438,7 @@ export const SettingsPage = () => {
                         </div>
 
                         <div className="settings-user-card__toolbar">
-                          {user.role === 'viewer' ? (
+                          {canToggleUser ? (
                             <label className="settings-user-card__switch">
                               <input
                                 checked={user.is_enabled}
