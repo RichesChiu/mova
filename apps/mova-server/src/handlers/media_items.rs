@@ -55,9 +55,13 @@ pub async fn list_media_item_cast(
 ) -> Result<ApiJson<Vec<MediaCastMemberResponse>>, ApiError> {
     let user = require_user(&state, &jar).await?;
     let media_item = require_media_item_access(&state, &user, media_item_id).await?;
-    let cast = mova_application::list_media_item_cast(&state.db, &media_item)
-        .await
-        .map_err(ApiError::from)?;
+    let cast = mova_application::list_media_item_cast(
+        &state.db,
+        &media_item,
+        state.metadata_provider.clone(),
+    )
+    .await
+    .map_err(ApiError::from)?;
 
     Ok(ok(cast
         .into_iter()

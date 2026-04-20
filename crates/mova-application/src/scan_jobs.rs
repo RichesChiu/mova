@@ -1,7 +1,6 @@
 use crate::{
     error::{ApplicationError, ApplicationResult},
     libraries::get_library,
-    media_cast::refresh_media_item_cast_if_stale,
     media_classification::{classify_media_type, metadata_lookup_type_for_media_type},
     media_enrichment::MetadataEnrichmentContext,
     media_enrichment::MetadataEnrichmentStage,
@@ -10,7 +9,6 @@ use crate::{
 use mova_domain::{Library, ScanJob};
 use mova_scan::{infer_series_folder_metadata, DiscoveredMediaFile};
 use sqlx::postgres::PgPool;
-use std::process::Command;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -19,42 +17,6 @@ use std::{
         Arc,
     },
 };
-use time::OffsetDateTime;
-use tokio::task;
-
-const INTRO_DETECTOR_SCRIPT_PATH: &str = "scripts/detect_intro.py";
-const INTRO_DETECTION_MIN_EPISODES: usize = 3;
-const INTRO_DETECTION_MIN_DURATION_SECONDS: i32 = 12;
-
-#[derive(Debug, serde::Serialize)]
-struct IntroDetectorRequest {
-    analysis_seconds: i32,
-    max_start_offset_seconds: i32,
-    min_intro_seconds: i32,
-    episodes: Vec<IntroDetectorEpisodeInput>,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-struct IntroDetectorEpisodeInput {
-    episode_number: i32,
-    file_path: String,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct IntroDetectorResponse {
-    status: String,
-    intro_start_seconds: Option<i32>,
-    intro_end_seconds: Option<i32>,
-    confidence: Option<f64>,
-    reason: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct SeasonIntroDetectionCandidate {
-    season_id: i64,
-    season_number: i32,
-    episodes: Vec<IntroDetectorEpisodeInput>,
-}
 
 /// 触发媒体库扫描时返回的结果。
 /// `created = false` 表示本次没有新建任务，而是复用了当前库已有的活跃任务。
@@ -515,18 +477,6 @@ pub async fn execute_scan_job_with_cancellation(
         }
     }
 
-    if let Err(error) = detect_library_intro_markers(pool, &library).await {
-        tracing::warn!(
-            library_id = library.id,
-            scan_job_id,
-            error = ?error,
-            "automatic intro detection failed; continuing without intro markers"
-        );
-    }
-
-    prefetch_library_cast_for_scan(pool, &library, metadata_provider, scan_job_id, total_files)
-        .await;
-
     match mova_db::finalize_scan_job(pool, scan_job_id, "success", total_files, total_files, None)
         .await
     {
@@ -659,155 +609,6 @@ async fn reuse_existing_metadata_for_discovered_files(
     discovered_files
 }
 
-async fn detect_library_intro_markers(pool: &PgPool, library: &Library) -> ApplicationResult<()> {
-    let series_ids = mova_db::list_series_media_item_ids_for_library(pool, library.id)
-        .await
-        .map_err(ApplicationError::from)?;
-
-    for series_id in series_ids {
-        let seasons = mova_db::list_seasons_for_series(pool, series_id)
-            .await
-            .map_err(ApplicationError::from)?;
-
-        for season in seasons {
-            let episodes = mova_db::list_episodes_for_season(pool, season.id)
-                .await
-                .map_err(ApplicationError::from)?;
-            if episodes.len() < INTRO_DETECTION_MIN_EPISODES {
-                continue;
-            }
-
-            let mut detection_episodes = Vec::new();
-            for episode in episodes {
-                let Some(primary_media_file) = mova_db::list_media_files_for_media_item(
-                    pool,
-                    episode.media_item_id,
-                )
-                .await
-                .map_err(ApplicationError::from)?
-                .into_iter()
-                .next()
-                else {
-                    continue;
-                };
-
-                detection_episodes.push(IntroDetectorEpisodeInput {
-                    episode_number: episode.episode_number,
-                    file_path: primary_media_file.file_path,
-                });
-            }
-
-            if detection_episodes.len() < INTRO_DETECTION_MIN_EPISODES {
-                continue;
-            }
-
-            let detection = detect_season_intro_with_python(SeasonIntroDetectionCandidate {
-                season_id: season.id,
-                season_number: season.season_number,
-                episodes: detection_episodes,
-            })
-            .await?;
-
-            let Some((intro_start_seconds, intro_end_seconds)) = detection else {
-                continue;
-            };
-
-            mova_db::update_season_intro_markers(
-                pool,
-                season.id,
-                Some(intro_start_seconds),
-                Some(intro_end_seconds),
-            )
-            .await
-            .map_err(ApplicationError::from)?;
-        }
-    }
-
-    Ok(())
-}
-
-async fn detect_season_intro_with_python(
-    season: SeasonIntroDetectionCandidate,
-) -> ApplicationResult<Option<(i32, i32)>> {
-    let request = IntroDetectorRequest {
-        analysis_seconds: 240,
-        max_start_offset_seconds: 150,
-        min_intro_seconds: INTRO_DETECTION_MIN_DURATION_SECONDS,
-        episodes: season.episodes,
-    };
-    let request_json = serde_json::to_vec(&request)
-        .map_err(|error| ApplicationError::Unexpected(anyhow::Error::new(error)))?;
-
-    let response = task::spawn_blocking(move || {
-        let mut command = Command::new("python3");
-        command.arg(INTRO_DETECTOR_SCRIPT_PATH);
-        command.stdin(std::process::Stdio::piped());
-        command.stdout(std::process::Stdio::piped());
-        command.stderr(std::process::Stdio::piped());
-
-        let mut child = command.spawn().map_err(anyhow::Error::new)?;
-        if let Some(mut stdin) = child.stdin.take() {
-            use std::io::Write;
-            stdin.write_all(&request_json)?;
-        }
-
-        let output = child.wait_with_output().map_err(anyhow::Error::new)?;
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            anyhow::bail!(
-                "python intro detector failed for season {}: {}",
-                season.season_number,
-                if stderr.is_empty() {
-                    format!("exit status {}", output.status)
-                } else {
-                    stderr
-                }
-            );
-        }
-
-        serde_json::from_slice::<IntroDetectorResponse>(&output.stdout).map_err(anyhow::Error::new)
-    })
-    .await
-    .map_err(|error| ApplicationError::Unexpected(anyhow::Error::new(error)))?
-    .map_err(ApplicationError::Unexpected)?;
-
-    if !response.status.eq_ignore_ascii_case("ok") {
-        if let Some(reason) = response.reason {
-            tracing::debug!(
-                season_id = season.season_id,
-                season_number = season.season_number,
-                reason,
-                "automatic intro detector skipped season"
-            );
-        }
-        return Ok(None);
-    }
-
-    let Some(intro_start_seconds) = response.intro_start_seconds else {
-        return Ok(None);
-    };
-    let Some(intro_end_seconds) = response.intro_end_seconds else {
-        return Ok(None);
-    };
-
-    if intro_end_seconds - intro_start_seconds < INTRO_DETECTION_MIN_DURATION_SECONDS {
-        return Ok(None);
-    }
-
-    if let Some(confidence) = response.confidence {
-        tracing::info!(
-            season_id = season.season_id,
-            season_number = season.season_number,
-            intro_start_seconds,
-            intro_end_seconds,
-            confidence,
-            "detected season intro markers"
-        );
-    }
-
-    Ok(Some((intro_start_seconds, intro_end_seconds)))
-}
-
 async fn discover_media_files(
     pool: &PgPool,
     scan_job_id: i64,
@@ -926,7 +727,8 @@ fn build_media_entries(
     library: &Library,
     discovered_files: Vec<DiscoveredMediaFile>,
 ) -> ApplicationResult<Vec<mova_db::CreateMediaEntryParams>> {
-    let discovered_files = normalize_discovered_files_for_local_structure(library, discovered_files);
+    let discovered_files =
+        normalize_discovered_files_for_local_structure(library, discovered_files);
     let mut entries = Vec::new();
 
     for file in discovered_files {
@@ -1061,18 +863,16 @@ fn normalize_discovered_files_for_local_structure(
 
         group.file_indexes.push(index);
 
-        if classify_media_type(&library.library_type, &file.file_path).eq_ignore_ascii_case("episode")
+        if classify_media_type(&library.library_type, &file.file_path)
+            .eq_ignore_ascii_case("episode")
         {
             group.classified_episode_count += 1;
         }
     }
 
     for group in groups.into_values() {
-        let should_promote_to_series = should_promote_local_folder_group_to_series(
-            library,
-            &discovered_files,
-            &group,
-        );
+        let should_promote_to_series =
+            should_promote_local_folder_group_to_series(library, &discovered_files, &group);
 
         if !should_promote_to_series {
             continue;
@@ -1276,54 +1076,6 @@ fn apply_existing_media_metadata(
     fill_option_ref_if_missing(&mut file.backdrop_path, summary.backdrop_path.as_ref());
 }
 
-async fn prefetch_library_cast_for_scan(
-    pool: &PgPool,
-    library: &Library,
-    metadata_provider: Arc<dyn MetadataProvider>,
-    scan_job_id: i64,
-    total_files: i32,
-) {
-    if !metadata_provider.is_enabled() || total_files <= 0 {
-        return;
-    }
-
-    let items = match mova_db::list_library_media_items_needing_cast_refresh(
-        pool,
-        mova_db::ListLibraryMediaItemsNeedingCastRefreshParams {
-            library_id: library.id,
-            now: OffsetDateTime::now_utc(),
-        },
-    )
-    .await
-    {
-        Ok(items) => items,
-        Err(error) => {
-            tracing::warn!(
-                library_id = library.id,
-                scan_job_id,
-                error = ?error,
-                "failed to load library media items for cast prefetch"
-            );
-            return;
-        }
-    };
-
-    for media_item in items {
-        if let Err(error) =
-            refresh_media_item_cast_if_stale(pool, &media_item, metadata_provider.clone()).await
-        {
-            tracing::warn!(
-                library_id = library.id,
-                scan_job_id,
-                media_item_id = media_item.id,
-                title = %media_item.title,
-                error = ?error,
-                "failed to prefetch cast during library scan"
-            );
-        }
-    }
-}
-
 fn replace_string_if_present(target: &mut String, candidate: Option<&str>) {
     let Some(candidate) = candidate.map(str::trim).filter(|value| !value.is_empty()) else {
         return;
@@ -1429,7 +1181,8 @@ fn group_discovered_files_for_scan(
     library: &Library,
     discovered_files: Vec<DiscoveredMediaFile>,
 ) -> Vec<ScanDiscoveredGroup> {
-    let discovered_files = normalize_discovered_files_for_local_structure(library, discovered_files);
+    let discovered_files =
+        normalize_discovered_files_for_local_structure(library, discovered_files);
     let mut groups = Vec::<ScanDiscoveredGroup>::new();
     let mut group_indexes = HashMap::<String, usize>::new();
 
@@ -1873,7 +1626,9 @@ mod tests {
         );
 
         assert_eq!(groups.len(), 2);
-        assert!(groups.iter().all(|group| group.presentation.media_type == "movie"));
+        assert!(groups
+            .iter()
+            .all(|group| group.presentation.media_type == "movie"));
     }
 
     #[test]

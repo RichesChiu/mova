@@ -1,11 +1,11 @@
 use crate::{
+    ensure_media_item_cast,
     error::{ApplicationError, ApplicationResult},
     invalidate_media_item_cast_cache,
     libraries::get_library,
     media_classification::metadata_lookup_type_for_media_type,
     media_items::get_media_item,
     metadata::{MetadataLookup, MetadataProvider, RemoteMetadataSearchResult, TMDB_PROVIDER_NAME},
-    refresh_media_item_cast_if_stale,
 };
 use mova_domain::MediaItem;
 use sqlx::postgres::PgPool;
@@ -134,7 +134,7 @@ pub async fn apply_media_item_metadata_match(
             .map_err(ApplicationError::from)?;
     }
     invalidate_media_item_cast_cache(pool, media_item.id).await?;
-    refresh_media_item_cast_if_stale(pool, &updated_media_item, metadata_provider).await?;
+    ensure_media_item_cast(pool, &updated_media_item, metadata_provider).await?;
 
     Ok(updated_media_item)
 }

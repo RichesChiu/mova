@@ -6,19 +6,58 @@ use crate::{
 };
 use mova_domain::{MediaCastMember, MediaItem};
 use sqlx::postgres::PgPool;
-use std::sync::Arc;
-use time::{Duration, OffsetDateTime};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, OnceLock},
+};
+use time::OffsetDateTime;
 
-const MEDIA_CAST_CACHE_TTL_SECONDS: i64 = 7 * 24 * 60 * 60;
-const MEDIA_CAST_FAILURE_CACHE_TTL_SECONDS: i64 = 30 * 60;
 const MAX_MEDIA_CAST_MEMBERS: usize = 20;
+
+fn media_cast_inflight() -> &'static Mutex<HashSet<i64>> {
+    static INFLIGHT: OnceLock<Mutex<HashSet<i64>>> = OnceLock::new();
+    INFLIGHT.get_or_init(|| Mutex::new(HashSet::new()))
+}
 
 pub async fn list_media_item_cast(
     pool: &PgPool,
     media_item: &MediaItem,
+    metadata_provider: Arc<dyn MetadataProvider>,
 ) -> ApplicationResult<Vec<MediaCastMember>> {
     if media_item.media_type.eq_ignore_ascii_case("episode") {
         return Ok(Vec::new());
+    }
+
+    let members = mova_db::list_media_item_cast_members(pool, media_item.id)
+        .await
+        .map_err(ApplicationError::from)?;
+
+    if !members.is_empty() {
+        return Ok(members);
+    }
+
+    let sync_record = mova_db::get_media_item_cast_cache(pool, media_item.id)
+        .await
+        .map_err(ApplicationError::from)?;
+    let now = OffsetDateTime::now_utc();
+    let has_persistent_sync_record = sync_record
+        .as_ref()
+        .is_some_and(|record| record.expires_at <= record.fetched_at);
+    let has_unexpired_legacy_cache = sync_record
+        .as_ref()
+        .is_some_and(|record| record.expires_at > now);
+
+    if has_persistent_sync_record || has_unexpired_legacy_cache || !metadata_provider.is_enabled() {
+        return Ok(members);
+    }
+
+    if let Err(error) = ensure_media_item_cast(pool, media_item, metadata_provider).await {
+        tracing::warn!(
+            media_item_id = media_item.id,
+            title = %media_item.title,
+            error = ?error,
+            "failed to sync media item cast on demand"
+        );
     }
 
     mova_db::list_media_item_cast_members(pool, media_item.id)
@@ -26,7 +65,7 @@ pub async fn list_media_item_cast(
         .map_err(ApplicationError::from)
 }
 
-pub async fn refresh_media_item_cast_if_stale(
+pub async fn ensure_media_item_cast(
     pool: &PgPool,
     media_item: &MediaItem,
     metadata_provider: Arc<dyn MetadataProvider>,
@@ -35,19 +74,44 @@ pub async fn refresh_media_item_cast_if_stale(
         return Ok(());
     }
 
-    let now = OffsetDateTime::now_utc();
-    let cached_members = mova_db::list_media_item_cast_members(pool, media_item.id)
-        .await
-        .map_err(ApplicationError::from)?;
-    let cache_entry = mova_db::get_media_item_cast_cache(pool, media_item.id)
-        .await
-        .map_err(ApplicationError::from)?;
-
-    if let Some(cache_entry) = cache_entry.as_ref() {
-        if cache_entry.expires_at > now {
+    {
+        let mut inflight = media_cast_inflight()
+            .lock()
+            .map_err(|error| ApplicationError::Unexpected(anyhow::Error::msg(error.to_string())))?;
+        if !inflight.insert(media_item.id) {
+            tracing::debug!(
+                media_item_id = media_item.id,
+                title = %media_item.title,
+                "media item cast sync already in progress"
+            );
             return Ok(());
         }
     }
+
+    let result = sync_media_item_cast(pool, media_item, metadata_provider).await;
+
+    if let Ok(mut inflight) = media_cast_inflight().lock() {
+        inflight.remove(&media_item.id);
+    }
+
+    result
+}
+
+pub async fn invalidate_media_item_cast_cache(
+    pool: &PgPool,
+    media_item_id: i64,
+) -> ApplicationResult<()> {
+    mova_db::delete_media_item_cast_cache(pool, media_item_id)
+        .await
+        .map_err(ApplicationError::from)
+}
+
+async fn sync_media_item_cast(
+    pool: &PgPool,
+    media_item: &MediaItem,
+    metadata_provider: Arc<dyn MetadataProvider>,
+) -> ApplicationResult<()> {
+    let now = OffsetDateTime::now_utc();
 
     let library = get_library(pool, media_item.library_id).await?;
     let lookup = MetadataLookup {
@@ -69,54 +133,19 @@ pub async fn refresh_media_item_cast_if_stale(
                 error = ?error,
                 "failed to fetch remote cast metadata"
             );
-
-            if cache_entry.is_none() {
-                persist_cast_members(
-                    pool,
-                    media_item.id,
-                    &[],
-                    now,
-                    MEDIA_CAST_FAILURE_CACHE_TTL_SECONDS,
-                )
-                .await?;
-            }
-
             return Ok(());
         }
     };
 
     if let Some(remote_cast) = remote_cast {
         let cast_members = normalize_remote_cast(media_item.id, remote_cast);
-        persist_cast_members(
-            pool,
-            media_item.id,
-            &cast_members,
-            now,
-            MEDIA_CAST_CACHE_TTL_SECONDS,
-        )
-        .await?;
+        persist_cast_members(pool, media_item.id, &cast_members, now).await?;
         return Ok(());
     }
 
-    persist_cast_members(
-        pool,
-        media_item.id,
-        &cached_members,
-        now,
-        MEDIA_CAST_FAILURE_CACHE_TTL_SECONDS,
-    )
-    .await?;
+    persist_cast_members(pool, media_item.id, &[], now).await?;
 
     Ok(())
-}
-
-pub async fn invalidate_media_item_cast_cache(
-    pool: &PgPool,
-    media_item_id: i64,
-) -> ApplicationResult<()> {
-    mova_db::delete_media_item_cast_cache(pool, media_item_id)
-        .await
-        .map_err(ApplicationError::from)
 }
 
 async fn persist_cast_members(
@@ -124,17 +153,7 @@ async fn persist_cast_members(
     media_item_id: i64,
     members: &[MediaCastMember],
     fetched_at: OffsetDateTime,
-    ttl_seconds: i64,
 ) -> ApplicationResult<()> {
-    let expires_at = fetched_at
-        .checked_add(Duration::seconds(ttl_seconds))
-        .ok_or_else(|| {
-            ApplicationError::Unexpected(anyhow::anyhow!(
-                "failed to calculate cast cache expiration for media item {}",
-                media_item_id
-            ))
-        })?;
-
     mova_db::replace_media_item_cast(
         pool,
         mova_db::ReplaceMediaItemCastParams {
@@ -150,7 +169,7 @@ async fn persist_cast_members(
                 })
                 .collect(),
             fetched_at,
-            expires_at,
+            expires_at: fetched_at,
         },
     )
     .await

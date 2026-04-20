@@ -142,7 +142,7 @@
 - 服务端不再常驻文件 watcher
 - 新建媒体库后会自动入队一次扫描
 - 重新启用媒体库、新增、删除、改名和移动都统一靠手动 `Scan Library` 收敛
-- 扫描写库后会对样本足够的剧集季自动做一轮片头检测；当前用 Python 脚本做音频比对，并把结果写进 season 级 `intro_start_seconds` / `intro_end_seconds`
+- 扫描链路本身不再全量跑片头检测，避免新库首次扫库时额外吃满 CPU 和 `ffmpeg`
 
 ### `src/realtime.rs`
 
@@ -198,7 +198,7 @@
 - 媒体详情与元数据
   - `routes/media_items.rs`
   - `routes/seasons.rs`
-  - 单条媒体详情、演员、剧集大纲、季/集列表、海报背景图、手动 metadata 操作
+  - 单条媒体详情、演员、剧集大纲、季/集列表、海报背景图、手动 metadata 操作；演员列表会在详情页请求时按需拉取并直接写库，不再在扫库阶段预取
 - 播放链路
   - `routes/media_files.rs`
   - `routes/subtitle_files.rs`
@@ -243,6 +243,7 @@
 - 如果用户切到非默认音轨，会先通过 `ffmpeg -c copy` 生成一个缓存的音轨变体，再继续走同一条 `/stream` 直链与 `Range` 逻辑
 - `/api/subtitle-files/{id}/stream` 负责把字幕转换成 WebVTT
 - `/api/media-items/{id}/playback-progress` 负责轮询保存进度
+- 如果当前剧集还没有 season / episode 级片头区间，`/api/media-items/{id}/playback-header` 会先按需触发一次 season 级片头检测；当前仍由 Python 脚本做音频比对，并把结果写进 `intro_start_seconds` / `intro_end_seconds`
 
 ## 7. 测试与验证
 

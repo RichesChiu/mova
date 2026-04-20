@@ -1,9 +1,8 @@
 use super::{
     CreateAudioTrackParams, CreateSubtitleTrackParams, ExistingMediaMetadataSummary,
-    LibraryMediaTypeCounts, ListLibraryMediaItemsNeedingCastRefreshParams,
-    ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult, MediaItemPlaybackHeader,
-    SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams, UpdateMediaItemMetadataParams,
-    UpsertSeriesEpisodeOutlineCacheParams,
+    LibraryMediaTypeCounts, ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult,
+    MediaItemPlaybackHeader, SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams,
+    UpdateMediaItemMetadataParams, UpsertSeriesEpisodeOutlineCacheParams,
 };
 use anyhow::{Context, Result};
 use mova_domain::{AudioTrack, Episode, MediaFile, MediaItem, Season, SubtitleFile};
@@ -92,53 +91,6 @@ pub async fn list_media_items_for_library(
     })
 }
 
-pub async fn list_library_media_items_needing_cast_refresh(
-    pool: &PgPool,
-    params: ListLibraryMediaItemsNeedingCastRefreshParams,
-) -> Result<Vec<MediaItem>> {
-    let rows = sqlx::query(
-        r#"
-        select
-            mi.id,
-            mi.library_id,
-            mi.media_type,
-            mi.title,
-            mi.source_title,
-            mi.original_title,
-            mi.sort_title,
-            mi.metadata_provider,
-            mi.metadata_provider_item_id,
-            mi.year,
-            mi.imdb_rating,
-            mi.country,
-            mi.genres,
-            mi.studio,
-            mi.overview,
-            mi.poster_path,
-            mi.backdrop_path,
-            mi.created_at,
-            mi.updated_at
-        from media_items mi
-        left join media_item_cast_cache cache on cache.media_item_id = mi.id
-        where mi.library_id = $1
-          and mi.media_type in ('movie', 'series')
-          and mi.metadata_provider_item_id is not null
-          and (
-                cache.media_item_id is null
-                or cache.expires_at <= $2
-              )
-        order by mi.id asc
-        "#,
-    )
-    .bind(params.library_id)
-    .bind(params.now)
-    .fetch_all(pool)
-    .await
-    .context("failed to list library media items needing cast refresh")?;
-
-    Ok(rows.into_iter().map(map_media_item_row).collect())
-}
-
 /// 按主键读取单个媒体条目。
 pub async fn get_media_item(pool: &PgPool, media_item_id: i64) -> Result<Option<MediaItem>> {
     let row = sqlx::query(
@@ -198,12 +150,17 @@ pub async fn get_media_item_playback_header(
                 when mi.media_type = 'episode' then coalesce(series_mi.year, mi.year)
                 else mi.year
             end as year,
+            e.season_id,
             s.season_number,
             e.episode_number,
             case
                 when mi.media_type = 'episode' then coalesce(nullif(e.title, ''), nullif(mi.title, ''))
                 else null
-            end as episode_title
+            end as episode_title,
+            s.intro_start_seconds as season_intro_start_seconds,
+            s.intro_end_seconds as season_intro_end_seconds,
+            e.intro_start_seconds as episode_intro_start_seconds,
+            e.intro_end_seconds as episode_intro_end_seconds
         from media_items mi
         left join episodes e on e.media_item_id = mi.id
         left join seasons s on s.id = e.season_id
@@ -1153,9 +1110,14 @@ fn map_media_item_playback_header_row(row: PgRow) -> MediaItemPlaybackHeader {
         title: row.get("title"),
         original_title: row.get("original_title"),
         year: row.get("year"),
+        season_id: row.get("season_id"),
         season_number: row.get("season_number"),
         episode_number: row.get("episode_number"),
         episode_title: row.get("episode_title"),
+        season_intro_start_seconds: row.get("season_intro_start_seconds"),
+        season_intro_end_seconds: row.get("season_intro_end_seconds"),
+        episode_intro_start_seconds: row.get("episode_intro_start_seconds"),
+        episode_intro_end_seconds: row.get("episode_intro_end_seconds"),
     }
 }
 

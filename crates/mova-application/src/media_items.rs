@@ -1,11 +1,11 @@
 use crate::{
+    ensure_media_item_cast,
     error::{ApplicationError, ApplicationResult},
     invalidate_media_item_cast_cache,
     libraries::get_library,
     media_classification::metadata_lookup_type_for_media_type,
     media_enrichment::MetadataEnrichmentContext,
     metadata::{MetadataLookup, MetadataProvider, RemoteSeriesEpisodeOutline},
-    refresh_media_item_cast_if_stale,
 };
 use mova_domain::{
     AudioTrack, Episode, MediaFile, MediaItem, PlaybackProgress, Season, SubtitleFile,
@@ -866,8 +866,7 @@ pub async fn refresh_media_item_metadata(
         invalidate_series_episode_outline_cache(pool, media_item_id).await?;
     }
     invalidate_media_item_cast_cache(pool, media_item_id).await?;
-    refresh_media_item_cast_if_stale(pool, &refreshed_media_item, metadata_provider_for_cast)
-        .await?;
+    ensure_media_item_cast(pool, &refreshed_media_item, metadata_provider_for_cast).await?;
 
     Ok(refreshed_media_item)
 }

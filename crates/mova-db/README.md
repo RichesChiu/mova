@@ -51,7 +51,7 @@
 | `src/scan_jobs.rs` | 扫描任务创建、运行态更新、收尾、历史查询。 |
 | `src/playback_progress.rs` | 播放进度与继续观看相关表读写。 |
 | `src/watch_history.rs` | 观看历史表读写。 |
-| `src/media_cast.rs` | 演员缓存表读写，以及 cast cache 命中/过期判断所需的查询。 |
+| `src/media_cast.rs` | 演员成员表与演员同步记录表读写；详情页按需补全后会直接持久化到这里。 |
 | `src/media_items.rs` | 媒体条目相关父模块。 |
 | `src/media_items/query.rs` | 媒体列表、详情、文件、音轨、季集、outline cache 等读侧查询，也负责按 `file_path` 读取既有 metadata 摘要，供重扫时复用。 |
 | `src/media_items/sync.rs` | 按路径 upsert / delete 媒体项、媒体文件、音轨和字幕轨道，并在文件删除或重归属时清理孤立条目；同一部电影的多个本地版本也会在这里复用同一个 `movie media_item`。当整库事务同步被单条脏数据卡住时，也会从这里回退到逐条 best-effort 写入。 |
