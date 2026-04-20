@@ -17,7 +17,7 @@
 | `src/metadata_provider_config.rs` | 解析元数据 provider 相关环境变量，并交给 `mova-application` 构建具体 provider；当前会处理 TMDB token、可选的 OMDb key，以及对应的 base URL。 |
 | `src/app.rs` | 组装顶层 `Router`，把所有子路由统一挂到 `/api` 下，并在有前端构建产物时托管静态文件。 |
 | `src/state.rs` | 定义 `AppState`、进程内扫描注册表以及 SSE 事件总线。 |
-| `src/auth.rs` | 公用鉴权与访问控制助手，包括 session cookie、`require_user`、`require_admin`、媒体库/媒体项/媒体文件访问校验。 |
+| `src/auth.rs` | 公用鉴权与访问控制助手，包括 session cookie、Bearer token、`require_user`、`require_admin`、媒体库/媒体项/媒体文件访问校验。 |
 | `src/sync_runtime.rs` | 后台扫描入队、扫描任务执行和扫描事件广播的运行时逻辑。 |
 | `src/realtime.rs` | SSE 事件总线与事件枚举，负责把扫描、媒体库和元数据变更转换成 `EventSource` 可消费的数据。 |
 | `src/response.rs` | 把领域对象映射成 API response DTO，并统一包裹 JSON envelope。 |
@@ -118,6 +118,7 @@
 
 - `require_user()`
 - `require_admin()`
+- `request_auth_token()`
 - `require_library_access()`
 - `require_media_item_access()`
 - `require_media_file_access()`
@@ -213,7 +214,13 @@
 
 ### 6.1 登录链路
 
-`routes/auth.rs` -> `handlers/auth.rs` -> `mova_application::{login, bootstrap_admin, change_own_password}` -> `auth.rs` session cookie helpers
+Web 端：
+
+`routes/auth.rs` -> `handlers/auth.rs::{login, bootstrap_admin}` -> `mova_application::{login, bootstrap_admin}` -> `auth.rs` session cookie helpers
+
+原生客户端：
+
+`routes/auth.rs` -> `handlers/auth.rs::token_login` -> `mova_application::login` -> `response.rs::TokenLoginResponse`
 
 ### 6.2 建库与启用链路
 

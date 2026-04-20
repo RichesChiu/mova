@@ -1,6 +1,7 @@
 use crate::{auth::require_user, error::ApiError, state::AppState};
 use axum::{
     extract::State,
+    http::HeaderMap,
     response::sse::{KeepAlive, Sse},
 };
 use axum_extra::extract::cookie::CookieJar;
@@ -12,12 +13,13 @@ use tokio_stream::{
 
 pub async fn events(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
 ) -> Result<
     Sse<impl tokio_stream::Stream<Item = Result<axum::response::sse::Event, Infallible>>>,
     ApiError,
 > {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     let api_time_offset = state.api_time_offset;
     let stream_user = user.clone();
 
@@ -53,7 +55,7 @@ mod tests {
         realtime::RealtimeEvent,
         state::{AppState, RealtimeHub, ScanRegistry},
     };
-    use axum::{extract::State, response::IntoResponse};
+    use axum::{extract::State, http::HeaderMap, response::IntoResponse};
     use axum_extra::extract::cookie::CookieJar;
     use http_body_util::BodyExt;
     use mova_application::{NullMetadataProvider, ScanJobItemProgressUpdate};
@@ -147,7 +149,9 @@ mod tests {
         let jar =
             seed_viewer_session(&pool, "viewer01", vec![library_id], "realtime-test-session").await;
 
-        let sse = events(State(state.clone()), jar).await.unwrap();
+        let sse = events(State(state.clone()), HeaderMap::new(), jar)
+            .await
+            .unwrap();
         state
             .realtime_hub
             .publish(RealtimeEvent::LibraryUpdated { library_id });
@@ -179,7 +183,9 @@ mod tests {
         let jar =
             seed_viewer_session(&pool, "viewer01", vec![library_id], "realtime-item-session").await;
 
-        let sse = events(State(state.clone()), jar).await.unwrap();
+        let sse = events(State(state.clone()), HeaderMap::new(), jar)
+            .await
+            .unwrap();
         state.realtime_hub.publish(RealtimeEvent::ScanItemUpdated {
             item: ScanJobItemProgressUpdate {
                 scan_job_id: 41,
@@ -223,7 +229,9 @@ mod tests {
         )
         .await;
 
-        let sse = events(State(state.clone()), jar).await.unwrap();
+        let sse = events(State(state.clone()), HeaderMap::new(), jar)
+            .await
+            .unwrap();
         state.realtime_hub.publish(RealtimeEvent::LibraryUpdated {
             library_id: hidden_library_id,
         });
@@ -252,7 +260,9 @@ mod tests {
         )
         .await;
 
-        let sse = events(State(state.clone()), jar).await.unwrap();
+        let sse = events(State(state.clone()), HeaderMap::new(), jar)
+            .await
+            .unwrap();
         state.realtime_hub.publish(RealtimeEvent::ScanItemUpdated {
             item: ScanJobItemProgressUpdate {
                 scan_job_id: 41,

@@ -4,7 +4,7 @@ use crate::{
     response::{ok, ApiJson},
     state::AppState,
 };
-use axum::extract::State;
+use axum::{extract::State, http::HeaderMap};
 use axum_extra::extract::cookie::CookieJar;
 use serde::Serialize;
 use std::{fs, io::ErrorKind, path::Path};
@@ -22,9 +22,10 @@ pub struct MediaDirectoryNodeResponse {
 /// 返回容器内 `/media` 的递归目录树，供前端选择具体库源目录。
 pub async fn get_media_tree(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
 ) -> Result<ApiJson<Option<MediaDirectoryNodeResponse>>, ApiError> {
-    require_admin(&state, &jar).await?;
+    require_admin(&state, &headers, &jar).await?;
 
     let tree = tokio::task::spawn_blocking(discover_media_tree)
         .await

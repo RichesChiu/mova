@@ -1,10 +1,18 @@
 use crate::{
-    auth::{attach_session_cookie, clear_session_cookie, require_user, SESSION_TTL},
+    auth::{
+        attach_session_cookie, clear_session_cookie, request_auth_token, require_user, SESSION_TTL,
+    },
     error::ApiError,
-    response::{created, ok, ok_message, ApiJson, BootstrapStatusResponse, UserResponse},
+    response::{
+        created, ok, ok_message, ApiJson, BootstrapStatusResponse, TokenLoginResponse, UserResponse,
+    },
     state::AppState,
 };
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    Json,
+};
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 
@@ -93,12 +101,34 @@ pub async fn login(
     ))
 }
 
+pub async fn token_login(
+    State(state): State<AppState>,
+    Json(request): Json<LoginRequest>,
+) -> Result<ApiJson<TokenLoginResponse>, ApiError> {
+    let session = mova_application::login(
+        &state.db,
+        mova_application::LoginInput {
+            username: request.username,
+            password: request.password,
+        },
+        SESSION_TTL,
+    )
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(ok(TokenLoginResponse::from_session(
+        session,
+        state.api_time_offset,
+    )))
+}
+
 pub async fn logout(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
 ) -> Result<(CookieJar, ApiJson<()>), ApiError> {
-    if let Some(cookie) = jar.get("mova_session") {
-        mova_application::logout(&state.db, cookie.value_trimmed())
+    if let Ok(token) = request_auth_token(&headers, &jar) {
+        mova_application::logout(&state.db, &token)
             .await
             .map_err(ApiError::from)?;
     }
@@ -108,19 +138,21 @@ pub async fn logout(
 
 pub async fn current_user(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
 ) -> Result<ApiJson<UserResponse>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
 
     Ok(ok(UserResponse::from_domain(user, state.api_time_offset)))
 }
 
 pub async fn update_own_profile(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Json(request): Json<UpdateOwnProfileRequest>,
 ) -> Result<ApiJson<UserResponse>, ApiError> {
-    let current_user = require_user(&state, &jar).await?;
+    let current_user = require_user(&state, &headers, &jar).await?;
     let user = mova_application::update_own_profile(
         &state.db,
         current_user.user.id,
@@ -136,10 +168,11 @@ pub async fn update_own_profile(
 
 pub async fn change_password(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Json(request): Json<ChangePasswordRequest>,
 ) -> Result<(CookieJar, ApiJson<UserResponse>), ApiError> {
-    let current_user = require_user(&state, &jar).await?;
+    let current_user = require_user(&state, &headers, &jar).await?;
     let session = mova_application::change_own_password(
         &state.db,
         current_user.user.id,

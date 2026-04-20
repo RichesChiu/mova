@@ -4,6 +4,7 @@ use crate::response::{ok, ApiJson, ContinueWatchingItemResponse, PlaybackProgres
 use crate::state::AppState;
 use axum::{
     extract::{Path, Query, State},
+    http::HeaderMap,
     Json,
 };
 use axum_extra::extract::cookie::CookieJar;
@@ -27,10 +28,11 @@ pub struct ContinueWatchingQuery {
 /// 读取当前登录用户的“继续观看”列表。
 pub async fn list_continue_watching(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Query(query): Query<ContinueWatchingQuery>,
 ) -> Result<ApiJson<Vec<ContinueWatchingItemResponse>>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     let items = mova_application::list_continue_watching(&state.db, user.user.id, query.limit)
         .await
         .map_err(ApiError::from)?;
@@ -45,10 +47,11 @@ pub async fn list_continue_watching(
 /// 读取某个媒体条目的最近播放进度。
 pub async fn get_media_item_playback_progress(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
 ) -> Result<ApiJson<Option<PlaybackProgressResponse>>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let progress = mova_application::get_playback_progress_for_media_item(
         &state.db,
@@ -66,11 +69,12 @@ pub async fn get_media_item_playback_progress(
 /// 写入某个媒体条目的播放进度。
 pub async fn update_media_item_playback_progress(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
     Json(request): Json<UpdatePlaybackProgressRequest>,
 ) -> Result<ApiJson<PlaybackProgressResponse>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let progress = mova_application::update_playback_progress_for_media_item(
         &state.db,
@@ -104,6 +108,7 @@ mod tests {
     };
     use axum::{
         extract::{Path, Query, State},
+        http::HeaderMap,
         Json,
     };
     use axum_extra::extract::cookie::CookieJar;
@@ -214,10 +219,14 @@ mod tests {
         let state = build_test_state(pool.clone());
         let (jar, _user_id, media_item_id, _media_file_id) = seed_playback_context(&pool).await;
 
-        let Json(response) =
-            get_media_item_playback_progress(State(state), jar, Path(media_item_id))
-                .await
-                .unwrap();
+        let Json(response) = get_media_item_playback_progress(
+            State(state),
+            HeaderMap::new(),
+            jar,
+            Path(media_item_id),
+        )
+        .await
+        .unwrap();
 
         assert!(response.data.is_none());
     }
@@ -232,6 +241,7 @@ mod tests {
 
         let Json(progress_response) = update_media_item_playback_progress(
             State(state.clone()),
+            HeaderMap::new(),
             jar.clone(),
             Path(media_item_id),
             Json(UpdatePlaybackProgressRequest {
@@ -249,6 +259,7 @@ mod tests {
 
         let Json(initial_continue_watching) = list_continue_watching(
             State(state.clone()),
+            HeaderMap::new(),
             jar.clone(),
             Query(ContinueWatchingQuery { limit: Some(10) }),
         )
@@ -265,6 +276,7 @@ mod tests {
 
         let Json(finished_progress_response) = update_media_item_playback_progress(
             State(state.clone()),
+            HeaderMap::new(),
             jar.clone(),
             Path(media_item_id),
             Json(UpdatePlaybackProgressRequest {
@@ -281,6 +293,7 @@ mod tests {
 
         let Json(read_back_progress) = get_media_item_playback_progress(
             State(state.clone()),
+            HeaderMap::new(),
             jar.clone(),
             Path(media_item_id),
         )
@@ -304,6 +317,7 @@ mod tests {
 
         let Json(finished_continue_watching) = list_continue_watching(
             State(state.clone()),
+            HeaderMap::new(),
             jar.clone(),
             Query(ContinueWatchingQuery { limit: Some(10) }),
         )

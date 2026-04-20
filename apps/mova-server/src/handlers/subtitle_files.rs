@@ -7,7 +7,7 @@ use axum::{
     extract::{Path, State},
     http::{
         header::{self, HeaderValue},
-        Response, StatusCode,
+        HeaderMap, Response, StatusCode,
     },
 };
 use axum_extra::extract::cookie::CookieJar;
@@ -17,10 +17,11 @@ use tokio::{fs, process::Command};
 /// 返回某个媒体文件可切换的字幕轨道列表。
 pub async fn list_media_file_subtitles(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_file_id): Path<i64>,
 ) -> Result<ApiJson<Vec<SubtitleFileResponse>>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     require_media_file_access(&state, &user, media_file_id).await?;
     let subtitles = mova_application::list_subtitle_files_for_media_file(&state.db, media_file_id)
         .await
@@ -35,10 +36,11 @@ pub async fn list_media_file_subtitles(
 /// 把外挂/内嵌字幕统一转换成 WebVTT，供浏览器自定义播放器挂载。
 pub async fn stream_subtitle_file(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(subtitle_file_id): Path<i64>,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     let subtitle_file = mova_application::get_subtitle_file(&state.db, subtitle_file_id)
         .await
         .map_err(ApiError::from)?;

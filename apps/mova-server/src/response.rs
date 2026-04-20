@@ -425,6 +425,14 @@ pub struct BootstrapStatusResponse {
     pub bootstrap_required: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct TokenLoginResponse {
+    pub token: String,
+    pub token_type: String,
+    pub expires_at: String,
+    pub user: UserResponse,
+}
+
 impl LibraryResponse {
     pub fn from_domain(library: Library, offset: UtcOffset) -> Self {
         Self {
@@ -606,6 +614,17 @@ impl UserResponse {
             library_ids: user.library_ids,
             created_at: format_datetime(user.user.created_at, offset),
             updated_at: format_datetime(user.user.updated_at, offset),
+        }
+    }
+}
+
+impl TokenLoginResponse {
+    pub fn from_session(session: mova_application::AuthSession, offset: UtcOffset) -> Self {
+        Self {
+            token: session.token,
+            token_type: "Bearer".to_string(),
+            expires_at: format_datetime(session.expires_at, offset),
+            user: UserResponse::from_domain(session.user, offset),
         }
     }
 }

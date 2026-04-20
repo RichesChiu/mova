@@ -12,7 +12,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{
         header::{self, HeaderValue},
-        Response, StatusCode,
+        HeaderMap, Response, StatusCode,
     },
     Json,
 };
@@ -36,10 +36,11 @@ pub struct ApplyMediaItemMetadataMatchRequest {
 /// 查询单个媒体条目详情。
 pub async fn get_media_item(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
 ) -> Result<ApiJson<MediaItemDetailResponse>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     let media_item = require_media_item_access(&state, &user, media_item_id).await?;
 
     Ok(ok(MediaItemDetailResponse::from_domain(
@@ -50,10 +51,11 @@ pub async fn get_media_item(
 
 pub async fn list_media_item_cast(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
 ) -> Result<ApiJson<Vec<MediaCastMemberResponse>>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     let media_item = require_media_item_access(&state, &user, media_item_id).await?;
     let cast = mova_application::list_media_item_cast(
         &state.db,
@@ -71,10 +73,11 @@ pub async fn list_media_item_cast(
 
 pub async fn get_media_item_playback_header(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
 ) -> Result<ApiJson<MediaItemPlaybackHeaderResponse>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let playback_header =
         mova_application::get_media_item_playback_header(&state.db, media_item_id)
@@ -89,10 +92,11 @@ pub async fn get_media_item_playback_header(
 /// 查询某个媒体条目关联的文件列表。
 pub async fn list_media_item_files(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
 ) -> Result<ApiJson<Vec<MediaFileResponse>>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let media_files = mova_application::list_media_files_for_media_item(&state.db, media_item_id)
         .await
@@ -107,10 +111,11 @@ pub async fn list_media_item_files(
 /// 查询某个剧集媒体条目下的季列表。
 pub async fn list_media_item_seasons(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
 ) -> Result<ApiJson<Vec<SeasonResponse>>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let seasons = mova_application::list_seasons_for_series(&state.db, media_item_id)
         .await
@@ -126,10 +131,11 @@ pub async fn list_media_item_seasons(
 /// 远端元数据可用时返回全季全集，不可用时退化为本地已入库集数。
 pub async fn get_media_item_episode_outline(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
 ) -> Result<ApiJson<SeriesEpisodeOutlineResponse>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let outline = mova_application::series_episode_outline_for_media_item(
         &state.db,
@@ -147,11 +153,12 @@ pub async fn get_media_item_episode_outline(
 /// 这里返回的是候选列表，真正替换要走单独的 match 接口。
 pub async fn search_media_item_metadata(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
     Query(query): Query<SearchMediaItemMetadataQuery>,
 ) -> Result<ApiJson<Vec<MetadataMatchCandidateResponse>>, ApiError> {
-    let user = require_admin(&state, &jar).await?;
+    let user = require_admin(&state, &headers, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let results = mova_application::search_media_item_metadata_matches(
         &state.db,
@@ -174,11 +181,12 @@ pub async fn search_media_item_metadata(
 /// 管理员确认候选后，把选中的外部元数据绑定到当前媒体条目。
 pub async fn apply_media_item_metadata_match(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
     Json(request): Json<ApplyMediaItemMetadataMatchRequest>,
 ) -> Result<ApiJson<MediaItemResponse>, ApiError> {
-    let user = require_admin(&state, &jar).await?;
+    let user = require_admin(&state, &headers, &jar).await?;
     let media_item = require_media_item_access(&state, &user, media_item_id).await?;
     ensure_metadata_mutation_allowed(&state, media_item.library_id)?;
 
@@ -209,10 +217,11 @@ pub async fn apply_media_item_metadata_match(
 /// 当前会重新读取本地 sidecar，并在可用时补拉 TMDB 元数据。
 pub async fn refresh_media_item_metadata(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
 ) -> Result<ApiJson<MediaItemResponse>, ApiError> {
-    let user = require_admin(&state, &jar).await?;
+    let user = require_admin(&state, &headers, &jar).await?;
     let media_item = require_media_item_access(&state, &user, media_item_id).await?;
     ensure_metadata_mutation_allowed(&state, media_item.library_id)?;
 
@@ -259,20 +268,22 @@ fn ensure_metadata_mutation_allowed(state: &AppState, library_id: i64) -> Result
 /// 返回媒体条目的海报图片内容。
 pub async fn get_media_item_poster(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     serve_media_item_artwork(state, &user, media_item_id, ArtworkKind::Poster).await
 }
 
 /// 返回媒体条目的背景图内容。
 pub async fn get_media_item_backdrop(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_item_id): Path<i64>,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     serve_media_item_artwork(state, &user, media_item_id, ArtworkKind::Backdrop).await
 }
 

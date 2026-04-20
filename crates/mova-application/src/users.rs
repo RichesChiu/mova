@@ -154,9 +154,9 @@ pub async fn login(
         enrich_user_profile(
             pool,
             UserProfile {
-            user: record.user,
-            is_primary_admin: false,
-            library_ids,
+                user: record.user,
+                is_primary_admin: false,
+                library_ids,
             },
         )
         .await?,
@@ -214,7 +214,8 @@ pub async fn get_user(pool: &PgPool, user_id: i64) -> ApplicationResult<UserProf
         .await
         .map_err(ApplicationError::from)?;
 
-    let user = user.ok_or_else(|| ApplicationError::NotFound(format!("user not found: {}", user_id)))?;
+    let user =
+        user.ok_or_else(|| ApplicationError::NotFound(format!("user not found: {}", user_id)))?;
 
     enrich_user_profile(pool, user).await
 }

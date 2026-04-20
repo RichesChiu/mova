@@ -9,8 +9,10 @@
   - 普通业务接口默认返回 JSON，并统一包裹成 `code / message / data`
   - 媒体流和图片资源接口返回文件流，不返回 JSON
 - 鉴权：
-  - `GET /api/health`、`GET /api/auth/bootstrap-status`、`POST /api/auth/bootstrap-admin`、`POST /api/auth/login` 可匿名访问
-  - 其他接口都要求登录态 session cookie
+  - `GET /api/health`、`GET /api/auth/bootstrap-status`、`POST /api/auth/bootstrap-admin`、`POST /api/auth/login`、`POST /api/auth/token-login` 可匿名访问
+  - 其他接口都要求登录态
+  - Web 端继续使用 session cookie
+  - 原生客户端可使用 `Authorization: Bearer <token>`，token 通过 `POST /api/auth/token-login` 获取
   - 管理类接口（用户管理、建库、删库、触发扫描、服务器根目录等）要求 `admin`
   - `GET /api/events` 返回 `text/event-stream`，不使用统一 JSON envelope
 - 成功格式：
@@ -60,6 +62,7 @@
 | `GET` | `/api/auth/bootstrap-status` | 查询是否需要初始化首个管理员 |
 | `POST` | `/api/auth/bootstrap-admin` | 初始化首个管理员并登录 |
 | `POST` | `/api/auth/login` | 登录 |
+| `POST` | `/api/auth/token-login` | 为原生客户端创建 Bearer token |
 | `POST` | `/api/auth/logout` | 登出 |
 | `GET` | `/api/auth/me` | 查询当前用户 |
 | `PATCH` | `/api/auth/me` | 更新当前用户昵称 |
@@ -178,13 +181,56 @@
 - 密码最少 8 位
 - 成功后会写入 session cookie
 
+### `POST /api/auth/token-login`
+
+作用：
+- 使用用户名和密码登录，并直接返回给原生客户端可复用的 Bearer token
+
+请求体：
+
+```json
+{
+  "username": "admin",
+  "password": "admin123456"
+}
+```
+
+返回：
+
+```json
+{
+  "token": "native-client-session-token",
+  "token_type": "Bearer",
+  "expires_at": "2026-05-20T08:15:30Z",
+  "user": {
+    "id": 1,
+    "username": "admin",
+    "nickname": "admin",
+    "role": "admin",
+    "is_primary_admin": true,
+    "is_enabled": true,
+    "library_ids": []
+  }
+}
+```
+
+说明：
+- 当前会直接复用服务端现有 session 机制，只是把 token 直接返回给客户端，而不是写 cookie
+- 后续请求把 `Authorization: Bearer <token>` 带到受保护接口即可
+- token 过期、用户被禁用或被删除后，这个 token 会失效
+- Web 端不需要使用这个接口，仍然继续调用 `POST /api/auth/login`
+
 ### `POST /api/auth/logout`
 
 作用：
-- 清理当前 session cookie，并删除服务端会话记录
+- 删除当前登录态对应的服务端会话记录；如果当前是 cookie 登录，还会顺带清理 session cookie
 
 返回：
-- `204 No Content`
+- `200 OK`
+
+说明：
+- 支持 cookie 和 Bearer token 两种登录态
+- 如果同时带了 cookie 和 `Authorization`，服务端会优先使用 Bearer token
 
 ### `GET /api/auth/me`
 
@@ -194,6 +240,7 @@
 返回：
 - `200 OK`
 - 返回字段包括 `id`、`username`、`nickname`、`role`、`is_primary_admin`、`is_enabled`、`library_ids`
+- 支持 cookie 和 Bearer token 两种登录态
 - `is_primary_admin = true` 只会出现在系统初始化出来的首个管理员身上；它可以创建、提升、编辑和删除普通管理员
 
 ### `PATCH /api/auth/me`
@@ -212,6 +259,7 @@
 说明：
 - 昵称留空时，服务端会自动回退为用户名
 - 成功后会直接返回更新后的当前用户对象
+- 支持 cookie 和 Bearer token 两种登录态
 
 ### `GET /api/events`
 
@@ -219,7 +267,8 @@
 - 订阅服务端实时事件流，用于把扫描任务状态变化、媒体库更新和元数据变更主动推送给在线客户端
 
 说明：
-- 需要登录态 session cookie
+- 需要登录态
+- 支持 cookie 和 Bearer token 两种登录态
 - 返回类型为 `text/event-stream`
 - 事件本身更适合作为“资源已变化”的通知；客户端收到后，应按事件类型重新拉对应 HTTP 接口，而不是把 SSE 负载直接当成最终页面数据
 - 当前服务端只推送连接建立之后的新事件；客户端断线后应自动重连，并在重连成功后主动补一轮关键查询，避免断开期间漏掉一次刷新
@@ -279,10 +328,12 @@
 ```
 
 说明：
+- 支持 cookie 和 Bearer token 两种登录态
 - `current_password` 必须正确
 - `new_password` 最少 8 位
 - `new_password` 不能和当前密码相同
 - 修改成功后会轮换 session，旧会话失效，响应会写回新的 session cookie
+- 如果当前是 Bearer token 客户端，修改密码成功后应使用新密码重新调用 `POST /api/auth/token-login` 获取新 token
 
 ### `GET /api/users`
 

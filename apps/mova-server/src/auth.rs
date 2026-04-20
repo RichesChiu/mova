@@ -1,4 +1,5 @@
 use crate::{error::ApiError, state::AppState};
+use axum::http::{header, HeaderMap};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use mova_domain::{Library, MediaFile, MediaItem, Season, UserProfile};
 use time::{Duration, OffsetDateTime};
@@ -6,16 +7,24 @@ use time::{Duration, OffsetDateTime};
 pub const SESSION_TTL: Duration = Duration::days(30);
 const SESSION_COOKIE_NAME: &str = "mova_session";
 
-pub async fn require_user(state: &AppState, jar: &CookieJar) -> Result<UserProfile, ApiError> {
-    let token = session_token(jar)?;
+pub async fn require_user(
+    state: &AppState,
+    headers: &HeaderMap,
+    jar: &CookieJar,
+) -> Result<UserProfile, ApiError> {
+    let token = request_auth_token(headers, jar)?;
 
-    mova_application::get_user_by_session_token(&state.db, token)
+    mova_application::get_user_by_session_token(&state.db, &token)
         .await
         .map_err(ApiError::from)
 }
 
-pub async fn require_admin(state: &AppState, jar: &CookieJar) -> Result<UserProfile, ApiError> {
-    let user = require_user(state, jar).await?;
+pub async fn require_admin(
+    state: &AppState,
+    headers: &HeaderMap,
+    jar: &CookieJar,
+) -> Result<UserProfile, ApiError> {
+    let user = require_user(state, headers, jar).await?;
     if !user.is_admin() {
         return Err(ApiError::Forbidden("admin permission required".to_string()));
     }
@@ -29,6 +38,12 @@ pub fn attach_session_cookie(jar: CookieJar, token: &str, expires_at: OffsetDate
 
 pub fn clear_session_cookie(jar: CookieJar) -> CookieJar {
     jar.remove(Cookie::build((SESSION_COOKIE_NAME, "")).path("/").build())
+}
+
+pub fn request_auth_token(headers: &HeaderMap, jar: &CookieJar) -> Result<String, ApiError> {
+    bearer_token(headers)
+        .or_else(|| session_token(jar))
+        .ok_or_else(|| ApiError::Unauthorized("authentication required".to_string()))
 }
 
 pub async fn require_library_access(
@@ -95,11 +110,24 @@ pub async fn require_season_access(
     Ok(season)
 }
 
-fn session_token<'a>(jar: &'a CookieJar) -> Result<&'a str, ApiError> {
+fn session_token(jar: &CookieJar) -> Option<String> {
     jar.get(SESSION_COOKIE_NAME)
         .map(|cookie| cookie.value_trimmed())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| ApiError::Unauthorized("authentication required".to_string()))
+        .map(ToString::to_string)
+}
+
+fn bearer_token(headers: &HeaderMap) -> Option<String> {
+    let authorization = headers.get(header::AUTHORIZATION)?.to_str().ok()?.trim();
+    let mut parts = authorization.splitn(2, char::is_whitespace);
+    let scheme = parts.next()?;
+    let token = parts.next()?.trim();
+
+    if !scheme.eq_ignore_ascii_case("bearer") || token.is_empty() {
+        return None;
+    }
+
+    Some(token.to_string())
 }
 
 fn build_session_cookie(token: &str, expires_at: OffsetDateTime) -> Cookie<'static> {
@@ -109,4 +137,47 @@ fn build_session_cookie(token: &str, expires_at: OffsetDateTime) -> Cookie<'stat
         .same_site(SameSite::Lax)
         .expires(expires_at)
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{request_auth_token, SESSION_COOKIE_NAME};
+    use axum::http::{header, HeaderMap, HeaderValue};
+    use axum_extra::extract::cookie::{Cookie, CookieJar};
+
+    #[test]
+    fn request_auth_token_reads_bearer_token_from_authorization_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer native-client-token"),
+        );
+
+        let token = request_auth_token(&headers, &CookieJar::new()).unwrap();
+
+        assert_eq!(token, "native-client-token");
+    }
+
+    #[test]
+    fn request_auth_token_falls_back_to_session_cookie() {
+        let jar = CookieJar::new().add(Cookie::new(SESSION_COOKIE_NAME, "cookie-session-token"));
+
+        let token = request_auth_token(&HeaderMap::new(), &jar).unwrap();
+
+        assert_eq!(token, "cookie-session-token");
+    }
+
+    #[test]
+    fn request_auth_token_prefers_bearer_over_cookie_when_both_exist() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer native-client-token"),
+        );
+        let jar = CookieJar::new().add(Cookie::new(SESSION_COOKIE_NAME, "cookie-session-token"));
+
+        let token = request_auth_token(&headers, &jar).unwrap();
+
+        assert_eq!(token, "native-client-token");
+    }
 }

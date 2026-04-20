@@ -31,10 +31,11 @@ pub struct MediaFileStreamQuery {
 /// 返回某个媒体文件可切换的内嵌音轨列表。
 pub async fn list_media_file_audio_tracks(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(media_file_id): Path<i64>,
 ) -> Result<ApiJson<Vec<AudioTrackResponse>>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     require_media_file_access(&state, &user, media_file_id).await?;
     let audio_tracks = mova_application::list_audio_tracks_for_media_file(&state.db, media_file_id)
         .await
@@ -54,7 +55,7 @@ pub async fn stream_media_file(
     Query(query): Query<MediaFileStreamQuery>,
     headers: HeaderMap,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     build_media_file_stream_response(
         state,
         &user,
@@ -74,7 +75,7 @@ pub async fn head_media_file(
     Query(query): Query<MediaFileStreamQuery>,
     headers: HeaderMap,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     build_media_file_stream_response(
         state,
         &user,

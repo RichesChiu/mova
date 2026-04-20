@@ -150,6 +150,7 @@ docker compose up -d --build
 - `Primary Admin` 可以管理普通管理员和普通成员
 - 普通管理员可以管理媒体库和普通成员，但不能管理平级管理员或主管理员
 - 成员只可见自己被授权的媒体库
+- Web 端继续使用账号密码 + session cookie；原生客户端可使用 token 登录接口获取 Bearer token
 - 个人设置支持修改昵称、密码，以及本地界面的语言和 `dark / light` 主题偏好
 
 ## 常见排查

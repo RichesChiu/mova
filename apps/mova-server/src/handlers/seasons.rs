@@ -7,7 +7,7 @@ use axum::{
     extract::{Path, State},
     http::{
         header::{self, HeaderValue},
-        Response, StatusCode,
+        HeaderMap, Response, StatusCode,
     },
 };
 use axum_extra::extract::cookie::CookieJar;
@@ -18,10 +18,11 @@ const ARTWORK_CACHE_CONTROL: &str = "private, max-age=31536000, immutable";
 /// 查询某一季下的集列表。
 pub async fn list_season_episodes(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(season_id): Path<i64>,
 ) -> Result<ApiJson<Vec<EpisodeResponse>>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     require_season_access(&state, &user, season_id).await?;
     let episodes = mova_application::list_episodes_for_season(&state.db, season_id)
         .await
@@ -36,20 +37,22 @@ pub async fn list_season_episodes(
 /// 返回某一季的封面图内容。
 pub async fn get_season_poster(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(season_id): Path<i64>,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     serve_season_artwork(state, &user, season_id, SeasonArtworkKind::Poster).await
 }
 
 /// 返回某一季的背景图内容。
 pub async fn get_season_backdrop(
     State(state): State<AppState>,
+    headers: HeaderMap,
     jar: CookieJar,
     Path(season_id): Path<i64>,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &jar).await?;
+    let user = require_user(&state, &headers, &jar).await?;
     serve_season_artwork(state, &user, season_id, SeasonArtworkKind::Backdrop).await
 }
 
