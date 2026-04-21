@@ -25,7 +25,6 @@ import {
 } from '../../components/app-shell/scan-runtime'
 import { EpisodeCard, EpisodeCardSkeleton } from '../../components/episode-card'
 import { GlassSelect } from '../../components/glass-select'
-import { MediaTypeTag } from '../../components/media-type-tag'
 import { MetadataMatchPanel } from '../../components/metadata-match-panel'
 import { ScrollableRail } from '../../components/scrollable-rail'
 import { formatMediaCountry } from '../../lib/media-country'
@@ -200,13 +199,6 @@ export const MediaItemPage = () => {
     queryFn: () => getMediaItem(mediaItemId),
     staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
   })
-  const mediaFilesQuery = useQuery({
-    gcTime: MEDIA_QUERY_GC_TIME_MS,
-    enabled: mediaItemQuery.data?.media_type === 'movie',
-    queryKey: ['media-item-files', mediaItemId],
-    queryFn: () => listMediaItemFiles(mediaItemId),
-    staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
-  })
 
   const episodeOutlineQuery = useQuery({
     gcTime: MEDIA_QUERY_GC_TIME_MS,
@@ -231,24 +223,6 @@ export const MediaItemPage = () => {
   })
 
   const seasons = episodeOutlineQuery.data?.seasons ?? []
-  const mediaFiles = mediaFilesQuery.data ?? []
-  const shouldShowMediaFilesSection = mediaItemQuery.data?.media_type === 'movie'
-  const selectedMediaFile =
-    mediaFiles.find((file) => file.id === selectedMediaVersionId) ?? mediaFiles[0] ?? null
-  const audioTracksQuery = useQuery({
-    gcTime: MEDIA_QUERY_GC_TIME_MS,
-    enabled: shouldShowMediaFilesSection && selectedMediaFile !== null,
-    queryKey: ['media-file-audio-tracks', selectedMediaFile?.id],
-    queryFn: () => listMediaFileAudioTracks(selectedMediaFile?.id ?? 0),
-    staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
-  })
-  const subtitleTracksQuery = useQuery({
-    gcTime: MEDIA_QUERY_GC_TIME_MS,
-    enabled: shouldShowMediaFilesSection && selectedMediaFile !== null,
-    queryKey: ['media-file-subtitles', selectedMediaFile?.id],
-    queryFn: () => listMediaFileSubtitles(selectedMediaFile?.id ?? 0),
-    staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
-  })
   const availableSeasons = seasons.filter((season) =>
     season.episodes.some((episode) => episode.is_available),
   )
@@ -274,6 +248,42 @@ export const MediaItemPage = () => {
   const selectedSeasonYear = selectedSeason?.year ?? null
   const selectedSeasonEpisodeCount =
     selectedSeason?.episodes.filter((episode) => episode.is_available).length ?? 0
+  const selectedSeasonResourceEpisode = pickSeriesPlaybackTargetEpisode(
+    selectedSeason?.episodes
+      .filter((episode) => episode.is_available && episode.media_item_id !== null)
+      .map((episode) => episode),
+  )
+  const shouldShowMediaFilesSection =
+    mediaItemQuery.data?.media_type === 'movie' || mediaItemQuery.data?.media_type === 'series'
+  const sourceMediaItemId = shouldShowMediaFilesSection
+    ? mediaItemQuery.data?.media_type === 'series'
+      ? (selectedSeasonResourceEpisode?.media_item_id ?? null)
+      : mediaItemId
+    : null
+  const mediaFilesQuery = useQuery({
+    gcTime: MEDIA_QUERY_GC_TIME_MS,
+    enabled: shouldShowMediaFilesSection && Number.isFinite(sourceMediaItemId),
+    queryKey: ['media-item-files', sourceMediaItemId],
+    queryFn: () => listMediaItemFiles(sourceMediaItemId ?? 0),
+    staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
+  })
+  const mediaFiles = mediaFilesQuery.data ?? []
+  const selectedMediaFile =
+    mediaFiles.find((file) => file.id === selectedMediaVersionId) ?? mediaFiles[0] ?? null
+  const audioTracksQuery = useQuery({
+    gcTime: MEDIA_QUERY_GC_TIME_MS,
+    enabled: shouldShowMediaFilesSection && selectedMediaFile !== null,
+    queryKey: ['media-file-audio-tracks', selectedMediaFile?.id],
+    queryFn: () => listMediaFileAudioTracks(selectedMediaFile?.id ?? 0),
+    staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
+  })
+  const subtitleTracksQuery = useQuery({
+    gcTime: MEDIA_QUERY_GC_TIME_MS,
+    enabled: shouldShowMediaFilesSection && selectedMediaFile !== null,
+    queryKey: ['media-file-subtitles', selectedMediaFile?.id],
+    queryFn: () => listMediaFileSubtitles(selectedMediaFile?.id ?? 0),
+    staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
+  })
 
   useEffect(() => {
     if (mediaItemQuery.data?.media_type !== 'series' || availableSeasons.length === 0) {
@@ -314,15 +324,24 @@ export const MediaItemPage = () => {
       return
     }
 
+    const moviePlaybackProgress = moviePlaybackProgressQuery.data
     const preferredMediaFile =
-      (moviePlaybackProgressQuery.data &&
-        mediaFiles.find((file) => file.id === moviePlaybackProgressQuery.data?.media_file_id)) ??
-      mediaFiles[0]
+      mediaItemQuery.data?.media_type === 'movie'
+        ? (moviePlaybackProgress &&
+            mediaFiles.find((file) => file.id === moviePlaybackProgress.media_file_id)) ??
+          mediaFiles[0]
+        : mediaFiles[0]
 
     setSelectedMediaVersionId((current) =>
       current && mediaFiles.some((file) => file.id === current) ? current : preferredMediaFile.id,
     )
-  }, [mediaFiles, moviePlaybackProgressQuery.data, shouldShowMediaFilesSection])
+  }, [
+    mediaFiles,
+    mediaItemQuery.data?.media_type,
+    moviePlaybackProgressQuery.data,
+    shouldShowMediaFilesSection,
+    sourceMediaItemId,
+  ])
 
   useEffect(() => {
     if (!shouldShowMediaFilesSection && selectedMediaVersionId === null) {
@@ -528,6 +547,19 @@ export const MediaItemPage = () => {
             }
           : null,
       ].filter(isHeroFact)
+  const sourceContextEyebrow = isSeriesView ? 'Episode Source' : 'Source Details'
+  const sourceContextTitle =
+    isSeriesView && selectedSeasonResourceEpisode
+      ? `S${String(selectedSeason?.season_number ?? 0).padStart(2, '0')} · E${String(selectedSeasonResourceEpisode.episode_number).padStart(2, '0')} · ${selectedSeasonResourceEpisode.title.trim() || `Episode ${selectedSeasonResourceEpisode.episode_number}`}`
+      : null
+  const sourceContextDescription =
+    isSeriesView && selectedSeasonResourceEpisode
+      ? selectedSeasonResourceEpisode.playback_progress?.is_finished
+        ? 'Showing the next playable episode after your latest completed watch in this season.'
+        : selectedSeasonResourceEpisode.playback_progress
+          ? 'Showing the episode that best matches your current playback progress in this season.'
+          : 'No playback history for this season yet, so this defaults to the first available episode.'
+      : null
 
   if (!Number.isFinite(mediaItemId)) {
     return <p className="callout callout--danger">Invalid media item id.</p>
@@ -607,7 +639,6 @@ export const MediaItemPage = () => {
         </div>
 
         <div className="detail-hero__body">
-          <MediaTypeTag mediaType={mediaItemQuery.data.media_type} />
           <div className="detail-hero__title-row">
             <h2>{heroTitle}</h2>
             {heroImdbRating ? (
@@ -816,6 +847,9 @@ export const MediaItemPage = () => {
             <div>
               <p className="eyebrow">Source Files</p>
               <h3>Technical Details</h3>
+              {isSeriesView && sourceContextDescription ? (
+                <p className="media-file-panel__description">{sourceContextDescription}</p>
+              ) : null}
             </div>
             {!mediaFilesQuery.isLoading && !mediaFilesQuery.isError ? (
               <span className="counter-badge">{mediaFiles.length}</span>
@@ -838,7 +872,10 @@ export const MediaItemPage = () => {
                 <article className="media-file-card" key={selectedMediaFile.id}>
                   <div className="media-file-card__header">
                     <div className="media-file-card__title-block">
-                      <p className="media-file-card__eyebrow">Source Details</p>
+                      <p className="media-file-card__eyebrow">{sourceContextEyebrow}</p>
+                      {sourceContextTitle ? (
+                        <p className="media-file-card__context">{sourceContextTitle}</p>
+                      ) : null}
                       <h4>{getMediaFileDisplayName(selectedMediaFile.file_path)}</h4>
                     </div>
 
@@ -1042,7 +1079,11 @@ export const MediaItemPage = () => {
           ) : null}
 
           {!mediaFilesQuery.isLoading && !mediaFilesQuery.isError && mediaFiles.length === 0 ? (
-            <p className="muted">No source files are linked to this title yet.</p>
+            <p className="muted">
+              {isSeriesView
+                ? 'No source files are linked to the selected season episode yet.'
+                : 'No source files are linked to this title yet.'}
+            </p>
           ) : null}
         </section>
       ) : null}

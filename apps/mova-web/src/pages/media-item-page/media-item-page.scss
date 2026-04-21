@@ -305,6 +305,18 @@
   gap: 16px;
 }
 
+.media-file-panel__description,
+.media-file-card__context {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.media-file-panel__description {
+  margin-top: 8px;
+  max-width: 56ch;
+}
+
 .media-file-panel__list {
   display: grid;
   gap: 16px;
@@ -334,6 +346,12 @@
 
 .media-file-card__title-block {
   gap: 6px;
+}
+
+.media-file-card__context {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
 .media-file-card__details {
