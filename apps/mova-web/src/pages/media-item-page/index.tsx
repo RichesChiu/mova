@@ -144,7 +144,10 @@ const SeasonBlock = ({
 
   return (
     <article className="season-card">
-      <ScrollableRail hint="Scroll, drag, or click arrows to move through episodes.">
+      <ScrollableRail
+        hint="Scroll, drag, or click arrows to move through episodes."
+        resetKey={season.season_number}
+      >
         {entries.map((entry) => entry.render())}
       </ScrollableRail>
     </article>
@@ -153,7 +156,7 @@ const SeasonBlock = ({
 
 const SeasonBlockSkeleton = () => (
   <article aria-hidden="true" className="season-card">
-    <ScrollableRail hint="Scroll, drag, or click arrows to move through episodes.">
+    <ScrollableRail hint="Scroll, drag, or click arrows to move through episodes." resetKey="loading">
       {EPISODE_SKELETONS.map((episode) => (
         <EpisodeCardSkeleton
           key={episode.metaLabel}

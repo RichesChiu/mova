@@ -290,8 +290,9 @@
   gap: 16px;
 }
 
-.cast-panel__viewport {
-  grid-auto-columns: minmax(148px, 188px);
+.cast-panel__viewport .scrollable-rail__track {
+  grid-auto-columns: minmax(132px, 156px);
+  gap: 10px;
 }
 
 .media-file-panel {
@@ -559,10 +560,10 @@
 
 .cast-card {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid var(--floating-border);
-  border-radius: 18px;
+  border-radius: 16px;
   background: var(--floating-surface);
   box-shadow: var(--panel-inset), var(--floating-shadow);
   scroll-snap-align: start;
@@ -572,7 +573,7 @@
   overflow: hidden;
   aspect-ratio: 2 / 3;
   border: 1px solid color-mix(in srgb, var(--floating-border) 80%, transparent);
-  border-radius: 14px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--floating-surface) 75%, black);
 }
 
@@ -605,13 +606,13 @@
 
 .cast-card__name {
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 700;
 }
 
 .cast-card__role {
   color: var(--text-muted);
-  font-size: 0.84rem;
+  font-size: 0.78rem;
   line-height: 1.35;
 }
 

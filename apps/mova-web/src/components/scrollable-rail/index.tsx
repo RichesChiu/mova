@@ -1,20 +1,33 @@
-import type { ReactNode, WheelEvent } from 'react'
+import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 
 interface ScrollableRailProps {
   children: ReactNode
   hint?: string
+  resetKey?: number | string | null
   viewportClassName?: string
 }
 
 export const ScrollableRail = ({
   children,
   hint = 'Scroll, drag, or click arrows to move sideways.',
+  resetKey,
   viewportClassName,
 }: ScrollableRailProps) => {
   const listRef = useRef<HTMLDivElement | null>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
+
+  const updateScrollState = () => {
+    const list = listRef.current
+    if (!list) {
+      return
+    }
+
+    const maxLeft = Math.max(0, list.scrollWidth - list.clientWidth)
+    setCanScrollLeft(list.scrollLeft > 8)
+    setCanScrollRight(maxLeft - list.scrollLeft > 8)
+  }
 
   useEffect(() => {
     const list = listRef.current
@@ -22,21 +35,62 @@ export const ScrollableRail = ({
       return
     }
 
-    const updateScrollState = () => {
+    const track = list.querySelector<HTMLElement>('.scrollable-rail__track')
+    const resizeObserver = new ResizeObserver(() => updateScrollState())
+    const handleWheel = (event: globalThis.WheelEvent) => {
       const maxLeft = Math.max(0, list.scrollWidth - list.clientWidth)
-      setCanScrollLeft(list.scrollLeft > 8)
-      setCanScrollRight(maxLeft - list.scrollLeft > 8)
+      if (maxLeft <= 0) {
+        return
+      }
+
+      const primaryDelta =
+        Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+
+      if (Math.abs(primaryDelta) < 0.5) {
+        return
+      }
+
+      const nextLeft = list.scrollLeft + primaryDelta
+      const clampedLeft = Math.max(0, Math.min(maxLeft, nextLeft))
+
+      if (Math.abs(clampedLeft - list.scrollLeft) < 0.5) {
+        return
+      }
+
+      event.preventDefault()
+      list.scrollLeft = clampedLeft
     }
 
     updateScrollState()
+    resizeObserver.observe(list)
+    if (track) {
+      resizeObserver.observe(track)
+    }
     list.addEventListener('scroll', updateScrollState, { passive: true })
+    list.addEventListener('wheel', handleWheel, { passive: false })
     window.addEventListener('resize', updateScrollState)
 
     return () => {
+      resizeObserver.disconnect()
       list.removeEventListener('scroll', updateScrollState)
+      list.removeEventListener('wheel', handleWheel)
       window.removeEventListener('resize', updateScrollState)
     }
   }, [])
+
+  useEffect(() => {
+    updateScrollState()
+  }, [children])
+
+  useEffect(() => {
+    const list = listRef.current
+    if (!list) {
+      return
+    }
+
+    list.scrollLeft = 0
+    updateScrollState()
+  }, [resetKey])
 
   const scrollList = (direction: -1 | 1) => {
     const list = listRef.current
@@ -49,35 +103,6 @@ export const ScrollableRail = ({
       left: distance * direction,
       behavior: 'smooth',
     })
-  }
-
-  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
-    const list = listRef.current
-    if (!list) {
-      return
-    }
-
-    const maxLeft = Math.max(0, list.scrollWidth - list.clientWidth)
-    if (maxLeft <= 0) {
-      return
-    }
-
-    const primaryDelta =
-      Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
-
-    if (Math.abs(primaryDelta) < 0.5) {
-      return
-    }
-
-    const nextLeft = list.scrollLeft + primaryDelta
-    const clampedLeft = Math.max(0, Math.min(maxLeft, nextLeft))
-
-    if (Math.abs(clampedLeft - list.scrollLeft) < 0.5) {
-      return
-    }
-
-    event.preventDefault()
-    list.scrollLeft = clampedLeft
   }
 
   return (
@@ -99,7 +124,6 @@ export const ScrollableRail = ({
               ? `scrollable-rail__viewport ${viewportClassName}`
               : 'scrollable-rail__viewport'
           }
-          onWheel={handleWheel}
           ref={listRef}
         >
           <div className="scrollable-rail__track">{children}</div>
