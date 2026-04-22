@@ -1,4 +1,5 @@
 import { mediaItemPlayPath } from './media-routes'
+import { translateCurrent } from '../i18n'
 
 export type PlaybackProgressLike =
   | {
@@ -13,7 +14,7 @@ export type PlaybackProgressLike =
 export type PlaybackStatus = 'complete' | 'progress' | 'idle'
 
 export interface PlaybackActionLinks {
-  primaryLabel: 'Resume Playback' | 'Play'
+  primaryLabel: string
   primaryPath: string
   secondaryPath: string | null
 }
@@ -96,7 +97,9 @@ export const buildPlaybackActionLinks = (
   const shouldResumePlayback = isResumablePlayback(progress)
 
   return {
-    primaryLabel: shouldResumePlayback ? 'Resume Playback' : 'Play',
+    primaryLabel: shouldResumePlayback
+      ? translateCurrent('Resume Playback')
+      : translateCurrent('Play'),
     primaryPath: mediaItemPlayPath(mediaItemId),
     secondaryPath: shouldResumePlayback
       ? mediaItemPlayPath(mediaItemId, { fromStart: true })

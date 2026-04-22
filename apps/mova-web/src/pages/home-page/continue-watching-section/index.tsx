@@ -1,4 +1,5 @@
 import { EpisodeCard, EpisodeCardSkeleton } from '../../../components/episode-card'
+import { useI18n } from '../../../i18n'
 import { ScrollableRail } from '../../../components/scrollable-rail'
 import { SectionHelp } from '../../../components/section-help'
 import type { ContinueWatchingCardData } from '../types'
@@ -14,6 +15,7 @@ export const ContinueWatchingSection = ({
   isLoading,
   items,
 }: ContinueWatchingSectionProps) => {
+  const { l } = useI18n()
   const shouldShowSkeleton = isLoading && items.length === 0
 
   // 没有继续观看数据时直接收起整个模块，首页只保留真正有内容的块。
@@ -25,30 +27,32 @@ export const ContinueWatchingSection = ({
     <section className="catalog-block continue-watching-section">
       <div className="catalog-block__header">
         <div className="catalog-block__title-row">
-          <h3>Continue Watching</h3>
+          <h3>{l('Continue Watching')}</h3>
           <SectionHelp
-            detail="Resume unfinished movies and episodes. The latest in-progress item stays here."
+            detail={l(
+              'Resume unfinished movies and episodes. The latest in-progress item stays here.',
+            )}
             placement="bottom"
-            title="About continue watching"
+            title={l('About continue watching')}
           />
         </div>
         <span className="counter-badge">{items.length}</span>
       </div>
 
-      {isLoading ? <p className="muted">Loading…</p> : null}
+      {isLoading ? <p className="muted">{l('Loading…')}</p> : null}
       {errorMessage ? <p className="callout callout--danger">{errorMessage}</p> : null}
 
       {shouldShowSkeleton ? (
-        <ScrollableRail hint="Scroll horizontally.">
-          <EpisodeCardSkeleton metaLabel="MOVIE" placeholderLabel="MOVIE" />
+        <ScrollableRail hint={l('Scroll horizontally.')}>
+          <EpisodeCardSkeleton metaLabel={l('Movies')} placeholderLabel={l('Movies')} />
           <EpisodeCardSkeleton metaLabel="S01 · E03" placeholderLabel="1-3" />
           <EpisodeCardSkeleton metaLabel="S02 · E01" placeholderLabel="2-1" />
-          <EpisodeCardSkeleton metaLabel="MOVIE" placeholderLabel="MOVIE" />
+          <EpisodeCardSkeleton metaLabel={l('Movies')} placeholderLabel={l('Movies')} />
         </ScrollableRail>
       ) : null}
 
       {items.length > 0 ? (
-        <ScrollableRail hint="Scroll horizontally.">
+        <ScrollableRail hint={l('Scroll horizontally.')}>
           {items.map((item) => (
             <EpisodeCard
               artworkAlt={item.artworkAlt}

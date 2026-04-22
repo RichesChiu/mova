@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
+import { useI18n } from '../../i18n'
 
 interface ConfirmActionModalProps {
   confirmLabel: string
@@ -22,6 +23,7 @@ export const ConfirmActionModal = ({
   onConfirm,
   title,
 }: ConfirmActionModalProps) => {
+  const { l } = useI18n()
   useEffect(() => {
     if (!isOpen) {
       return
@@ -50,7 +52,7 @@ export const ConfirmActionModal = ({
   return createPortal(
     <div className="confirm-action-modal">
       <button
-        aria-label="Close confirmation dialog"
+        aria-label={l('Close confirmation dialog')}
         className="confirm-action-modal__backdrop glass-overlay-backdrop"
         disabled={isSubmitting}
         onClick={onClose}
@@ -64,7 +66,7 @@ export const ConfirmActionModal = ({
       >
         <div className="confirm-action-modal__header">
           <div>
-            <p className="eyebrow">Confirm Action</p>
+            <p className="eyebrow">{l('Confirm Action')}</p>
             <h3>{title}</h3>
             <p className="muted">{description}</p>
           </div>
@@ -74,7 +76,7 @@ export const ConfirmActionModal = ({
 
         <div className="confirm-action-modal__footer">
           <button className="button" disabled={isSubmitting} onClick={onClose} type="button">
-            Cancel
+            {l('Cancel')}
           </button>
           <button
             className="button button--danger"
@@ -82,7 +84,7 @@ export const ConfirmActionModal = ({
             onClick={onConfirm}
             type="button"
           >
-            {isSubmitting ? 'Working…' : confirmLabel}
+            {isSubmitting ? l('Working…') : confirmLabel}
           </button>
         </div>
       </div>

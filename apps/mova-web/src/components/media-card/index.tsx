@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { MediaItem } from '../../api/types'
+import { useI18n } from '../../i18n'
 import { mediaItemPrimaryPath } from '../../lib/media-routes'
-import { MediaTypeTag } from '../media-type-tag'
 
 interface MediaCardProps {
   item: MediaItem
@@ -20,8 +20,10 @@ interface MediaCardScanPlaceholderProps {
 }
 
 export const MediaCard = ({ item }: MediaCardProps) => {
-  const title = item.title.trim() || item.source_title.trim() || 'Untitled'
-  const subtitle = item.overview ?? item.original_title ?? 'No summary yet'
+  const { l } = useI18n()
+  const title = item.title.trim() || item.source_title.trim() || l('Untitled')
+  const subtitle = item.overview ?? item.original_title ?? l('No summary yet')
+  const mediaTypeLabel = item.media_type === 'series' ? l('Series') : l('Movie')
 
   return (
     <Link className="media-card" to={mediaItemPrimaryPath(item)}>
@@ -30,19 +32,19 @@ export const MediaCard = ({ item }: MediaCardProps) => {
           <img alt={`${title} poster`} loading="lazy" src={item.poster_path} />
         ) : (
           <div className="media-card__placeholder">
-            <span>{item.media_type}</span>
+            <span>{mediaTypeLabel}</span>
           </div>
         )}
       </div>
 
       <div className="media-card__body">
-        <div className="media-card__meta">
-          <MediaTypeTag mediaType={item.media_type} />
-          {item.year ? <span className="muted">{item.year}</span> : null}
-        </div>
         <h3 className="media-card__title" title={title}>
           {title}
         </h3>
+        <div className="media-card__meta">
+          <span className="media-card__type-tag">{mediaTypeLabel}</span>
+          {item.year ? <span className="muted">{item.year}</span> : null}
+        </div>
         <p className="media-card__summary" title={subtitle}>
           {subtitle}
         </p>
@@ -58,6 +60,7 @@ export const MediaCardScanPlaceholder = ({
   subtitle,
   title,
 }: MediaCardScanPlaceholderProps) => {
+  const { l } = useI18n()
   const clampedProgress = Math.max(0, Math.min(100, progressPercent))
 
   return (
@@ -70,7 +73,7 @@ export const MediaCardScanPlaceholder = ({
 
       <div className="media-card__body">
         <div className="media-card__meta media-card__meta--scan">
-          <span className="chip chip--scan">scanning</span>
+          <span className="chip chip--scan">{l('scanning')}</span>
           {subtitle ? (
             <span className="media-card__meta-note" title={subtitle}>
               {subtitle}
@@ -86,7 +89,7 @@ export const MediaCardScanPlaceholder = ({
 
         <div className="media-card__scan">
           <div className="media-card__scan-row">
-            <span className="media-card__scan-copy">syncing</span>
+            <span className="media-card__scan-copy">{l('syncing')}</span>
             <strong>{clampedProgress}%</strong>
           </div>
           <div aria-hidden="true" className="media-card__scan-track">

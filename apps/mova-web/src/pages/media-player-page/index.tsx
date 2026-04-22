@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, getMediaItemEpisodeOutline, getMediaItemPlaybackHeader } from '../../api/client'
 import { MediaPlayerPanel } from '../../components/media-player-panel'
+import { useI18n } from '../../i18n'
 import { mediaItemDetailPath, mediaItemPlayPath } from '../../lib/media-routes'
 import {
   MEDIA_DETAIL_QUERY_STALE_TIME_MS,
@@ -10,6 +11,7 @@ import {
 } from '../../lib/query-options'
 
 export const MediaPlayerPage = () => {
+  const { l } = useI18n()
   const navigate = useNavigate()
   const params = useParams()
   const [searchParams] = useSearchParams()
@@ -38,7 +40,7 @@ export const MediaPlayerPage = () => {
   if (!Number.isFinite(mediaItemId)) {
     return (
       <div className="player-screen player-screen--state">
-        <p className="callout callout--danger">Invalid media item id.</p>
+        <p className="callout callout--danger">{l('Invalid media item id.')}</p>
       </div>
     )
   }
@@ -46,7 +48,7 @@ export const MediaPlayerPage = () => {
   if (playbackHeaderQuery.isLoading) {
     return (
       <div className="player-screen player-screen--state">
-        <p className="muted">Loading player…</p>
+        <p className="muted">{l('Loading player…')}</p>
       </div>
     )
   }
@@ -61,7 +63,7 @@ export const MediaPlayerPage = () => {
         <p className="callout callout--danger">
           {playbackHeaderQuery.error instanceof Error
             ? playbackHeaderQuery.error.message
-            : 'Failed to load media item'}
+            : l('Failed to load media item')}
         </p>
       </div>
     )
@@ -79,10 +81,10 @@ export const MediaPlayerPage = () => {
     playbackHeaderQuery.data.media_type === 'episode'
       ? [
           playbackHeaderQuery.data.season_number
-            ? `Season ${playbackHeaderQuery.data.season_number}`
+            ? l('Season {{season}}', { season: playbackHeaderQuery.data.season_number })
             : null,
           playbackHeaderQuery.data.episode_number
-            ? `Episode ${playbackHeaderQuery.data.episode_number}`
+            ? l('Episode {{episode}}', { episode: playbackHeaderQuery.data.episode_number })
             : null,
           playbackHeaderQuery.data.episode_title,
         ]
@@ -157,7 +159,7 @@ export const MediaPlayerPage = () => {
 
       <header className="player-screen__chrome">
         <button
-          aria-label="Go back"
+          aria-label={l('Go back')}
           className="player-screen__back"
           onClick={() => {
             if (window.history.length > 1) {

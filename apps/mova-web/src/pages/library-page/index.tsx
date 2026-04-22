@@ -19,6 +19,7 @@ import {
   shouldShowScanPlaceholder,
 } from '../../components/app-shell/scan-runtime'
 import { MediaCard, MediaCardScanPlaceholder, MediaCardSkeleton } from '../../components/media-card'
+import { useI18n } from '../../i18n'
 
 const PAGE_SIZE = 500
 const MEDIA_SECTION_SKELETON_COUNT = 6
@@ -47,6 +48,7 @@ const MediaSection = ({
   scanItems: ScanRuntimeItem[]
   title: string
 }) => {
+  const { l } = useI18n()
   return (
     <section className="catalog-block">
       <div className="catalog-block__header">
@@ -55,7 +57,7 @@ const MediaSection = ({
 
       {items.length === 0 && scanItems.length === 0 ? (
         <div className="catalog-block__empty">
-          <p className="muted">No items in this section yet.</p>
+          <p className="muted">{l('No items in this section yet.')}</p>
         </div>
       ) : (
         <div className="media-grid">
@@ -64,7 +66,7 @@ const MediaSection = ({
               placeholderLabel={pendingScanPlaceholder.placeholderLabel}
               progressPercent={pendingScanPlaceholder.progressPercent}
               progressText={pendingScanPlaceholder.progressText}
-              subtitle="library"
+              subtitle={l('Library')}
               title={pendingScanPlaceholder.title}
             />
           ) : null}
@@ -110,6 +112,7 @@ const MediaSectionSkeleton = ({
 }
 
 export const LibraryPage = () => {
+  const { l } = useI18n()
   const params = useParams()
   const { scanRuntimeByLibrary } = useOutletContext<AppShellOutletContext>()
   const libraryId = Number(params.libraryId)
@@ -138,7 +141,7 @@ export const LibraryPage = () => {
   })
 
   if (!Number.isFinite(libraryId)) {
-    return <p className="callout callout--danger">Invalid library id.</p>
+    return <p className="callout callout--danger">{l('Invalid library id.')}</p>
   }
 
   const currentLibrary = libraryQuery.data
@@ -164,14 +167,14 @@ export const LibraryPage = () => {
   const pendingScanPlaceholder =
     isScanning && scanItems.length === 0
       ? {
-          placeholderLabel: 'MEDIA',
+          placeholderLabel: l('Media'),
           progressPercent: scanProgressPercent,
           progressText: formatPendingScanPlaceholderCopy(
             currentScan,
             currentScanRuntime,
-            currentLibrary?.name ?? 'Current library',
+            currentLibrary?.name ?? l('Current library'),
           ),
-          title: currentLibrary?.name ?? 'Scanning library',
+          title: currentLibrary?.name ?? l('Scanning library'),
         }
       : null
 
@@ -188,14 +191,14 @@ export const LibraryPage = () => {
               strokeWidth="1.8"
             />
           </svg>
-          <span>Back Home</span>
+          <span>{l('Back Home')}</span>
         </Link>
       </div>
 
       <section className="library-hero library-hero--compact">
         <div className="library-hero__content">
           <div className="library-hero__copy">
-            <h2>{currentLibrary?.name ?? 'Loading…'}</h2>
+            <h2>{currentLibrary?.name ?? l('Loading…')}</h2>
             {libraryDescription ? (
               <p className="library-hero__description">{libraryDescription}</p>
             ) : null}
@@ -203,15 +206,18 @@ export const LibraryPage = () => {
 
           <div className="library-hero__meta">
             <div className="hero-stat">
-              <span className="hero-stat__label">Detected</span>
+              <span className="hero-stat__label">{l('Detected')}</span>
               <strong>
                 {(currentLibrary?.movie_count ?? 0) + (currentLibrary?.series_count ?? 0) > 0
-                  ? `${currentLibrary?.movie_count ?? 0} movies / ${currentLibrary?.series_count ?? 0} series`
-                  : 'Auto'}
+                  ? l('{{movies}} movies / {{series}} series', {
+                      movies: currentLibrary?.movie_count ?? 0,
+                      series: currentLibrary?.series_count ?? 0,
+                    })
+                  : l('Automatic')}
               </strong>
             </div>
             <div className="hero-stat">
-              <span className="hero-stat__label">Items</span>
+              <span className="hero-stat__label">{l('Items')}</span>
               <strong>{currentLibrary?.media_count ?? mediaItemsQuery.data?.total ?? 0}</strong>
             </div>
           </div>
@@ -222,36 +228,44 @@ export const LibraryPage = () => {
         <p className="callout callout--danger">
           {libraryQuery.error instanceof Error
             ? libraryQuery.error.message
-            : 'Failed to load library'}
+            : l('Failed to load library')}
         </p>
       ) : null}
 
       {currentScan && (currentScan.status === 'pending' || currentScan.status === 'running') ? (
         <p className="callout">
-          This library is syncing.{scanCopy ? ` ${scanCopy}.` : null}
+          {l('This library is syncing.{{suffix}}', {
+            suffix: scanCopy ? ` ${scanCopy}.` : '',
+          })}
           {currentScan.total_files > 0
-            ? ` Current task progress is about ${scanProgressPercent}%.`
-            : ' The sync discovers files first, then enriches metadata and artwork item by item.'}{' '}
-          Browsing stays available while the sync is running.
+            ? ` ${l('Current task progress is about {{percent}}%.', {
+                percent: scanProgressPercent,
+              })}`
+            : ` ${l(
+                'The sync discovers files first, then enriches metadata and artwork item by item.',
+              )}`}{' '}
+          {l('Browsing stays available while the sync is running.')}
         </p>
       ) : null}
 
       {hasFailedScan ? (
         <p className="callout callout--danger">
-          The most recent scan failed.
+          {l('The most recent scan failed.')}
           {` ${formatFailedScanCopy(currentLibrary?.last_scan, currentScanRuntime)}`}. Existing
-          items are still available, and an admin can trigger another scan later.
+          {` ${l(
+            'Existing items are still available, and an admin can trigger another scan later.',
+          )}`}
         </p>
       ) : null}
 
       <section className="catalog-shell">
-        {shouldShowMediaSkeleton ? <p className="muted">Loading media items…</p> : null}
+        {shouldShowMediaSkeleton ? <p className="muted">{l('Loading media items…')}</p> : null}
 
         {mediaItemsQuery.isError ? (
           <p className="callout callout--danger">
             {mediaItemsQuery.error instanceof Error
               ? mediaItemsQuery.error.message
-              : 'Failed to load media items'}
+              : l('Failed to load media items')}
           </p>
         ) : null}
 
@@ -260,15 +274,15 @@ export const LibraryPage = () => {
         mediaItems.length === 0 &&
         scanItems.length === 0 ? (
           <section className="empty-panel">
-            <h3>No items available yet</h3>
-            <p className="muted">This library does not have any visible items yet.</p>
+            <h3>{l('No items available yet')}</h3>
+            <p className="muted">{l('This library does not have any visible items yet.')}</p>
           </section>
         ) : null}
 
         {shouldShowMediaSkeleton ? (
           <div className="catalog-stack">
-            <MediaSectionSkeleton placeholderLabel="MOVIE" title="Movies" />
-            <MediaSectionSkeleton placeholderLabel="SERIES" title="Series" />
+            <MediaSectionSkeleton placeholderLabel={l('Movies')} title={l('Movies')} />
+            <MediaSectionSkeleton placeholderLabel={l('Series')} title={l('Series')} />
           </div>
         ) : null}
 
@@ -278,13 +292,13 @@ export const LibraryPage = () => {
               items={movieItems}
               pendingScanPlaceholder={movieScanItems.length === 0 ? pendingScanPlaceholder : null}
               scanItems={movieScanItems}
-              title="Movies"
+              title={l('Movies')}
             />
             <MediaSection
               items={seriesItems}
               pendingScanPlaceholder={null}
               scanItems={seriesScanItems}
-              title="Series"
+              title={l('Series')}
             />
           </div>
         ) : null}

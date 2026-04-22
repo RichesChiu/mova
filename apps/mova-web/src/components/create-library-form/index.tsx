@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useState } from 'react'
 import { getServerMediaTree } from '../../api/client'
 import type { CreateLibraryInput, ServerMediaDirectoryNode } from '../../api/types'
+import { useI18n } from '../../i18n'
 import { GlassSelect, type GlassSelectOption } from '../glass-select'
 import { MediaDirectoryTree } from '../media-directory-tree'
 import { SectionHelp } from '../section-help'
@@ -12,14 +13,6 @@ interface CreateLibraryFormProps {
   onSubmit: (input: CreateLibraryInput) => Promise<unknown>
 }
 
-const metadataLanguageOptions: GlassSelectOption[] = [
-  { value: 'zh-CN', label: 'Chinese (zh-CN)' },
-  { value: 'en-US', label: 'English (en-US)' },
-]
-
-const ROOT_PATH_HELP =
-  'This picker shows in-container paths. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so every /media/... path here maps to the actual library root available to the app.'
-
 const treeContainsPath = (node: ServerMediaDirectoryNode, path: string): boolean => {
   if (node.path === path) {
     return true
@@ -29,6 +22,7 @@ const treeContainsPath = (node: ServerMediaDirectoryNode, path: string): boolean
 }
 
 export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibraryFormProps) => {
+  const { l } = useI18n()
   const [name, setName] = useState('Media')
   const [description, setDescription] = useState('')
   const [metadataLanguage, setMetadataLanguage] = useState('zh-CN')
@@ -74,32 +68,36 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
   }
 
   const mediaTree = mediaTreeQuery.data ?? null
+  const metadataLanguageOptions: GlassSelectOption[] = [
+    { value: 'zh-CN', label: `${l('Chinese')} (zh-CN)` },
+    { value: 'en-US', label: `${l('English')} (en-US)` },
+  ]
   return (
     <form className="stack" onSubmit={handleSubmit}>
       <label className="field">
-        <span>Name</span>
+        <span>{l('Name')}</span>
         <input
           onChange={(event) => setName(event.target.value)}
-          placeholder="Media"
+          placeholder={l('Library Name')}
           type="text"
           value={name}
         />
       </label>
 
       <label className="field">
-        <span>Description</span>
+        <span>{l('Description')}</span>
         <textarea
           onChange={(event) => setDescription(event.target.value)}
-          placeholder="What is this library for?"
+          placeholder={l('What is this library for?')}
           rows={3}
           value={description}
         />
       </label>
 
       <div className="field">
-        <span>Metadata Language</span>
+        <span>{l('Metadata Language')}</span>
         <GlassSelect
-          ariaLabel="Metadata language"
+          ariaLabel={l('Metadata Language')}
           onChange={setMetadataLanguage}
           options={metadataLanguageOptions}
           value={metadataLanguage}
@@ -108,15 +106,20 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
 
       <div className="field">
         <div className="field__label">
-          <span className="field__label-copy">Root Path</span>
-          <SectionHelp detail={ROOT_PATH_HELP} title="Root path help" />
+          <span className="field__label-copy">{l('Root Path')}</span>
+          <SectionHelp
+            detail={l(
+              'This picker shows in-container paths. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so every /media/... path here maps to the actual library root available to the app.',
+            )}
+            title={l('Root path help')}
+          />
         </div>
 
         {mediaTree ? (
           <div className="root-path-picker">
             <div className="media-tree">
               <div className="media-tree__selected">
-                <span className="media-tree__selected-label">Selected</span>
+                <span className="media-tree__selected-label">{l('Selected')}</span>
                 <code>{rootPath}</code>
               </div>
 
@@ -126,19 +129,20 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
         ) : null}
 
         {mediaTreeQuery.isLoading ? (
-          <p className="root-path-picker__hint">Reading the in-container `/media` tree…</p>
+          <p className="root-path-picker__hint">{l('Reading the in-container `/media` tree…')}</p>
         ) : null}
         {mediaTreeQuery.isError ? (
           <p className="root-path-picker__hint">
             {mediaTreeQuery.error instanceof Error
               ? `Failed to read directories: ${mediaTreeQuery.error.message}`
-              : 'Failed to read directories. Check the Docker volume mapping.'}
+              : l('Failed to read directories. Check the Docker volume mapping.')}
           </p>
         ) : null}
         {!mediaTreeQuery.isLoading && !mediaTreeQuery.isError && !mediaTree ? (
           <p className="root-path-picker__hint">
-            No in-container `/media` directory was detected yet. Make sure `.env` sets
-            `MOVA_MEDIA_ROOT`, then restart Docker Compose.
+            {l(
+              'No in-container `/media` directory was detected yet. Make sure `.env` sets `MOVA_MEDIA_ROOT`, then restart Docker Compose.',
+            )}
           </p>
         ) : null}
       </div>
@@ -150,7 +154,7 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
         disabled={isSubmitting || !mediaTree || rootPath.trim().length === 0}
         type="submit"
       >
-        {isSubmitting ? 'Creating…' : 'Create Library'}
+        {isSubmitting ? l('Creating…') : l('Create Library')}
       </button>
     </form>
   )

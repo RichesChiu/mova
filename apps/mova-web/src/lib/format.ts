@@ -1,15 +1,19 @@
-export const formatDateTime = (value: string | null | undefined) => {
+import { readStoredInterfaceLanguagePreference } from './preferences'
+
+const resolveLocale = (locale?: string) => locale ?? readStoredInterfaceLanguagePreference()
+
+export const formatDateTime = (value: string | null | undefined, locale?: string) => {
   if (!value) {
     return '—'
   }
 
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(resolveLocale(locale), {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value))
 }
 
-export const formatBytes = (value: number | null | undefined) => {
+export const formatBytes = (value: number | null | undefined, locale?: string) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return '—'
   }
@@ -23,17 +27,32 @@ export const formatBytes = (value: number | null | undefined) => {
     unitIndex += 1
   }
 
-  return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
+  const formatted = new Intl.NumberFormat(resolveLocale(locale), {
+    maximumFractionDigits: size >= 10 || unitIndex === 0 ? 0 : 1,
+    minimumFractionDigits: size >= 10 || unitIndex === 0 ? 0 : 1,
+  }).format(size)
+
+  return `${formatted} ${units[unitIndex]}`
 }
 
-export const formatDuration = (seconds: number | null | undefined) => {
+export const formatDuration = (seconds: number | null | undefined, locale?: string) => {
   if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) {
     return '—'
   }
 
+  const resolvedLocale = resolveLocale(locale)
+
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
   const remainingSeconds = seconds % 60
+
+  if (resolvedLocale === 'zh-CN') {
+    if (hours > 0) {
+      return `${hours}小时 ${minutes}分钟 ${remainingSeconds}秒`
+    }
+
+    return `${minutes}分钟 ${remainingSeconds}秒`
+  }
 
   if (hours > 0) {
     return `${hours}h ${minutes}m ${remainingSeconds}s`

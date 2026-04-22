@@ -27,6 +27,7 @@ import { EpisodeCard, EpisodeCardSkeleton } from '../../components/episode-card'
 import { GlassSelect } from '../../components/glass-select'
 import { MetadataMatchPanel } from '../../components/metadata-match-panel'
 import { ScrollableRail } from '../../components/scrollable-rail'
+import { translateCurrent, useI18n } from '../../i18n'
 import { formatMediaCountry } from '../../lib/media-country'
 import {
   buildAudioTrackFacts,
@@ -77,6 +78,7 @@ const SeasonBlock = ({
   scanItems: ScanRuntimeItem[]
   season: EpisodeOutlineSeason
 }) => {
+  const { l } = useI18n()
   const entries = [
     ...scanItems.map((item) => ({
       key: `scan-${item.item_key}`,
@@ -104,7 +106,8 @@ const SeasonBlock = ({
       render: () => {
         const index = `S${String(season.season_number).padStart(2, '0')} · E${String(episode.episode_number).padStart(2, '0')}`
         const artwork = episode.poster_path ?? episode.backdrop_path
-        const title = episode.title.trim() || `Episode ${episode.episode_number}`
+        const title =
+          episode.title.trim() || l('Episode {{episode}}', { episode: episode.episode_number })
         const progress = playbackPercent(episode.playback_progress)
         const status = playbackStatus(episode.playback_progress)
 
@@ -145,7 +148,7 @@ const SeasonBlock = ({
   return (
     <article className="season-card">
       <ScrollableRail
-        hint="Scroll, drag, or click arrows to move through episodes."
+        hint={l('Scroll, drag, or click arrows to move through episodes.')}
         resetKey={season.season_number}
       >
         {entries.map((entry) => entry.render())}
@@ -156,7 +159,10 @@ const SeasonBlock = ({
 
 const SeasonBlockSkeleton = () => (
   <article aria-hidden="true" className="season-card">
-    <ScrollableRail hint="Scroll, drag, or click arrows to move through episodes." resetKey="loading">
+    <ScrollableRail
+      hint={translateCurrent('Scroll, drag, or click arrows to move through episodes.')}
+      resetKey="loading"
+    >
       {EPISODE_SKELETONS.map((episode) => (
         <EpisodeCardSkeleton
           key={episode.metaLabel}
@@ -184,6 +190,7 @@ type HeroFact = {
 const isHeroFact = (item: HeroFact | null): item is HeroFact => item !== null
 
 export const MediaItemPage = () => {
+  const { l } = useI18n()
   const { currentUser, scanRuntimeByLibrary } = useOutletContext<AppShellOutletContext>()
   const params = useParams()
   const [searchParams] = useSearchParams()
@@ -246,7 +253,7 @@ export const MediaItemPage = () => {
   const shouldShowEpisodeSkeleton =
     episodeOutlineQuery.isLoading && !episodeOutlineQuery.isError && availableSeasons.length === 0
   const selectedSeasonLabel = selectedSeason
-    ? (selectedSeason.title ?? `Season ${selectedSeason.season_number}`)
+    ? (selectedSeason.title ?? l('Season {{season}}', { season: selectedSeason.season_number }))
     : null
   const selectedSeasonYear = selectedSeason?.year ?? null
   const selectedSeasonEpisodeCount =
@@ -382,7 +389,7 @@ export const MediaItemPage = () => {
       ]
         .filter(Boolean)
         .join(' · ')
-    : 'Details and artwork may continue updating until the sync finishes.'
+    : l('Details and artwork may continue updating until the sync finishes.')
   const selectedSeasonScanItems = selectedSeason
     ? detailScanItems.filter(
         (item) =>
@@ -469,52 +476,56 @@ export const MediaItemPage = () => {
   const heroOverview =
     isSeriesView && selectedSeason
       ? (selectedSeason.overview ??
-        `Currently showing ${selectedSeasonLabel ?? `Season ${selectedSeason.season_number}`}.`)
-      : (mediaItemQuery.data?.overview ?? 'No overview available yet.')
+        l('Currently showing {{season}}.', {
+          season:
+            selectedSeasonLabel ??
+            l('Season {{season}}', { season: selectedSeason.season_number }),
+        }))
+      : (mediaItemQuery.data?.overview ?? l('No overview available yet.'))
   const heroFacts = isSeriesView
     ? [
         mediaItemQuery.data?.original_title &&
         mediaItemQuery.data.original_title !== mediaItemQuery.data.title
           ? {
-              label: 'Original title',
+              label: l('Original title'),
               value: mediaItemQuery.data.original_title,
             }
           : null,
         selectedSeasonYear
           ? {
-              label: 'Season air year',
+              label: l('Season air year'),
               value: String(selectedSeasonYear),
             }
           : mediaItemQuery.data?.year
             ? {
-                label: 'Series first air year',
+                label: l('Series first air year'),
                 value: String(mediaItemQuery.data.year),
               }
             : null,
         heroGenres
           ? {
-              label: 'Genres',
+              label: l('Genres'),
               value: heroGenres,
             }
           : null,
         heroStudio
           ? {
-              label: 'Studio',
+              label: l('Studio'),
               value: heroStudio,
             }
           : null,
         selectedSeason
           ? {
-              label: 'Available episodes',
+              label: l('Available episodes'),
               value: String(selectedSeasonEpisodeCount),
             }
           : {
-              label: 'Available seasons',
+              label: l('Available seasons'),
               value: String(availableSeasons.length),
             },
         heroCountry
           ? {
-              label: 'Country',
+              label: l('Country'),
               value: heroCountry,
             }
           : null,
@@ -523,55 +534,55 @@ export const MediaItemPage = () => {
         mediaItemQuery.data?.original_title &&
         mediaItemQuery.data.original_title !== mediaItemQuery.data.title
           ? {
-              label: 'Original title',
+              label: l('Original title'),
               value: mediaItemQuery.data.original_title,
             }
           : null,
         {
-          label: 'Release year',
-          value: mediaItemQuery.data?.year ? String(mediaItemQuery.data.year) : 'Unknown',
+          label: l('Release year'),
+          value: mediaItemQuery.data?.year ? String(mediaItemQuery.data.year) : l('Unknown'),
         },
         heroGenres
           ? {
-              label: 'Genres',
+              label: l('Genres'),
               value: heroGenres,
             }
           : null,
         heroStudio
           ? {
-              label: 'Studio',
+              label: l('Studio'),
               value: heroStudio,
             }
           : null,
         heroCountry
           ? {
-              label: 'Country',
+              label: l('Country'),
               value: heroCountry,
             }
           : null,
       ].filter(isHeroFact)
-  const sourceContextEyebrow = isSeriesView ? 'Episode Source' : 'Source Details'
+  const sourceContextEyebrow = isSeriesView ? l('Episode Source') : l('Source Details')
   const sourceContextTitle =
     isSeriesView && selectedSeasonResourceEpisode
-      ? `S${String(selectedSeason?.season_number ?? 0).padStart(2, '0')} · E${String(selectedSeasonResourceEpisode.episode_number).padStart(2, '0')} · ${selectedSeasonResourceEpisode.title.trim() || `Episode ${selectedSeasonResourceEpisode.episode_number}`}`
+      ? `S${String(selectedSeason?.season_number ?? 0).padStart(2, '0')} · E${String(selectedSeasonResourceEpisode.episode_number).padStart(2, '0')} · ${selectedSeasonResourceEpisode.title.trim() || l('Episode {{episode}}', { episode: selectedSeasonResourceEpisode.episode_number })}`
       : null
   const sourceContextDescription =
     isSeriesView && selectedSeasonResourceEpisode
       ? selectedSeasonResourceEpisode.playback_progress?.is_finished
-        ? 'Showing the next playable episode after your latest completed watch in this season.'
+        ? l('Showing the next playable episode after your latest completed watch in this season.')
         : selectedSeasonResourceEpisode.playback_progress
-          ? 'Showing the episode that best matches your current playback progress in this season.'
-          : 'No playback history for this season yet, so this defaults to the first available episode.'
+          ? l('Showing the episode that best matches your current playback progress in this season.')
+          : l('No playback history for this season yet, so this defaults to the first available episode.')
       : null
 
   if (!Number.isFinite(mediaItemId)) {
-    return <p className="callout callout--danger">Invalid media item id.</p>
+    return <p className="callout callout--danger">{l('Invalid media item id.')}</p>
   }
 
   if (mediaItemQuery.isLoading) {
     return (
       <div className="page-stack">
-        <p className="muted">Loading media item…</p>
+        <p className="muted">{l('Loading media item…')}</p>
       </div>
     )
   }
@@ -582,7 +593,7 @@ export const MediaItemPage = () => {
         <p className="callout callout--danger">
           {mediaItemQuery.error instanceof Error
             ? mediaItemQuery.error.message
-            : 'Failed to load media item'}
+            : l('Failed to load media item')}
         </p>
       </div>
     )
@@ -596,7 +607,7 @@ export const MediaItemPage = () => {
     if (playbackHeaderQuery.isLoading) {
       return (
         <div className="page-stack">
-          <p className="muted">Loading media item…</p>
+          <p className="muted">{l('Loading media item…')}</p>
         </div>
       )
     }
@@ -626,7 +637,7 @@ export const MediaItemPage = () => {
               strokeWidth="1.8"
             />
           </svg>
-          <span>Back to Library</span>
+          <span>{l('Back to Library')}</span>
         </Link>
       </div>
 
@@ -636,7 +647,7 @@ export const MediaItemPage = () => {
             <img alt={`${heroTitle} poster`} src={heroPosterPath} />
           ) : (
             <div className="media-card__placeholder">
-              <span>{mediaItemQuery.data.media_type}</span>
+              <span>{l(mediaItemQuery.data.media_type === 'series' ? 'Series' : 'Movie')}</span>
             </div>
           )}
         </div>
@@ -654,9 +665,9 @@ export const MediaItemPage = () => {
           {isSeriesView && availableSeasons.length > 0 ? (
             <div className="detail-hero__season-picker">
               <div className="detail-hero__season-heading">
-                <p className="detail-hero__season-label">Season</p>
+                <p className="detail-hero__season-label">{l('Season')}</p>
                 <span className="muted">
-                  {selectedSeasonLabel ?? `Season ${selectedSeasonNumber ?? 1}`}
+                  {selectedSeasonLabel ?? l('Season {{season}}', { season: selectedSeasonNumber ?? 1 })}
                 </span>
               </div>
               <div className="season-picker" role="tablist">
@@ -699,7 +710,7 @@ export const MediaItemPage = () => {
             <div className="detail-hero__sync-note" role="status">
               <div className="detail-hero__sync-copy">
                 <p className="detail-hero__sync-label">
-                  {primaryDetailScanItem ? 'This item is syncing' : 'This library is syncing'}
+                  {primaryDetailScanItem ? l('This item is syncing') : l('This library is syncing')}
                 </p>
                 <strong>{detailScanCopy}</strong>
                 <span className="muted">{detailScanSubtitle}</span>
@@ -712,9 +723,9 @@ export const MediaItemPage = () => {
           ) : null}
           {!isSeriesView && mediaVersionOptions.length > 1 ? (
             <div className="detail-hero__version-picker">
-              <p className="detail-hero__version-label">Version</p>
+              <p className="detail-hero__version-label">{l('Version')}</p>
               <GlassSelect
-                ariaLabel={`Select playback version for ${heroTitle}`}
+                ariaLabel={l('Select playback version for {{title}}', { title: heroTitle })}
                 onChange={(value) => setSelectedMediaVersionId(Number(value))}
                 options={mediaVersionOptions}
                 value={selectedMediaVersionValue}
@@ -732,7 +743,7 @@ export const MediaItemPage = () => {
                     mediaItemPlayPath(playbackTargetMediaItemId)
                   }
                 >
-                  <span>{playbackActionLinks?.primaryLabel ?? 'Play'}</span>
+                  <span>{playbackActionLinks?.primaryLabel ?? l('Play')}</span>
                 </Link>
               ) : null}
               {canMatchMetadata ? (
@@ -752,20 +763,26 @@ export const MediaItemPage = () => {
       {isSeriesView ? (
         <section className="page-stack">
           <div className="section-heading">
-            <h3>Episodes</h3>
+            <h3>{l('Episodes')}</h3>
           </div>
 
           {selectedSeasonScanItems.length > 0 ? (
             <p className="muted">
-              {selectedSeasonScanItems.length}{' '}
-              {selectedSeasonScanItems.length === 1 ? 'episode is' : 'episodes are'} still syncing
-              in this season. Placeholder cards stay visible until the library write completes.
+              {selectedSeasonScanItems.length === 1
+                ? l(
+                    '{{count}} episode is still syncing in this season. Placeholder cards stay visible until the library write completes.',
+                    { count: selectedSeasonScanItems.length },
+                  )
+                : l(
+                    '{{count}} episodes are still syncing in this season. Placeholder cards stay visible until the library write completes.',
+                    { count: selectedSeasonScanItems.length },
+                  )}
             </p>
           ) : null}
 
           {shouldShowEpisodeSkeleton ? (
             <>
-              <p className="muted">Loading episodes…</p>
+              <p className="muted">{l('Loading episodes…')}</p>
               <SeasonBlockSkeleton />
             </>
           ) : null}
@@ -774,7 +791,7 @@ export const MediaItemPage = () => {
             <p className="callout callout--danger">
               {episodeOutlineQuery.error instanceof Error
                 ? episodeOutlineQuery.error.message
-                : 'Failed to load episodes'}
+                : l('Failed to load episodes')}
             </p>
           ) : null}
 
@@ -787,7 +804,7 @@ export const MediaItemPage = () => {
               />
             ) : null
           ) : !shouldShowEpisodeSkeleton ? (
-            <p className="muted">No local episodes available in this series yet.</p>
+            <p className="muted">{l('No local episodes available in this series yet.')}</p>
           ) : null}
         </section>
       ) : null}
@@ -799,8 +816,8 @@ export const MediaItemPage = () => {
         <section className="season-card cast-panel">
           <div className="cast-panel__header">
             <div>
-              <p className="eyebrow">Cast</p>
-              <h3>Main Cast</h3>
+              <p className="eyebrow">{l('Cast')}</p>
+              <h3>{l('Main Cast')}</h3>
             </div>
             {!castQuery.isLoading ? (
               <span className="counter-badge">{castMembers.length}</span>
@@ -808,12 +825,12 @@ export const MediaItemPage = () => {
           </div>
 
           {castQuery.isLoading || castQuery.isFetching ? (
-            <p className="muted">Loading cast…</p>
+            <p className="muted">{l('Loading cast…')}</p>
           ) : castQuery.isError ? (
-            <p className="muted">Cast details are unavailable right now.</p>
+            <p className="muted">{l('Cast details are unavailable right now.')}</p>
           ) : castMembers.length > 0 ? (
             <ScrollableRail
-              hint="Scroll, drag, or click arrows to move through the cast list."
+              hint={l('Scroll, drag, or click arrows to move through the cast list.')}
               viewportClassName="cast-panel__viewport"
             >
               {castMembers.map((member) => (
@@ -834,7 +851,9 @@ export const MediaItemPage = () => {
                   <div className="cast-card__body">
                     <p className="cast-card__name">{member.name}</p>
                     <p className="cast-card__role">
-                      {member.character_name ? `as ${member.character_name}` : 'Actor'}
+                      {member.character_name
+                        ? l('as {{character}}', { character: member.character_name })
+                        : l('Actor')}
                     </p>
                   </div>
                 </article>
@@ -848,8 +867,8 @@ export const MediaItemPage = () => {
         <section className="season-card media-file-panel">
           <div className="media-file-panel__header">
             <div>
-              <p className="eyebrow">Source Files</p>
-              <h3>Technical Details</h3>
+              <p className="eyebrow">{l('Source Files')}</p>
+              <h3>{l('Technical Details')}</h3>
               {isSeriesView && sourceContextDescription ? (
                 <p className="media-file-panel__description">{sourceContextDescription}</p>
               ) : null}
@@ -859,13 +878,13 @@ export const MediaItemPage = () => {
             ) : null}
           </div>
 
-          {mediaFilesQuery.isLoading ? <p className="muted">Loading source details…</p> : null}
+          {mediaFilesQuery.isLoading ? <p className="muted">{l('Loading source details…')}</p> : null}
 
           {mediaFilesQuery.isError ? (
             <p className="callout callout--danger">
               {mediaFilesQuery.error instanceof Error
                 ? mediaFilesQuery.error.message
-                : 'Failed to load source details'}
+                : l('Failed to load source details')}
             </p>
           ) : null}
 
@@ -906,7 +925,7 @@ export const MediaItemPage = () => {
 
                   <div className="media-file-card__details">
                     <div className="media-file-card__path-block">
-                      <p className="media-file-card__label">Path</p>
+                      <p className="media-file-card__label">{l('Path')}</p>
                       <p className="media-file-card__path">{selectedMediaFile.file_path}</p>
                     </div>
 
@@ -927,8 +946,8 @@ export const MediaItemPage = () => {
                     <article className="media-tech-card media-tech-card--video">
                       <div className="media-tech-card__header">
                         <div className="media-tech-card__title-block">
-                          <p className="media-tech-card__eyebrow">Video</p>
-                          <h5>Video Details</h5>
+                          <p className="media-tech-card__eyebrow">{l('Video')}</p>
+                          <h5>{l('Video Details')}</h5>
                         </div>
                       </div>
 
@@ -948,13 +967,15 @@ export const MediaItemPage = () => {
                     <article className="media-tech-card">
                       <div className="media-tech-card__header media-tech-card__header--with-select">
                         <div className="media-tech-card__title-block">
-                          <p className="media-tech-card__eyebrow">Audio</p>
-                          <h5>Audio Details</h5>
+                          <p className="media-tech-card__eyebrow">{l('Audio')}</p>
+                          <h5>{l('Audio Details')}</h5>
                         </div>
 
                         <div className="media-tech-card__selector">
                           <GlassSelect
-                            ariaLabel={`Select audio track for ${getMediaFileDisplayName(selectedMediaFile.file_path)}`}
+                            ariaLabel={l('Select audio track for {{name}}', {
+                              name: getMediaFileDisplayName(selectedMediaFile.file_path),
+                            })}
                             compact
                             disabled={audioTrackOptions.length === 0}
                             onChange={(value) => setSelectedAudioTrackId(value)}
@@ -963,7 +984,7 @@ export const MediaItemPage = () => {
                                 ? audioTrackOptions
                                 : [
                                     {
-                                      label: 'No audio tracks detected',
+                                      label: l('No audio tracks detected'),
                                       value: `empty-audio-${selectedMediaFile.id}`,
                                     },
                                   ]
@@ -978,13 +999,13 @@ export const MediaItemPage = () => {
                       </div>
 
                       {audioTracksQuery.isLoading ? (
-                        <p className="muted">Loading audio tracks…</p>
+                        <p className="muted">{l('Loading audio tracks…')}</p>
                       ) : null}
                       {audioTracksQuery.isError ? (
                         <p className="callout callout--danger">
                           {audioTracksQuery.error instanceof Error
                             ? audioTracksQuery.error.message
-                            : 'Failed to load audio tracks'}
+                            : l('Failed to load audio tracks')}
                         </p>
                       ) : null}
                       {!audioTracksQuery.isLoading &&
@@ -1005,20 +1026,22 @@ export const MediaItemPage = () => {
                       {!audioTracksQuery.isLoading &&
                       !audioTracksQuery.isError &&
                       !selectedAudioTrack ? (
-                        <p className="muted">No embedded audio tracks were detected.</p>
+                        <p className="muted">{l('No embedded audio tracks were detected.')}</p>
                       ) : null}
                     </article>
 
                     <article className="media-tech-card">
                       <div className="media-tech-card__header media-tech-card__header--with-select">
                         <div className="media-tech-card__title-block">
-                          <p className="media-tech-card__eyebrow">Subtitle</p>
-                          <h5>Subtitle Details</h5>
+                          <p className="media-tech-card__eyebrow">{l('Subtitle')}</p>
+                          <h5>{l('Subtitle Details')}</h5>
                         </div>
 
                         <div className="media-tech-card__selector">
                           <GlassSelect
-                            ariaLabel={`Select subtitle track for ${getMediaFileDisplayName(selectedMediaFile.file_path)}`}
+                            ariaLabel={l('Select subtitle track for {{name}}', {
+                              name: getMediaFileDisplayName(selectedMediaFile.file_path),
+                            })}
                             compact
                             disabled={subtitleTrackOptions.length === 0}
                             onChange={(value) => setSelectedSubtitleTrackId(value)}
@@ -1027,7 +1050,7 @@ export const MediaItemPage = () => {
                                 ? subtitleTrackOptions
                                 : [
                                     {
-                                      label: 'No subtitles detected',
+                                      label: l('No subtitles detected'),
                                       value: `empty-subtitle-${selectedMediaFile.id}`,
                                     },
                                   ]
@@ -1042,13 +1065,13 @@ export const MediaItemPage = () => {
                       </div>
 
                       {subtitleTracksQuery.isLoading ? (
-                        <p className="muted">Loading subtitles…</p>
+                        <p className="muted">{l('Loading subtitles…')}</p>
                       ) : null}
                       {subtitleTracksQuery.isError ? (
                         <p className="callout callout--danger">
                           {subtitleTracksQuery.error instanceof Error
                             ? subtitleTracksQuery.error.message
-                            : 'Failed to load subtitles'}
+                            : l('Failed to load subtitles')}
                         </p>
                       ) : null}
                       {!subtitleTracksQuery.isLoading &&
@@ -1072,7 +1095,7 @@ export const MediaItemPage = () => {
                       {!subtitleTracksQuery.isLoading &&
                       !subtitleTracksQuery.isError &&
                       !selectedSubtitleTrack ? (
-                        <p className="muted">No subtitle tracks were detected.</p>
+                        <p className="muted">{l('No subtitle tracks were detected.')}</p>
                       ) : null}
                     </article>
                   </div>
@@ -1084,8 +1107,8 @@ export const MediaItemPage = () => {
           {!mediaFilesQuery.isLoading && !mediaFilesQuery.isError && mediaFiles.length === 0 ? (
             <p className="muted">
               {isSeriesView
-                ? 'No source files are linked to the selected season episode yet.'
-                : 'No source files are linked to this title yet.'}
+                ? l('No source files are linked to the selected season episode yet.')
+                : l('No source files are linked to this title yet.')}
             </p>
           ) : null}
         </section>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import type { UserAccount } from '../../api/types'
+import { useI18n } from '../../i18n'
 import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
 import { SettingsGearIcon } from '../settings-gear-icon'
 
@@ -17,6 +18,7 @@ export const ContentHeader = ({
   isSigningOut,
   onSignOut,
 }: ContentHeaderProps) => {
+  const { l } = useI18n()
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const userMenuRef = useRef<HTMLFieldSetElement | null>(null)
   const displayName = getUserDisplayName(currentUser)
@@ -57,9 +59,9 @@ export const ContentHeader = ({
   return (
     <header className="content-header">
       <Link
-        aria-label="Go to home"
+        aria-label={l('Go to home')}
         className="brand-lockup content-header__brand"
-        title="Mova home"
+        title={l('Mova home')}
         to="/"
       >
         <img alt="Mova logo" className="brand-mark" src="/mova-logo.png" />
@@ -119,7 +121,7 @@ export const ContentHeader = ({
                 to="/settings"
               >
                 <SettingsGearIcon className="toolbar-user__menu-icon" />
-                <span>Server Settings</span>
+                <span>{l('Server Settings')}</span>
               </NavLink>
             ) : null}
 
@@ -130,7 +132,7 @@ export const ContentHeader = ({
               to="/profile"
             >
               <span className="toolbar-user__menu-icon toolbar-user__menu-icon--text">P</span>
-              <span>Personal Settings</span>
+              <span>{l('Personal Settings')}</span>
             </Link>
 
             <button
@@ -144,7 +146,7 @@ export const ContentHeader = ({
               type="button"
             >
               <span className="toolbar-user__menu-icon toolbar-user__menu-icon--text">⏻</span>
-              <span>{isSigningOut ? 'Signing out…' : 'Sign Out'}</span>
+              <span>{isSigningOut ? l('Signing out…') : l('Sign Out')}</span>
             </button>
           </div>
         </fieldset>

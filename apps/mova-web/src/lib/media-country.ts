@@ -1,11 +1,6 @@
 const COUNTRY_CODE_PATTERN = /^[A-Z]{2}$/
 const COUNTRY_SEPARATOR_PATTERN = /\s*[·,]\s*/
 
-const regionDisplayNames =
-  typeof Intl !== 'undefined' && typeof Intl.DisplayNames === 'function'
-    ? new Intl.DisplayNames(['en'], { type: 'region' })
-    : null
-
 const normalizeCountryPart = (value: string) => value.trim().toUpperCase()
 
 const formatCountryPart = (value: string) => {
@@ -14,6 +9,11 @@ const formatCountryPart = (value: string) => {
   if (!COUNTRY_CODE_PATTERN.test(trimmedValue)) {
     return trimmedValue
   }
+
+  const regionDisplayNames =
+    typeof Intl !== 'undefined' && typeof Intl.DisplayNames === 'function'
+      ? new Intl.DisplayNames([getCurrentInterfaceLanguage()], { type: 'region' })
+      : null
 
   return regionDisplayNames?.of(normalizeCountryPart(trimmedValue)) ?? trimmedValue
 }
@@ -36,3 +36,4 @@ export const formatMediaCountry = (value: string | null | undefined) => {
 
   return parts.map(formatCountryPart).join(' · ')
 }
+import { getCurrentInterfaceLanguage } from '../i18n'

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { CreateLibraryInput } from '../../api/types'
+import { useI18n } from '../../i18n'
 import { CreateLibraryForm } from '../create-library-form'
 
 interface CreateLibraryModalProps {
@@ -18,6 +19,7 @@ export const CreateLibraryModal = ({
   onClose,
   onSubmit,
 }: CreateLibraryModalProps) => {
+  const { l } = useI18n()
   useEffect(() => {
     if (!isOpen) {
       return
@@ -46,7 +48,7 @@ export const CreateLibraryModal = ({
   return createPortal(
     <div className="create-library-modal">
       <button
-        aria-label="Close create library dialog"
+        aria-label={l('Close create library dialog')}
         className="create-library-modal__backdrop glass-overlay-backdrop"
         disabled={isSubmitting}
         onClick={onClose}
@@ -60,12 +62,12 @@ export const CreateLibraryModal = ({
       >
         <div className="create-library-modal__header">
           <div>
-            <p className="eyebrow">Library Management</p>
-            <h3>Create Library</h3>
+            <p className="eyebrow">{l('Library Management')}</p>
+            <h3>{l('Create Library')}</h3>
           </div>
 
           <button
-            aria-label="Close create library dialog"
+            aria-label={l('Close create library dialog')}
             className="create-library-modal__close"
             disabled={isSubmitting}
             onClick={onClose}

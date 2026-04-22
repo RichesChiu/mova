@@ -1,3 +1,5 @@
+import { translateCurrent } from '../i18n'
+
 const asNamedError = (error: unknown) =>
   error && typeof error === 'object'
     ? {
@@ -20,30 +22,34 @@ export const buildPlaybackInteractionWarningMessage = (error: unknown) => {
 
   switch (namedError.name) {
     case 'AbortError':
-      return 'Playback was interrupted before it could start. Click play again to continue.'
+      return translateCurrent('Playback was interrupted before it could start. Click play again to continue.')
     case 'NotAllowedError':
-      return 'Autoplay was blocked by the browser. Click play again to continue.'
+      return translateCurrent('Autoplay was blocked by the browser. Click play again to continue.')
     case 'NotSupportedError':
-      return 'This browser could not start playback for the selected file.'
+      return translateCurrent('This browser could not start playback for the selected file.')
     default:
-      return 'Playback could not start automatically. Click play again to continue.'
+      return translateCurrent('Playback could not start automatically. Click play again to continue.')
   }
 }
 
 export const buildFullscreenWarningMessage = (error?: unknown) => {
   if (!error) {
-    return 'Fullscreen is not available in this browser or app environment.'
+    return translateCurrent('Fullscreen is not available in this browser or app environment.')
   }
 
   const namedError = asNamedError(error)
 
   switch (namedError.name) {
     case 'NotAllowedError':
-      return 'Fullscreen was blocked by the browser or app window. Try the browser fullscreen control.'
+      return translateCurrent(
+        'Fullscreen was blocked by the browser or app window. Try the browser fullscreen control.',
+      )
     case 'NotSupportedError':
-      return 'Fullscreen is not available in this browser or app environment.'
+      return translateCurrent('Fullscreen is not available in this browser or app environment.')
     default:
-      return 'Fullscreen could not be enabled right now. Try again or use the browser fullscreen control.'
+      return translateCurrent(
+        'Fullscreen could not be enabled right now. Try again or use the browser fullscreen control.',
+      )
   }
 }
 

@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ApiError, applyMediaItemMetadataMatch, searchMediaItemMetadata } from '../../api/client'
 import type { MetadataSearchResult } from '../../api/types'
+import { useI18n } from '../../i18n'
 
 interface MetadataMatchPanelProps {
   canOpen: boolean
@@ -22,6 +23,7 @@ export const MetadataMatchPanel = ({
   initialQuery,
   initialYear,
 }: MetadataMatchPanelProps) => {
+  const { l } = useI18n()
   const queryClient = useQueryClient()
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState(initialQuery)
@@ -74,7 +76,7 @@ export const MetadataMatchPanel = ({
     onSuccess: (searchResults) => {
       setResults(searchResults)
       setSelectedProviderItemId(searchResults[0]?.provider_item_id ?? null)
-      setStatusMessage(searchResults.length === 0 ? 'No matches found.' : null)
+      setStatusMessage(searchResults.length === 0 ? l('No matches found.') : null)
     },
   })
 
@@ -100,7 +102,7 @@ export const MetadataMatchPanel = ({
 
     const trimmedQuery = query.trim()
     if (!trimmedQuery) {
-      setStatusMessage('Enter a title to search.')
+      setStatusMessage(l('Enter a title to search.'))
       return
     }
 
@@ -118,7 +120,7 @@ export const MetadataMatchPanel = ({
 
   const handleApply = async () => {
     if (!selectedProviderItemId) {
-      setStatusMessage('Select a match before replacing metadata.')
+      setStatusMessage(l('Select a match before replacing metadata.'))
       return
     }
 
@@ -136,14 +138,14 @@ export const MetadataMatchPanel = ({
         onClick={() => setIsOpen(true)}
         type="button"
       >
-        <span>Search / Replace Metadata</span>
+        <span>{l('Search / Replace Metadata')}</span>
       </button>
 
       {isOpen
         ? createPortal(
             <div className="metadata-match-modal">
               <button
-                aria-label="Close metadata match dialog"
+                aria-label={l('Close metadata match dialog')}
                 className="metadata-match-modal__backdrop glass-overlay-backdrop"
                 onClick={() => setIsOpen(false)}
                 type="button"
@@ -155,11 +157,11 @@ export const MetadataMatchPanel = ({
               >
                 <div className="metadata-match-modal__header">
                   <div>
-                    <h3>Search and Replace Metadata</h3>
+                    <h3>{l('Search and Replace Metadata')}</h3>
                   </div>
 
                   <button
-                    aria-label="Close metadata match dialog"
+                    aria-label={l('Close metadata match dialog')}
                     className="metadata-match-modal__close"
                     onClick={() => setIsOpen(false)}
                     type="button"
@@ -183,21 +185,21 @@ export const MetadataMatchPanel = ({
 
                 <form className="metadata-match-modal__form" onSubmit={handleSearch}>
                   <label className="field">
-                    <span>Title</span>
+                    <span>{l('Title')}</span>
                     <input
                       onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Search title"
+                      placeholder={l('Search title')}
                       type="text"
                       value={query}
                     />
                   </label>
 
                   <label className="field metadata-match-modal__year-field">
-                    <span>Year</span>
+                    <span>{l('Year')}</span>
                     <input
                       inputMode="numeric"
                       onChange={(event) => setYearInput(event.target.value)}
-                      placeholder="Optional"
+                      placeholder={l('Optional')}
                       type="text"
                       value={yearInput}
                     />
@@ -208,7 +210,7 @@ export const MetadataMatchPanel = ({
                     disabled={searchMutation.isPending}
                     type="submit"
                   >
-                    {searchMutation.isPending ? 'Searching…' : 'Search'}
+                    {searchMutation.isPending ? l('Searching…') : l('Search')}
                   </button>
                 </form>
 
@@ -217,7 +219,7 @@ export const MetadataMatchPanel = ({
                   <p className="callout callout--danger">
                     {searchMutation.error instanceof Error
                       ? searchMutation.error.message
-                      : 'Metadata search failed'}
+                      : l('Metadata search failed')}
                   </p>
                 ) : null}
                 {matchMutation.isError ? (
@@ -226,7 +228,7 @@ export const MetadataMatchPanel = ({
                       ? matchMutation.error.message
                       : matchMutation.error instanceof Error
                         ? matchMutation.error.message
-                        : 'Metadata replacement failed'}
+                        : l('Metadata replacement failed')}
                   </p>
                 ) : null}
 
@@ -266,13 +268,13 @@ export const MetadataMatchPanel = ({
                                   {result.original_title}
                                 </p>
                               ) : null}
-                              <p className="metadata-match-card__overview">
-                                {result.overview ?? 'No overview available.'}
+                                <p className="metadata-match-card__overview">
+                                {result.overview ?? l('No overview available.')}
                               </p>
                             </div>
 
                             <span className="metadata-match-card__badge">
-                              {isSelected ? 'Selected' : 'Select'}
+                              {isSelected ? l('Selected') : l('Select')}
                             </span>
                           </div>
                         </button>
@@ -287,7 +289,7 @@ export const MetadataMatchPanel = ({
                     onClick={() => setIsOpen(false)}
                     type="button"
                   >
-                    Cancel
+                    {l('Cancel')}
                   </button>
                   <button
                     className="button button--primary"
@@ -295,7 +297,7 @@ export const MetadataMatchPanel = ({
                     onClick={handleApply}
                     type="button"
                   >
-                    {matchMutation.isPending ? 'Applying…' : 'Apply Selected Match'}
+                    {matchMutation.isPending ? l('Applying…') : l('Apply Selected Match')}
                   </button>
                 </div>
               </div>

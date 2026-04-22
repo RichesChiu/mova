@@ -125,7 +125,7 @@
 .settings-library-card__header {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 10px;
 }
 
@@ -161,10 +161,14 @@
 }
 
 .settings-library-card__title {
+  min-width: 0;
   color: var(--text);
   font-size: 1.2rem;
   font-weight: 700;
   line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .settings-library-card__description {
@@ -279,7 +283,7 @@
 .settings-user-list {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 440px));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 400px));
   align-items: stretch;
   justify-content: start;
 }
@@ -298,10 +302,11 @@
 
 .settings-user-card {
   grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  padding: 18px 20px;
+  align-items: center;
+  min-height: 124px;
+  padding: 16px 18px;
   border: 1px solid var(--panel-border);
-  border-radius: 24px;
+  border-radius: 22px;
   background: var(--panel-background-soft);
   box-shadow: var(--panel-shadow);
   overflow: visible;
@@ -310,8 +315,8 @@
 .settings-user-card__avatar {
   display: grid;
   place-items: center;
-  width: 72px;
-  height: 72px;
+  width: 64px;
+  height: 64px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
   border-radius: 999px;
   background:
@@ -319,13 +324,14 @@
     linear-gradient(135deg, rgba(23, 31, 43, 0.92), rgba(12, 16, 24, 0.86));
   box-shadow: var(--panel-inset), var(--floating-shadow-strong);
   color: #e8eeff;
-  font-size: 1.42rem;
+  font-size: 1.3rem;
   font-weight: 800;
   letter-spacing: 0.04em;
 }
 
 .settings-user-card__body {
   min-width: 0;
+  align-content: center;
 }
 
 .settings-user-card__copy,
@@ -344,13 +350,14 @@
 
 .settings-user-card__header {
   display: grid;
-  gap: 12px;
-  align-items: start;
+  gap: 10px;
+  align-items: center;
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .settings-user-card__identity {
   min-width: 0;
+  align-content: center;
 }
 
 .settings-user-card__identity-meta {
@@ -387,7 +394,7 @@
   justify-content: flex-end;
   flex: 0 0 auto;
   justify-self: end;
-  align-self: start;
+  align-self: center;
 }
 
 .settings-user-card__line,
@@ -397,29 +404,29 @@
 }
 
 .settings-user-card__line--title {
-  width: 124px;
-  height: 1rem;
+  width: 112px;
+  height: 0.96rem;
 }
 
 .settings-user-card__line--role {
-  width: 96px;
-  height: 0.78rem;
+  width: 88px;
+  height: 0.72rem;
 }
 
 .settings-user-card__switch {
   position: relative;
   display: inline-flex;
   align-items: center;
-  width: 88px;
-  height: 28px;
+  width: 76px;
+  height: 24px;
   flex: 0 0 auto;
 }
 
 .settings-user-card__switch input {
   position: absolute;
   inset: 0;
-  width: 88px;
-  height: 28px;
+  width: 76px;
+  height: 24px;
   margin: 0;
   opacity: 0;
 }
@@ -429,8 +436,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  width: 88px;
-  height: 28px;
+  width: 76px;
+  height: 24px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 78%, transparent);
   border-radius: 999px;
   background: linear-gradient(135deg, rgba(63, 33, 33, 0.42), rgba(28, 16, 16, 0.56));
@@ -446,7 +453,7 @@
 .settings-user-card__switch-copy {
   position: relative;
   z-index: 1;
-  font-size: 0.66rem;
+  font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: rgba(241, 245, 255, 0.92);
@@ -455,20 +462,20 @@
 }
 
 .settings-user-card__switch-copy--off {
-  padding-left: 10px;
+  padding-left: 9px;
 }
 
 .settings-user-card__switch-copy--on {
-  padding-right: 10px;
+  padding-right: 9px;
 }
 
 .settings-user-card__switch-track::after {
   content: '';
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 38px;
-  height: 20px;
+  top: 2px;
+  left: 2px;
+  width: 32px;
+  height: 18px;
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(252, 253, 255, 0.98), rgba(224, 230, 243, 0.88));
   box-shadow:
@@ -495,7 +502,7 @@
 }
 
 .settings-user-card__switch input:checked + .settings-user-card__switch-track::after {
-  transform: translateX(44px);
+  transform: translateX(40px);
 }
 
 .settings-user-card__switch input:disabled + .settings-user-card__switch-track {
@@ -508,8 +515,8 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   padding: 0;
   border: 0;
   border-radius: 999px;
@@ -530,8 +537,8 @@
 
 .settings-user-card__edit-icon svg,
 .settings-user-card__delete-icon svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .settings-user-card__delete-icon {
@@ -556,13 +563,13 @@
 }
 
 .settings-user-card__control--toggle {
-  width: 48px;
-  height: 28px;
+  width: 42px;
+  height: 24px;
 }
 
 .settings-user-card__control--icon {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border-radius: 999px;
 }
 

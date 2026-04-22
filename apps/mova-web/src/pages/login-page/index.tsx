@@ -8,8 +8,10 @@ import {
   getCurrentUser,
   login,
 } from '../../api/client'
+import { useI18n } from '../../i18n'
 
 export const LoginPage = () => {
+  const { l } = useI18n()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [username, setUsername] = useState('admin')
@@ -55,8 +57,8 @@ export const LoginPage = () => {
     return (
       <div className="login-page">
         <section className="login-card">
-          <h2>Loading session…</h2>
-          <p className="muted">Checking whether you are already signed in.</p>
+          <h2>{l('Loading session…')}</h2>
+          <p className="muted">{l('Checking whether you are already signed in.')}</p>
         </section>
       </div>
     )
@@ -71,11 +73,11 @@ export const LoginPage = () => {
     return (
       <div className="login-page">
         <section className="login-card">
-          <h2>Session check failed</h2>
+          <h2>{l('Session check failed')}</h2>
           <p className="callout callout--danger">
             {currentUserQuery.error instanceof Error
               ? currentUserQuery.error.message
-              : 'Failed to load current user'}
+              : l('Failed to load current user')}
           </p>
         </section>
       </div>
@@ -92,12 +94,14 @@ export const LoginPage = () => {
   return (
     <div className="login-page">
       <section className="login-card">
-        <p className="eyebrow">{bootstrapRequired ? 'Bootstrap' : 'Authentication'}</p>
-        <h2>{bootstrapRequired ? 'Create the first admin account' : 'Sign in to Mova'}</h2>
+        <p className="eyebrow">{bootstrapRequired ? l('Bootstrap') : l('Authentication')}</p>
+        <h2>
+          {bootstrapRequired ? l('Create the first admin account') : l('Sign in to Mova')}
+        </h2>
 
         <form className="stack" onSubmit={handleSubmit}>
           <label className="field">
-            <span>Username</span>
+            <span>{l('Username')}</span>
             <input
               autoComplete="username"
               onChange={(event) => setUsername(event.target.value)}
@@ -108,25 +112,25 @@ export const LoginPage = () => {
           </label>
 
           <label className="field">
-            <span>Password</span>
+            <span>{l('Password')}</span>
             <input
               autoComplete={bootstrapRequired ? 'new-password' : 'current-password'}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="At least 8 characters"
+              placeholder={l('At least 8 characters')}
               type="password"
               value={password}
             />
           </label>
 
           {bootstrapStatusQuery.isLoading ? (
-            <p className="muted">Checking bootstrap status…</p>
+            <p className="muted">{l('Checking bootstrap status…')}</p>
           ) : null}
 
           {bootstrapStatusQuery.isError ? (
             <p className="callout callout--danger">
               {bootstrapStatusQuery.error instanceof Error
                 ? bootstrapStatusQuery.error.message
-                : 'Failed to check bootstrap status'}
+                : l('Failed to check bootstrap status')}
             </p>
           ) : null}
 
@@ -134,7 +138,7 @@ export const LoginPage = () => {
             <p className="callout callout--danger">
               {authMutation.error instanceof Error
                 ? authMutation.error.message
-                : 'Authentication failed'}
+                : l('Authentication failed')}
             </p>
           ) : null}
 
@@ -150,11 +154,11 @@ export const LoginPage = () => {
           >
             {authMutation.isPending
               ? bootstrapRequired
-                ? 'Creating admin…'
-                : 'Signing in…'
+                ? l('Creating admin…')
+                : l('Signing in…')
               : bootstrapRequired
-                ? 'Create Admin'
-                : 'Sign In'}
+                ? l('Create Admin')
+                : l('Sign In')}
           </button>
         </form>
       </section>

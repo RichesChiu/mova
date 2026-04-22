@@ -1,4 +1,5 @@
 import type { AudioTrack, MediaFile, SubtitleFile } from '../api/types'
+import { getCurrentInterfaceLanguage, translateCurrent } from '../i18n'
 import { formatBytes, formatDuration } from './format'
 
 type MediaFileFact = {
@@ -71,10 +72,14 @@ const formatLanguageLabel = (language: string | null | undefined) => {
   const normalized = normalizeLanguageToken(language)
 
   if (!normalized) {
-    return 'Unknown'
+    return translateCurrent('Unknown')
   }
 
-  return LANGUAGE_LABELS[normalized] ?? language?.trim().toUpperCase() ?? 'Unknown'
+  return (
+    (LANGUAGE_LABELS[normalized] ? translateCurrent(LANGUAGE_LABELS[normalized]) : null) ??
+    language?.trim().toUpperCase() ??
+    translateCurrent('Unknown')
+  )
 }
 
 const extractFileName = (filePath: string) => {
@@ -123,7 +128,7 @@ const formatSampleRate = (value: number | null | undefined) => {
     return '—'
   }
 
-  return `${new Intl.NumberFormat('en-US').format(value)} Hz`
+  return `${new Intl.NumberFormat(getCurrentInterfaceLanguage()).format(value)} Hz`
 }
 
 const formatChannelCount = (value: number | null | undefined) => {
@@ -142,9 +147,11 @@ const formatBitDepth = (value: number | null | undefined) => {
   return `${value}-bit`
 }
 
-const formatBooleanLabel = (value: boolean) => (value ? 'Yes' : 'No')
+const formatBooleanLabel = (value: boolean) =>
+  value ? translateCurrent('Yes') : translateCurrent('No')
 
-const formatVideoStreamTitle = (file: MediaFile) => file.video_title?.trim() || 'Video Stream'
+const formatVideoStreamTitle = (file: MediaFile) =>
+  file.video_title?.trim() || translateCurrent('Video Stream')
 
 export const getMediaFileDisplayName = (filePath: string) => extractFileName(filePath)
 
@@ -160,7 +167,12 @@ export const buildMediaVersionOptions = (mediaFiles: MediaFile[]): MediaFileTrac
       .join(' · ')
 
     return {
-      label: [displayName || `Version ${index + 1}`, meta].filter(Boolean).join(' · '),
+      label: [
+        displayName || translateCurrent('Version {{index}}', { index: index + 1 }),
+        meta,
+      ]
+        .filter(Boolean)
+        .join(' · '),
       value: String(file.id),
     }
   })
@@ -201,7 +213,7 @@ export const formatMediaFileDolby = (file: Pick<MediaFile, 'audio_codec' | 'file
     return 'Dolby Vision'
   }
 
-  return 'No Dolby markers found'
+  return translateCurrent('No Dolby markers found')
 }
 
 export const buildMediaFileFeatureBadges = (
@@ -218,82 +230,82 @@ export const buildMediaFileFeatureBadges = (
 
 export const buildMediaSourceFacts = (file: MediaFile): MediaFileFact[] => [
   {
-    label: 'File Size',
-    value: formatBytes(file.file_size),
+    label: translateCurrent('File Size'),
+    value: formatBytes(file.file_size, getCurrentInterfaceLanguage()),
   },
   {
-    label: 'Duration',
-    value: formatDuration(file.duration_seconds),
+    label: translateCurrent('Duration'),
+    value: formatDuration(file.duration_seconds, getCurrentInterfaceLanguage()),
   },
   {
-    label: 'Overall Bitrate',
+    label: translateCurrent('Overall Bitrate'),
     value: formatMediaFileBitrate(file.bitrate),
   },
   {
-    label: 'Dolby',
+    label: translateCurrent('Dolby'),
     value: formatMediaFileDolby(file),
   },
 ]
 
 export const buildVideoCardFacts = (file: MediaFile): MediaFileFact[] => [
   {
-    label: 'Title',
+    label: translateCurrent('Title'),
     value: formatVideoStreamTitle(file),
   },
   {
-    label: 'Codec',
+    label: translateCurrent('Codec'),
     value: formatCodecLabel(file.video_codec),
   },
   {
-    label: 'Profile',
+    label: translateCurrent('Profile'),
     value: file.video_profile?.trim() || '—',
   },
   {
-    label: 'Level',
+    label: translateCurrent('Level'),
     value: file.video_level?.trim() || '—',
   },
   {
-    label: 'Resolution',
+    label: translateCurrent('Resolution'),
     value: formatMediaFileResolution(file),
   },
   {
-    label: 'Aspect Ratio',
+    label: translateCurrent('Aspect Ratio'),
     value: file.video_aspect_ratio?.trim() || '—',
   },
   {
-    label: 'Scan Type',
+    label: translateCurrent('Scan Type'),
     value: file.video_scan_type?.trim() || '—',
   },
   {
-    label: 'Frame Rate',
+    label: translateCurrent('Frame Rate'),
     value: formatFrameRate(file.video_frame_rate),
   },
   {
-    label: 'Bitrate',
+    label: translateCurrent('Bitrate'),
     value: formatMediaFileBitrate(file.video_bitrate ?? file.bitrate),
   },
   {
-    label: 'Color Primaries',
+    label: translateCurrent('Color Primaries'),
     value: file.video_color_primaries?.trim() || '—',
   },
   {
-    label: 'Color Space',
+    label: translateCurrent('Color Space'),
     value: file.video_color_space?.trim() || '—',
   },
   {
-    label: 'Color Transfer',
+    label: translateCurrent('Color Transfer'),
     value: file.video_color_transfer?.trim() || '—',
   },
   {
-    label: 'Bit Depth',
+    label: translateCurrent('Bit Depth'),
     value: formatBitDepth(file.video_bit_depth),
   },
   {
-    label: 'Pixel Format',
+    label: translateCurrent('Pixel Format'),
     value: file.video_pixel_format?.trim() || '—',
   },
   {
-    label: 'Reference Frames',
+    label: translateCurrent('Reference Frames'),
     value:
       typeof file.video_reference_frames === 'number' &&
       Number.isFinite(file.video_reference_frames)
@@ -318,8 +330,11 @@ export const buildAudioTrackTitle = (audioTrack: AudioTrack) => {
     .filter((value) => value && value !== '—')
     .join(' ')
 
-  const base = summary || audioTrack.label?.trim() || `Track ${audioTrack.stream_index}`
-  return audioTrack.is_default ? `${base} (Default)` : base
+  const base =
+    summary ||
+    audioTrack.label?.trim() ||
+    translateCurrent('Track {{index}}', { index: audioTrack.stream_index })
+  return audioTrack.is_default ? `${base} (${translateCurrent('Default')})` : base
 }
 
 export const buildAudioTrackOptions = (audioTracks: AudioTrack[]): MediaFileTrackOption[] =>
@@ -330,35 +345,35 @@ export const buildAudioTrackOptions = (audioTracks: AudioTrack[]): MediaFileTrac
 
 export const buildAudioTrackFacts = (audioTrack: AudioTrack): MediaFileFact[] => [
   {
-    label: 'Title',
+    label: translateCurrent('Title'),
     value: buildAudioTrackTitle(audioTrack),
   },
   {
-    label: 'Language',
+    label: translateCurrent('Language'),
     value: formatLanguageLabel(audioTrack.language),
   },
   {
-    label: 'Codec',
+    label: translateCurrent('Codec'),
     value: formatCodecLabel(audioTrack.audio_codec),
   },
   {
-    label: 'Layout',
+    label: translateCurrent('Layout'),
     value: normalizeChannelLayout(audioTrack.channel_layout),
   },
   {
-    label: 'Channels',
+    label: translateCurrent('Channels'),
     value: formatChannelCount(audioTrack.channels),
   },
   {
-    label: 'Bitrate',
+    label: translateCurrent('Bitrate'),
     value: formatMediaFileBitrate(audioTrack.bitrate),
   },
   {
-    label: 'Sample Rate',
+    label: translateCurrent('Sample Rate'),
     value: formatSampleRate(audioTrack.sample_rate),
   },
   {
-    label: 'Default',
+    label: translateCurrent('Default'),
     value: formatBooleanLabel(audioTrack.is_default),
   },
 ]
@@ -376,10 +391,10 @@ export const buildSubtitleTrackTitle = (subtitle: SubtitleFile, index: number) =
   }
 
   if (codec !== '—') {
-    return `Subtitle ${index + 1} (${codec})`
+    return `${translateCurrent('Subtitle {{index}}', { index: index + 1 })} (${codec})`
   }
 
-  return `Subtitle ${index + 1}`
+  return translateCurrent('Subtitle {{index}}', { index: index + 1 })
 }
 
 export const buildSubtitleTrackOptions = (subtitles: SubtitleFile[]): MediaFileTrackOption[] =>
@@ -390,35 +405,35 @@ export const buildSubtitleTrackOptions = (subtitles: SubtitleFile[]): MediaFileT
 
 export const buildSubtitleTrackFacts = (subtitle: SubtitleFile, index: number): MediaFileFact[] => [
   {
-    label: 'Title',
+    label: translateCurrent('Title'),
     value: buildSubtitleTrackTitle(subtitle, index),
   },
   {
-    label: 'Track Label',
+    label: translateCurrent('Track Label'),
     value: subtitle.label?.trim() || '—',
   },
   {
-    label: 'Language',
+    label: translateCurrent('Language'),
     value: formatLanguageLabel(subtitle.language),
   },
   {
-    label: 'Codec',
+    label: translateCurrent('Codec'),
     value: formatCodecLabel(subtitle.subtitle_format),
   },
   {
-    label: 'Default',
+    label: translateCurrent('Default'),
     value: formatBooleanLabel(subtitle.is_default),
   },
   {
-    label: 'Forced',
+    label: translateCurrent('Forced'),
     value: formatBooleanLabel(subtitle.is_forced),
   },
   {
-    label: 'Hearing Impaired',
+    label: translateCurrent('Hearing Impaired'),
     value: formatBooleanLabel(subtitle.is_hearing_impaired),
   },
   {
-    label: 'External',
+    label: translateCurrent('External'),
     value: formatBooleanLabel(subtitle.source_kind === 'external'),
   },
 ]

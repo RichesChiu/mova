@@ -3,7 +3,7 @@
 `mova-web` 是 Mova 的前端应用，基于 Vite、React、TypeScript、React Router、TanStack Query 和 SCSS。  
 这份文档不重复接口契约，而是从代码入口、页面结构、共享组件、数据层和测试层来说明当前前端是怎么组织的。
 
-当前产品 UI 文案先统一为英文；个人设置里已经提供界面语言偏好入口，当前会先作为本地偏好持久化，为后续更完整的中英切换留接口。
+当前前端已经接入轻量级本地化字典系统，界面文案支持 `en-US` / `zh-CN` 两种语言；个人设置里的语言切换会即时更新当前界面，并把偏好持久化到当前浏览器。
 
 如果你要看接口字段和 HTTP/SSE 契约，优先看 [`../../docs/API.md`](../../docs/API.md)。
 
@@ -11,12 +11,13 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `src/main.tsx` | 浏览器入口。负责 `applyTheme()`、引入全局样式 `global.scss`、挂载 React 根节点。 |
+| `src/main.tsx` | 浏览器入口。负责初始化本地主题 / 语言偏好、引入全局样式 `global.scss`、挂载 React 根节点，并包裹前端的 `I18nProvider`。 |
 | `src/App.tsx` | 应用入口。负责创建 `QueryClientProvider`、`BrowserRouter`，并声明完整路由树。 |
 | `src/components/app-shell/index.tsx` | 登录后主壳层。负责查询当前用户、查询可见媒体库、挂载顶栏、处理登出、建立 SSE 连接，并把共享上下文下发给页面。 |
 | `src/api/client.ts` | 前端统一 API 客户端。负责 `fetch`、错误处理、JSON envelope 解包，以及媒体流/字幕流 URL 构造。播放器这里也会通过它拿字幕列表和音轨列表，并在切换音轨时拼出带 `audio_track_id` 的播放地址。 |
 | `src/api/types.ts` | 前后端共享的数据契约类型定义。页面和组件基本都依赖这里的 DTO。 |
 | `src/lib/query-client.ts` | TanStack Query 的全局默认配置入口。 |
+| `src/i18n/` | 前端本地化入口。维护中英文文案字典、语言 provider 和统一的 `useI18n()` / `translateCurrent()` 能力。 |
 | `src/styles/global.scss` | 样式总入口，统一聚合 `_tokens.scss`、`_base.scss`、`_shared.scss` 和各 feature 的样式。 |
 
 启动时实际链路是：
@@ -44,7 +45,7 @@
    `src/components/` 下放跨页面复用的 UI 与交互组件，例如卡片、弹窗、播放器面板、滚动 rail、目录树等。
 
 5. 数据与工具层  
-   `src/api/` 负责 HTTP 契约；`src/lib/` 负责 Query 默认值、路由拼接、格式化、权限判断等纯工具。
+   `src/api/` 负责 HTTP 契约；`src/lib/` 负责 Query 默认值、路由拼接、格式化、权限判断等纯工具；`src/i18n/` 负责前端界面文案字典、语言切换和格式化上下文。
 
 6. 样式与测试层  
    `src/styles/` 管全局样式资产；测试基座在 `src/test/setup.ts`，具体测试文件跟着组件或页面放。
@@ -59,6 +60,7 @@ src/
     client.ts
     types.ts
   components/
+  i18n/
   lib/
   pages/
   styles/
@@ -76,7 +78,7 @@ src/
 | `/libraries/:libraryId` | `src/pages/library-page/index.tsx` | 单库详情页。展示库标题、描述、关键统计、最新扫描状态、电影/剧集列表，以及扫描中的占位卡；页面头部会尽量保持内容页而不是配置页的层级，返回入口也统一成轻量文本链接而不是按钮块。 | `getLibrary`、`listLibraryMediaItems`、`scanRuntimeByLibrary` |
 | `/media-items/:mediaItemId` | `src/pages/media-item-page/index.tsx` | 媒体详情页。电影显示详情与播放入口，并在标题旁展示带 `IMDb` 标识的评分；hero 区会优先用背景图或海报做模糊大底与光晕层，让标题、海报和评分形成更完整的电影感头图，年份、国家/地区、题材类型和工作室则收在 facts 区里避免重复副标题；如果同一部电影存在多个本地版本，播放区会先给版本选择，技术信息区也会跟着当前版本切换；演员区会在主体信息先渲染后再异步加载，服务端会在本地还没有演员数据时按需拉取一次并持久写库，后续详情页直接复用；演员区下方会展示当前资源文件的 source details，以及并排的视频、音频、字幕技术卡；音轨和字幕卡头部都有小下拉，当前版本本身则只在播放区选择，字幕卡也会展示默认、强制、听障和外挂标记；剧集显示季/集大纲、演员和管理员元数据工具；剧集播放入口会优先沿用最近一次观看的那一集，如果最近一集已经播完则自动跳到下一集；当所在媒体库仍在扫描时，这里也会显示当前条目或当前季的同步状态与占位集卡，返回入口也和库页保持同一套轻量文本链接样式。 | `getMediaItem`、`getMediaItemCast`、`getMediaItemEpisodeOutline`、`getMediaItemPlaybackProgress`、`getMediaItemPlaybackHeader`、`listMediaItemFiles`、`listMediaFileAudioTracks`、`listMediaFileSubtitles`、`scanRuntimeByLibrary` |
 | `/media-items/:mediaItemId/play` | `src/pages/media-player-page/index.tsx` | 沉浸式播放器页。负责装配播放器标题、副标题、片头跳过区间、集切换选项和“下一集”目标，并把实际播放行为交给 `MediaPlayerPanel`；播放器写入进度后会同步更新剧集 outline 缓存，这样返回详情页时已完成状态和集卡进度条能立刻跟上。 | `getMediaItemPlaybackHeader`、`getMediaItemEpisodeOutline` |
-| `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。收成单块资料面板，展示用户名、昵称、角色标签，并把昵称编辑、改密、界面语言和 `dark / light` 主题偏好都放进同一个资料面板；语言和主题偏好会保存在当前浏览器，本地即时生效。 | `updateOwnProfile`、`changeOwnPassword`、`AppShell` 提供的 `currentUser`、`lib/preferences.ts` |
+| `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。收成单块资料面板，展示用户名、昵称、角色标签，并把昵称编辑、改密、界面语言和 `dark / light` 主题偏好都放进同一个资料面板；语言切换会即时驱动界面文案在英文 / 中文之间切换，语言和主题偏好都会保存在当前浏览器。 | `updateOwnProfile`、`changeOwnPassword`、`AppShell` 提供的 `currentUser`、`lib/preferences.ts`、`src/i18n/` |
 | `/settings` | `src/pages/settings-page/index.tsx` | 管理员设置页。承接用户增删改查、媒体库创建、扫描、删除和基础配置编辑；首个初始化管理员会作为 `Primary Admin` 管理普通管理员，普通管理员则只允许管理成员账号和媒体库；危险操作会走统一确认弹窗。 | `listUsers`、`createUser`、`updateUser`、`deleteUser`、`createLibrary`、`updateLibrary`、`scanLibrary`、`deleteLibrary`、`getLibrary` |
 
 几个页面内还有“页面级子模块”，但它们不算独立路由：
@@ -158,6 +160,14 @@ src/
 | `lib/format.ts` | 时间、日期、时长等显示格式化函数。 |
 | `lib/theme.ts` | 启动时应用全局主题。 |
 | `lib/preferences.ts` | 统一管理本地界面偏好，包括 `dark / light` 主题和界面语言的读取、归一化、持久化与首次启动应用。 |
+
+### `src/i18n/`
+
+| 文件 | 作用 |
+| --- | --- |
+| `i18n/catalog.ts` | 维护前端界面文案字典，当前以英文为基准，同时提供 `zh-CN` 映射与参数替换。 |
+| `i18n/provider.tsx` | 提供 `I18nProvider` 和 `useI18n()`，统一暴露当前语言、切换能力，以及日期 / 数字 / 列表格式化。 |
+| `i18n/index.ts` | 对外导出 provider、hook，以及给非 React helper 使用的 `translateCurrent()`。 |
 
 ## 6. 样式与测试
 

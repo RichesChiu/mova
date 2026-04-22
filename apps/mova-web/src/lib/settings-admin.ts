@@ -5,6 +5,7 @@ import type {
   ScanJob,
   UserAccount,
 } from '../api/types'
+import { getCurrentInterfaceLanguage, translateCurrent } from '../i18n'
 import { formatDateTime } from './format'
 
 export interface ConfirmActionCopy {
@@ -33,17 +34,17 @@ export const getUserLibraryAccessSummary = (user: UserAccount, libraries: Librar
 export const getScanStatusLabel = (scanJob: ScanJob | null | undefined) => {
   switch (scanJob?.status) {
     case 'running':
-      return 'Running'
+      return translateCurrent('Running')
     case 'success':
-      return 'Success'
+      return translateCurrent('Success')
     case 'failed':
-      return 'Failed'
+      return translateCurrent('Failed')
     case 'cancelled':
-      return 'Cancelled'
+      return translateCurrent('Cancelled')
     case 'pending':
-      return 'Pending'
+      return translateCurrent('Pending')
     default:
-      return 'Idle'
+      return translateCurrent('Idle')
   }
 }
 
@@ -66,11 +67,14 @@ export const getScanStatusTone = (scanJob: ScanJob | null | undefined) => {
 
 export const getScanStatusSummary = (scanJob: ScanJob | null | undefined) => {
   if (!scanJob) {
-    return 'No scan has run yet.'
+    return translateCurrent('No scan has run yet.')
   }
 
   if (scanJob.status === 'running') {
-    return `Scanned ${scanJob.scanned_files}/${scanJob.total_files} files.`
+    return translateCurrent('Scanned {{scanned}}/{{total}} files.', {
+      scanned: scanJob.scanned_files,
+      total: scanJob.total_files,
+    })
   }
 
   if (scanJob.status === 'failed' && scanJob.error_message) {
@@ -78,7 +82,9 @@ export const getScanStatusSummary = (scanJob: ScanJob | null | undefined) => {
   }
 
   const finishedAt = scanJob.finished_at ?? scanJob.started_at ?? scanJob.created_at
-  return `Last updated at ${formatDateTime(finishedAt)}.`
+  return translateCurrent('Last updated at {{value}}.', {
+    value: formatDateTime(finishedAt, getCurrentInterfaceLanguage()),
+  })
 }
 
 export const buildInitialScanJob = (
@@ -214,9 +220,14 @@ export const buildDeletedLibraryCacheState = (
 })
 
 export const buildDeleteLibraryConfirmationCopy = (library: Library): ConfirmActionCopy => ({
-  confirmLabel: 'Delete Library',
-  description: `Delete "${library.name}"? This removes the library record and scan history. Already imported media files in the filesystem will not be deleted.`,
-  title: 'Delete library',
+  confirmLabel: translateCurrent('Delete Library'),
+  description: translateCurrent(
+    'Delete "{{name}}"? This removes the library record and scan history. Already imported media files in the filesystem will not be deleted.',
+    {
+      name: library.name,
+    },
+  ),
+  title: translateCurrent('Delete library'),
 })
 
 export const upsertUserAccount = (users: UserAccount[] | undefined, nextUser: UserAccount) => {
@@ -261,7 +272,12 @@ export const buildDeletedUserCacheState = (users: UserAccount[] | undefined, use
 })
 
 export const buildDeleteUserConfirmationCopy = (user: UserAccount): ConfirmActionCopy => ({
-  confirmLabel: 'Delete User',
-  description: `Delete "${user.username}"? This removes their access, active sessions, playback progress, and watch history records.`,
-  title: 'Delete user',
+  confirmLabel: translateCurrent('Delete User'),
+  description: translateCurrent(
+    'Delete "{{name}}"? This removes their access, active sessions, playback progress, and watch history records.',
+    {
+      name: user.username,
+    },
+  ),
+  title: translateCurrent('Delete user'),
 })

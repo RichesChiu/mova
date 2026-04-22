@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ApiError, getCurrentUser, listLibraries, logout } from '../../api/client'
 import type { Library, UserAccount } from '../../api/types'
+import { useI18n } from '../../i18n'
 import { canManageServer } from '../../lib/viewer'
 import { ContentHeader } from '../content-header'
 import type { ScanRuntimeByLibrary } from './scan-runtime'
@@ -16,6 +17,7 @@ export interface AppShellOutletContext {
 }
 
 export const AppShell = () => {
+  const { l } = useI18n()
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -54,8 +56,8 @@ export const AppShell = () => {
     return (
       <div className="page-stack">
         <section className="empty-panel">
-          <h3>Loading session…</h3>
-          <p className="muted">Validating the current signed-in session.</p>
+          <h3>{l('Loading session…')}</h3>
+          <p className="muted">{l('Validating the current signed-in session.')}</p>
         </section>
       </div>
     )
@@ -71,7 +73,7 @@ export const AppShell = () => {
         <p className="callout callout--danger">
           {currentUserQuery.error instanceof Error
             ? currentUserQuery.error.message
-            : 'Failed to load current user'}
+            : l('Failed to load current user')}
         </p>
       </div>
     )
@@ -82,7 +84,7 @@ export const AppShell = () => {
   if (!currentUser) {
     return (
       <div className="page-stack">
-        <p className="callout callout--danger">Current user is not available.</p>
+        <p className="callout callout--danger">{l('Current user is not available.')}</p>
       </div>
     )
   }
@@ -103,7 +105,7 @@ export const AppShell = () => {
               <p className="callout callout--danger">
                 {librariesQuery.error instanceof Error
                   ? librariesQuery.error.message
-                  : 'Failed to load libraries'}
+                  : l('Failed to load libraries')}
               </p>
             ) : null}
 

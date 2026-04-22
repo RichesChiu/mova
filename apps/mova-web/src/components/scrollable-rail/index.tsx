@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { translateCurrent } from '../../i18n'
 
 interface ScrollableRailProps {
   children: ReactNode
@@ -10,7 +11,7 @@ interface ScrollableRailProps {
 
 export const ScrollableRail = ({
   children,
-  hint = 'Scroll, drag, or click arrows to move sideways.',
+  hint = translateCurrent('Scroll, drag, or click arrows to move sideways.'),
   resetKey,
   viewportClassName,
 }: ScrollableRailProps) => {
@@ -109,7 +110,7 @@ export const ScrollableRail = ({
     <div className="scrollable-rail">
       <div className="scrollable-rail__frame">
         <button
-          aria-label="Scroll left"
+          aria-label={translateCurrent('Scroll left')}
           className="scrollable-rail__nav"
           disabled={!canScrollLeft}
           onClick={() => scrollList(-1)}
@@ -130,7 +131,7 @@ export const ScrollableRail = ({
         </div>
 
         <button
-          aria-label="Scroll right"
+          aria-label={translateCurrent('Scroll right')}
           className="scrollable-rail__nav"
           disabled={!canScrollRight}
           onClick={() => scrollList(1)}

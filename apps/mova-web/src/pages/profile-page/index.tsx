@@ -6,44 +6,39 @@ import type { AppShellOutletContext } from '../../components/app-shell'
 import { ChangePasswordModal } from '../../components/change-password-modal'
 import { GlassSelect, type GlassSelectOption } from '../../components/glass-select'
 import { StatusPill } from '../../components/status-pill'
+import { useI18n } from '../../i18n'
 import {
   INTERFACE_LANGUAGES,
-  readStoredInterfaceLanguagePreference,
   readStoredThemePreference,
-  setInterfaceLanguagePreference,
   setThemePreference,
 } from '../../lib/preferences'
 import { THEMES } from '../../lib/theme'
 import { getUserDisplayName } from '../../lib/user-identity'
 
-const interfaceLanguageOptions: GlassSelectOption[] = [
-  { label: 'English', value: INTERFACE_LANGUAGES.english },
-  { label: 'Chinese', value: INTERFACE_LANGUAGES.chinese },
-]
-
-const themeOptions: GlassSelectOption[] = [
-  { label: 'Dark', value: THEMES.noir },
-  { label: 'Light', value: THEMES.frost },
-]
-
 export const ProfilePage = () => {
   const { currentUser } = useOutletContext<AppShellOutletContext>()
   const queryClient = useQueryClient()
+  const { language: interfaceLanguage, l, setLanguage } = useI18n()
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false)
   const [isEditingNickname, setIsEditingNickname] = useState(false)
   const [nicknameDraft, setNicknameDraft] = useState(currentUser.nickname)
-  const [interfaceLanguage, setInterfaceLanguage] = useState(() =>
-    readStoredInterfaceLanguagePreference(),
-  )
   const [themePreference, setThemePreferenceState] = useState(() => readStoredThemePreference())
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const nicknameInputRef = useRef<HTMLInputElement | null>(null)
   const roleLabel = currentUser.is_primary_admin
-    ? 'Primary Admin'
+    ? l('Primary Admin')
     : currentUser.role === 'admin'
-      ? 'Administrator'
-      : 'Member'
+      ? l('Administrator')
+      : l('Member')
   const nickname = getUserDisplayName(currentUser)
+  const interfaceLanguageOptions: GlassSelectOption[] = [
+    { label: l('English'), value: INTERFACE_LANGUAGES.english },
+    { label: l('Chinese'), value: INTERFACE_LANGUAGES.chinese },
+  ]
+  const themeOptions: GlassSelectOption[] = [
+    { label: l('Dark'), value: THEMES.noir },
+    { label: l('Light'), value: THEMES.frost },
+  ]
 
   useEffect(() => {
     setNicknameDraft(currentUser.nickname)
@@ -66,7 +61,7 @@ export const ProfilePage = () => {
     onSuccess: async () => {
       // 服务端改密后会轮换 session cookie，这里顺手刷新当前用户查询，确保前端状态和新会话保持一致。
       await queryClient.invalidateQueries({ queryKey: ['current-user'] })
-      setSuccessMessage('Password updated.')
+      setSuccessMessage(l('Password updated.'))
     },
   })
 
@@ -81,7 +76,7 @@ export const ProfilePage = () => {
         await queryClient.invalidateQueries({ queryKey: ['users'] })
       }
       setIsEditingNickname(false)
-      setSuccessMessage('Nickname updated.')
+      setSuccessMessage(l('Nickname updated.'))
     },
   })
 
@@ -105,18 +100,18 @@ export const ProfilePage = () => {
     <div className="page-stack profile-page">
       <section className="catalog-block profile-page__panel">
         <div>
-          <p className="eyebrow">Profile</p>
+          <p className="eyebrow">{l('Profile')}</p>
           <h2>{nickname}</h2>
         </div>
 
         <div className="profile-page__details">
           <div className="profile-page__row">
-            <span className="profile-page__label">Username:</span>
+            <span className="profile-page__label">{l('Username:')}</span>
             <strong className="profile-page__value">{currentUser.username}</strong>
           </div>
 
           <div className="profile-page__row">
-            <span className="profile-page__label">Nickname:</span>
+            <span className="profile-page__label">{l('Nickname:')}</span>
             {isEditingNickname ? (
               <div className="profile-page__inline-editor">
                 <div className="profile-page__editor-surface">
@@ -150,7 +145,7 @@ export const ProfilePage = () => {
                       onClick={saveNickname}
                       type="button"
                     >
-                      {updateProfileMutation.isPending ? 'Saving…' : 'Save'}
+                      {updateProfileMutation.isPending ? l('Saving…') : l('Save')}
                     </button>
                     <button
                       className="profile-page__action-link text-link"
@@ -158,7 +153,7 @@ export const ProfilePage = () => {
                       onClick={cancelNicknameEditing}
                       type="button"
                     >
-                      Cancel
+                      {l('Cancel')}
                     </button>
                   </div>
                 </div>
@@ -167,7 +162,7 @@ export const ProfilePage = () => {
               <>
                 <strong className="profile-page__value">{nickname}</strong>
                 <button
-                  aria-label="Edit nickname"
+                  aria-label={l('Edit nickname')}
                   className="profile-page__icon-button"
                   onClick={() => {
                     setNicknameDraft(currentUser.nickname)
@@ -198,36 +193,35 @@ export const ProfilePage = () => {
           </div>
 
           <div className="profile-page__row">
-            <span className="profile-page__label">Role:</span>
+            <span className="profile-page__label">{l('Role:')}</span>
             <StatusPill status={roleLabel} />
           </div>
 
           <div className="profile-page__row profile-page__row--setting">
-            <span className="profile-page__label">Interface Language:</span>
+            <span className="profile-page__label">{l('Interface Language:')}</span>
             <div className="profile-page__setting">
               <div className="profile-page__select">
                 <GlassSelect
-                  ariaLabel="Interface language"
+                  ariaLabel={l('Interface Language:')}
                   onChange={(value) => {
-                    const nextLanguage = setInterfaceLanguagePreference(value)
-                    setInterfaceLanguage(nextLanguage)
+                    setLanguage(value)
                   }}
                   options={interfaceLanguageOptions}
                   value={interfaceLanguage}
                 />
               </div>
               <p className="profile-page__hint">
-                Stored locally on this browser for your interface preference.
+                {l('Stored locally on this browser for your interface preference.')}
               </p>
             </div>
           </div>
 
           <div className="profile-page__row profile-page__row--setting">
-            <span className="profile-page__label">Theme:</span>
+            <span className="profile-page__label">{l('Theme:')}</span>
             <div className="profile-page__setting">
               <div className="profile-page__select">
                 <GlassSelect
-                  ariaLabel="Theme preference"
+                  ariaLabel={l('Theme:')}
                   onChange={(value) => {
                     const nextTheme = setThemePreference(value)
                     setThemePreferenceState(nextTheme)
@@ -237,19 +231,19 @@ export const ProfilePage = () => {
                 />
               </div>
               <p className="profile-page__hint">
-                Switch between the dark and light glass surfaces instantly.
+                {l('Switch between the dark and light glass surfaces instantly.')}
               </p>
             </div>
           </div>
 
           <div className="profile-page__row">
-            <span className="profile-page__label">Password:</span>
+            <span className="profile-page__label">{l('Password:')}</span>
             <button
               className="profile-page__action-link text-link"
               onClick={() => setIsChangePasswordOpen(true)}
               type="button"
             >
-              Reset Password
+              {l('Reset Password')}
             </button>
           </div>
         </div>

@@ -7,6 +7,7 @@ import type {
   UserAccount,
   UserRole,
 } from '../../api/types'
+import { useI18n } from '../../i18n'
 import { GlassSelect } from '../glass-select'
 
 interface UserEditorModalProps {
@@ -38,6 +39,7 @@ export const UserEditorModal = ({
   onUpdate,
   user = null,
 }: UserEditorModalProps) => {
+  const { l } = useI18n()
   const [username, setUsername] = useState('')
   const [nickname, setNickname] = useState('')
   const [password, setPassword] = useState('')
@@ -49,11 +51,11 @@ export const UserEditorModal = ({
     () =>
       currentUserIsPrimaryAdmin
         ? [
-            { label: 'Member', value: 'viewer' },
-            { label: 'Administrator', value: 'admin' },
+            { label: l('Member'), value: 'viewer' },
+            { label: l('Administrator'), value: 'admin' },
           ]
-        : [{ label: 'Member', value: 'viewer' }],
-    [currentUserIsPrimaryAdmin],
+        : [{ label: l('Member'), value: 'viewer' }],
+    [currentUserIsPrimaryAdmin, l],
   )
   const sortedLibraries = useMemo(
     () => [...libraries].sort((left, right) => left.name.localeCompare(right.name)),
@@ -144,14 +146,14 @@ export const UserEditorModal = ({
     return null
   }
 
-  const title = isCreateMode ? 'Create User' : 'Edit User'
+  const title = isCreateMode ? l('Create User') : l('Edit User')
   const submitLabel = isCreateMode
     ? isSubmitting
-      ? 'Creating…'
-      : 'Create User'
+      ? l('Creating…')
+      : l('Create User')
     : isSubmitting
-      ? 'Saving…'
-      : 'Save Changes'
+      ? l('Saving…')
+      : l('Save Changes')
   const gridClassName =
     isCreateMode || !isEditingAdmin || shouldShowRoleField
       ? 'user-editor-modal__grid'
@@ -160,7 +162,7 @@ export const UserEditorModal = ({
   return createPortal(
     <div className="user-editor-modal">
       <button
-        aria-label="Close user editor dialog"
+        aria-label={l('Close user editor dialog')}
         className="user-editor-modal__backdrop glass-overlay-backdrop"
         onClick={onClose}
         type="button"
@@ -177,13 +179,13 @@ export const UserEditorModal = ({
               {avatarInitial(nickname.trim() || username)}
             </div>
             <div>
-              <p className="eyebrow">User Management</p>
+              <p className="eyebrow">{l('User Management')}</p>
               <h3>{title}</h3>
             </div>
           </div>
 
           <button
-            aria-label="Close user editor dialog"
+            aria-label={l('Close user editor dialog')}
             className="user-editor-modal__close"
             onClick={onClose}
             type="button"
@@ -208,23 +210,23 @@ export const UserEditorModal = ({
         <form className="stack" onSubmit={handleSubmit}>
           <div className={gridClassName}>
             <label className="field">
-              <span>Username</span>
+              <span>{l('Username')}</span>
               <input
                 autoComplete="username"
                 disabled={!isCreateMode}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder="viewer01"
+                placeholder={l('viewer01')}
                 type="text"
                 value={username}
               />
             </label>
 
             <label className="field">
-              <span>Nickname</span>
+              <span>{l('Nickname')}</span>
               <input
                 maxLength={128}
                 onChange={(event) => setNickname(event.target.value)}
-                placeholder="Shown in the app header"
+                placeholder={l('Shown in the app header')}
                 type="text"
                 value={nickname}
               />
@@ -232,11 +234,11 @@ export const UserEditorModal = ({
 
             {isCreateMode ? (
               <label className="field">
-                <span>Password</span>
+                <span>{l('Password')}</span>
                 <input
                   autoComplete="new-password"
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="At least 8 characters"
+                  placeholder={l('At least 8 characters')}
                   type="password"
                   value={password}
                 />
@@ -245,9 +247,9 @@ export const UserEditorModal = ({
 
             {shouldShowRoleField ? (
               <div className="field">
-                <span>Role</span>
+                <span>{l('Role')}</span>
                 <GlassSelect
-                  ariaLabel="User role"
+                  ariaLabel={l('User role')}
                   onChange={(value) => {
                     const nextRole = value as UserRole
                     setRole(nextRole)
@@ -271,24 +273,24 @@ export const UserEditorModal = ({
                   onChange={(event) => setIsEnabled(event.target.checked)}
                   type="checkbox"
                 />
-                <span>Account enabled</span>
+                <span>{l('Account enabled')}</span>
               </label>
             </>
           ) : (
             <p className="muted">
               {isEditingSelf
-                ? 'You cannot change your own enabled state here.'
+                ? l('You cannot change your own enabled state here.')
                 : user?.is_primary_admin
-                  ? 'Primary Admin stays enabled here.'
-                  : 'This account cannot be enabled or disabled from this dialog.'}
+                  ? l('Primary Admin stays enabled here.')
+                  : l('This account cannot be enabled or disabled from this dialog.')}
             </p>
           )}
 
           {role === 'viewer' ? (
             <div className="field">
-              <span>Library Access</span>
+              <span>{l('Library Access')}</span>
               {sortedLibraries.length === 0 ? (
-                <p className="muted">No libraries assigned yet. You can save this user first.</p>
+                <p className="muted">{l('No libraries assigned yet. You can save this user first.')}</p>
               ) : (
                 <div className="user-editor-modal__access-grid">
                   {sortedLibraries.map((library) => {
@@ -297,7 +299,11 @@ export const UserEditorModal = ({
                     return (
                       <label className="user-editor-modal__access-chip" key={library.id}>
                         <input
-                          aria-label={`${checked ? 'Remove' : 'Grant'} access to ${library.name}`}
+                          aria-label={
+                            checked
+                              ? l('Remove access to {{name}}', { name: library.name })
+                              : l('Grant access to {{name}}', { name: library.name })
+                          }
                           className="user-editor-modal__access-checkbox"
                           checked={checked}
                           onChange={() => toggleLibrary(library.id)}
@@ -311,14 +317,14 @@ export const UserEditorModal = ({
               )}
             </div>
           ) : (
-            <p className="muted">Admin accounts automatically have access to every library.</p>
+            <p className="muted">{l('Admin accounts automatically have access to every library.')}</p>
           )}
 
           {error ? <p className="callout callout--danger">{error}</p> : null}
 
           <div className="user-editor-modal__footer">
             <button className="button" onClick={onClose} type="button">
-              Cancel
+              {l('Cancel')}
             </button>
             <button
               className="button button--primary"

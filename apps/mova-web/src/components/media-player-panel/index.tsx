@@ -11,6 +11,7 @@ import {
   updateMediaItemPlaybackProgress,
 } from '../../api/client'
 import type { EpisodeOutline, MediaFile, SubtitleFile } from '../../api/types'
+import { translateCurrent } from '../../i18n'
 import {
   buildAudioTrackLoadErrorMessage,
   buildAudioTrackReadyMessage,
@@ -28,10 +29,10 @@ import {
 } from '../../lib/player-feedback'
 
 const PROGRESS_SYNC_INTERVAL_SECONDS = 5
-const PLAYBACK_PROGRESS_SAVE_ERROR =
-  'Playback progress could not be saved. We will retry on the next sync.'
-const SUBTITLE_LOAD_ERROR =
-  'The selected subtitle could not be loaded. Playback will continue without subtitles.'
+const PLAYBACK_PROGRESS_SAVE_ERROR = () =>
+  translateCurrent('Playback progress could not be saved. We will retry on the next sync.')
+const SUBTITLE_LOAD_ERROR = () =>
+  translateCurrent('The selected subtitle could not be loaded. Playback will continue without subtitles.')
 
 interface MediaPlayerPanelProps {
   episodeSwitchOptions?: Array<{
@@ -370,21 +371,21 @@ const renderSubtitleLabel = (subtitle: SubtitleFile) => {
     switch (subtitle.language?.toLowerCase()) {
       case 'zh':
       case 'zh-cn':
-        return 'Chinese'
+        return translateCurrent('Chinese')
       case 'zh-tw':
-        return 'Traditional Chinese'
+        return translateCurrent('Traditional Chinese')
       case 'en':
-        return 'English'
+        return translateCurrent('English')
       case 'ja':
-        return 'Japanese'
+        return translateCurrent('Japanese')
       case 'ko':
-        return 'Korean'
+        return translateCurrent('Korean')
       default:
         return subtitle.language?.toUpperCase() ?? null
     }
   })()
 
-  return [languageLabel, subtitle.label, subtitle.is_forced ? 'Forced' : null]
+  return [languageLabel, subtitle.label, subtitle.is_forced ? translateCurrent('Forced') : null]
     .filter(Boolean)
     .join(' · ')
 }
@@ -422,15 +423,21 @@ export const buildPlaybackSourceErrorMessage = (video: HTMLVideoElement | null) 
 
   switch (errorCode) {
     case 1:
-      return 'Playback was interrupted before the file finished loading. Try again.'
+      return translateCurrent('Playback was interrupted before the file finished loading. Try again.')
     case 2:
-      return 'The selected file could not be streamed. Check the storage mount or network path.'
+      return translateCurrent(
+        'The selected file could not be streamed. Check the storage mount or network path.',
+      )
     case 3:
-      return 'This browser could not decode the selected file. Try another version or container.'
+      return translateCurrent(
+        'This browser could not decode the selected file. Try another version or container.',
+      )
     case 4:
-      return 'This browser does not support the selected video format.'
+      return translateCurrent('This browser does not support the selected video format.')
     default:
-      return 'This browser could not play the selected file. Try another version or container.'
+      return translateCurrent(
+        'This browser could not play the selected file. Try another version or container.',
+      )
   }
 }
 
@@ -559,7 +566,7 @@ export const MediaPlayerPanel = ({
       syncEpisodeOutlinePlaybackProgress(progress)
     },
     onError: () => {
-      setPlaybackSyncError(PLAYBACK_PROGRESS_SAVE_ERROR)
+      setPlaybackSyncError(PLAYBACK_PROGRESS_SAVE_ERROR())
     },
   })
   const subtitleFilesQuery = useQuery({
@@ -584,7 +591,7 @@ export const MediaPlayerPanel = ({
   const selectedSubtitle =
     subtitleFiles.find((subtitle) => subtitle.id === selectedSubtitleId) ?? null
   const subtitleWarning =
-    subtitleTrackError ?? (subtitleFilesQuery.isError ? SUBTITLE_LOAD_ERROR : null)
+    subtitleTrackError ?? (subtitleFilesQuery.isError ? SUBTITLE_LOAD_ERROR() : null)
   const currentAudioSelectionLabel = describeAudioTrackSelection(selectedAudioTrack)
 
   const clearAudioTrackNotice = () => {
@@ -1176,7 +1183,7 @@ export const MediaPlayerPanel = ({
     }
 
     setSelectedSubtitleId(null)
-    setSubtitleTrackError(SUBTITLE_LOAD_ERROR)
+    setSubtitleTrackError(SUBTITLE_LOAD_ERROR())
   }
 
   const persistProgressBeforeSwitch = () => {
@@ -1408,18 +1415,18 @@ export const MediaPlayerPanel = ({
       {!isImmersive ? (
         <div className="catalog-block__header">
           <div>
-            <h3>Playback</h3>
+            <h3>{translateCurrent('Playback')}</h3>
           </div>
         </div>
       ) : null}
 
-      {mediaFilesQuery.isLoading ? <p className="muted">Loading player…</p> : null}
+      {mediaFilesQuery.isLoading ? <p className="muted">{translateCurrent('Loading player…')}</p> : null}
 
       {mediaFilesQuery.isError ? (
         <p className="callout callout--danger">
           {mediaFilesQuery.error instanceof Error
             ? mediaFilesQuery.error.message
-            : 'Failed to load media files'}
+            : translateCurrent('Failed to load media files')}
         </p>
       ) : null}
 
@@ -1427,13 +1434,13 @@ export const MediaPlayerPanel = ({
         <p className="callout callout--danger">
           {playbackProgressQuery.error instanceof Error
             ? playbackProgressQuery.error.message
-            : 'Failed to load playback progress'}
+            : translateCurrent('Failed to load playback progress')}
         </p>
       ) : null}
 
       {mediaFiles.length === 0 && !mediaFilesQuery.isLoading ? (
         <div className="catalog-block__empty">
-          <p className="muted">No playable media files are linked to this item yet.</p>
+          <p className="muted">{translateCurrent('No playable media files are linked to this item yet.')}</p>
         </div>
       ) : null}
 
@@ -1452,7 +1459,7 @@ export const MediaPlayerPanel = ({
                   <div className="player-panel__overlay-status">
                     {canSkipIntro ? (
                       <button className="player-panel__floating-action" onClick={skipIntro} type="button">
-                        Skip Intro
+                        {translateCurrent('Skip Intro')}
                       </button>
                     ) : null}
                     {shouldShowNextEpisodePrompt ? (
@@ -1461,19 +1468,19 @@ export const MediaPlayerPanel = ({
                         onClick={goToNextEpisode}
                         type="button"
                       >
-                        Next Episode
+                        {translateCurrent('Next Episode')}
                       </button>
                     ) : null}
                     {isBuffering && !playerError ? (
                       <p className="player-panel__status-badge">
-                        {audioTrackNotice ?? 'Buffering playback…'}
+                        {audioTrackNotice ?? translateCurrent('Buffering playback…')}
                       </p>
                     ) : null}
                     {playerError ? (
                       <div className="player-panel__status-stack">
                         <p className="callout callout--danger">{playerError}</p>
                         <button className="button" onClick={retryCurrentSource} type="button">
-                          Retry current source
+                          {translateCurrent('Retry current source')}
                         </button>
                       </div>
                     ) : null}
@@ -1531,7 +1538,7 @@ export const MediaPlayerPanel = ({
                     srcLang={normalizeSubtitleTrackLanguage(selectedSubtitle.language)}
                   />
                 ) : null}
-                Your browser does not support HTML5 video playback.
+                {translateCurrent('Your browser does not support HTML5 video playback.')}
               </video>
             </div>
 
@@ -1540,19 +1547,21 @@ export const MediaPlayerPanel = ({
                 {nextEpisode && onSelectEpisode ? (
                   <div className="player-stage__timeline-actions">
                     <button
-                      aria-label={`Play next episode: ${nextEpisode.label}`}
+                      aria-label={translateCurrent('Play next episode: {{label}}', {
+                        label: nextEpisode.label,
+                      })}
                       className="player-panel__floating-action player-panel__floating-action--timeline"
                       onClick={goToNextEpisode}
                       type="button"
                     >
-                      Next Episode
+                      {translateCurrent('Next Episode')}
                     </button>
                   </div>
                 ) : null}
 
                 <div className="player-stage__timeline">
                   <input
-                    aria-label="Seek playback position"
+                    aria-label={translateCurrent('Seek playback position')}
                     className="player-range player-range--timeline"
                     max={seekMax || 0}
                     min={0}
@@ -1568,7 +1577,11 @@ export const MediaPlayerPanel = ({
                   <div className="player-toolbar-cluster">
                     <div className="player-toolbar-pill">
                       <button
-                        aria-label={isPlaying ? 'Pause playback' : 'Start playback'}
+                        aria-label={
+                          isPlaying
+                            ? translateCurrent('Pause playback')
+                            : translateCurrent('Start playback')
+                        }
                         className="player-control-button player-control-button--icon player-control-button--toolbar player-control-button--primary"
                         onClick={() => void togglePlay()}
                         type="button"
@@ -1576,19 +1589,19 @@ export const MediaPlayerPanel = ({
                         {isPlaying ? <PauseIcon /> : <PlayIcon />}
                       </button>
                       <button
-                        aria-label="Seek backward 10 seconds"
+                        aria-label={translateCurrent('Seek backward 10 seconds')}
                         className="player-control-button player-control-button--icon player-control-button--toolbar"
                         onClick={() => seekBy(-10)}
-                        title="Back 10 seconds"
+                        title={translateCurrent('Back 10 seconds')}
                         type="button"
                       >
                         <SeekBackIcon />
                       </button>
                       <button
-                        aria-label="Seek forward 10 seconds"
+                        aria-label={translateCurrent('Seek forward 10 seconds')}
                         className="player-control-button player-control-button--icon player-control-button--toolbar"
                         onClick={() => seekBy(10)}
-                        title="Forward 10 seconds"
+                        title={translateCurrent('Forward 10 seconds')}
                         type="button"
                       >
                         <SeekForwardIcon />
@@ -1616,7 +1629,7 @@ export const MediaPlayerPanel = ({
                           <button
                             aria-expanded={isEpisodeMenuOpen}
                             aria-haspopup="menu"
-                            aria-label="Switch episode"
+                            aria-label={translateCurrent('Switch episode')}
                             className={
                               isEpisodeMenuOpen
                                 ? 'player-control-button player-control-button--icon player-control-button--toolbar player-control-button--active'
@@ -1668,8 +1681,10 @@ export const MediaPlayerPanel = ({
                           <button
                             aria-expanded={isAudioMenuOpen}
                             aria-haspopup="menu"
-                            aria-label="Select audio track"
-                            title={`Audio: ${currentAudioSelectionLabel}`}
+                            aria-label={translateCurrent('Select audio track')}
+                            title={translateCurrent('Audio: {{name}}', {
+                              name: currentAudioSelectionLabel,
+                            })}
                             className={
                               selectedAudioTrackId !== null || isAudioMenuOpen
                                 ? 'player-control-button player-control-button--icon player-control-button--toolbar player-control-button--active'
@@ -1691,11 +1706,13 @@ export const MediaPlayerPanel = ({
                               role="menu"
                             >
                               <div className="player-popover-menu__header">
-                                <strong>Audio</strong>
+                                <strong>{translateCurrent('Audio')}</strong>
                                 <small>
                                   {audioTracksQuery.isLoading
-                                    ? 'Loading embedded audio tracks…'
-                                    : `Current: ${currentAudioSelectionLabel}`}
+                                    ? translateCurrent('Loading embedded audio tracks…')
+                                    : translateCurrent('Current: {{name}}', {
+                                        name: currentAudioSelectionLabel,
+                                      })}
                                 </small>
                               </div>
 
@@ -1709,8 +1726,8 @@ export const MediaPlayerPanel = ({
                                 role="menuitem"
                                 type="button"
                               >
-                                <span>Original default track</span>
-                                <small>Use the source file&apos;s default audio</small>
+                                <span>{translateCurrent('Original default track')}</span>
+                                <small>{translateCurrent("Use the source file's default audio")}</small>
                               </button>
 
                               {audioTracks.map((audioTrack) => (
@@ -1726,7 +1743,7 @@ export const MediaPlayerPanel = ({
                                   type="button"
                                 >
                                   <span>{formatAudioTrackLabel(audioTrack)}</span>
-                                  <small>{formatAudioTrackMeta(audioTrack) || 'Embedded'}</small>
+                                  <small>{formatAudioTrackMeta(audioTrack) || translateCurrent('Embedded')}</small>
                                 </button>
                               ))}
 
@@ -1734,7 +1751,7 @@ export const MediaPlayerPanel = ({
                                 <p className="player-popover-menu__empty">
                                   {audioTracksQuery.error
                                     ? buildAudioTrackLoadErrorMessage()
-                                    : 'No alternate audio tracks found.'}
+                                    : translateCurrent('No alternate audio tracks found.')}
                                 </p>
                               ) : null}
                             </div>
@@ -1753,7 +1770,7 @@ export const MediaPlayerPanel = ({
                         <button
                           aria-expanded={isSubtitleMenuOpen}
                           aria-haspopup="menu"
-                          aria-label="Select subtitles"
+                          aria-label={translateCurrent('Select subtitles')}
                           className={
                             selectedSubtitleId !== null || isSubtitleMenuOpen
                               ? 'player-control-button player-control-button--icon player-control-button--toolbar player-control-button--active'
@@ -1788,7 +1805,7 @@ export const MediaPlayerPanel = ({
                               role="menuitem"
                               type="button"
                             >
-                              Off
+                              {translateCurrent('Off')}
                             </button>
 
                             {subtitleFiles.map((subtitle) => (
@@ -1807,21 +1824,23 @@ export const MediaPlayerPanel = ({
                                 role="menuitem"
                                 type="button"
                               >
-                                <span>{renderSubtitleLabel(subtitle) || 'Unknown subtitle'}</span>
+                                <span>{renderSubtitleLabel(subtitle) || translateCurrent('Unknown subtitle')}</span>
                                 <small>
-                                  {subtitle.source_kind === 'embedded' ? 'Embedded' : 'External'}
+                                  {subtitle.source_kind === 'embedded'
+                                    ? translateCurrent('Embedded')
+                                    : translateCurrent('External')}
                                 </small>
                               </button>
                             ))}
 
                             {subtitleFiles.length === 0 && !subtitleFilesQuery.isLoading ? (
-                              <p className="player-popover-menu__empty">No subtitles found.</p>
+                              <p className="player-popover-menu__empty">{translateCurrent('No subtitles found.')}</p>
                             ) : null}
                             {subtitleFilesQuery.isError ? (
                               <p className="player-popover-menu__empty">
                                 {subtitleFilesQuery.error instanceof Error
                                   ? subtitleFilesQuery.error.message
-                                  : 'Failed to load subtitles'}
+                                  : translateCurrent('Failed to load subtitles')}
                               </p>
                             ) : null}
                           </div>
@@ -1830,20 +1849,22 @@ export const MediaPlayerPanel = ({
 
                       <div className="player-volume-control">
                         <button
-                          aria-label="Adjust volume"
+                          aria-label={translateCurrent('Adjust volume')}
                           className="player-control-button player-control-button--icon player-control-button--toolbar"
                           type="button"
                           title={
                             selectedAudioTrack
-                              ? `Selected audio: ${formatAudioTrackLabel(selectedAudioTrack)}`
-                              : 'Adjust volume'
+                              ? translateCurrent('Selected audio: {{name}}', {
+                                  name: formatAudioTrackLabel(selectedAudioTrack),
+                                })
+                              : translateCurrent('Adjust volume')
                           }
                         >
                           <SpeakerIcon muted={isMuted} volume={volume} />
                         </button>
                         <div className="player-volume-control__slider">
                           <input
-                            aria-label="Adjust volume"
+                            aria-label={translateCurrent('Adjust volume')}
                             className="player-range player-range--volume-inline"
                             max={1}
                             min={0}
@@ -1855,10 +1876,18 @@ export const MediaPlayerPanel = ({
                         </div>
                       </div>
                       <button
-                        aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                        aria-label={
+                          isFullscreen
+                            ? translateCurrent('Exit fullscreen')
+                            : translateCurrent('Enter fullscreen')
+                        }
                         className="player-control-button player-control-button--icon player-control-button--toolbar"
                         onClick={() => void toggleFullscreen()}
-                        title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                        title={
+                          isFullscreen
+                            ? translateCurrent('Exit fullscreen')
+                            : translateCurrent('Enter fullscreen')
+                        }
                         type="button"
                       >
                         <FullscreenIcon />
@@ -1875,15 +1904,15 @@ export const MediaPlayerPanel = ({
               <div className="player-panel__info">
                 <strong>{title}</strong>
                 <span className="muted">
-                  {formatVideoMeta(selectedMediaFile) || 'Playable source'}
+                  {formatVideoMeta(selectedMediaFile) || translateCurrent('Playable source')}
                 </span>
               </div>
               <div className="player-panel__info player-panel__info--compact">
-                <span className="muted">Current</span>
+                <span className="muted">{translateCurrent('Current')}</span>
                 <strong>{formatDuration(positionSeconds)}</strong>
               </div>
               <div className="player-panel__info player-panel__info--compact">
-                <span className="muted">Duration</span>
+                <span className="muted">{translateCurrent('Duration')}</span>
                 <strong>{formatDuration(durationSeconds)}</strong>
               </div>
             </div>
@@ -1893,7 +1922,7 @@ export const MediaPlayerPanel = ({
             <div className="player-panel__status-stack">
               <p className="callout callout--danger">{playerError}</p>
               <button className="button" onClick={retryCurrentSource} type="button">
-                Retry current source
+                {translateCurrent('Retry current source')}
               </button>
             </div>
           ) : null}
@@ -1922,7 +1951,7 @@ export const MediaPlayerPanel = ({
 
           {isBuffering && !playerError && !isImmersive ? (
             <p className="player-panel__status-badge">
-              {audioTrackNotice ?? 'Buffering playback…'}
+              {audioTrackNotice ?? translateCurrent('Buffering playback…')}
             </p>
           ) : null}
 
@@ -1939,7 +1968,7 @@ export const MediaPlayerPanel = ({
                     type="button"
                   >
                     <span className="player-source__title">
-                      {file.container?.toUpperCase() ?? 'FILE'}
+                      {file.container?.toUpperCase() ?? translateCurrent('FILE')}
                     </span>
                     <span className="player-source__meta">
                       {formatVideoMeta(file) || file.file_path}

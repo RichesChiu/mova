@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useI18n } from '../../i18n'
 
 interface ChangePasswordModalProps {
   error: string | null
@@ -16,6 +17,7 @@ export const ChangePasswordModal = ({
   onClose,
   onSubmit,
 }: ChangePasswordModalProps) => {
+  const { l } = useI18n()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -75,7 +77,7 @@ export const ChangePasswordModal = ({
   return createPortal(
     <div className="change-password-modal">
       <button
-        aria-label="Close change password dialog"
+        aria-label={l('Close change password dialog')}
         className="change-password-modal__backdrop glass-overlay-backdrop"
         disabled={isSubmitting}
         onClick={onClose}
@@ -89,12 +91,12 @@ export const ChangePasswordModal = ({
       >
         <div className="change-password-modal__header">
           <div>
-            <p className="eyebrow">Security</p>
-            <h3>Reset Password</h3>
+            <p className="eyebrow">{l('Security')}</p>
+            <h3>{l('Reset Password')}</h3>
           </div>
 
           <button
-            aria-label="Close change password dialog"
+            aria-label={l('Close change password dialog')}
             className="change-password-modal__close"
             disabled={isSubmitting}
             onClick={onClose}
@@ -119,7 +121,7 @@ export const ChangePasswordModal = ({
 
         <form className="change-password-modal__form" onSubmit={handleSubmit}>
           <label className="field">
-            <span>Current Password</span>
+            <span>{l('Current Password')}</span>
             <input
               autoComplete="current-password"
               onChange={(event) => setCurrentPassword(event.target.value)}
@@ -129,7 +131,7 @@ export const ChangePasswordModal = ({
           </label>
 
           <label className="field">
-            <span>New Password</span>
+            <span>{l('New Password')}</span>
             <input
               autoComplete="new-password"
               onChange={(event) => setNewPassword(event.target.value)}
@@ -139,7 +141,7 @@ export const ChangePasswordModal = ({
           </label>
 
           <label className="field">
-            <span>Confirm New Password</span>
+            <span>{l('Confirm New Password')}</span>
             <input
               autoComplete="new-password"
               onChange={(event) => setConfirmPassword(event.target.value)}
@@ -149,14 +151,14 @@ export const ChangePasswordModal = ({
           </label>
 
           {passwordsDoNotMatch ? (
-            <p className="callout callout--danger">The new passwords do not match.</p>
+            <p className="callout callout--danger">{l('The new passwords do not match.')}</p>
           ) : null}
 
           {error ? <p className="callout callout--danger">{error}</p> : null}
 
           <div className="change-password-modal__footer">
             <button className="button" disabled={isSubmitting} onClick={onClose} type="button">
-              Cancel
+              {l('Cancel')}
             </button>
             <button
               className="button button--primary"
@@ -169,7 +171,7 @@ export const ChangePasswordModal = ({
               }
               type="submit"
             >
-              {isSubmitting ? 'Updating…' : 'Update Password'}
+              {isSubmitting ? l('Updating…') : l('Update Password')}
             </button>
           </div>
         </form>

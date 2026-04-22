@@ -8,6 +8,7 @@ import {
 } from '../../api/client'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import { getLibraryScanRuntime } from '../../components/app-shell/scan-runtime'
+import { useI18n } from '../../i18n'
 import { mediaItemDetailPath, mediaItemPrimaryPath } from '../../lib/media-routes'
 import { MEDIA_QUERY_GC_TIME_MS, SERIES_OUTLINE_QUERY_STALE_TIME_MS } from '../../lib/query-options'
 import { ContinueWatchingSection } from './continue-watching-section'
@@ -42,6 +43,7 @@ const isEpisodeContextEntry = (entry: {
 }) => typeof entry.season_number === 'number' && typeof entry.episode_number === 'number'
 
 export const HomePage = () => {
+  const { l } = useI18n()
   const { libraries, librariesLoading, scanRuntimeByLibrary } =
     useOutletContext<AppShellOutletContext>()
 
@@ -134,7 +136,7 @@ export const HomePage = () => {
     const description = hasEpisodeContext
       ? (localizedEpisode?.overview ?? entry.episode_overview ?? null)
       : (entry.media_item.overview ?? null)
-    const placeholderLabel = hasEpisodeContext ? `${seasonNumber}-${episodeNumber}` : 'MOVIE'
+    const placeholderLabel = hasEpisodeContext ? `${seasonNumber}-${episodeNumber}` : l('Movies')
 
     return {
       artworkAlt: `${entry.media_item.title} artwork`,
@@ -152,7 +154,7 @@ export const HomePage = () => {
   const continueWatchingErrorMessage = continueWatchingQuery.isError
     ? continueWatchingQuery.error instanceof Error
       ? continueWatchingQuery.error.message
-      : 'Failed to load continue watching list'
+      : l('Failed to load continue watching list')
     : null
 
   return (

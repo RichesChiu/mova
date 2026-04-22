@@ -1,4 +1,5 @@
 import type { MediaItem, ScanJob } from '../../api/types'
+import { translateCurrent } from '../../i18n'
 
 export interface ScanRuntimeItem {
   scan_job_id: number
@@ -56,19 +57,19 @@ export const formatScanJobStatusCopy = (
   if (!effectiveScanJob) {
     if (primaryItem) {
       return primaryItem.stage === 'artwork'
-        ? `${primaryItem.title} · Fetching artwork & overview`
-        : `${primaryItem.title} · Fetching metadata`
+        ? `${primaryItem.title} · ${translateCurrent('Fetching artwork & overview')}`
+        : `${primaryItem.title} · ${translateCurrent('Fetching metadata')}`
     }
 
     return null
   }
 
   if (effectiveScanJob.status === 'pending') {
-    return 'Queued for scan'
+    return translateCurrent('Queued for scan')
   }
 
   if (effectiveScanJob.status === 'failed') {
-    return effectiveScanJob.error_message ?? 'Scan failed'
+    return effectiveScanJob.error_message ?? translateCurrent('Scan failed')
   }
 
   if (effectiveScanJob.status === 'success') {
@@ -79,33 +80,42 @@ export const formatScanJobStatusCopy = (
     case 'discovering':
       if (activeItemCount > 0) {
         return activeItemCount > 1
-          ? `Discovered ${activeItemCount} new items`
-          : `Discovered ${primaryItem?.title ?? 'new item'}`
+          ? translateCurrent('Discovered {{count}} new items', { count: activeItemCount })
+          : translateCurrent('Discovered {{title}}', {
+              title: primaryItem?.title ?? translateCurrent('new item'),
+            })
       }
       return effectiveScanJob.total_files > 0
-        ? `Scanning files ${effectiveScanJob.scanned_files}/${effectiveScanJob.total_files}`
-        : `Scanning files ${effectiveScanJob.scanned_files}`
+        ? translateCurrent('Scanning files {{scanned}}/{{total}}', {
+            scanned: effectiveScanJob.scanned_files,
+            total: effectiveScanJob.total_files,
+          })
+        : translateCurrent('Scanning files {{scanned}}', {
+            scanned: effectiveScanJob.scanned_files,
+          })
     case 'enriching':
       if (primaryItem) {
         if (primaryItem.stage === 'discovered') {
-          return `${primaryItem.title} · Waiting for metadata`
+          return `${primaryItem.title} · ${translateCurrent('Waiting for metadata')}`
         }
 
         if (primaryItem.stage === 'artwork') {
-          return `${primaryItem.title} · Fetching artwork & overview`
+          return `${primaryItem.title} · ${translateCurrent('Fetching artwork & overview')}`
         }
 
         if (primaryItem.stage === 'completed') {
-          return `${primaryItem.title} · Waiting to save`
+          return `${primaryItem.title} · ${translateCurrent('Waiting to save')}`
         }
 
-        return `${primaryItem.title} · Fetching metadata`
+        return `${primaryItem.title} · ${translateCurrent('Fetching metadata')}`
       }
-      return 'Enriching metadata'
+      return translateCurrent('Enriching metadata')
     case 'syncing':
-      return activeItemCount > 0 ? `Saving ${activeItemCount} items` : 'Saving to library'
+      return activeItemCount > 0
+        ? translateCurrent('Saving {{count}} items', { count: activeItemCount })
+        : translateCurrent('Saving to library')
     default:
-      return 'Library sync in progress'
+      return translateCurrent('Library sync in progress')
   }
 }
 
@@ -203,7 +213,7 @@ export const formatFailedScanCopy = (
     return null
   }
 
-  return effectiveScanJob.error_message ?? 'The most recent scan failed'
+  return effectiveScanJob.error_message ?? translateCurrent('The most recent scan failed')
 }
 
 export const shouldShowScanPlaceholder = (
@@ -227,7 +237,7 @@ export const formatPendingScanPlaceholderCopy = (
     return scanCopy
   }
 
-  return `Syncing ${fallbackTitle}`
+  return translateCurrent('Syncing {{title}}', { title: fallbackTitle })
 }
 
 export const formatScanItemMeta = (item: ScanRuntimeItem) => {
@@ -240,19 +250,19 @@ export const formatScanItemMeta = (item: ScanRuntimeItem) => {
     return `S${String(item.season_number).padStart(2, '0')} · E${String(item.episode_number).padStart(2, '0')}`
   }
 
-  return item.media_type
+  return item.media_type === 'series' ? translateCurrent('Series') : translateCurrent('Movie')
 }
 
 export const formatScanItemProgressCopy = (item: ScanRuntimeItem) => {
   switch (item.stage) {
     case 'discovered':
-      return 'Waiting for metadata'
+      return translateCurrent('Waiting for metadata')
     case 'artwork':
-      return 'Fetching artwork & overview'
+      return translateCurrent('Fetching artwork & overview')
     case 'completed':
-      return 'Waiting to save to library'
+      return translateCurrent('Waiting to save to library')
     default:
-      return 'Fetching metadata'
+      return translateCurrent('Fetching metadata')
   }
 }
 
@@ -356,7 +366,9 @@ export const formatMediaItemScanStatusCopy = (
 
   const progressCopy = formatScanItemProgressCopy(primaryItem)
   if (matchingItems.length > 1) {
-    return `${progressCopy} · ${matchingItems.length - 1} more related items syncing`
+    return `${progressCopy} · ${translateCurrent('{{count}} more related items syncing', {
+      count: matchingItems.length - 1,
+    })}`
   }
 
   return progressCopy

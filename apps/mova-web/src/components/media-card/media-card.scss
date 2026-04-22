@@ -78,7 +78,8 @@
 .media-card__meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -107,11 +108,29 @@
 
 .media-card__title {
   color: var(--text);
+  font-size: 1.22rem;
+  font-weight: 700;
   line-height: 1.28;
   display: block;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.media-card__type-tag {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0.18rem 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--button-primary-border) 42%, transparent);
+  border-radius: 0.72rem;
+  background: color-mix(in srgb, var(--button-primary-glow) 14%, transparent);
+  color: color-mix(in srgb, var(--button-primary-border) 80%, var(--text) 20%);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.15;
+  text-transform: uppercase;
 }
 
 .media-card__summary {

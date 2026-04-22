@@ -15,6 +15,7 @@ import {
   MediaCardScanPlaceholder,
   MediaCardSkeleton,
 } from '../../../components/media-card'
+import { useI18n } from '../../../i18n'
 import { ScrollableRail } from '../../../components/scrollable-rail'
 import { SectionHelp } from '../../../components/section-help'
 import type { HomeLibraryModuleData } from '../types'
@@ -27,48 +28,62 @@ interface LibraryContentSectionsProps {
 const SHELF_SKELETON_COUNT = 4
 const SHELF_SKELETON_KEYS = ['slot-a', 'slot-b', 'slot-c', 'slot-d'] as const
 
-const LibraryContentSectionSkeleton = ({ title }: { title: string }) => (
-  <section className="catalog-block library-content-sections__block">
-    <div className="catalog-block__header">
-      <div className="catalog-block__title-row">
-        <h3>{title}</h3>
-      </div>
-    </div>
+const LibraryContentSectionSkeleton = ({ title }: { title: string }) => {
+  const { l } = useI18n()
 
-    <p className="muted">Loading library shelf…</p>
-
-    <ScrollableRail
-      hint="Scroll horizontally."
-      viewportClassName="library-content-sections__viewport"
-    >
-      {SHELF_SKELETON_KEYS.slice(0, SHELF_SKELETON_COUNT).map((key) => (
-        <div className="library-content-sections__item" key={`${title}-${key}`}>
-          <MediaCardSkeleton />
+  return (
+    <section className="catalog-block library-content-sections__block">
+      <div className="catalog-block__header">
+        <div className="catalog-block__title-row">
+          <h3>{title}</h3>
         </div>
-      ))}
-    </ScrollableRail>
-  </section>
-)
+      </div>
+
+      <p className="muted">{l('Loading library shelf…')}</p>
+
+      <ScrollableRail
+        hint={l('Scroll horizontally.')}
+        viewportClassName="library-content-sections__viewport"
+      >
+        {SHELF_SKELETON_KEYS.slice(0, SHELF_SKELETON_COUNT).map((key) => (
+          <div className="library-content-sections__item" key={`${title}-${key}`}>
+            <MediaCardSkeleton />
+          </div>
+        ))}
+      </ScrollableRail>
+    </section>
+  )
+}
 
 export const LibraryContentSections = ({
   isLoading,
   libraryModules,
 }: LibraryContentSectionsProps) => (
-  <div className="home-library-sections">
-    {isLoading
-      ? ['Loading library A', 'Loading library B'].map((title) => (
-          <LibraryContentSectionSkeleton key={title} title={title} />
-        ))
-      : libraryModules.map(
-          ({
-            detail,
-            detailLoading,
-            library,
-            scanRuntime,
-            shelfError,
-            shelfItems,
-            shelfLoading,
-          }) => {
+  <LibraryContentSectionsBody isLoading={isLoading} libraryModules={libraryModules} />
+)
+
+const LibraryContentSectionsBody = ({
+  isLoading,
+  libraryModules,
+}: LibraryContentSectionsProps) => {
+  const { l } = useI18n()
+
+  return (
+    <div className="home-library-sections">
+      {isLoading
+        ? [l('Loading library A'), l('Loading library B')].map((title) => (
+            <LibraryContentSectionSkeleton key={title} title={title} />
+          ))
+        : libraryModules.map(
+            ({
+              detail,
+              detailLoading,
+              library,
+              scanRuntime,
+              shelfError,
+              shelfItems,
+              shelfLoading,
+            }) => {
             const effectiveScanJob = getEffectiveScanJob(detail?.last_scan, scanRuntime)
             const isScanning = isLibraryScanActive(effectiveScanJob, scanRuntime)
             const showScanPlaceholder = shouldShowScanPlaceholder(detail?.last_scan, scanRuntime)
@@ -76,7 +91,7 @@ export const LibraryContentSections = ({
             const currentScanItem = scanItems[0] ?? null
             const scanCopy =
               formatScanJobStatusCopy(effectiveScanJob, scanRuntime) ??
-              (detailLoading ? 'Syncing library state' : null)
+              (detailLoading ? l('Syncing library state') : null)
             const scanProgressPercent = getScanJobProgressPercent(effectiveScanJob, scanRuntime)
 
             return (
@@ -85,13 +100,15 @@ export const LibraryContentSections = ({
                   <div className="catalog-block__title-row">
                     <h3>{library.name}</h3>
                     <SectionHelp
-                      detail="This shelf shows a quick preview from the library. Open it for the full list."
+                      detail={l(
+                        'This shelf shows a quick preview from the library. Open it for the full list.',
+                      )}
                       placement="bottom"
-                      title={`About ${library.name}`}
+                      title={l('About {{name}}', { name: library.name })}
                     />
                   </div>
                   <Link className="library-content-sections__link" to={`/libraries/${library.id}`}>
-                    <span>Open</span>
+                    <span>{l('Open')}</span>
                     <span aria-hidden="true" className="library-content-sections__link-icon">
                       <svg
                         aria-hidden="true"
@@ -116,25 +133,27 @@ export const LibraryContentSections = ({
                 {currentScanItem ? (
                   <p className="muted">
                     {formatScanItemProgressCopy(currentScanItem)}
-                    {scanItems.length > 1 ? ` · ${scanItems.length} new items discovered` : null}
+                    {scanItems.length > 1
+                      ? ` · ${l('{{count}} new items discovered', { count: scanItems.length })}`
+                      : null}
                   </p>
                 ) : scanCopy ? (
                   <p className="muted">{scanCopy}</p>
                 ) : null}
-                {shelfLoading ? <p className="muted">Loading library shelf…</p> : null}
+                {shelfLoading ? <p className="muted">{l('Loading library shelf…')}</p> : null}
                 {shelfError ? (
                   <p className="callout callout--danger">{shelfError.message}</p>
                 ) : null}
 
                 {!shelfLoading && !shelfError && shelfItems.length === 0 && !showScanPlaceholder ? (
                   <div className="catalog-block__empty">
-                    <p className="muted">No items yet.</p>
+                    <p className="muted">{l('No items yet.')}</p>
                   </div>
                 ) : null}
 
                 {shelfLoading && shelfItems.length === 0 && !showScanPlaceholder ? (
                   <ScrollableRail
-                    hint="Scroll horizontally."
+                    hint={l('Scroll horizontally.')}
                     viewportClassName="library-content-sections__viewport"
                   >
                     {SHELF_SKELETON_KEYS.slice(0, SHELF_SKELETON_COUNT).map((key) => (
@@ -149,7 +168,7 @@ export const LibraryContentSections = ({
                   // Reuse the shared rail so library shelves, continue watching, and episodes all expose
                   // the same desktop scrolling affordances.
                   <ScrollableRail
-                    hint="Scroll horizontally."
+                    hint={l('Scroll horizontally.')}
                     viewportClassName="library-content-sections__viewport"
                   >
                     {isScanning && scanItems.length === 0 ? (
@@ -158,14 +177,14 @@ export const LibraryContentSections = ({
                         key={`scan-pending-${library.id}`}
                       >
                         <MediaCardScanPlaceholder
-                          placeholderLabel="MEDIA"
+                          placeholderLabel={l('Media')}
                           progressPercent={scanProgressPercent}
                           progressText={formatPendingScanPlaceholderCopy(
                             effectiveScanJob,
                             scanRuntime,
                             library.name,
                           )}
-                          subtitle="library"
+                          subtitle={l('Library')}
                           title={library.name}
                         />
                       </div>
@@ -176,7 +195,9 @@ export const LibraryContentSections = ({
                         key={`scan-${library.id}-${item.item_key}`}
                       >
                         <MediaCardScanPlaceholder
-                          placeholderLabel={item.media_type.toUpperCase()}
+                          placeholderLabel={
+                            item.media_type === 'movie' ? l('Movies') : l('Series')
+                          }
                           progressPercent={item.progress_percent}
                           progressText={formatScanItemProgressCopy(item)}
                           subtitle={formatScanItemMeta(item)}
@@ -195,5 +216,6 @@ export const LibraryContentSections = ({
             )
           },
         )}
-  </div>
-)
+    </div>
+  )
+}

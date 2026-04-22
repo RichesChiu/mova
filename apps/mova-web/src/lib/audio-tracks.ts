@@ -1,4 +1,5 @@
 import type { AudioTrack } from '../api/types'
+import { translateCurrent } from '../i18n'
 
 const normalizeTrackLanguageToken = (language: string | null | undefined) =>
   language?.split(/[-_]/)[0]?.toLowerCase() ?? 'und'
@@ -6,23 +7,23 @@ const normalizeTrackLanguageToken = (language: string | null | undefined) =>
 const resolveTrackLanguageLabel = (language: string | null | undefined) => {
   switch (normalizeTrackLanguageToken(language)) {
     case 'zh':
-      return 'Chinese'
+      return translateCurrent('Chinese')
     case 'en':
-      return 'English'
+      return translateCurrent('English')
     case 'ja':
-      return 'Japanese'
+      return translateCurrent('Japanese')
     case 'ko':
-      return 'Korean'
+      return translateCurrent('Korean')
     case 'fr':
-      return 'French'
+      return translateCurrent('French')
     case 'de':
-      return 'German'
+      return translateCurrent('German')
     case 'es':
-      return 'Spanish'
+      return translateCurrent('Spanish')
     case 'und':
-      return 'Unknown language'
+      return translateCurrent('Unknown language')
     default:
-      return language?.toUpperCase() ?? 'Unknown language'
+      return language?.toUpperCase() ?? translateCurrent('Unknown language')
   }
 }
 
@@ -34,23 +35,25 @@ export const formatAudioTrackLabel = (audioTrack: AudioTrack) =>
 export const formatAudioTrackMeta = (audioTrack: AudioTrack) =>
   [
     audioTrack.audio_codec?.toUpperCase() ?? null,
-    audioTrack.is_default ? 'Default in source' : 'Embedded alternate',
+    audioTrack.is_default
+      ? translateCurrent('Default in source')
+      : translateCurrent('Embedded alternate'),
   ]
     .filter(Boolean)
     .join(' · ')
 
 export const describeAudioTrackSelection = (audioTrack: AudioTrack | null) =>
-  audioTrack ? formatAudioTrackLabel(audioTrack) : 'Original default track'
+  audioTrack ? formatAudioTrackLabel(audioTrack) : translateCurrent('Original default track')
 
 export const buildAudioTrackSwitchingMessage = (audioTrack: AudioTrack | null) =>
   audioTrack
-    ? `Switching audio to ${formatAudioTrackLabel(audioTrack)}…`
-    : 'Switching audio back to the original default track…'
+    ? translateCurrent('Switching audio to {{name}}…', { name: formatAudioTrackLabel(audioTrack) })
+    : translateCurrent('Switching audio back to the original default track…')
 
 export const buildAudioTrackReadyMessage = (audioTrack: AudioTrack | null) =>
   audioTrack
-    ? `Audio switched to ${formatAudioTrackLabel(audioTrack)}.`
-    : 'Audio switched back to the original default track.'
+    ? translateCurrent('Audio switched to {{name}}.', { name: formatAudioTrackLabel(audioTrack) })
+    : translateCurrent('Audio switched back to the original default track.')
 
 export const buildAudioTrackLoadErrorMessage = () =>
-  'Audio tracks could not be loaded. Playback will stay on the current audio.'
+  translateCurrent('Audio tracks could not be loaded. Playback will stay on the current audio.')

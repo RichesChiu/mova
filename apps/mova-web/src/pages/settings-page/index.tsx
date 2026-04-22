@@ -26,6 +26,7 @@ import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { SettingsGearIcon } from '../../components/settings-gear-icon'
 import { StatusPill } from '../../components/status-pill'
 import { UserEditorModal } from '../../components/user-editor-modal'
+import { useI18n } from '../../i18n'
 import {
   buildCreatedLibraryCacheState,
   buildCreatedUserCacheState,
@@ -72,7 +73,7 @@ const SettingsUserCardSkeleton = () => (
   </article>
 )
 
-const SettingsLibraryCardSkeleton = () => (
+const SettingsLibraryCardSkeleton = ({ rootPathLabel }: { rootPathLabel: string }) => (
   <article aria-hidden="true" className="settings-library-card settings-library-card--loading">
     <div aria-hidden="true" className="settings-library-card__backdrop">
       <span className="settings-library-card__backdrop-glow" />
@@ -80,16 +81,15 @@ const SettingsLibraryCardSkeleton = () => (
 
     <div className="settings-library-card__body">
       <div className="settings-library-card__header">
+        <span className="settings-library-card__line settings-library-card__line--title skeleton-shimmer" />
         <span className="settings-library-card__button settings-library-card__button--icon skeleton-shimmer" />
       </div>
-
-      <span className="settings-library-card__line settings-library-card__line--title skeleton-shimmer" />
       <span className="settings-library-card__line settings-library-card__line--description skeleton-shimmer" />
       <span className="settings-library-card__line settings-library-card__line--description-alt skeleton-shimmer" />
       <span className="settings-library-card__line settings-library-card__line--meta skeleton-shimmer" />
 
       <div className="settings-library-card__path-block">
-        <span className="settings-library-card__path-label">Root path</span>
+        <span className="settings-library-card__path-label">{rootPathLabel}</span>
         <span className="settings-library-card__path settings-library-card__path--loading skeleton-shimmer" />
       </div>
     </div>
@@ -102,6 +102,7 @@ const SettingsLibraryCardSkeleton = () => (
 )
 
 export const SettingsPage = () => {
+  const { l } = useI18n()
   const { currentUser, libraries, librariesLoading } = useOutletContext<AppShellOutletContext>()
   const queryClient = useQueryClient()
   const [isCreateLibraryOpen, setIsCreateLibraryOpen] = useState(false)
@@ -304,7 +305,7 @@ export const SettingsPage = () => {
   })
 
   if (currentUser.role !== 'admin') {
-    return <p className="callout callout--danger">Admin permission required.</p>
+    return <p className="callout callout--danger">{l('Admin permission required.')}</p>
   }
 
   const activeUserModalError = isCreateUserOpen
@@ -355,47 +356,47 @@ export const SettingsPage = () => {
           <SettingsGearIcon className="settings-hero__icon" />
         </div>
         <div className="settings-hero__copy">
-          <p className="eyebrow">Admin Settings</p>
-          <h2>Server Settings</h2>
+          <p className="eyebrow">{l('Admin Settings')}</p>
+          <h2>{l('Server Settings')}</h2>
         </div>
       </section>
 
       <section className="settings-section settings-section--users">
         <div className="section-heading">
           <div>
-            <h3>User Management</h3>
+            <h3>{l('User Management')}</h3>
           </div>
           <button
             className="button button--primary button--toolbar"
             onClick={() => setIsCreateUserOpen(true)}
             type="button"
           >
-            <span>Create User</span>
+            <span>{l('Create User')}</span>
           </button>
         </div>
 
         {usersQuery.isError ? (
           <p className="callout callout--danger">
-            {usersQuery.error instanceof Error ? usersQuery.error.message : 'Failed to load users'}
+            {usersQuery.error instanceof Error ? usersQuery.error.message : l('Failed to load users')}
           </p>
         ) : null}
         {updateUserMutation.isError && !editingUser ? (
           <p className="callout callout--danger">
             {updateUserMutation.error instanceof Error
               ? updateUserMutation.error.message
-              : 'Failed to update user'}
+              : l('Failed to update user')}
           </p>
         ) : null}
         {deleteUserMutation.isError ? (
           <p className="callout callout--danger">
             {deleteUserMutation.error instanceof Error
               ? deleteUserMutation.error.message
-              : 'Failed to delete user'}
+              : l('Failed to delete user')}
           </p>
         ) : null}
 
         <div className="settings-user-list">
-          {shouldShowUserSkeleton ? <p className="muted">Loading users…</p> : null}
+          {shouldShowUserSkeleton ? <p className="muted">{l('Loading users…')}</p> : null}
 
           {shouldShowUserSkeleton
             ? USER_SKELETON_KEYS.slice(0, USER_SKELETON_COUNT).map((key) => (
@@ -408,10 +409,10 @@ export const SettingsPage = () => {
                 const displayName = getUserDisplayName(user)
                 const showUsername = displayName !== user.username
                 const roleLabel = user.is_primary_admin
-                  ? 'Primary Admin'
+                  ? l('Primary Admin')
                   : user.role === 'admin'
-                    ? 'Administrator'
-                    : 'Member'
+                    ? l('Administrator')
+                    : l('Member')
                 const canManageThisUser = user.role === 'viewer' || canManageAdminAccounts
                 const canEditUser =
                   canManageThisUser && user.id !== currentUser.id && !user.is_primary_admin
@@ -432,7 +433,7 @@ export const SettingsPage = () => {
                           <div className="settings-user-card__identity-meta">
                             <StatusPill status={roleLabel} />
                             {user.id === currentUser.id ? (
-                              <span className="settings-user-card__self-badge">You</span>
+                              <span className="settings-user-card__self-badge">{l('You')}</span>
                             ) : null}
                           </div>
                         </div>
@@ -453,10 +454,10 @@ export const SettingsPage = () => {
                               />
                               <span className="settings-user-card__switch-track">
                                 <span className="settings-user-card__switch-copy settings-user-card__switch-copy--off">
-                                  Off
+                                  {l('Off')}
                                 </span>
                                 <span className="settings-user-card__switch-copy settings-user-card__switch-copy--on">
-                                  On
+                                  {l('On')}
                                 </span>
                               </span>
                             </label>
@@ -464,7 +465,7 @@ export const SettingsPage = () => {
 
                           {canEditUser ? (
                             <button
-                              aria-label={`Edit ${user.username}`}
+                              aria-label={l('Edit {{name}}', { name: user.username })}
                               className="settings-user-card__edit-icon"
                               onClick={() => setEditingUser(user)}
                               type="button"
@@ -495,7 +496,7 @@ export const SettingsPage = () => {
 
                           {canDeleteUser ? (
                             <button
-                              aria-label={`Delete ${user.username}`}
+                              aria-label={l('Delete {{name}}', { name: user.username })}
                               className="settings-user-card__delete-icon"
                               disabled={deleteUserMutation.isPending}
                               onClick={() => {
@@ -536,14 +537,14 @@ export const SettingsPage = () => {
       <section className="settings-section settings-section--libraries">
         <div className="section-heading">
           <div>
-            <h3>Library Management</h3>
+            <h3>{l('Library Management')}</h3>
           </div>
           <button
             className="button button--primary button--toolbar"
             onClick={() => setIsCreateLibraryOpen(true)}
             type="button"
           >
-            <span>Create Library</span>
+            <span>{l('Create Library')}</span>
           </button>
         </div>
 
@@ -551,17 +552,17 @@ export const SettingsPage = () => {
           <p className="callout callout--danger">
             {deleteLibraryMutation.error instanceof Error
               ? deleteLibraryMutation.error.message
-              : 'Failed to delete library'}
+              : l('Failed to delete library')}
           </p>
         ) : null}
 
         {shouldShowLibrarySkeleton || libraries.length > 0 ? (
           <div className="settings-library-list">
-            {shouldShowLibrarySkeleton ? <p className="muted">Loading libraries…</p> : null}
+            {shouldShowLibrarySkeleton ? <p className="muted">{l('Loading libraries…')}</p> : null}
 
             {shouldShowLibrarySkeleton
               ? LIBRARY_SKELETON_KEYS.slice(0, LIBRARY_SKELETON_COUNT).map((key) => (
-                  <SettingsLibraryCardSkeleton key={key} />
+                  <SettingsLibraryCardSkeleton key={key} rootPathLabel={l('Root path')} />
                 ))
               : null}
 
@@ -580,8 +581,9 @@ export const SettingsPage = () => {
 
                       <div className="settings-library-card__body">
                         <div className="settings-library-card__header">
+                          <strong className="settings-library-card__title">{library.name}</strong>
                           <button
-                            aria-label={`Edit ${library.name}`}
+                            aria-label={l('Edit {{name}}', { name: library.name })}
                             className="settings-library-card__edit-icon"
                             onClick={() => setEditingLibrary(library)}
                             type="button"
@@ -609,18 +611,18 @@ export const SettingsPage = () => {
                             </svg>
                           </button>
                         </div>
-
-                        <strong className="settings-library-card__title">{library.name}</strong>
                         <p className="settings-library-card__description">
-                          {library.description ?? 'No description'}
+                          {library.description ?? l('No description')}
                         </p>
                         <p className="settings-library-card__language-note">
-                          Metadata language: {library.metadata_language}
+                          {l('Metadata language: {{language}}', {
+                            language: library.metadata_language,
+                          })}
                         </p>
 
                         <div className="settings-library-card__scan">
                           <div className="settings-library-card__scan-header">
-                            <span className="settings-library-card__path-label">Latest Scan</span>
+                            <span className="settings-library-card__path-label">{l('Latest Scan')}</span>
                             <span
                               className={`settings-library-card__scan-badge settings-library-card__scan-badge--${lastScanStatusTone}`}
                             >
@@ -633,7 +635,7 @@ export const SettingsPage = () => {
                         </div>
 
                         <div className="settings-library-card__path-block">
-                          <span className="settings-library-card__path-label">Root path</span>
+                          <span className="settings-library-card__path-label">{l('Root path')}</span>
                           <code className="settings-library-card__path">{library.root_path}</code>
                         </div>
                       </div>
@@ -645,7 +647,7 @@ export const SettingsPage = () => {
                           onClick={() => scanMutation.mutate(library.id)}
                           type="button"
                         >
-                          {scanMutation.isPending ? 'Triggering…' : 'Scan Library'}
+                          {scanMutation.isPending ? l('Triggering…') : l('Scan Library')}
                         </button>
                         <button
                           className="button button--danger settings-library-card__delete"
@@ -661,8 +663,8 @@ export const SettingsPage = () => {
                         >
                           {deleteLibraryMutation.isPending &&
                           deleteLibraryMutation.variables === library.id
-                            ? 'Deleting…'
-                            : 'Delete Library'}
+                            ? l('Deleting…')
+                            : l('Delete Library')}
                         </button>
                       </div>
                     </article>
@@ -718,7 +720,7 @@ export const SettingsPage = () => {
       />
 
       <ConfirmActionModal
-        confirmLabel={confirmationCopy?.confirmLabel ?? 'Confirm'}
+        confirmLabel={confirmationCopy?.confirmLabel ?? l('Confirm')}
         description={confirmationCopy?.description ?? ''}
         error={confirmationError}
         isOpen={pendingConfirmation !== null}
@@ -744,7 +746,7 @@ export const SettingsPage = () => {
             onSuccess: () => setPendingConfirmation(null),
           })
         }}
-        title={confirmationCopy?.title ?? 'Confirm action'}
+        title={confirmationCopy?.title ?? l('Confirm action')}
       />
     </div>
   )

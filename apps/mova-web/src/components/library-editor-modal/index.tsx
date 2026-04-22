@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Library, UpdateLibraryInput } from '../../api/types'
+import { useI18n } from '../../i18n'
 import {
   buildLibraryEditorDraft,
   buildLibraryUpdateInput,
@@ -21,17 +22,6 @@ interface LibraryEditorModalProps {
 const libraryBadge = (library: Library | null) =>
   library?.name.trim().charAt(0).toUpperCase() || 'L'
 
-const metadataLanguageOptions: GlassSelectOption[] = [
-  { value: 'zh-CN', label: 'Chinese (zh-CN)' },
-  { value: 'en-US', label: 'English (en-US)' },
-]
-
-const LIBRARY_TYPE_HELP =
-  'Libraries now detect movies and series automatically from the imported files. No manual type selection is required.'
-
-const ROOT_PATH_HELP =
-  'This shows the in-container path. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so the /media/... value shown here is the real scan path used by the app.'
-
 export const LibraryEditorModal = ({
   error,
   isOpen,
@@ -40,6 +30,7 @@ export const LibraryEditorModal = ({
   onClose,
   onUpdate,
 }: LibraryEditorModalProps) => {
+  const { l } = useI18n()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [metadataLanguage, setMetadataLanguage] = useState('zh-CN')
@@ -104,11 +95,15 @@ export const LibraryEditorModal = ({
     description,
     metadataLanguage,
   })
+  const metadataLanguageOptions: GlassSelectOption[] = [
+    { value: 'zh-CN', label: `${l('Chinese')} (zh-CN)` },
+    { value: 'en-US', label: `${l('English')} (en-US)` },
+  ]
 
   return createPortal(
     <div className="library-editor-modal">
       <button
-        aria-label="Close library editor dialog"
+        aria-label={l('Close library editor dialog')}
         className="library-editor-modal__backdrop glass-overlay-backdrop"
         onClick={onClose}
         type="button"
@@ -123,13 +118,13 @@ export const LibraryEditorModal = ({
           <div className="library-editor-modal__identity">
             <div className="library-editor-modal__badge">{libraryBadge(library)}</div>
             <div>
-              <p className="eyebrow">Library Management</p>
-              <h3>Edit Library</h3>
+              <p className="eyebrow">{l('Library Management')}</p>
+              <h3>{l('Edit Library')}</h3>
             </div>
           </div>
 
           <button
-            aria-label="Close library editor dialog"
+            aria-label={l('Close library editor dialog')}
             className="library-editor-modal__close"
             onClick={onClose}
             type="button"
@@ -153,10 +148,10 @@ export const LibraryEditorModal = ({
 
         <form className="stack" onSubmit={handleSubmit}>
           <label className="field">
-            <span>Library Name</span>
+            <span>{l('Library Name')}</span>
             <input
               onChange={(event) => setName(event.target.value)}
-              placeholder="Media"
+              placeholder={l('Media')}
               type="text"
               value={name}
             />
@@ -165,31 +160,36 @@ export const LibraryEditorModal = ({
           <div className="library-editor-modal__facts">
             <article className="library-editor-modal__fact">
               <div className="field__label">
-                <span className="field__label-copy">Detection</span>
-                <SectionHelp detail={LIBRARY_TYPE_HELP} title="Automatic detection" />
+                <span className="field__label-copy">{l('Detection')}</span>
+                <SectionHelp
+                  detail={l(
+                    'Libraries now detect movies and series automatically from the imported files. No manual type selection is required.',
+                  )}
+                  title={l('Automatic detection')}
+                />
               </div>
-              <strong>Automatic</strong>
+              <strong>{l('Automatic')}</strong>
             </article>
             <article className="library-editor-modal__fact">
-              <span>Metadata Language</span>
+              <span>{l('Metadata Language')}</span>
               <strong>{metadataLanguage}</strong>
             </article>
           </div>
 
           <label className="field">
-            <span>Description</span>
+            <span>{l('Description')}</span>
             <textarea
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="What is this library for?"
+              placeholder={l('What is this library for?')}
               rows={4}
               value={description}
             />
           </label>
 
           <div className="field">
-            <span>Metadata Language</span>
+            <span>{l('Metadata Language')}</span>
             <GlassSelect
-              ariaLabel="Library metadata language"
+              ariaLabel={l('Metadata Language')}
               onChange={setMetadataLanguage}
               options={metadataLanguageOptions}
               value={metadataLanguage}
@@ -198,8 +198,13 @@ export const LibraryEditorModal = ({
 
           <div className="field">
             <div className="field__label">
-              <span className="field__label-copy">Root Path</span>
-              <SectionHelp detail={ROOT_PATH_HELP} title="Root path help" />
+              <span className="field__label-copy">{l('Root Path')}</span>
+              <SectionHelp
+                detail={l(
+                  'This shows the in-container path. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so the /media/... value shown here is the real scan path used by the app.',
+                )}
+                title={l('Root path help')}
+              />
             </div>
             <code className="library-editor-modal__path">{library.root_path}</code>
           </div>
@@ -208,14 +213,14 @@ export const LibraryEditorModal = ({
 
           <div className="library-editor-modal__footer">
             <button className="button" onClick={onClose} type="button">
-              Cancel
+              {l('Cancel')}
             </button>
             <button
               className="button button--primary"
               disabled={isSubmitting || normalizedName.length === 0 || !hasChanges}
               type="submit"
             >
-              {isSubmitting ? 'Saving…' : 'Save Changes'}
+              {isSubmitting ? l('Saving…') : l('Save Changes')}
             </button>
           </div>
         </form>
