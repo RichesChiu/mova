@@ -1,6 +1,6 @@
 # AGENTS
 
-这份文件保持简短，只记录当前仓库里最高优先级、最稳定的 AI 协作规则，不重复 `README.md`、`docs/API.md` 和 `.codex/skills/` 里的执行细节。
+这份文件保持简短，只记录当前仓库里最高优先级、最稳定的 AI 协作规则，不重复 `README.md`、`docs/API.md` 和 `skills/` 里的执行细节。
 
 如果规则冲突，按下面顺序执行：
 1. 当前用户在对话里的明确要求
@@ -54,6 +54,16 @@
   数据库迁移。
 - `scripts`
   辅助脚本，包括 Python 媒体分析任务。
+- `skills`
+  仓库内 skill 定义目录，当前包含 `mova-backend` 和 `mova-frontend`。
+
+## Skill 分工
+
+- `mova-backend`
+  负责 Rust 后端、数据库、扫描链路、迁移、脚本和通用仓库执行路径。
+- `mova-frontend`
+  负责 `apps/mova-web` 的 UI、交互、样式、播放器界面和前端验证。
+- 如果任务同时改前后端，两边的 skill 都要用；不要把跨领域的公共规则再重复写进 skill。
 
 ## 给 AI 的补充说明
 
