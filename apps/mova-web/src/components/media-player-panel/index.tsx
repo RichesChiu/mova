@@ -1269,14 +1269,8 @@ export const MediaPlayerPanel = ({
     !hasSkippedIntro &&
     positionSeconds >= intro.startSeconds &&
     positionSeconds < intro.endSeconds
-  const shouldShowNextEpisodePrompt =
-    nextEpisode !== null &&
-    seekMax > 0 &&
-    !playerError &&
-    Math.max(0, seekMax - positionSeconds) <= 30
   const shouldShowOverlay =
     canSkipIntro ||
-    shouldShowNextEpisodePrompt ||
     shouldShowImmersiveOverlay({
       hasInteractionWarning: interactionWarning !== null,
       hasMultipleSources: mediaFiles.length > 1,
@@ -1460,15 +1454,6 @@ export const MediaPlayerPanel = ({
                     {canSkipIntro ? (
                       <button className="player-panel__floating-action" onClick={skipIntro} type="button">
                         {translateCurrent('Skip Intro')}
-                      </button>
-                    ) : null}
-                    {shouldShowNextEpisodePrompt ? (
-                      <button
-                        className="player-panel__floating-action player-panel__floating-action--accent"
-                        onClick={goToNextEpisode}
-                        type="button"
-                      >
-                        {translateCurrent('Next Episode')}
                       </button>
                     ) : null}
                     {isBuffering && !playerError ? (
