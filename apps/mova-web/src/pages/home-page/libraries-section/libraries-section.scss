@@ -193,12 +193,11 @@
 }
 
 .library-spotlight__stat {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-grid;
+  place-items: center;
   min-width: 0;
-  min-height: 30px;
-  padding: 6px 10px;
+  height: 30px;
+  padding: 0 10px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--floating-surface) 82%, transparent);
@@ -206,7 +205,7 @@
   box-shadow: var(--panel-inset);
   font-size: 0.78rem;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.05;
   text-align: center;
   white-space: nowrap;
   overflow: hidden;
@@ -215,7 +214,7 @@
 
 .library-spotlight__stat--loading {
   width: 88px;
-  min-height: 30px;
+  height: 30px;
   border-color: color-mix(in srgb, var(--floating-border) 72%, transparent);
   background: transparent;
   color: transparent;
