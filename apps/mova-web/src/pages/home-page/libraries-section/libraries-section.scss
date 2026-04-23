@@ -124,6 +124,7 @@
 
 .library-spotlight__stats {
   display: flex;
+  align-items: center;
   flex-wrap: nowrap;
   gap: 6px;
   min-height: 30px;
@@ -194,7 +195,9 @@
 .library-spotlight__stat {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-width: 0;
+  min-height: 30px;
   padding: 6px 10px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   border-radius: 999px;
@@ -203,6 +206,8 @@
   box-shadow: var(--panel-inset);
   font-size: 0.78rem;
   font-weight: 700;
+  line-height: 1;
+  text-align: center;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

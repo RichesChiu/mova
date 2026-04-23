@@ -244,13 +244,11 @@ const zhCN: Record<string, string> = {
   'Failed to load episodes': '加载剧集失败',
   'No local episodes available in this series yet.': '这部剧目前还没有本地可用剧集。',
   'Cast': '演员',
-  'Main Cast': '主要演员',
   'Loading cast…': '正在加载演员信息…',
   'Cast details are unavailable right now.': '当前无法获取演员信息。',
   'Actor': '演员',
   'as {{character}}': '饰 {{character}}',
   'Source Files': '资源文件',
-  'Technical Details': '技术信息',
   'Episode Source': '剧集资源',
   'Source Details': '资源详情',
   'Showing the next playable episode after your latest completed watch in this season.':

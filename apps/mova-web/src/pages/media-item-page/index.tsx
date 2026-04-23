@@ -817,7 +817,6 @@ export const MediaItemPage = () => {
           <div className="cast-panel__header">
             <div>
               <p className="eyebrow">{l('Cast')}</p>
-              <h3>{l('Main Cast')}</h3>
             </div>
             {!castQuery.isLoading ? (
               <span className="counter-badge">{castMembers.length}</span>
@@ -868,7 +867,6 @@ export const MediaItemPage = () => {
           <div className="media-file-panel__header">
             <div>
               <p className="eyebrow">{l('Source Files')}</p>
-              <h3>{l('Technical Details')}</h3>
               {isSeriesView && sourceContextDescription ? (
                 <p className="media-file-panel__description">{sourceContextDescription}</p>
               ) : null}
