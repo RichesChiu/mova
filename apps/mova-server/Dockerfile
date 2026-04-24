@@ -39,7 +39,7 @@ WORKDIR /app
 
 COPY Cargo.toml ./
 COPY Cargo.lock ./
-COPY apps ./apps
+COPY apps/mova-server ./apps/mova-server
 COPY crates ./crates
 COPY migrations ./migrations
 
