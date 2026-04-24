@@ -132,7 +132,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 10px;
 }
 
 .detail-hero__version-picker {
@@ -619,35 +619,47 @@
 .season-picker {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 
 .season-picker__button {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  min-height: 38px;
-  padding: 8px 14px;
-  border: 1px solid var(--floating-border);
-  border-radius: 999px;
-  background: var(--floating-surface);
+  justify-content: center;
+  min-width: 44px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 86%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--floating-surface) 78%, transparent);
   color: var(--text-muted);
-  box-shadow: var(--panel-inset), var(--floating-shadow);
+  box-shadow: var(--panel-inset);
+  font-size: 0.88rem;
+  font-weight: 760;
+  line-height: 1;
   transition:
     border-color 160ms ease,
     background 160ms ease,
-    color 160ms ease;
+    color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
 .season-picker__button:hover {
-  border-color: var(--button-primary-border);
-  background: var(--floating-surface-strong);
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--button-primary-border) 68%, var(--floating-border));
+  background: color-mix(in srgb, var(--floating-surface-strong) 88%, transparent);
+  box-shadow:
+    var(--panel-inset),
+    0 10px 24px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .season-picker__button--active {
   color: var(--accent-strong);
-  border-color: var(--button-primary-border);
-  background: var(--floating-surface-strong);
+  border-color: color-mix(in srgb, var(--button-primary-border) 82%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 18%, transparent), transparent),
+    color-mix(in srgb, var(--floating-surface-strong) 90%, transparent);
 }
 
 @media (min-width: 721px) and (max-width: 960px) {

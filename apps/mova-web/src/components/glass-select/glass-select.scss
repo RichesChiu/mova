@@ -8,11 +8,12 @@
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  min-height: 46px;
+  height: var(--control-height);
+  min-height: var(--control-height);
   border: 1px solid var(--input-border);
   border-radius: 15px;
   background: var(--input-background);
-  padding: 12px 14px;
+  padding: 0 14px;
   color: var(--text);
   box-shadow:
     var(--panel-inset),
@@ -53,8 +54,9 @@
 }
 
 .glass-select--compact .glass-select__trigger {
-  min-height: 36px;
-  padding: 8px 11px;
+  height: var(--control-height-compact);
+  min-height: var(--control-height-compact);
+  padding: 0 11px;
   border-radius: 12px;
   gap: 10px;
   box-shadow:

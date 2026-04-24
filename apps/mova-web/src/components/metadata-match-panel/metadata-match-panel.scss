@@ -72,17 +72,20 @@
 
 .metadata-match-modal__form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(120px, 148px) auto;
+  grid-template-columns: minmax(220px, 1fr) minmax(112px, 132px) max-content;
   gap: 12px;
   align-items: end;
 }
 
+.metadata-match-modal__form .field,
+.metadata-match-modal__form input,
 .metadata-match-modal__year-field {
   min-width: 0;
 }
 
-.metadata-match-modal__form > .button {
-  min-width: 120px;
+.metadata-match-modal__search-button {
+  min-width: 112px;
+  width: 100%;
 }
 
 .metadata-match-modal__results {
@@ -202,6 +205,20 @@
   gap: 12px;
 }
 
+@media (max-width: 860px) {
+  .metadata-match-modal__form {
+    grid-template-columns: minmax(0, 1fr) minmax(112px, 148px);
+  }
+
+  .metadata-match-modal__form .field:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .metadata-match-modal__search-button {
+    min-width: 0;
+  }
+}
+
 @media (max-width: 720px) {
   .metadata-match-modal__surface {
     padding: 20px;
@@ -211,7 +228,12 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .metadata-match-modal__form > .button {
+  .metadata-match-modal__form .field:first-child,
+  .metadata-match-modal__search-button {
+    grid-column: auto;
+  }
+
+  .metadata-match-modal__search-button {
     width: 100%;
   }
 }

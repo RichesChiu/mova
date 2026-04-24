@@ -206,7 +206,7 @@ export const MetadataMatchPanel = ({
                   </label>
 
                   <button
-                    className="button button--primary"
+                    className="button button--primary metadata-match-modal__search-button"
                     disabled={searchMutation.isPending}
                     type="submit"
                   >

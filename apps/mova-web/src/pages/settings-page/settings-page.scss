@@ -613,7 +613,7 @@
 
 .settings-library-card__button {
   width: 100%;
-  min-height: 40px;
+  min-height: var(--control-height);
 }
 
 @media (max-width: 720px) {

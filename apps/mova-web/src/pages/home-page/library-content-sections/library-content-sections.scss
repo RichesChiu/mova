@@ -34,16 +34,16 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  min-height: 40px;
-  padding: 8px 10px 8px 16px;
+  min-height: var(--control-height);
+  padding: 0 10px 0 16px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
-  border-radius: 999px;
+  border-radius: 10px;
   background: color-mix(in srgb, var(--button-background) 92%, transparent);
-  box-shadow: var(--button-shadow);
+  box-shadow: var(--panel-inset);
   color: var(--text);
-  font-size: 0.88rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: 0.92rem;
+  font-weight: 760;
+  line-height: 1;
   transition:
     transform 160ms ease,
     border-color 160ms ease,
@@ -53,10 +53,12 @@
 }
 
 .library-content-sections__link:hover {
-  transform: none;
-  border-color: var(--button-primary-border);
-  background: color-mix(in srgb, var(--button-primary-background) 88%, transparent);
-  box-shadow: var(--button-shadow-hover);
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--button-primary-border) 72%, var(--button-border));
+  background: color-mix(in srgb, var(--floating-surface-strong) 88%, transparent);
+  box-shadow:
+    var(--panel-inset),
+    0 12px 30px color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent-strong);
 }
 
@@ -78,5 +80,5 @@
 .library-content-sections__link:hover .library-content-sections__link-icon {
   transform: translateX(1px);
   border-color: color-mix(in srgb, var(--button-primary-border) 72%, transparent);
-  background: color-mix(in srgb, var(--button-primary-background) 92%, transparent);
+  background: color-mix(in srgb, var(--floating-surface-strong) 92%, transparent);
 }

@@ -34,8 +34,9 @@
   align-items: center;
   gap: 12px;
   width: min(100%, 460px);
-  min-height: 48px;
-  padding: 6px 8px 6px 14px;
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: 4px 8px 4px 14px;
   border: 1px solid color-mix(in srgb, var(--input-border) 88%, transparent);
   border-radius: 18px;
   background:
@@ -88,7 +89,8 @@
 .profile-page__input {
   flex: 1 1 220px;
   min-width: 0;
-  min-height: 36px;
+  height: 100%;
+  min-height: 0;
   padding: 0;
   border: 0;
   background: transparent;
@@ -159,8 +161,10 @@
   }
 
   .profile-page__editor-surface {
+    height: auto;
     flex-wrap: wrap;
     align-items: stretch;
+    padding-block: 8px;
   }
 
   .profile-page__editor-actions {

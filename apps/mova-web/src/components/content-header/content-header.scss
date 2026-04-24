@@ -160,11 +160,11 @@
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 42px;
+  min-height: var(--control-height);
   border: 1px solid transparent;
   border-radius: 14px;
   background: transparent;
-  padding: 10px 12px;
+  padding: 0 12px;
   color: var(--text);
   text-align: left;
   transition:
