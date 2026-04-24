@@ -1,14 +1,15 @@
 # AGENTS
 
-这份文件保持简短，只记录当前仓库里最高优先级、最稳定的 AI 协作规则，不重复 `README.md`、`docs/API.md` 和 `skills/` 里的执行细节。
+这份文件保持简短，只记录当前仓库里最高优先级、最稳定的 AI 协作规则，不重复 `README.md`、`docs/API.md` 和目录级 `AGENTS.md` 里的执行细节。
 
 如果规则冲突，按下面顺序执行：
 1. 当前用户在对话里的明确要求
 2. `AGENTS.md`
-3. 仓库内 skill 说明
-4. 其他项目文档
+3. 其他项目文档
 
-写代码时，规范、约束、协作方式默认只以 `AGENTS.md` 和 skill 为准。  
+如果多个 `AGENTS.md` 同时适用，根目录 `AGENTS.md` 负责全局规则，离被改文件更近的目录级 `AGENTS.md` 负责该区域的执行细节。
+
+写代码时，规范、约束、协作方式默认只以适用的 `AGENTS.md` 为准。
 `README.md`、`docs/API.md`、`apps/*/README.md`、`crates/*/README.md` 这类文档只在当前任务确实需要产品说明、接口字段、运行方式或模块背景时按需查阅，不作为默认规范来源。
 
 ## 协作规则
@@ -54,17 +55,20 @@
   数据库迁移。
 - `scripts`
   辅助脚本，包括 Python 媒体分析任务。
-- `skills`
-  仓库内 skill 定义目录，当前包含 `mova-backend` 和 `mova-frontend`。
 
-## Skill 分工
+## 目录级 AGENTS 分工
 
-- `mova-backend`
-  负责 Rust 后端、数据库、扫描链路、迁移、脚本和通用仓库执行路径。
-- `mova-frontend`
+- `apps/mova-web/AGENTS.md`
   负责 `apps/mova-web` 的 UI、交互、样式、播放器界面和前端验证。
-- 优先按实际改动文件所在目录选择 skill；如果跨目录，就同时使用多个 skill。
-- 如果任务同时改前后端，两边的 skill 都要用；不要把跨领域的公共规则再重复写进 skill。
+- `apps/mova-server/AGENTS.md`
+  负责 Rust HTTP 服务、路由、handler、bootstrap 和 runtime glue。
+- `crates/AGENTS.md`
+  负责应用层业务逻辑、数据库访问、领域模型、扫描链路和 Rust crate 验证。
+- `migrations/AGENTS.md`
+  负责数据库迁移、schema 变更和重建数据库说明。
+- `scripts/AGENTS.md`
+  负责 Python / 辅助脚本、媒体分析任务和脚本侧验证。
+- 如果任务跨目录，所有相关目录的 `AGENTS.md` 都要一起遵守；不要把跨领域公共规则重复写进目录级文件。
 
 ## 给 AI 的补充说明
 
