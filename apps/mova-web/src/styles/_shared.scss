@@ -1,9 +1,12 @@
 .eyebrow {
+  display: inline-flex;
+  align-items: center;
   margin: 0;
   color: var(--accent);
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.16em;
+  line-height: 1;
   text-transform: uppercase;
 }
 

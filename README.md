@@ -1,46 +1,67 @@
-# Mova
+<p align="center">
+  <img src="apps/mova-web/public/mova-logo-master-transparent.png" alt="Mova logo" width="96" />
+</p>
 
-Mova 是一个自托管媒体服务器，面向本地媒体库的整理、浏览和播放。  
-它的目标不是做一个复杂的后台系统，而是把“导入媒体、扫描整理、展示元数据、继续播放”这些常见动作收成一条尽量轻的使用链路。
+<h1 align="center">Mova</h1>
 
-当前版本已经是可用的 MVP：
+<p align="center">
+  A self-hosted media server for local movies and series, built around automatic organization, rich metadata, and a polished watching flow.
+</p>
 
-- 支持初始化首个管理员并进入完整 Web 界面
-- 支持创建媒体库并自动触发首次扫描
-- 支持电影和剧集的自动识别、聚合和展示
-- 支持继续观看、播放进度、剧集下一集和片头跳过
-- 支持管理员管理媒体库、用户和普通成员访问权限
+![Mova home](docs/assets/readme/home.png)
 
-## 产品描述
+## What Mova Is
 
-Mova 主要围绕三件事设计：
+Mova 是一个自托管媒体服务器，用来整理、浏览和播放本地电影与剧集。它的重点不是做复杂后台，而是把“挂载目录、自动扫描、补齐元数据、继续观看、管理用户权限”串成一条轻量、好看的使用链路。
 
-1. 本地媒体自动整理  
-把宿主机目录挂进容器后，Mova 会按文件结构和命名规则识别电影与剧集，并尽量自动补齐元数据、海报和背景图。
+当前版本定位为可用 MVP，适合在本地或家用服务器上管理自己的媒体库。
 
-2. 更像产品而不是后台的浏览体验  
-首页、媒体库页、详情页和播放器都尽量保持“可长期使用”的媒体应用体验，而不是只做功能面板。
+## Product Highlights
 
-3. 尽量减少人工维护  
-新建媒体库后会自动首扫，后续通过手动 `Scan Library` 收敛新增、删除、改名和移动；即使 TMDB 不可用，也会优先按本地目录结构兜底展示。
+- 自动识别电影和剧集：创建媒体库后会自动首扫，后续通过 `Scan Library` 显式同步新增、删除、改名和移动。
+- 本地结构优先可用：即使没有 TMDB token，也会按目录和文件名兜底展示，不会因为缺元数据变成空库。
+- 更像产品的 Web 体验：首页、媒体库、详情页和播放器都围绕日常使用设计，而不是普通管理面板。
+- 元数据按需补全：详情页需要演员、海报、背景、IMDb 评分或片头信息时再补齐并持久化，避免扫描阶段浪费资源。
+- 面向客户端扩展：Web 使用 session 登录，原生客户端可通过 token 登录接口接入同一套媒体服务。
 
-## 如何使用与部署
+## Core Features
 
-### 1. 准备环境
+- 媒体库自动首扫和手动重扫
+- 电影、剧集自动聚合与本地兜底展示
+- 电影多版本文件选择
+- 剧集季/集列表、下一集、继续观看
+- 播放进度保存和接近片尾自动完成
+- 字幕切换、音轨切换、资源文件技术信息展示
+- 片头跳过 `Skip Intro`，在资源缺少片头数据时按需分析
+- 深色 / 浅色主题与中英文界面切换，本地浏览器保存偏好
+- `Primary Admin`、普通管理员、成员三级用户能力
+- 成员级媒体库访问权限控制
 
-需要：
+## Screenshots
+
+### Detail Page And Light Theme
+
+![Mova detail page with light theme](docs/assets/readme/theme.png)
+
+### Server Settings
+
+![Mova server settings](docs/assets/readme/server-setting.png)
+
+## Deployment
+
+### Requirements
 
 - Docker
 - Docker Compose
 - 一个宿主机上的媒体目录
 
-先复制环境变量模板：
+### Configure
 
 ```bash
 cp .env.example .env
 ```
 
-最常用的配置通常只需要：
+常用配置：
 
 ```env
 MOVA_MEDIA_ROOT=/absolute/path/to/media
@@ -50,140 +71,58 @@ HTTP_PROXY=
 HTTPS_PROXY=
 ```
 
-说明：
+- `MOVA_MEDIA_ROOT` 必填，会只读挂载到容器内固定目录 `/media`
+- `MOVA_TMDB_ACCESS_TOKEN` 可选，不填也能扫描、入库和播放
+- `MOVA_OMDB_API_KEY` 可选，配置后会在拿到 `imdb_id` 时补 IMDb 评分
 
-- `MOVA_MEDIA_ROOT` 是必填项，会只读挂载到容器内固定目录 `/media`
-- `MOVA_TMDB_ACCESS_TOKEN` 可选；不填时仍可扫描、入库和播放，只是不会自动补 TMDB 元数据
-- `MOVA_OMDB_API_KEY` 可选；配置后会在已拿到 `imdb_id` 时补齐 IMDb 评分
-
-### 2. 启动服务
+### Start
 
 ```bash
 docker compose up -d --build
 ```
 
-默认访问地址：
+默认地址：
 
-- Web：`http://127.0.0.1:36080`
-- 健康检查：`http://127.0.0.1:36080/api/health`
+- Web: `http://127.0.0.1:36080`
+- Health: `http://127.0.0.1:36080/api/health`
 
-### 3. 首次使用
+### First Run
 
-启动后：
+1. 首次启动会进入 bootstrap 页面
+2. 创建第一个管理员，它会成为 `Primary Admin`
+3. 进入服务器设置创建媒体库
+4. 选择容器内 `/media` 下的目录
+5. 保存后自动开始第一次扫描
 
-1. 如果系统里还没有管理员，会先进入 bootstrap 页面
-2. 创建首个管理员后会自动登录
-3. 进入设置页创建媒体库
-4. 选择容器内 `/media` 目录树中的一个根路径
-5. 保存后会自动开始第一次扫描
+### Data
 
-### 4. 后续日常使用
-
-- 在首页和媒体库页查看扫描状态与媒体条目
-- 在详情页浏览电影或剧集信息
-- 进入播放器继续观看、从头播放、切换字幕和音轨
-- 需要同步新增或改动文件时，手动点击 `Scan Library`
-
-### 5. 升级
-
-如果你改了代码、前端构建产物、Rust 依赖或 Dockerfile：
-
-```bash
-docker compose up -d --build
-```
-
-如果只是调整端口、volume 或环境变量：
-
-```bash
-docker compose up -d
-```
-
-### 6. 数据目录
-
-当前运行时主要会写：
+运行数据主要写入：
 
 - `data/postgres/`
 - `data/cache/`
 
-媒体目录本身只读挂载，不会被 Mova 修改。
+媒体目录只读挂载，Mova 不会修改你的原始媒体文件。
 
-如果当前开发阶段明确接受重建本地数据，可以直接清理数据库目录后重启：
+如果当前开发阶段接受重建本地数据，可以清理数据库目录后重启：
 
 ```bash
 rm -rf data/postgres
 docker compose up -d --build
 ```
 
-## 核心功能说明
+## Documentation
 
-### 媒体库与扫描
+- API: [docs/API.md](docs/API.md)
+- Frontend: [apps/mova-web/README.md](apps/mova-web/README.md)
+- Backend: [apps/mova-server/README.md](apps/mova-server/README.md)
+- Crates: [crates/README.md](crates/README.md)
 
-- 创建媒体库后会自动首扫
-- 后续通过手动 `Scan Library` 做显式同步
-- 支持电影和剧集自动识别
-- 同一部电影的多个版本会聚合在同一条目下
-- TMDB 不可用时仍会优先按本地目录和文件名规则兜底展示
-- 对已成功补全过 metadata 的未改路径条目，重扫会优先复用已有结果
+## Roadmap And Feedback
 
-### 浏览与详情
+Mova 仍在积极迭代中，作者正在维护 Pad 和 macOS 客户端方向，让它可以更自然地接入同一个自托管媒体服务器。
 
-- 首页、媒体库页和详情页会前台化展示扫描进度和占位状态
-- 电影详情页支持多版本文件选择
-- 详情页会展示资源文件、视频、音频、字幕等技术信息
-- 支持 IMDb 评分补齐
-- 海报和背景图会优先使用本地缓存，减少详情页阻塞
-- 演员信息会在详情页首次需要时按需补全，并持久保存到数据库
-
-### 播放体验
-
-- 支持继续观看和从头播放
-- 支持播放进度保存
-- 支持字幕切换和音轨切换
-- 剧集支持 `Next Episode`
-- 支持片头跳过 `Skip Intro`
-- 当剧集首次播放且当前资源还没有片头数据时，会按需分析该季并补写片头区间，而不是在建库或扫库时全量预跑
-- 接近片尾会自动判定为已看完
-
-### 用户与权限
-
-- 首个初始化管理员会被标记为 `Primary Admin`
-- `Primary Admin` 可以管理普通管理员和普通成员
-- 普通管理员可以管理媒体库和普通成员，但不能管理平级管理员或主管理员
-- 成员只可见自己被授权的媒体库
-- Web 端继续使用账号密码 + session cookie；原生客户端可使用 token 登录接口获取 Bearer token
-- 个人设置支持修改昵称、密码，以及本地界面的语言和 `dark / light` 主题偏好；当前 Web 已提供英文 / 中文界面切换，并会把偏好保存在当前浏览器
-
-## 常见排查
-
-### 打不开页面
-
-- 先看 `docker compose ps`
-- 再看 `docker compose logs mova-server`
-- 再访问 `GET /api/health`
-
-### 扫描没有开始
-
-- 确认库是启用状态
-- 确认宿主机 `MOVA_MEDIA_ROOT` 存在
-- 确认选择的库路径是容器内 `/media` 下的目录
-
-### 扫描有进度但没元数据
-
-- 检查 `MOVA_TMDB_ACCESS_TOKEN` 是否有效
-- 不配置 TMDB 时，本地扫描和播放仍然是正常行为
-
-### 可以进详情但视频播不了
-
-- 当前是浏览器直链播放，不带转码
-- 如果浏览器不支持当前容器或编码，播放器会给出错误提示，但不会自动转码兜底
-
-## 其他文档
-
-- API 契约：[docs/API.md](docs/API.md)
-- 前端说明：[apps/mova-web/README.md](apps/mova-web/README.md)
-- 后端说明：[apps/mova-server/README.md](apps/mova-server/README.md)
-- Workspace crate 索引：[crates/README.md](crates/README.md)
+如果你在使用中有体验问题、功能建议或客户端接入需求，欢迎提交 issue 或改进意见。
 
 ## License
 
-Current license: `MIT`. See [`LICENSE`](LICENSE).
+Current license: `MIT`. See [LICENSE](LICENSE).

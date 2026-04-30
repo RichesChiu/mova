@@ -390,6 +390,7 @@
   transition:
     border-color 160ms ease,
     background 160ms ease,
+    box-shadow 160ms ease,
     transform 160ms ease;
 }
 
@@ -409,14 +410,16 @@
 
 .player-popover-menu__option:hover {
   transform: translateY(-1px);
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--menu-option-hover-border);
+  background: var(--menu-option-hover-background);
+  box-shadow: var(--menu-option-hover-shadow);
 }
 
 .player-popover-menu__option--active {
-  border-color: rgba(148, 180, 255, 0.28);
-  background: rgba(148, 180, 255, 0.12);
-  color: #e8efff;
+  border-color: var(--menu-option-selected-border);
+  background: var(--menu-option-selected-background);
+  box-shadow: var(--menu-option-selected-shadow);
+  color: var(--accent-strong);
 }
 
 .player-popover-menu__empty {

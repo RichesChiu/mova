@@ -132,17 +132,20 @@
   transition:
     border-color 140ms ease,
     background 140ms ease,
+    box-shadow 140ms ease,
     color 140ms ease;
 }
 
 .glass-select__option:hover:enabled {
-  border-color: var(--floating-border);
-  background: var(--floating-surface);
+  border-color: var(--menu-option-hover-border);
+  background: var(--menu-option-hover-background);
+  box-shadow: var(--menu-option-hover-shadow);
 }
 
 .glass-select__option--selected {
-  border-color: var(--button-primary-border);
-  background: var(--floating-surface-strong);
+  border-color: var(--menu-option-selected-border);
+  background: var(--menu-option-selected-background);
+  box-shadow: var(--menu-option-selected-shadow);
   color: var(--accent-strong);
 }
 

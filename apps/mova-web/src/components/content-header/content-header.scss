@@ -160,18 +160,21 @@
   transition:
     border-color 160ms ease,
     background 160ms ease,
+    box-shadow 160ms ease,
     color 160ms ease;
 }
 
 .toolbar-user__menu-item:hover:enabled,
 .toolbar-user__menu-item:hover {
-  border-color: var(--floating-border);
-  background: var(--floating-surface);
+  border-color: var(--menu-option-hover-border);
+  background: var(--menu-option-hover-background);
+  box-shadow: var(--menu-option-hover-shadow);
 }
 
 .toolbar-user__menu-item--active {
-  border-color: color-mix(in srgb, var(--button-primary-border) 62%, transparent);
-  background: color-mix(in srgb, var(--floating-surface) 86%, transparent);
+  border-color: var(--menu-option-selected-border);
+  background: var(--menu-option-selected-background);
+  box-shadow: var(--menu-option-selected-shadow);
   color: var(--accent-strong);
 }
 

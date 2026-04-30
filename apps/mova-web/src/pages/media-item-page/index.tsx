@@ -459,14 +459,10 @@ export const MediaItemPage = () => {
     isSeriesView && selectedSeason
       ? (seasonHeroBackdropPath ?? mediaItemQuery.data?.backdrop_path ?? null)
       : (mediaItemQuery.data?.backdrop_path ?? null)
-  const heroBackgroundImage = heroBackdropPath ?? heroPosterPath
-  const heroAccentImage = heroPosterPath ?? heroBackdropPath
-  const heroStyle = heroBackgroundImage
+  const pageArtworkImage = heroPosterPath ?? heroBackdropPath
+  const pageArtworkStyle = pageArtworkImage
     ? ({
-        ['--detail-hero-image' as string]: `url(${heroBackgroundImage})`,
-        ['--detail-hero-accent-image' as string]: heroAccentImage
-          ? `url(${heroAccentImage})`
-          : 'none',
+        ['--media-item-page-artwork' as string]: `url(${pageArtworkImage})`,
       } as CSSProperties)
     : undefined
   const heroTitle = mediaItemQuery.data?.title ?? ''
@@ -623,7 +619,7 @@ export const MediaItemPage = () => {
   }
 
   return (
-    <div className="page-stack">
+    <div className="page-stack media-item-page" style={pageArtworkStyle}>
       <div className="media-item-toolbar">
         <Link
           className="back-link media-item-back-link"
@@ -642,7 +638,7 @@ export const MediaItemPage = () => {
         </Link>
       </div>
 
-      <section className="detail-hero" style={heroStyle}>
+      <section className="detail-hero">
         <div className="detail-hero__poster">
           {heroPosterPath ? (
             <img alt={`${heroTitle} poster`} src={heroPosterPath} />

@@ -1,6 +1,32 @@
+.media-item-page {
+  --media-item-page-artwork: none;
+  isolation: isolate;
+}
+
+.media-item-page::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: -92px -28px auto -28px;
+  height: min(620px, 74vh);
+  border-radius: 0 0 48px 48px;
+  background:
+    var(--detail-page-artwork-overlay),
+    var(--media-item-page-artwork);
+  background-position: center 20%;
+  background-size: cover;
+  filter: blur(42px) saturate(148%);
+  opacity: var(--detail-page-artwork-opacity);
+  pointer-events: none;
+  transform: scale(1.04);
+}
+
+.media-item-page > * {
+  position: relative;
+  z-index: 1;
+}
+
 .detail-hero {
-  --detail-hero-image: none;
-  --detail-hero-accent-image: none;
   position: relative;
   display: grid;
   grid-template-columns: minmax(176px, 230px) minmax(0, 1fr);
@@ -15,39 +41,6 @@
   backdrop-filter: blur(28px) saturate(160%);
   box-shadow: var(--panel-shadow);
   overflow: hidden;
-}
-
-.detail-hero::before,
-.detail-hero::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.detail-hero::before {
-  inset: -12%;
-  background-image:
-    var(--hero-image-overlay),
-    var(--detail-hero-image);
-  background-size: cover;
-  background-position: center;
-  filter: blur(34px) saturate(158%);
-  opacity: var(--hero-image-opacity);
-  transform: scale(1.08);
-  z-index: 0;
-}
-
-.detail-hero::after {
-  inset: auto -10% -24% 46%;
-  background:
-    radial-gradient(circle at center, color-mix(in srgb, var(--accent) 30%, transparent), transparent 58%),
-    var(--detail-hero-accent-image);
-  background-size: cover;
-  background-position: center;
-  filter: blur(58px) saturate(148%);
-  opacity: var(--hero-accent-image-opacity);
-  z-index: 0;
 }
 
 .detail-hero__poster,
@@ -718,12 +711,13 @@
 }
 
 @media (max-width: 720px) {
-  .detail-hero {
-    grid-template-columns: minmax(0, 1fr);
+  .media-item-page::before {
+    inset-inline: -18px;
+    height: 520px;
   }
 
-  .detail-hero::after {
-    inset: auto -18% -26% 18%;
+  .detail-hero {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .detail-hero__poster {
