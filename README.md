@@ -5,7 +5,7 @@
 <h1 align="center">Mova</h1>
 
 <p align="center">
-  A self-hosted media server for local movies and series, built around automatic organization, rich metadata, and a polished watching flow.
+  A lightweight, secure, and efficient self-hosted media server for local movies and series.
 </p>
 
 <p align="center">
@@ -16,30 +16,9 @@
 
 ## What Mova Is
 
-Mova is a self-hosted media server for organizing, browsing, and playing local movies and series. It is designed to keep the common media flow lightweight: mount a folder, scan your library, enrich metadata, continue watching, and manage access from a clean Web interface.
+Mova is a self-hosted media server for organizing, browsing, and playing local movies and series. Its server is built with Rust, a modern systems language focused on memory safety, predictable performance, and efficient resource usage.
 
-The current release is a usable MVP for local machines, home servers, and private media setups.
-
-## Product Highlights
-
-- Automatic movie and series detection: a new library starts scanning immediately, and later changes can be synced with `Scan Library`.
-- Local-first fallback: Mova still imports and displays media from folder and file names even when no TMDB token is configured.
-- Product-like Web experience: the home page, library page, detail page, and player are designed for regular use instead of feeling like admin panels.
-- On-demand enrichment: cast, artwork, IMDb rating, and intro-skip data are fetched or analyzed only when needed, then stored persistently.
-- Client-ready server API: the Web app uses session login, while native clients can use the token login flow.
-
-## Core Features
-
-- Automatic first scan and manual library rescan.
-- Movie and series grouping with local fallback metadata.
-- Multiple file versions for movies.
-- Season and episode lists, next episode, and continue watching.
-- Playback progress persistence and near-ending completion detection.
-- Subtitle switching, audio track switching, and source file technical details.
-- `Skip Intro` with on-demand intro analysis when the current resource is missing intro data.
-- Dark and light themes, English and Chinese interface language preferences, stored locally in the browser.
-- `Primary Admin`, administrator, and member roles.
-- Per-library access control for members.
+The project aims to keep the media-server experience simple and dependable: mount a media folder, scan the library, enrich metadata when needed, and browse or play from a clean Web interface. The current release is a usable MVP for local machines, home servers, and private media setups.
 
 ## Screenshots
 
@@ -90,6 +69,13 @@ Default endpoints:
 - Web: `http://127.0.0.1:36080`
 - Health: `http://127.0.0.1:36080/api/health`
 
+After startup, Mova creates two runtime folders:
+
+- `data/postgres/`: PostgreSQL database files for libraries, users, metadata, and playback progress.
+- `data/cache/`: cached artwork and generated media assets.
+
+Your media folder is mounted read-only. Mova does not modify your original media files.
+
 ### First Run
 
 1. Open the Web app after the containers start.
@@ -97,22 +83,6 @@ Default endpoints:
 3. Open server settings and create a media library.
 4. Select a directory under the container path `/media`.
 5. Save the library and Mova will start the first scan automatically.
-
-### Data
-
-Runtime data is mainly stored in:
-
-- `data/postgres/`
-- `data/cache/`
-
-The media folder is mounted read-only. Mova does not modify your original media files.
-
-During development, if rebuilding local data is acceptable, reset the database folder and restart:
-
-```bash
-rm -rf data/postgres
-docker compose up -d --build
-```
 
 ## Documentation
 
