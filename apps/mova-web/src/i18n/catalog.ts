@@ -78,10 +78,8 @@ const zhCN: Record<string, string> = {
   '{{count}} movies': '{{count}} 部电影',
   '{{count}} series': '{{count}} 部剧集',
   'Loading library shelf…': '正在加载媒体库预览…',
-  'This shelf shows a quick preview from the library. Open it for the full list.':
-    '这里展示媒体库的快速预览，打开后可查看完整列表。',
+  'This shelf shows a quick preview from the library.': '这里展示媒体库的快速预览。',
   'About {{name}}': '关于 {{name}}',
-  'Open': '打开',
   'No items yet.': '还没有内容。',
   '{{count}} new items discovered': '已发现 {{count}} 个新条目',
   'Back Home': '返回首页',

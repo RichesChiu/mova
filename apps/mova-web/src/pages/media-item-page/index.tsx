@@ -459,7 +459,7 @@ export const MediaItemPage = () => {
     isSeriesView && selectedSeason
       ? (seasonHeroBackdropPath ?? mediaItemQuery.data?.backdrop_path ?? null)
       : (mediaItemQuery.data?.backdrop_path ?? null)
-  const pageArtworkImage = heroPosterPath ?? heroBackdropPath
+  const pageArtworkImage = heroBackdropPath ?? heroPosterPath
   const pageArtworkStyle = pageArtworkImage
     ? ({
         ['--media-item-page-artwork' as string]: `url(${pageArtworkImage})`,

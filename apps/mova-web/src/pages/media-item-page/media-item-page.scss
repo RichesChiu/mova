@@ -1,24 +1,36 @@
 .media-item-page {
   --media-item-page-artwork: none;
+  position: relative;
   isolation: isolate;
 }
 
-.media-item-page::before {
+.media-item-page::before,
+.media-item-page::after {
   content: '';
   position: absolute;
   z-index: 0;
-  inset: -92px -28px auto -28px;
-  height: min(620px, 74vh);
-  border-radius: 0 0 48px 48px;
-  background:
-    var(--detail-page-artwork-overlay),
-    var(--media-item-page-artwork);
-  background-position: center 20%;
-  background-size: cover;
-  filter: blur(42px) saturate(148%);
-  opacity: var(--detail-page-artwork-opacity);
   pointer-events: none;
-  transform: scale(1.04);
+}
+
+.media-item-page::before {
+  inset: 0 -28px auto -28px;
+  height: min(620px, 72vh);
+  border-radius: 0 0 52px 52px;
+  background-image: var(--media-item-page-artwork);
+  background-position: center top;
+  background-repeat: no-repeat;
+  background-size: cover;
+  filter: saturate(116%);
+  opacity: var(--detail-page-artwork-opacity);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.86) 58%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.86) 58%, transparent 100%);
+}
+
+.media-item-page::after {
+  inset: 0 -28px auto -28px;
+  height: min(620px, 72vh);
+  border-radius: 0 0 52px 52px;
+  background: var(--detail-page-artwork-overlay);
 }
 
 .media-item-page > * {
@@ -712,8 +724,17 @@
 
 @media (max-width: 720px) {
   .media-item-page::before {
-    inset-inline: -18px;
-    height: 520px;
+    inset: 0 -18px auto -18px;
+    height: 540px;
+    border-radius: 0 0 42px 42px;
+    background-position: center top;
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.82) 48%, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 0%, rgba(0, 0, 0, 0.82) 48%, transparent 100%);
+  }
+
+  .media-item-page::after {
+    inset: 0 -18px auto -18px;
+    height: 540px;
   }
 
   .detail-hero {

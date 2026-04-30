@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom'
 import {
   formatPendingScanPlaceholderCopy,
   formatScanItemMeta,
@@ -101,33 +100,12 @@ const LibraryContentSectionsBody = ({
                     <h3>{library.name}</h3>
                     <SectionHelp
                       detail={l(
-                        'This shelf shows a quick preview from the library. Open it for the full list.',
+                        'This shelf shows a quick preview from the library.',
                       )}
                       placement="bottom"
                       title={l('About {{name}}', { name: library.name })}
                     />
                   </div>
-                  <Link className="library-content-sections__link" to={`/libraries/${library.id}`}>
-                    <span>{l('Open')}</span>
-                    <span aria-hidden="true" className="library-content-sections__link-icon">
-                      <svg
-                        aria-hidden="true"
-                        fill="none"
-                        focusable="false"
-                        height="14"
-                        viewBox="0 0 14 14"
-                        width="14"
-                      >
-                        <path
-                          d="M4.25 2.5 8.75 7l-4.5 4.5"
-                          stroke="currentColor"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="1.5"
-                        />
-                      </svg>
-                    </span>
-                  </Link>
                 </div>
 
                 {currentScanItem ? (
