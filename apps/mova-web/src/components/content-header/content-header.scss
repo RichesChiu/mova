@@ -35,10 +35,6 @@
   gap: 10px;
 }
 
-.brand-lockup:hover .brand-title {
-  color: var(--accent-strong);
-}
-
 .brand-lockup:focus-visible {
   outline: 2px solid var(--button-primary-border);
   outline-offset: 3px;
@@ -50,17 +46,11 @@
   height: 44px;
   flex: 0 0 auto;
   object-fit: contain;
+  transition: transform 180ms ease;
 }
 
-.brand-title {
-  margin: 0;
-  min-width: 0;
-  font-size: 1.02rem;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: -0.04em;
-  white-space: nowrap;
-  transition: color 180ms ease;
+.brand-lockup:hover .brand-mark {
+  transform: translateY(-1px) scale(1.03);
 }
 
 .toolbar-user {

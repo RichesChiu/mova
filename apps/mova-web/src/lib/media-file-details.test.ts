@@ -69,7 +69,7 @@ describe('media file detail helpers', () => {
   })
 
   it('builds source badges and video facts for the details view', () => {
-    expect(buildMediaFileFeatureBadges(sampleFile)).toEqual(['MKV', 'Dolby Audio', 'Dolby Vision'])
+    expect(buildMediaFileFeatureBadges(sampleFile)).toEqual(['Dolby Audio', 'Dolby Vision'])
 
     expect(buildMediaSourceFacts(sampleFile)).toContainEqual({
       label: 'File Size',
@@ -78,6 +78,10 @@ describe('media file detail helpers', () => {
     expect(buildVideoCardFacts(sampleFile)).toContainEqual({
       label: 'Codec',
       value: 'HEVC',
+    })
+    expect(buildVideoCardFacts(sampleFile)).toContainEqual({
+      label: 'Container',
+      value: 'MKV',
     })
     expect(buildVideoCardFacts(sampleFile)).toContainEqual({
       label: 'Bit Depth',

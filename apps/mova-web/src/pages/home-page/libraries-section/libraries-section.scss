@@ -18,7 +18,7 @@
   min-height: 196px;
   border: 1px solid var(--floating-border);
   border-radius: 22px;
-  background: var(--floating-surface);
+  background: var(--library-spotlight-surface);
   box-shadow: var(--panel-inset), var(--floating-shadow);
   transition:
     transform 180ms ease,
@@ -33,7 +33,7 @@
   box-shadow:
     var(--panel-inset),
     0 18px 44px rgba(4, 8, 16, 0.42);
-  background: var(--floating-surface-strong);
+  background: var(--library-spotlight-surface-strong);
 }
 
 .library-spotlight--loading {
@@ -54,13 +54,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--panel-overlay-top) 62%, transparent),
-      color-mix(in srgb, var(--panel-background-strong) 74%, transparent)
-    ),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 16%, transparent), transparent 42%);
+  background: var(--library-spotlight-image-overlay);
 }
 
 .library-spotlight__poster,
@@ -73,21 +67,11 @@
 .library-spotlight__fallback {
   grid-column: 1 / -1;
   grid-row: 1 / -1;
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 22%, transparent), transparent 34%),
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--floating-surface-strong) 88%, transparent),
-      color-mix(in srgb, var(--panel-background-strong) 94%, transparent)
-    );
+  background: var(--library-spotlight-fallback);
 }
 
 .library-spotlight__fallback--loading {
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--floating-surface-strong) 88%, transparent),
-    color-mix(in srgb, var(--panel-background-strong) 94%, transparent)
-  );
+  background: var(--library-spotlight-fallback-loading);
 }
 
 .library-spotlight__content {

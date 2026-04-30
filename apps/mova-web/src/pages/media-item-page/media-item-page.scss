@@ -10,7 +10,7 @@
   border-radius: 30px;
   background:
     radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 18%, transparent), transparent 44%),
-    linear-gradient(145deg, rgba(6, 10, 18, 0.92), rgba(12, 13, 22, 0.82) 52%, rgba(17, 11, 22, 0.76)),
+    var(--hero-overlay),
     var(--hero-background);
   backdrop-filter: blur(28px) saturate(160%);
   box-shadow: var(--panel-shadow);
@@ -28,12 +28,12 @@
 .detail-hero::before {
   inset: -12%;
   background-image:
-    linear-gradient(135deg, rgba(4, 7, 14, 0.22), rgba(10, 8, 16, 0.12)),
+    var(--hero-image-overlay),
     var(--detail-hero-image);
   background-size: cover;
   background-position: center;
   filter: blur(34px) saturate(158%);
-  opacity: 0.42;
+  opacity: var(--hero-image-opacity);
   transform: scale(1.08);
   z-index: 0;
 }
@@ -46,7 +46,7 @@
   background-size: cover;
   background-position: center;
   filter: blur(58px) saturate(148%);
-  opacity: 0.22;
+  opacity: var(--hero-accent-image-opacity);
   z-index: 0;
 }
 
@@ -306,16 +306,20 @@
   gap: 16px;
 }
 
-.media-file-panel__description,
+.media-file-panel__title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.media-file-panel__title-row .eyebrow {
+  margin: 0;
+}
+
 .media-file-card__context {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.5;
-}
-
-.media-file-panel__description {
-  margin-top: 8px;
-  max-width: 56ch;
 }
 
 .media-file-panel__list {
@@ -401,7 +405,7 @@
   padding: 4px 10px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--floating-surface) 72%, black);
+  background: color-mix(in srgb, var(--floating-surface) 72%, var(--panel-background-soft));
   color: var(--text-soft);
   font-size: 0.74rem;
   font-weight: 700;
@@ -417,9 +421,19 @@
 .media-file-card__path-block {
   gap: 8px;
   padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--floating-border) 88%, var(--accent) 10%);
   border-radius: 18px;
-  background: color-mix(in srgb, var(--floating-surface) 66%, black);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--floating-surface-strong) 72%, transparent),
+      color-mix(in srgb, var(--floating-surface) 88%, transparent)
+    ),
+    color-mix(in srgb, var(--panel-background-soft) 76%, transparent);
+  box-shadow:
+    var(--panel-inset),
+    var(--floating-shadow),
+    0 14px 30px color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .media-file-card__path {
@@ -442,9 +456,19 @@
   gap: 6px;
   min-height: 78px;
   padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--floating-border) 88%, var(--accent) 10%);
   border-radius: 18px;
-  background: color-mix(in srgb, var(--floating-surface) 76%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--floating-surface-strong) 74%, transparent),
+      color-mix(in srgb, var(--floating-surface) 88%, transparent)
+    ),
+    color-mix(in srgb, var(--panel-background-soft) 72%, transparent);
+  box-shadow:
+    var(--panel-inset),
+    var(--floating-shadow),
+    0 14px 30px color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .media-file-card__fact dt,
@@ -478,9 +502,16 @@
 .media-tech-card {
   gap: 12px;
   padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
   border-radius: 20px;
-  background: color-mix(in srgb, var(--floating-surface) 72%, black);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--floating-surface-strong) 48%, transparent),
+      color-mix(in srgb, var(--floating-surface) 84%, transparent)
+    ),
+    color-mix(in srgb, var(--panel-background-soft) 72%, transparent);
+  box-shadow: var(--panel-inset), var(--floating-shadow);
 }
 
 .media-tech-card__header--with-select {
@@ -541,9 +572,19 @@
   gap: 6px;
   min-height: 74px;
   padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 76%, transparent);
+  border: 1px solid color-mix(in srgb, var(--floating-border) 88%, var(--accent) 10%);
   border-radius: 16px;
-  background: color-mix(in srgb, var(--floating-surface) 72%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--floating-surface-strong) 74%, transparent),
+      color-mix(in srgb, var(--floating-surface) 88%, transparent)
+    ),
+    color-mix(in srgb, var(--panel-background-soft) 72%, transparent);
+  box-shadow:
+    var(--panel-inset),
+    var(--floating-shadow),
+    0 14px 30px color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .media-tech-card__fact dt,
@@ -574,7 +615,7 @@
   aspect-ratio: 2 / 3;
   border: 1px solid color-mix(in srgb, var(--floating-border) 80%, transparent);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--floating-surface) 75%, black);
+  background: color-mix(in srgb, var(--floating-surface) 75%, var(--panel-background-soft));
 }
 
 .cast-card__portrait img {

@@ -249,6 +249,7 @@ const zhCN: Record<string, string> = {
   'Actor': '演员',
   'as {{character}}': '饰 {{character}}',
   'Source Files': '资源文件',
+  'Source file selection help': '资源文件选择提示',
   'Episode Source': '剧集资源',
   'Source Details': '资源详情',
   'Showing the next playable episode after your latest completed watch in this season.':
@@ -369,6 +370,7 @@ const zhCN: Record<string, string> = {
   'File Size': '文件大小',
   'Overall Bitrate': '整体码率',
   'Dolby': 'Dolby',
+  'Container': '封装方式',
   'Level': '级别',
   'Resolution': '分辨率',
   'Aspect Ratio': '画面比例',

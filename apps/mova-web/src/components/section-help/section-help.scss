@@ -30,6 +30,15 @@
   outline: none;
 }
 
+.section-help__trigger--notice {
+  color: var(--accent);
+}
+
+.section-help__trigger--notice:hover,
+.section-help__trigger--notice:focus-visible {
+  color: var(--accent-strong);
+}
+
 .section-help__trigger svg {
   width: 16px;
   height: 16px;

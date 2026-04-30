@@ -216,13 +216,10 @@ export const formatMediaFileDolby = (file: Pick<MediaFile, 'audio_codec' | 'file
   return translateCurrent('No Dolby markers found')
 }
 
-export const buildMediaFileFeatureBadges = (
-  file: Pick<MediaFile, 'container' | 'audio_codec' | 'file_path'>,
-) => {
+export const buildMediaFileFeatureBadges = (file: Pick<MediaFile, 'audio_codec' | 'file_path'>) => {
   const { hasDolbyAudio, hasDolbyVision } = detectDolbyFlags(file)
 
   return [
-    file.container?.trim() ? file.container.trim().toUpperCase() : null,
     hasDolbyAudio ? 'Dolby Audio' : null,
     hasDolbyVision ? 'Dolby Vision' : null,
   ].filter((badge): badge is string => Boolean(badge))
@@ -251,6 +248,10 @@ export const buildVideoCardFacts = (file: MediaFile): MediaFileFact[] => [
   {
     label: translateCurrent('Title'),
     value: formatVideoStreamTitle(file),
+  },
+  {
+    label: translateCurrent('Container'),
+    value: file.container?.trim() ? file.container.trim().toUpperCase() : '—',
   },
   {
     label: translateCurrent('Codec'),

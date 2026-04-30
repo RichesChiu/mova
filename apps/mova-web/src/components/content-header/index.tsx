@@ -65,7 +65,6 @@ export const ContentHeader = ({
         to="/"
       >
         <img alt="Mova logo" className="brand-mark" src="/mova-logo-web-64.png" />
-        <h1 className="brand-title">Mova</h1>
       </Link>
 
       <div className="content-header__actions">

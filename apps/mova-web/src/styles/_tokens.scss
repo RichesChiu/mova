@@ -70,9 +70,37 @@
   --card-poster-background: rgba(14, 19, 27, 0.78);
   --card-poster-overlay: rgba(8, 9, 11, 0.24);
 
-  --hero-background: rgba(12, 18, 27, 0.56);
+  --library-spotlight-surface: var(--floating-surface);
+  --library-spotlight-surface-strong: var(--floating-surface-strong);
+  --library-spotlight-image-overlay:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--panel-overlay-top) 62%, transparent),
+      color-mix(in srgb, var(--panel-background-strong) 74%, transparent)
+    ),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 16%, transparent), transparent 42%);
+  --library-spotlight-fallback:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 22%, transparent), transparent 34%),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--floating-surface-strong) 88%, transparent),
+      color-mix(in srgb, var(--panel-background-strong) 94%, transparent)
+    );
+  --library-spotlight-fallback-loading:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--floating-surface-strong) 88%, transparent),
+      color-mix(in srgb, var(--panel-background-strong) 94%, transparent)
+    );
+
+  --hero-background:
+    linear-gradient(145deg, rgba(6, 10, 18, 0.92), rgba(12, 13, 22, 0.82) 52%, rgba(17, 11, 22, 0.76)),
+    rgba(12, 18, 27, 0.56);
   --hero-border: rgba(255, 255, 255, 0.08);
   --hero-overlay: none;
+  --hero-image-overlay: linear-gradient(135deg, rgba(4, 7, 14, 0.22), rgba(10, 8, 16, 0.12));
+  --hero-image-opacity: 0.42;
+  --hero-accent-image-opacity: 0.22;
 }
 
 :root[data-theme='glass-frost'] {
@@ -147,11 +175,29 @@
     linear-gradient(135deg, rgba(180, 200, 231, 0.44), rgba(244, 248, 255, 0.54));
   --card-poster-overlay: linear-gradient(180deg, transparent 55%, rgba(224, 235, 248, 0.28));
 
+  --library-spotlight-surface:
+    linear-gradient(180deg, rgba(226, 236, 250, 0.58), rgba(210, 225, 246, 0.4)),
+    rgba(219, 232, 249, 0.46);
+  --library-spotlight-surface-strong:
+    linear-gradient(180deg, rgba(220, 232, 249, 0.66), rgba(197, 216, 243, 0.46)),
+    rgba(211, 226, 247, 0.52);
+  --library-spotlight-image-overlay:
+    linear-gradient(180deg, rgba(235, 242, 252, 0.08), rgba(174, 196, 228, 0.24)),
+    radial-gradient(circle at top right, rgba(89, 120, 197, 0.12), transparent 42%);
+  --library-spotlight-fallback:
+    radial-gradient(circle at top left, rgba(89, 120, 197, 0.16), transparent 36%),
+    linear-gradient(135deg, rgba(199, 216, 242, 0.5), rgba(226, 236, 249, 0.38));
+  --library-spotlight-fallback-loading:
+    linear-gradient(135deg, rgba(199, 216, 242, 0.5), rgba(226, 236, 249, 0.38));
+
   --hero-background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(239, 246, 255, 0.52)),
-    rgba(255, 255, 255, 0.32);
-  --hero-border: rgba(255, 255, 255, 0.58);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(247, 251, 255, 0.7)),
+    rgba(255, 255, 255, 0.54);
+  --hero-border: rgba(255, 255, 255, 0.72);
   --hero-overlay:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.4), transparent 38%),
-    linear-gradient(135deg, rgba(225, 236, 252, 0.36), transparent 56%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.62), transparent 42%),
+    linear-gradient(135deg, rgba(244, 249, 255, 0.54), rgba(221, 235, 255, 0.2) 56%, transparent);
+  --hero-image-overlay: linear-gradient(135deg, rgba(250, 253, 255, 0.58), rgba(232, 242, 255, 0.34));
+  --hero-image-opacity: 0.16;
+  --hero-accent-image-opacity: 0.1;
 }

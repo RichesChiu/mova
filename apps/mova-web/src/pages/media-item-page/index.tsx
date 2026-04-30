@@ -27,6 +27,7 @@ import { EpisodeCard, EpisodeCardSkeleton } from '../../components/episode-card'
 import { GlassSelect } from '../../components/glass-select'
 import { MetadataMatchPanel } from '../../components/metadata-match-panel'
 import { ScrollableRail } from '../../components/scrollable-rail'
+import { SectionHelp } from '../../components/section-help'
 import { translateCurrent, useI18n } from '../../i18n'
 import { formatMediaCountry } from '../../lib/media-country'
 import {
@@ -866,10 +867,17 @@ export const MediaItemPage = () => {
         <section className="season-card media-file-panel">
           <div className="media-file-panel__header">
             <div>
-              <p className="eyebrow">{l('Source Files')}</p>
-              {isSeriesView && sourceContextDescription ? (
-                <p className="media-file-panel__description">{sourceContextDescription}</p>
-              ) : null}
+              <div className="media-file-panel__title-row">
+                <p className="eyebrow">{l('Source Files')}</p>
+                {isSeriesView && sourceContextDescription ? (
+                  <SectionHelp
+                    detail={sourceContextDescription}
+                    placement="bottom"
+                    title={l('Source file selection help')}
+                    variant="notice"
+                  />
+                ) : null}
+              </div>
             </div>
             {!mediaFilesQuery.isLoading && !mediaFilesQuery.isError ? (
               <span className="counter-badge">{mediaFiles.length}</span>
