@@ -104,7 +104,7 @@ src/
 
 | 组件 | 文件 | 作用 | 主要使用位置 |
 | --- | --- | --- | --- |
-| `MediaCard` / `MediaCardSkeleton` / `MediaCardScanPlaceholder` | `components/media-card/index.tsx` | 统一的媒体卡片、骨架卡和扫描中占位卡；扫描态会尽量保持与最终卡片一致的占位尺寸，减少同步完成时的跳动，标题和扫描文案也会固定在更稳定的单行/单层布局里，避免首页库卡与媒体卡被长文案撑高。扫描中电影通常按文件展示，剧集则优先按系列目录组展示。 | 首页、媒体库页 |
+| `MediaCard` / `MediaCardSkeleton` / `MediaCardScanPlaceholder` | `components/media-card/index.tsx` | 统一的媒体卡片、骨架卡和扫描中占位卡；扫描态会尽量保持与最终卡片一致的占位尺寸，减少同步完成时的跳动，标题和扫描文案也会固定在更稳定的单行/单层布局里，避免首页库卡与媒体卡被长文案撑高。扫描中电影通常按文件展示，剧集则优先按系列目录组展示；媒体库页按 Movies / Series / Other 分区展示，分区内隐藏重复的类型标签。 | 首页、媒体库页 |
 | `EpisodeCard` / `EpisodeCardSkeleton` | `components/episode-card/index.tsx` | 统一的剧集卡片，支持可播放/不可播放状态和播放进度条。 | 媒体详情页 |
 | `ScrollableRail` | `components/scrollable-rail/index.tsx` | 横向滚动容器，支持左右按钮、鼠标滚轮直接横滑、提示文案。 | 首页 rail、剧集页、演员区 |
 | `MediaPlayerPanel` | `components/media-player-panel/index.tsx` | 真正的播放器核心组件，负责媒体源、字幕、音轨切换、播放进度、缓冲态、错误分类、非阻塞字幕/自动播放/全屏降级和集切换；进入播放页后会在元数据就绪时自动起播，并支持空格键切换播放/暂停；当当前剧集存在片头区间时会显示 `Skip Intro`，有下一集资源时会在时间轴上方右下角给出常驻 `Next Episode` 入口，并在倒数 30 秒再显示一次更明显的下一集提示；音轨菜单也会给出当前选中状态、切换中提示和更友好的加载/失败文案；播放器会优先等可播放文件列表返回，播放进度查询不会再把整页长期卡在 `Loading player…`。 | `MediaPlayerPage` |
@@ -119,7 +119,7 @@ src/
 | `UserEditorModal` | `components/user-editor-modal/index.tsx` | 创建/编辑用户，支持用户名、昵称、角色、启停和媒体库授权。 | 设置页 |
 | `ConfirmActionModal` | `components/confirm-action-modal/index.tsx` | 统一承接危险操作确认流和错误提示，当前用于删库、删用户。 | 设置页 |
 | `ChangePasswordModal` | `components/change-password-modal/index.tsx` | 个人页的改密弹窗，统一处理当前密码校验、确认输入和错误反馈。 | 个人页 |
-| `MetadataMatchPanel` | `components/metadata-match-panel/index.tsx` | 管理员手动搜索并替换单条媒体元数据；弹窗头部和搜索表单使用更紧凑的布局，标题、年份和搜索按钮在小屏下也会自然换行。 | 媒体详情页 |
+| `MetadataMatchPanel` | `components/metadata-match-panel/index.tsx` | 管理员手动搜索并替换单条媒体元数据；确认替换剧集时，服务端会同步刷新该剧已存在季和集的远端封面数据，弹窗头部和搜索表单使用更紧凑的布局，标题、年份和搜索按钮在小屏下也会自然换行。 | 媒体详情页 |
 | `MediaDirectoryTree` | `components/media-directory-tree/index.tsx` | 递归目录树选择器，用于从容器内 `/media` 目录里选择库根路径。 | `CreateLibraryForm` |
 | `GlassSelect` | `components/glass-select/index.tsx` | 自定义下拉选择器，统一风格与交互；也支持更紧凑的 compact 形态，用在详情页技术卡头部的小下拉。菜单会通过 portal 挂到根级浮层，避免被 hero、卡片或容器裁掉；弹出宽度会优先跟随当前选项内容，而不是被 trigger 宽度锁死。 | 设置页、建库表单、用户编辑弹窗、媒体库编辑弹窗、媒体详情页 |
 

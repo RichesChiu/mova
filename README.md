@@ -20,7 +20,7 @@ Mova is a self-hosted media server for organizing, browsing, and playing local m
 
 The project aims to keep the media-server experience simple and dependable: mount a media folder, scan the library, enrich metadata when needed, and browse or play from a clean Web interface. The current release is a usable MVP for local machines, home servers, and private media setups.
 
-Series grouping is intentionally filename-first. Use filenames such as `Show.Name.S01E01.mkv`, `Show - S01E01.mkv`, or `Show_S01E01.mkv`; Mova does not infer series identity from arbitrary folder names.
+Series grouping is intentionally filename-first. Use filenames such as `Show.Name.S01E01.mkv`, `Show S01E01 - Episode 1.mkv`, `Show - S01E01.mkv`, or `Show_S01E01.mkv`; Mova does not infer series identity from arbitrary folder names. When an explicit season folder sits under a clean series folder such as `Study Group (2025)/Season 01/Study Group S01E01.mkv`, the folder year is used only as a metadata search hint.
 
 When `ffprobe` is available, Mova also stores resource-level technical tags such as HDR10, Dolby Vision, DTS-HD, and Atmos for each physical media file, then surfaces those tags as resource badges on detail pages.
 

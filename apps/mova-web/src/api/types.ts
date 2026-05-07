@@ -51,6 +51,8 @@ export interface MediaItem {
   source_title: string
   original_title: string | null
   sort_title: string | null
+  metadata_provider: string | null
+  metadata_provider_item_id: number | null
   year: number | null
   imdb_rating?: string | null
   country?: string | null

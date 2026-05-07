@@ -98,15 +98,13 @@ const zhCN: Record<string, string> = {
   Movie: '电影',
   Series: '剧集',
   Episode: '剧集',
+  Other: '其他',
   Detected: '识别结果',
   '{{movies}} movies / {{series}} series': '{{movies}} 部电影 / {{series}} 部剧集',
+  '{{movies}} movies / {{series}} series / {{other}} other':
+    '{{movies}} 部电影 / {{series}} 部剧集 / {{other}} 个其他',
   Items: '条目数',
   'Failed to load library': '加载媒体库失败',
-  'This library is syncing.{{suffix}}': '这个媒体库正在同步。{{suffix}}',
-  'Current task progress is about {{percent}}%.': '当前任务进度约为 {{percent}}%。',
-  'The sync discovers files first, then enriches metadata and artwork item by item.':
-    '同步会先发现文件，再逐条补全元数据和海报信息。',
-  'Browsing stays available while the sync is running.': '同步期间仍可继续浏览。',
   'The most recent scan failed.': '最近一次扫描失败。',
   'Existing items are still available, and an admin can trigger another scan later.':
     '现有内容仍然可用，管理员稍后可以重新触发扫描。',
@@ -229,11 +227,6 @@ const zhCN: Record<string, string> = {
   'Release year': '上映年份',
   Unknown: '未知',
   'No overview available yet.': '暂无简介。',
-  'This item is syncing': '该条目正在同步',
-  'This library is syncing': '该媒体库正在同步',
-  'Details and artwork may continue updating until the sync finishes.':
-    '详情和海报可能会在同步完成前继续更新。',
-  'Currently showing {{season}}.': '当前显示 {{season}}。',
   'Select playback version for {{title}}': '为 {{title}} 选择播放版本',
   Episodes: '剧集',
   '{{count}} episode is still syncing in this season. Placeholder cards stay visible until the library write completes.':

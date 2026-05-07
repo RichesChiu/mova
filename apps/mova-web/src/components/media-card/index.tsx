@@ -5,6 +5,7 @@ import { mediaItemPrimaryPath } from '../../lib/media-routes'
 
 interface MediaCardProps {
   item: MediaItem
+  showTypeTag?: boolean
 }
 
 interface MediaCardSkeletonProps {
@@ -19,11 +20,12 @@ interface MediaCardScanPlaceholderProps {
   title: string
 }
 
-export const MediaCard = ({ item }: MediaCardProps) => {
+export const MediaCard = ({ item, showTypeTag = true }: MediaCardProps) => {
   const { l } = useI18n()
   const title = item.title.trim() || item.source_title.trim() || l('Untitled')
   const subtitle = item.overview ?? item.original_title ?? l('No summary yet')
-  const mediaTypeLabel = item.media_type === 'series' ? l('Series') : l('Movie')
+  const mediaTypeLabel =
+    item.media_type === 'series' ? l('Series') : item.media_type === 'movie' ? l('Movie') : l('Other')
 
   return (
     <Link className="media-card" to={mediaItemPrimaryPath(item)}>
@@ -41,10 +43,12 @@ export const MediaCard = ({ item }: MediaCardProps) => {
         <h3 className="media-card__title" title={title}>
           {title}
         </h3>
-        <div className="media-card__meta">
-          <span className="media-card__type-tag">{mediaTypeLabel}</span>
-          {item.year ? <span className="muted">{item.year}</span> : null}
-        </div>
+        {showTypeTag || item.year ? (
+          <div className="media-card__meta">
+            {showTypeTag ? <span className="media-card__type-tag">{mediaTypeLabel}</span> : null}
+            {item.year ? <span className="muted">{item.year}</span> : null}
+          </div>
+        ) : null}
         <p className="media-card__summary" title={subtitle}>
           {subtitle}
         </p>

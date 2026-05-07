@@ -14,13 +14,10 @@ import {
 import type { EpisodeOutlineSeason, MediaCastMember } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import {
-  formatMediaItemScanStatusCopy,
   formatScanItemMeta,
   formatScanItemProgressCopy,
   getLibraryScanRuntime,
   getMediaItemScanRuntimeItems,
-  getScanJobProgressPercent,
-  isLibraryScanActive,
   type ScanRuntimeItem,
 } from '../../components/app-shell/scan-runtime'
 import { EpisodeCard, EpisodeCardSkeleton } from '../../components/episode-card'
@@ -271,9 +268,6 @@ export const MediaItemPage = () => {
   )
   const shouldShowEpisodeSkeleton =
     episodeOutlineQuery.isLoading && !episodeOutlineQuery.isError && availableSeasons.length === 0
-  const selectedSeasonLabel = selectedSeason
-    ? (selectedSeason.title ?? l('Season {{season}}', { season: selectedSeason.season_number }))
-    : null
   const selectedSeasonYear = selectedSeason?.year ?? null
   const selectedSeasonEpisodeCount =
     selectedSeason?.episodes.filter((episode) => episode.is_available).length ?? 0
@@ -406,25 +400,6 @@ export const MediaItemPage = () => {
   const detailScanItems = getMediaItemScanRuntimeItems(mediaItemQuery.data, currentScanRuntime, {
     seasonNumber: isSeriesView ? selectedSeasonNumber : null,
   })
-  const primaryDetailScanItem = detailScanItems[0] ?? null
-  const detailScanCopy = isLibraryScanActive(null, currentScanRuntime)
-    ? formatMediaItemScanStatusCopy(mediaItemQuery.data, currentScanRuntime, {
-        seasonNumber: isSeriesView ? selectedSeasonNumber : null,
-      })
-    : null
-  const detailScanProgressPercent = primaryDetailScanItem
-    ? primaryDetailScanItem.progress_percent
-    : getScanJobProgressPercent(null, currentScanRuntime)
-  const detailScanSubtitle = primaryDetailScanItem
-    ? [
-        primaryDetailScanItem.title,
-        primaryDetailScanItem.media_type === 'movie'
-          ? null
-          : formatScanItemMeta(primaryDetailScanItem),
-      ]
-        .filter(Boolean)
-        .join(' · ')
-    : l('Details and artwork may continue updating until the sync finishes.')
   const selectedSeasonScanItems = selectedSeason
     ? detailScanItems.filter(
         (item) =>
@@ -497,11 +472,7 @@ export const MediaItemPage = () => {
   const heroStudio = mediaItemQuery.data?.studio?.trim() || null
   const heroOverview =
     isSeriesView && selectedSeason
-      ? (selectedSeason.overview ??
-        l('Currently showing {{season}}.', {
-          season:
-            selectedSeasonLabel ?? l('Season {{season}}', { season: selectedSeason.season_number }),
-        }))
+      ? (selectedSeason.overview ?? mediaItemQuery.data?.overview ?? l('No overview available yet.'))
       : (mediaItemQuery.data?.overview ?? l('No overview available yet.'))
   const heroFacts = isSeriesView
     ? [
@@ -694,13 +665,6 @@ export const MediaItemPage = () => {
           </div>
           {isSeriesView && availableSeasons.length > 0 ? (
             <div className="detail-hero__season-picker">
-              <div className="detail-hero__season-heading">
-                <p className="detail-hero__season-label">{l('Season')}</p>
-                <span className="muted">
-                  {selectedSeasonLabel ??
-                    l('Season {{season}}', { season: selectedSeasonNumber ?? 1 })}
-                </span>
-              </div>
               <div className="season-picker" role="tablist">
                 {availableSeasons.map((season) => {
                   const isActive = season.season_number === selectedSeasonNumber
@@ -737,21 +701,6 @@ export const MediaItemPage = () => {
             </div>
           ) : null}
           <p className="detail-hero__overview">{heroOverview}</p>
-          {detailScanCopy ? (
-            <div className="detail-hero__sync-note" role="status">
-              <div className="detail-hero__sync-copy">
-                <p className="detail-hero__sync-label">
-                  {primaryDetailScanItem ? l('This item is syncing') : l('This library is syncing')}
-                </p>
-                <strong>{detailScanCopy}</strong>
-                <span className="muted">{detailScanSubtitle}</span>
-              </div>
-
-              <div aria-hidden="true" className="detail-hero__sync-progress">
-                <span style={{ width: `${detailScanProgressPercent}%` }} />
-              </div>
-            </div>
-          ) : null}
           {!isSeriesView && mediaVersionOptions.length > 1 ? (
             <div className="detail-hero__version-picker">
               <p className="detail-hero__version-label">{l('Version')}</p>

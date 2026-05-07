@@ -84,7 +84,7 @@
 }
 
 .media-card__meta--scan {
-  align-items: flex-start;
+  align-items: center;
   justify-content: flex-start;
   flex-wrap: wrap;
 }
@@ -157,6 +157,7 @@
 .media-card__scan {
   display: grid;
   gap: 7px;
+  min-width: 0;
   align-self: end;
 }
 
@@ -171,6 +172,16 @@
 
 .media-card__scan-copy {
   min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.media-card__scan-row strong {
+  flex: 0 0 auto;
+  min-width: 3.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .media-card__scan-track {
@@ -192,9 +203,12 @@
 }
 
 .chip--scan {
+  min-height: 28px;
+  padding: 0 11px;
   border-color: color-mix(in srgb, rgba(255, 213, 142, 0.92) 58%, transparent);
   background: color-mix(in srgb, rgba(255, 235, 196, 0.2) 72%, var(--pill-background));
   color: color-mix(in srgb, var(--accent-strong) 86%, white 14%);
+  line-height: 1;
 }
 
 .media-card__pill {

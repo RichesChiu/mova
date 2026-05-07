@@ -72,20 +72,35 @@ impl MetadataEnrichmentContext {
     ) where
         F: FnMut(MetadataEnrichmentStage, &DiscoveredMediaFile),
     {
-        let lookup = MetadataLookup {
-            // 元数据匹配应优先使用文件名解析出的原始标题，而不是已经被远端覆盖过的展示标题。
+        let lookups = metadata_lookup_candidates(lookup_type, file, &self.metadata_language);
+        let primary_lookup = lookups.first().cloned().unwrap_or_else(|| MetadataLookup {
             title: file.source_title.clone(),
             year: file.year,
             library_type: lookup_type.to_string(),
             language: Some(self.metadata_language.clone()),
             provider_item_id: None,
-        };
+        });
 
         on_progress(MetadataEnrichmentStage::Metadata, file);
         let mut resolved_remote_metadata = None;
+        let mut episode_outline_lookup = primary_lookup.clone();
 
         if self.metadata_provider.is_enabled() && needs_remote_metadata(file) {
-            let metadata = self.lookup_remote_metadata_cached(&lookup).await;
+            let mut metadata = None;
+
+            for lookup in &lookups {
+                let candidate = self.lookup_remote_metadata_cached(lookup).await;
+                if candidate.is_some() {
+                    episode_outline_lookup = lookup.clone();
+                    metadata = candidate;
+                    break;
+                }
+            }
+
+            if let Some(remote_metadata) = metadata.as_ref() {
+                episode_outline_lookup.provider_item_id = remote_metadata.provider_item_id;
+            }
+
             apply_remote_metadata(
                 metadata.clone(),
                 &mut file.metadata_provider,
@@ -107,8 +122,12 @@ impl MetadataEnrichmentContext {
         on_progress(MetadataEnrichmentStage::Artwork, file);
 
         if lookup_type.eq_ignore_ascii_case("series") {
-            self.enrich_episode_like_artwork(&lookup, file, resolved_remote_metadata.is_some())
-                .await;
+            self.enrich_episode_like_artwork(
+                &episode_outline_lookup,
+                file,
+                resolved_remote_metadata.is_some(),
+            )
+            .await;
         }
 
         self.cache_file_artwork(file).await;
@@ -575,8 +594,14 @@ fn should_replace_episode_artwork(
 ) -> bool {
     match current_path {
         None => true,
-        Some(path) => is_external_url(path) || is_generic_path(path),
+        Some(path) => {
+            is_external_url(path) || is_generated_episode_still_path(path) || is_generic_path(path)
+        }
     }
+}
+
+fn is_generated_episode_still_path(value: &str) -> bool {
+    value.contains("/generated/episode-stills/")
 }
 
 fn is_generic_poster_artwork_path(value: &str) -> bool {
@@ -607,17 +632,281 @@ fn is_external_url(value: &str) -> bool {
     value.starts_with("http://") || value.starts_with("https://")
 }
 
+fn metadata_lookup_candidates(
+    lookup_type: &str,
+    file: &DiscoveredMediaFile,
+    metadata_language: &str,
+) -> Vec<MetadataLookup> {
+    let series_container_metadata = lookup_type
+        .eq_ignore_ascii_case("series")
+        .then(|| series_container_metadata_for_episode_path(file))
+        .flatten();
+    let primary_year = file.year.or(series_container_metadata
+        .as_ref()
+        .and_then(|item| item.year));
+
+    // 元数据匹配应优先使用文件名解析出的原始标题，而不是已经被远端覆盖过的展示标题。
+    let mut candidates = Vec::new();
+    push_metadata_lookup_candidate(
+        &mut candidates,
+        lookup_type,
+        metadata_language,
+        file.source_title.clone(),
+        primary_year,
+    );
+
+    if let Some(container_metadata) = series_container_metadata {
+        if !same_lookup_title(&file.source_title, &container_metadata.title) {
+            push_metadata_lookup_candidate(
+                &mut candidates,
+                lookup_type,
+                metadata_language,
+                container_metadata.title,
+                container_metadata.year.or(file.year),
+            );
+        }
+    }
+
+    candidates
+}
+
+fn push_metadata_lookup_candidate(
+    candidates: &mut Vec<MetadataLookup>,
+    lookup_type: &str,
+    metadata_language: &str,
+    title: String,
+    year: Option<i32>,
+) {
+    let title = title.trim();
+    if title.is_empty() {
+        return;
+    }
+
+    if candidates
+        .iter()
+        .any(|candidate| same_lookup_title(&candidate.title, title) && candidate.year == year)
+    {
+        return;
+    }
+
+    candidates.push(MetadataLookup {
+        title: title.to_string(),
+        year,
+        library_type: lookup_type.to_string(),
+        language: Some(metadata_language.to_string()),
+        provider_item_id: None,
+    });
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SeriesContainerMetadata {
+    title: String,
+    year: Option<i32>,
+}
+
+fn series_container_metadata_for_episode_path(
+    file: &DiscoveredMediaFile,
+) -> Option<SeriesContainerMetadata> {
+    if file.season_number.is_none() || file.episode_number.is_none() {
+        return None;
+    }
+
+    let parent = file.file_path.parent()?;
+    let mut directories = parent
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .filter(|component| !component.trim().is_empty())
+        .collect::<Vec<_>>();
+
+    while directories
+        .last()
+        .is_some_and(|directory| is_series_variant_directory_name(directory))
+    {
+        directories.pop();
+    }
+
+    let season_directory_index = directories
+        .iter()
+        .rposition(|directory| is_season_directory_name(directory))?;
+    if season_directory_index == 0 {
+        return None;
+    }
+
+    parse_series_container_directory_metadata(directories[season_directory_index - 1])
+}
+
+fn parse_series_container_directory_metadata(value: &str) -> Option<SeriesContainerMetadata> {
+    let title = humanize_directory_title(value)?;
+    let parsed = parse_lookup_title_year(&title);
+
+    Some(SeriesContainerMetadata {
+        title: parsed.title,
+        year: parsed.year,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedLookupTitleYear {
+    title: String,
+    year: Option<i32>,
+}
+
+fn parse_lookup_title_year(value: &str) -> ParsedLookupTitleYear {
+    let mut tokens = value
+        .split_whitespace()
+        .map(std::string::ToString::to_string)
+        .collect::<Vec<_>>();
+    let mut title_end = tokens.len();
+    let mut year = None;
+
+    for index in 0..tokens.len() {
+        if let Some(parsed_year) = parse_lookup_year_token(tokens[index].as_str()) {
+            year = Some(parsed_year);
+            title_end = index;
+            break;
+        }
+
+        if let Some((prefix, parsed_year)) =
+            split_lookup_trailing_year_suffix(tokens[index].as_str())
+        {
+            year = Some(parsed_year);
+            tokens[index] = prefix;
+            title_end = index + 1;
+            break;
+        }
+    }
+
+    while title_end > 0 && tokens[title_end - 1].chars().all(is_lookup_separator_char) {
+        title_end -= 1;
+    }
+
+    let title = tokens[..title_end].join(" ");
+
+    ParsedLookupTitleYear {
+        title: if title.trim().is_empty() {
+            value.to_string()
+        } else {
+            title
+        },
+        year,
+    }
+}
+
+fn humanize_directory_title(value: &str) -> Option<String> {
+    let title = value
+        .replace(['.', '_', '-', '—', '–'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    (!title.trim().is_empty()).then_some(title)
+}
+
+fn split_lookup_trailing_year_suffix(token: &str) -> Option<(String, i32)> {
+    let trimmed = trim_lookup_wrapping_punctuation(token);
+    let characters = trimmed.chars().collect::<Vec<_>>();
+
+    if characters.len() <= 4 {
+        return None;
+    }
+
+    let suffix = characters[characters.len() - 4..]
+        .iter()
+        .collect::<String>();
+    let year = parse_lookup_year_token(&suffix)?;
+    let prefix = characters[..characters.len() - 4]
+        .iter()
+        .collect::<String>();
+
+    if prefix.is_empty() || prefix.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+
+    Some((prefix, year))
+}
+
+fn parse_lookup_year_token(token: &str) -> Option<i32> {
+    let token = trim_lookup_wrapping_punctuation(token);
+
+    if token.len() != 4 || !token.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+
+    let year = token.parse::<i32>().ok()?;
+    (1900..=2100).contains(&year).then_some(year)
+}
+
+fn trim_lookup_wrapping_punctuation(token: &str) -> &str {
+    token.trim_matches(|ch| {
+        matches!(
+            ch,
+            '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '（' | '）' | '【' | '】' | '《' | '》'
+        )
+    })
+}
+
+fn is_lookup_separator_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '-' | '|' | ':' | '：' | '·' | '•' | '~' | '–' | '—' | '/' | '\\'
+    )
+}
+
+fn same_lookup_title(left: &str, right: &str) -> bool {
+    normalize_lookup_title(left) == normalize_lookup_title(right)
+}
+
+fn normalize_lookup_title(value: &str) -> String {
+    value
+        .replace(['.', '_', '-', '—', '–'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+fn is_series_variant_directory_name(name: &str) -> bool {
+    let normalized = normalize_lookup_title(name);
+
+    matches!(
+        normalized.as_str(),
+        "dv" | "dovi" | "dolby vision" | "hdr" | "hdr10" | "hdr10+" | "sdr"
+    ) || normalized.contains("杜比")
+}
+
+fn is_season_directory_name(name: &str) -> bool {
+    let normalized = name.trim().replace(['.', '_', '-', '—', '–'], " ");
+    let normalized_lower = normalized.to_ascii_lowercase();
+    let has_ascii_digit = normalized_lower.chars().any(|value| value.is_ascii_digit());
+
+    if has_ascii_digit && normalized_lower.contains("season") {
+        return true;
+    }
+
+    if has_ascii_digit && normalized.contains('季') {
+        return true;
+    }
+
+    normalized_lower.split_whitespace().any(|token| {
+        token.strip_prefix('s').is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix.len() <= 2
+                && suffix.chars().all(|value| value.is_ascii_digit())
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        artwork_file_extension, build_artwork_cache_path, is_generic_backdrop_artwork_path,
-        is_generic_poster_artwork_path, should_replace_episode_artwork, stable_artwork_cache_key,
-        MetadataEnrichmentContext,
+        artwork_file_extension, build_artwork_cache_path, is_generated_episode_still_path,
+        is_generic_backdrop_artwork_path, is_generic_poster_artwork_path,
+        metadata_lookup_candidates, series_container_metadata_for_episode_path,
+        should_replace_episode_artwork, stable_artwork_cache_key,
     };
-    use crate::NullMetadataProvider;
     use mova_scan::DiscoveredMediaFile;
     use std::path::Path;
-    use std::{path::PathBuf, sync::Arc};
+    use std::path::PathBuf;
 
     #[test]
     fn artwork_file_extension_uses_tmdb_url_suffix() {
@@ -687,10 +976,78 @@ mod tests {
             Some("/media/Season 01/poster.jpg"),
             is_generic_poster_artwork_path
         ));
+        assert!(should_replace_episode_artwork(
+            Some("/cache/generated/episode-stills/e01.jpg"),
+            is_generic_poster_artwork_path
+        ));
         assert!(!should_replace_episode_artwork(
             Some("/media/Season 01/E01-poster.jpg"),
             is_generic_poster_artwork_path
         ));
+    }
+
+    #[test]
+    fn generated_episode_still_detection_matches_cache_segment() {
+        assert!(is_generated_episode_still_path(
+            "/cache/generated/episode-stills/e01.jpg"
+        ));
+        assert!(!is_generated_episode_still_path(
+            "/cache/generated/posters/e01.jpg"
+        ));
+    }
+
+    #[test]
+    fn series_container_metadata_for_episode_path_uses_parent_above_season_directory() {
+        let mut file = build_discovered_episode();
+        file.file_path = PathBuf::from("/media/模范出租车/S01/Taxi.Driver.S01E01.mkv");
+
+        assert_eq!(
+            series_container_metadata_for_episode_path(&file),
+            Some(super::SeriesContainerMetadata {
+                title: "模范出租车".to_string(),
+                year: None,
+            })
+        );
+
+        file.file_path = PathBuf::from("/media/Fallout/S02/DV/Fallout.S02E01.mkv");
+        assert_eq!(
+            series_container_metadata_for_episode_path(&file),
+            Some(super::SeriesContainerMetadata {
+                title: "Fallout".to_string(),
+                year: None,
+            })
+        );
+    }
+
+    #[test]
+    fn metadata_lookup_candidates_try_file_title_before_series_container_title() {
+        let mut file = build_discovered_episode();
+        file.file_path = PathBuf::from("/media/模范出租车/S01/Taxi.Driver.S01E01.mkv");
+        file.source_title = "Taxi Driver".to_string();
+
+        let lookups = metadata_lookup_candidates("series", &file, "zh-CN");
+
+        assert_eq!(lookups.len(), 2);
+        assert_eq!(lookups[0].title, "Taxi Driver");
+        assert_eq!(lookups[1].title, "模范出租车");
+    }
+
+    #[test]
+    fn metadata_lookup_candidates_use_container_year_for_file_and_container_titles() {
+        let mut file = build_discovered_episode();
+        file.file_path = PathBuf::from(
+            "/media/overseas_tv/流氓读书会 (2025)/第 1 季 - 1080p WEB-DL AVC AAC/Study Group S01E01 - 第 1 集 - 1080p WEB-DL AVC AAC.mp4",
+        );
+        file.source_title = "Study Group".to_string();
+        file.year = None;
+
+        let lookups = metadata_lookup_candidates("series", &file, "zh-CN");
+
+        assert_eq!(lookups.len(), 2);
+        assert_eq!(lookups[0].title, "Study Group");
+        assert_eq!(lookups[0].year, Some(2025));
+        assert_eq!(lookups[1].title, "流氓读书会");
+        assert_eq!(lookups[1].year, Some(2025));
     }
 
     fn build_discovered_episode() -> DiscoveredMediaFile {

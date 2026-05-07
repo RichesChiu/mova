@@ -231,6 +231,86 @@ fn parse_media_metadata_stops_before_series_token() {
 }
 
 #[test]
+fn parse_media_metadata_extracts_dotted_series_file_title() {
+    let path = Path::new("Taxi.Driver.S01E01.mkv");
+
+    assert_eq!(
+        parse_media_metadata(path),
+        ParsedMediaMetadata {
+            title: "Taxi Driver".to_string(),
+            source_title: "Taxi Driver".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: None,
+            season_number: Some(1),
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: Some(1),
+            episode_title: None,
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+        }
+    );
+}
+
+#[test]
+fn infer_series_file_metadata_extracts_dotted_series_file_title() {
+    let path = Path::new("Taxi.Driver.S01E01.mkv");
+    let metadata = infer_series_file_metadata(path).expect("series file metadata should parse");
+
+    assert_eq!(metadata.display_title, "Taxi Driver");
+    assert_eq!(metadata.title, "Taxi Driver");
+    assert_eq!(metadata.year, None);
+}
+
+#[test]
+fn parse_media_metadata_extracts_space_separated_series_title_before_episode_marker() {
+    let path = Path::new(
+        "流氓读书会 (2025)/第 1 季 - 1080p WEB-DL AVC AAC/Study Group S01E01 - 第 1 集 - 1080p WEB-DL AVC AAC.mp4",
+    );
+
+    assert_eq!(
+        parse_media_metadata(path),
+        ParsedMediaMetadata {
+            title: "Study Group".to_string(),
+            source_title: "Study Group".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: None,
+            season_number: Some(1),
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: Some(1),
+            episode_title: None,
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+        }
+    );
+}
+
+#[test]
+fn infer_series_file_metadata_extracts_space_separated_series_title_before_episode_marker() {
+    let path = Path::new(
+        "流氓读书会 (2025)/第 1 季 - 1080p WEB-DL AVC AAC/Study Group S01E01 - 第 1 集 - 1080p WEB-DL AVC AAC.mp4",
+    );
+    let metadata = infer_series_file_metadata(path).expect("series file metadata should parse");
+
+    assert_eq!(metadata.display_title, "Study Group");
+    assert_eq!(metadata.title, "Study Group");
+    assert_eq!(metadata.year, None);
+}
+
+#[test]
 fn parse_media_metadata_extracts_episode_numbers_and_title() {
     let path = Path::new("Arcane.S01E02.Some.Mysteries.Are.Better.Left.Unsolved.mkv");
 

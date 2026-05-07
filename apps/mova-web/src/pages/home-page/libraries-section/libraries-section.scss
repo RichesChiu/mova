@@ -136,6 +136,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
 }
 
 .library-spotlight__scan-label,
@@ -151,6 +152,13 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.library-spotlight__scan-value {
+  flex: 0 0 auto;
+  min-width: 3.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .library-spotlight__scan--failed .library-spotlight__scan-label,

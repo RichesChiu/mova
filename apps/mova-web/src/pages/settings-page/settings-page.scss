@@ -203,11 +203,15 @@
 .settings-library-card__scan-badge {
   display: inline-flex;
   align-items: center;
-  padding: 6px 10px;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
   border-radius: 999px;
   font-size: 0.74rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.04em;
+  line-height: 1;
 }
 
 .settings-library-card__scan-badge--running {
@@ -233,6 +237,38 @@
 .settings-library-card__scan-badge--muted {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-soft);
+}
+
+:root[data-theme='glass-frost'] {
+  .settings-library-card__scan-badge--running {
+    border-color: rgba(37, 99, 235, 0.24);
+    background: rgba(37, 99, 235, 0.12);
+    color: #1d4ed8;
+  }
+
+  .settings-library-card__scan-badge--success {
+    border-color: rgba(5, 150, 105, 0.24);
+    background: rgba(16, 185, 129, 0.13);
+    color: #047857;
+  }
+
+  .settings-library-card__scan-badge--failed {
+    border-color: rgba(220, 38, 38, 0.24);
+    background: rgba(239, 68, 68, 0.12);
+    color: #b91c1c;
+  }
+
+  .settings-library-card__scan-badge--pending {
+    border-color: rgba(217, 119, 6, 0.26);
+    background: rgba(245, 158, 11, 0.16);
+    color: #92400e;
+  }
+
+  .settings-library-card__scan-badge--muted {
+    border-color: rgba(113, 128, 151, 0.2);
+    background: rgba(113, 128, 151, 0.12);
+    color: var(--text-muted);
+  }
 }
 
 .settings-library-card__scan-copy {

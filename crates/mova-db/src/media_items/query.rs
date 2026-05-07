@@ -2,7 +2,8 @@ use super::{
     CreateAudioTrackParams, CreateSubtitleTrackParams, ExistingMediaMetadataSummary,
     LibraryMediaTypeCounts, ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult,
     MediaItemPlaybackHeader, SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams,
-    UpdateMediaItemMetadataParams, UpsertSeriesEpisodeOutlineCacheParams,
+    UpdateMediaItemMetadataParams, UpdateSeriesEpisodeMetadataParams,
+    UpdateSeriesSeasonMetadataParams, UpsertSeriesEpisodeOutlineCacheParams,
 };
 use anyhow::{Context, Result};
 use mova_domain::{AudioTrack, Episode, MediaFile, MediaItem, Season, SubtitleFile};
@@ -829,6 +830,110 @@ pub async fn update_season_intro_markers(
     .context("failed to update season intro markers")?;
 
     Ok(row.map(map_season_row))
+}
+
+pub async fn update_series_season_metadata(
+    pool: &PgPool,
+    params: UpdateSeriesSeasonMetadataParams,
+) -> Result<u64> {
+    let result = sqlx::query(
+        r#"
+        update seasons
+        set
+            title = coalesce($3, title),
+            overview = coalesce($4, overview),
+            poster_path = coalesce($5, poster_path),
+            backdrop_path = coalesce($6, backdrop_path),
+            updated_at = now()
+        where series_id = $1
+          and season_number = $2
+        "#,
+    )
+    .bind(params.series_id)
+    .bind(params.season_number)
+    .bind(&params.title)
+    .bind(&params.overview)
+    .bind(&params.poster_path)
+    .bind(&params.backdrop_path)
+    .execute(pool)
+    .await
+    .context("failed to update series season metadata")?;
+
+    Ok(result.rows_affected())
+}
+
+pub async fn update_series_episode_metadata(
+    pool: &PgPool,
+    params: UpdateSeriesEpisodeMetadataParams,
+) -> Result<u64> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start series episode metadata update transaction")?;
+
+    sqlx::query(
+        r#"
+        with target as (
+            select e.id as episode_id
+            from episodes e
+            join seasons s on s.id = e.season_id
+            where e.series_id = $1
+              and s.season_number = $2
+              and e.episode_number = $3
+        )
+        update episodes e
+        set
+            title = coalesce($4, e.title),
+            updated_at = now()
+        from target
+        where e.id = target.episode_id
+        "#,
+    )
+    .bind(params.series_id)
+    .bind(params.season_number)
+    .bind(params.episode_number)
+    .bind(&params.title)
+    .execute(&mut *tx)
+    .await
+    .context("failed to update episode metadata row")?;
+
+    let media_item_result = sqlx::query(
+        r#"
+        with target as (
+            select e.media_item_id
+            from episodes e
+            join seasons s on s.id = e.season_id
+            where e.series_id = $1
+              and s.season_number = $2
+              and e.episode_number = $3
+        )
+        update media_items mi
+        set
+            title = coalesce($4, mi.title),
+            overview = coalesce($5, mi.overview),
+            poster_path = coalesce($6, mi.poster_path),
+            backdrop_path = coalesce($7, mi.backdrop_path),
+            updated_at = now()
+        from target
+        where mi.id = target.media_item_id
+        "#,
+    )
+    .bind(params.series_id)
+    .bind(params.season_number)
+    .bind(params.episode_number)
+    .bind(&params.title)
+    .bind(&params.overview)
+    .bind(&params.poster_path)
+    .bind(&params.backdrop_path)
+    .execute(&mut *tx)
+    .await
+    .context("failed to update episode media item metadata")?;
+
+    tx.commit()
+        .await
+        .context("failed to commit series episode metadata update transaction")?;
+
+    Ok(media_item_result.rows_affected())
 }
 
 pub async fn get_season(pool: &PgPool, season_id: i64) -> Result<Option<Season>> {

@@ -199,7 +199,8 @@ fn parse_episode_identity(path: &Path) -> Option<ParsedEpisodeIdentity> {
 
     let episode_title = (normalized_title_start < title_end)
         .then(|| tokens[normalized_title_start..title_end].join(" "))
-        .filter(|value| !value.is_empty());
+        .filter(|value| !value.is_empty())
+        .filter(|value| !is_generic_episode_title(value, episode_number));
 
     Some(ParsedEpisodeIdentity {
         season_number,
@@ -308,6 +309,16 @@ fn parse_x_episode_token(token: &str) -> Option<(i32, i32)> {
     let episode_number = lower[separator_index + 1..].parse::<i32>().ok()?;
 
     Some((season_number, episode_number))
+}
+
+fn is_generic_episode_title(value: &str, episode_number: i32) -> bool {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let lower = normalized.to_ascii_lowercase();
+
+    lower == format!("episode {episode_number}")
+        || lower == format!("ep {episode_number}")
+        || normalized == format!("第 {episode_number} 集")
+        || normalized == format!("第{episode_number}集")
 }
 
 fn decode_basic_html_entities(value: &str) -> String {

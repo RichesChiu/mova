@@ -400,7 +400,7 @@ async fn load_cached_remote_outline(
     }))
 }
 
-async fn cache_remote_outline(
+pub(crate) async fn cache_remote_outline(
     pool: &PgPool,
     media_item_id: i64,
     remote_outline: &RemoteSeriesEpisodeOutline,

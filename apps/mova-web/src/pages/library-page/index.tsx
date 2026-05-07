@@ -9,7 +9,6 @@ import {
   formatPendingScanPlaceholderCopy,
   formatScanItemMeta,
   formatScanItemProgressCopy,
-  formatScanJobStatusCopy,
   getEffectiveScanJob,
   getLibraryScanRuntime,
   getScanJobProgressPercent,
@@ -20,6 +19,7 @@ import {
 } from '../../components/app-shell/scan-runtime'
 import { MediaCard, MediaCardScanPlaceholder, MediaCardSkeleton } from '../../components/media-card'
 import { useI18n } from '../../i18n'
+import { getLibraryMediaSection, getLibraryScanSection } from '../../lib/library-media-sections'
 
 const PAGE_SIZE = 500
 const MEDIA_SECTION_SKELETON_COUNT = 6
@@ -31,6 +31,19 @@ const MEDIA_SECTION_SKELETON_KEYS = [
   'media-e',
   'media-f',
 ] as const
+
+const formatLibraryScanItemSubtitle = (item: ScanRuntimeItem) => {
+  if (
+    typeof item.season_number === 'number' &&
+    Number.isFinite(item.season_number) &&
+    typeof item.episode_number === 'number' &&
+    Number.isFinite(item.episode_number)
+  ) {
+    return formatScanItemMeta(item)
+  }
+
+  return null
+}
 
 const MediaSection = ({
   items,
@@ -66,7 +79,6 @@ const MediaSection = ({
               placeholderLabel={pendingScanPlaceholder.placeholderLabel}
               progressPercent={pendingScanPlaceholder.progressPercent}
               progressText={pendingScanPlaceholder.progressText}
-              subtitle={l('Library')}
               title={pendingScanPlaceholder.title}
             />
           ) : null}
@@ -76,12 +88,12 @@ const MediaSection = ({
               placeholderLabel={item.media_type.toUpperCase()}
               progressPercent={item.progress_percent}
               progressText={formatScanItemProgressCopy(item)}
-              subtitle={formatScanItemMeta(item)}
+              subtitle={formatLibraryScanItemSubtitle(item)}
               title={item.title}
             />
           ))}
           {items.map((item) => (
-            <MediaCard item={item} key={item.id} />
+            <MediaCard item={item} key={item.id} showTypeTag={false} />
           ))}
         </div>
       )}
@@ -155,14 +167,15 @@ export const LibraryPage = () => {
   const scanItems = shouldShowScanPlaceholder(currentLibrary?.last_scan, currentScanRuntime)
     ? getScanRuntimeItems(currentScanRuntime)
     : []
-  const movieItems = mediaItems.filter((item) => item.media_type === 'movie')
-  const seriesItems = mediaItems.filter((item) => item.media_type === 'series')
-  const movieScanItems = scanItems.filter((item) => item.media_type === 'movie')
-  const seriesScanItems = scanItems.filter((item) => item.media_type !== 'movie')
+  const movieItems = mediaItems.filter((item) => getLibraryMediaSection(item) === 'movies')
+  const seriesItems = mediaItems.filter((item) => getLibraryMediaSection(item) === 'series')
+  const otherItems = mediaItems.filter((item) => getLibraryMediaSection(item) === 'other')
+  const movieScanItems = scanItems.filter((item) => getLibraryScanSection(item) === 'movies')
+  const seriesScanItems = scanItems.filter((item) => getLibraryScanSection(item) === 'series')
+  const otherScanItems = scanItems.filter((item) => getLibraryScanSection(item) === 'other')
   const shouldShowMediaSkeleton =
     mediaItemsQuery.isLoading && mediaItems.length === 0 && scanItems.length === 0
   const scanProgressPercent = getScanJobProgressPercent(currentScan, currentScanRuntime)
-  const scanCopy = formatScanJobStatusCopy(currentScan, currentScanRuntime)
   const isScanning = isLibraryScanActive(currentScan, currentScanRuntime)
   const pendingScanPlaceholder =
     isScanning && scanItems.length === 0
@@ -177,6 +190,24 @@ export const LibraryPage = () => {
           title: currentLibrary?.name ?? l('Scanning library'),
         }
       : null
+  const detectedMovieCount = mediaItemsQuery.data ? movieItems.length : (currentLibrary?.movie_count ?? 0)
+  const detectedSeriesCount = mediaItemsQuery.data
+    ? seriesItems.length
+    : (currentLibrary?.series_count ?? 0)
+  const detectedOtherCount = mediaItemsQuery.data ? otherItems.length : 0
+  const detectedSummary =
+    detectedMovieCount + detectedSeriesCount + detectedOtherCount > 0
+      ? detectedOtherCount > 0
+        ? l('{{movies}} movies / {{series}} series / {{other}} other', {
+            movies: detectedMovieCount,
+            other: detectedOtherCount,
+            series: detectedSeriesCount,
+          })
+        : l('{{movies}} movies / {{series}} series', {
+            movies: detectedMovieCount,
+            series: detectedSeriesCount,
+          })
+      : l('Automatic')
 
   return (
     <div className="page-stack library-page">
@@ -207,14 +238,7 @@ export const LibraryPage = () => {
           <div className="library-hero__meta">
             <div className="hero-stat">
               <span className="hero-stat__label">{l('Detected')}</span>
-              <strong>
-                {(currentLibrary?.movie_count ?? 0) + (currentLibrary?.series_count ?? 0) > 0
-                  ? l('{{movies}} movies / {{series}} series', {
-                      movies: currentLibrary?.movie_count ?? 0,
-                      series: currentLibrary?.series_count ?? 0,
-                    })
-                  : l('Automatic')}
-              </strong>
+              <strong>{detectedSummary}</strong>
             </div>
             <div className="hero-stat">
               <span className="hero-stat__label">{l('Items')}</span>
@@ -229,22 +253,6 @@ export const LibraryPage = () => {
           {libraryQuery.error instanceof Error
             ? libraryQuery.error.message
             : l('Failed to load library')}
-        </p>
-      ) : null}
-
-      {currentScan && (currentScan.status === 'pending' || currentScan.status === 'running') ? (
-        <p className="callout">
-          {l('This library is syncing.{{suffix}}', {
-            suffix: scanCopy ? ` ${scanCopy}.` : '',
-          })}
-          {currentScan.total_files > 0
-            ? ` ${l('Current task progress is about {{percent}}%.', {
-                percent: scanProgressPercent,
-              })}`
-            : ` ${l(
-                'The sync discovers files first, then enriches metadata and artwork item by item.',
-              )}`}{' '}
-          {l('Browsing stays available while the sync is running.')}
         </p>
       ) : null}
 
@@ -283,6 +291,7 @@ export const LibraryPage = () => {
           <div className="catalog-stack">
             <MediaSectionSkeleton placeholderLabel={l('Movies')} title={l('Movies')} />
             <MediaSectionSkeleton placeholderLabel={l('Series')} title={l('Series')} />
+            <MediaSectionSkeleton placeholderLabel={l('Other')} title={l('Other')} />
           </div>
         ) : null}
 
@@ -290,7 +299,7 @@ export const LibraryPage = () => {
           <div className="catalog-stack">
             <MediaSection
               items={movieItems}
-              pendingScanPlaceholder={movieScanItems.length === 0 ? pendingScanPlaceholder : null}
+              pendingScanPlaceholder={null}
               scanItems={movieScanItems}
               title={l('Movies')}
             />
@@ -299,6 +308,12 @@ export const LibraryPage = () => {
               pendingScanPlaceholder={null}
               scanItems={seriesScanItems}
               title={l('Series')}
+            />
+            <MediaSection
+              items={otherItems}
+              pendingScanPlaceholder={otherScanItems.length === 0 ? pendingScanPlaceholder : null}
+              scanItems={otherScanItems}
+              title={l('Other')}
             />
           </div>
         ) : null}

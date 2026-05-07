@@ -12,6 +12,7 @@ pub use query::{
     list_series_media_item_ids_for_library, list_subtitle_files_for_media_file,
     replace_audio_tracks_for_media_file, replace_subtitle_files_for_media_file,
     update_media_file_metadata, update_media_item_metadata, update_season_intro_markers,
+    update_series_episode_metadata, update_series_season_metadata,
     upsert_series_episode_outline_cache,
 };
 pub use sync::{
@@ -116,6 +117,29 @@ pub struct UpdateMediaItemMetadataParams {
     pub country: Option<String>,
     pub genres: Option<String>,
     pub studio: Option<String>,
+    pub overview: Option<String>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+}
+
+/// 手动替换剧集元数据后，覆盖本地已存在季的远端 metadata。
+#[derive(Debug, Clone)]
+pub struct UpdateSeriesSeasonMetadataParams {
+    pub series_id: i64,
+    pub season_number: i32,
+    pub title: Option<String>,
+    pub overview: Option<String>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+}
+
+/// 手动替换剧集元数据后，覆盖本地已存在集的远端 metadata。
+#[derive(Debug, Clone)]
+pub struct UpdateSeriesEpisodeMetadataParams {
+    pub series_id: i64,
+    pub season_number: i32,
+    pub episode_number: i32,
+    pub title: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,

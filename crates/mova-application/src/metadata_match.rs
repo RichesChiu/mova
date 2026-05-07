@@ -5,7 +5,10 @@ use crate::{
     libraries::get_library,
     media_classification::metadata_lookup_type_for_media_type,
     media_items::get_media_item,
-    metadata::{MetadataLookup, MetadataProvider, RemoteMetadataSearchResult, TMDB_PROVIDER_NAME},
+    metadata::{
+        MetadataLookup, MetadataProvider, RemoteMetadataSearchResult, RemoteSeriesEpisodeOutline,
+        TMDB_PROVIDER_NAME,
+    },
 };
 use mova_domain::MediaItem;
 use sqlx::postgres::PgPool;
@@ -129,14 +132,102 @@ pub async fn apply_media_item_metadata_match(
     })?;
 
     if media_item.media_type.eq_ignore_ascii_case("series") {
-        mova_db::delete_series_episode_outline_cache(pool, media_item.id)
-            .await
-            .map_err(ApplicationError::from)?;
+        apply_selected_series_episode_metadata(
+            pool,
+            media_item.id,
+            &lookup,
+            metadata_provider.as_ref(),
+        )
+        .await?;
     }
     invalidate_media_item_cast_cache(pool, media_item.id).await?;
     ensure_media_item_cast(pool, &updated_media_item, metadata_provider).await?;
 
     Ok(updated_media_item)
+}
+
+async fn apply_selected_series_episode_metadata(
+    pool: &PgPool,
+    series_media_item_id: i64,
+    lookup: &MetadataLookup,
+    metadata_provider: &dyn MetadataProvider,
+) -> ApplicationResult<()> {
+    let remote_outline = match metadata_provider
+        .lookup_series_episode_outline(lookup)
+        .await
+    {
+        Ok(Some(remote_outline)) => remote_outline,
+        Ok(None) => {
+            crate::media_items::cache_remote_outline(
+                pool,
+                series_media_item_id,
+                &RemoteSeriesEpisodeOutline { seasons: vec![] },
+            )
+            .await?;
+            return Ok(());
+        }
+        Err(error) => {
+            tracing::warn!(
+                media_item_id = series_media_item_id,
+                provider_item_id = lookup.provider_item_id,
+                error = ?error,
+                "failed to fetch selected series episode outline after metadata replacement"
+            );
+            mova_db::delete_series_episode_outline_cache(pool, series_media_item_id)
+                .await
+                .map_err(ApplicationError::from)?;
+            return Ok(());
+        }
+    };
+
+    persist_selected_series_episode_metadata(pool, series_media_item_id, &remote_outline).await?;
+    crate::media_items::cache_remote_outline(pool, series_media_item_id, &remote_outline).await
+}
+
+async fn persist_selected_series_episode_metadata(
+    pool: &PgPool,
+    series_media_item_id: i64,
+    remote_outline: &RemoteSeriesEpisodeOutline,
+) -> ApplicationResult<()> {
+    // Keep these writes strictly serial: one successful season or episode update must finish
+    // before the next one starts, so a failed artwork write never races with later updates.
+    for season in &remote_outline.seasons {
+        mova_db::update_series_season_metadata(
+            pool,
+            mova_db::UpdateSeriesSeasonMetadataParams {
+                series_id: series_media_item_id,
+                season_number: season.season_number,
+                title: season.title.clone(),
+                overview: season.overview.clone(),
+                poster_path: season.poster_path.clone(),
+                backdrop_path: season.backdrop_path.clone(),
+            },
+        )
+        .await
+        .map_err(ApplicationError::from)?;
+
+        for episode in &season.episodes {
+            mova_db::update_series_episode_metadata(
+                pool,
+                mova_db::UpdateSeriesEpisodeMetadataParams {
+                    series_id: series_media_item_id,
+                    season_number: season.season_number,
+                    episode_number: episode.episode_number,
+                    title: episode.title.clone(),
+                    overview: episode.overview.clone(),
+                    poster_path: episode.poster_path.clone(),
+                    backdrop_path: episode
+                        .backdrop_path
+                        .clone()
+                        .or(episode.poster_path.clone()),
+                },
+            )
+            .await
+            .map_err(ApplicationError::from)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn ensure_metadata_provider_enabled(
