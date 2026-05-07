@@ -217,7 +217,7 @@ export const buildMediaFileTechnicalBadges = (
     }))
 }
 
-export const buildMediaSourceFacts = (file: MediaFile): MediaFileFact[] => [
+export const buildVideoCardFacts = (file: MediaFile): MediaFileFact[] => [
   {
     label: translateCurrent('File Size'),
     value: formatBytes(file.file_size, getCurrentInterfaceLanguage()),
@@ -230,9 +230,6 @@ export const buildMediaSourceFacts = (file: MediaFile): MediaFileFact[] => [
     label: translateCurrent('Overall Bitrate'),
     value: formatMediaFileBitrate(file.bitrate),
   },
-]
-
-export const buildVideoCardFacts = (file: MediaFile): MediaFileFact[] => [
   {
     label: translateCurrent('Title'),
     value: formatVideoStreamTitle(file),
@@ -268,10 +265,6 @@ export const buildVideoCardFacts = (file: MediaFile): MediaFileFact[] => [
   {
     label: translateCurrent('Frame Rate'),
     value: formatFrameRate(file.video_frame_rate),
-  },
-  {
-    label: translateCurrent('Bitrate'),
-    value: formatMediaFileBitrate(file.video_bitrate ?? file.bitrate),
   },
   {
     label: translateCurrent('Color Primaries'),

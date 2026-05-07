@@ -4,7 +4,6 @@ import {
   buildAudioTrackOptions,
   buildAudioTrackTitle,
   buildMediaFileTechnicalBadges,
-  buildMediaSourceFacts,
   buildMediaVersionOptions,
   buildSubtitleTrackFacts,
   buildSubtitleTrackOptions,
@@ -70,9 +69,17 @@ describe('media file detail helpers', () => {
       },
     ])
 
-    expect(buildMediaSourceFacts(sampleFile)).toContainEqual({
+    expect(buildVideoCardFacts(sampleFile)).toContainEqual({
       label: 'File Size',
       value: '16 GB',
+    })
+    expect(buildVideoCardFacts(sampleFile)).toContainEqual({
+      label: 'Duration',
+      value: '2h 35m 0s',
+    })
+    expect(buildVideoCardFacts(sampleFile)).toContainEqual({
+      label: 'Overall Bitrate',
+      value: '19 Mb/s',
     })
     expect(buildVideoCardFacts(sampleFile)).toContainEqual({
       label: 'Codec',
@@ -86,6 +93,7 @@ describe('media file detail helpers', () => {
       label: 'Bit Depth',
       value: '10-bit',
     })
+    expect(buildVideoCardFacts(sampleFile).some((fact) => fact.label === 'Bitrate')).toBe(false)
   })
 
   it('builds audio track summaries and facts', () => {

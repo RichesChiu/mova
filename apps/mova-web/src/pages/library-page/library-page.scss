@@ -1,12 +1,5 @@
-.library-page__toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-}
-
-.library-page__home-link {
-  min-width: 0;
-  opacity: 0.92;
+.library-page {
+  padding-top: clamp(10px, 1.5vw, 20px);
 }
 
 .library-hero {
@@ -38,6 +31,28 @@
 
 .library-hero__content {
   gap: 14px;
+}
+
+.library-hero__navigation-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.library-hero__back-link {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--floating-surface-strong) 74%, transparent);
+  box-shadow: var(--panel-inset), var(--floating-shadow);
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.library-hero__back-link:hover {
+  border-color: color-mix(in srgb, var(--button-primary-border) 62%, var(--floating-border));
+  background: color-mix(in srgb, var(--floating-surface-strong) 92%, transparent);
 }
 
 .library-hero__copy {

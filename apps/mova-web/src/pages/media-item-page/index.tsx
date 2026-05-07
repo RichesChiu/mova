@@ -34,7 +34,6 @@ import {
   buildAudioTrackFacts,
   buildAudioTrackOptions,
   buildMediaFileTechnicalBadges,
-  buildMediaSourceFacts,
   buildMediaVersionOptions,
   buildSubtitleTrackFacts,
   buildSubtitleTrackOptions,
@@ -641,36 +640,49 @@ export const MediaItemPage = () => {
 
   return (
     <div className="page-stack media-item-page" style={pageArtworkStyle}>
-      <div className="media-item-toolbar">
-        <Link
-          className="back-link media-item-back-link"
-          to={`/libraries/${mediaItemQuery.data.library_id}`}
-        >
-          <svg aria-hidden="true" className="back-link__icon" fill="none" viewBox="0 0 16 16">
-            <path
-              d="M9.5 3.5L5.5 8L9.5 12.5"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.8"
-            />
-          </svg>
-          <span>{l('Back to Library')}</span>
-        </Link>
-      </div>
-
       <section className="detail-hero">
-        <div className="detail-hero__poster">
-          {heroPosterPath ? (
-            <img alt={`${heroTitle} poster`} src={heroPosterPath} />
-          ) : (
-            <div className="media-card__placeholder">
-              <span>{l(mediaItemQuery.data.media_type === 'series' ? 'Series' : 'Movie')}</span>
-            </div>
-          )}
+        <div className="detail-hero__poster-column">
+          <div className="detail-hero__poster">
+            {heroPosterPath ? (
+              <img alt={`${heroTitle} poster`} src={heroPosterPath} />
+            ) : (
+              <div className="media-card__placeholder">
+                <span>{l(mediaItemQuery.data.media_type === 'series' ? 'Series' : 'Movie')}</span>
+              </div>
+            )}
+          </div>
+
+          {selectedTechnicalBadges.length > 0 ? (
+            <ul
+              className="detail-hero__technical-badges media-technical-badges media-technical-badges--hero"
+              aria-label={l('Resource Tags')}
+            >
+              {selectedTechnicalBadges.map((badge) =>
+                renderMediaTechnicalBadge(badge, `hero-${selectedMediaFile?.id}-${badge.label}`),
+              )}
+            </ul>
+          ) : null}
         </div>
 
         <div className="detail-hero__body">
+          <div className="detail-hero__navigation-row">
+            <Link
+              className="back-link detail-hero__back-link"
+              to={`/libraries/${mediaItemQuery.data.library_id}`}
+            >
+              <svg aria-hidden="true" className="back-link__icon" fill="none" viewBox="0 0 16 16">
+                <path
+                  d="M9.5 3.5L5.5 8L9.5 12.5"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.8"
+                />
+              </svg>
+              <span>{l('Back to Library')}</span>
+            </Link>
+          </div>
+
           <div className="detail-hero__title-row">
             <h2>{heroTitle}</h2>
             {heroImdbRating ? (
@@ -680,16 +692,6 @@ export const MediaItemPage = () => {
               </span>
             ) : null}
           </div>
-          {selectedTechnicalBadges.length > 0 ? (
-            <ul
-              className="detail-hero__technical-badges media-technical-badges"
-              aria-label={l('Resource Tags')}
-            >
-              {selectedTechnicalBadges.map((badge) =>
-                renderMediaTechnicalBadge(badge, `hero-${selectedMediaFile?.id}-${badge.label}`),
-              )}
-            </ul>
-          ) : null}
           {isSeriesView && availableSeasons.length > 0 ? (
             <div className="detail-hero__season-picker">
               <div className="detail-hero__season-heading">
@@ -936,17 +938,6 @@ export const MediaItemPage = () => {
                       ) : null}
                       <h4>{getMediaFileDisplayName(selectedMediaFile.file_path)}</h4>
                     </div>
-
-                    {selectedTechnicalBadges.length > 0 ? (
-                      <ul className="media-file-card__badges media-technical-badges media-technical-badges--compact">
-                        {selectedTechnicalBadges.map((badge) =>
-                          renderMediaTechnicalBadge(
-                            badge,
-                            `source-${selectedMediaFile.id}-${badge.label}`,
-                          ),
-                        )}
-                      </ul>
-                    ) : null}
                   </div>
 
                   <div className="media-file-card__details">
@@ -954,18 +945,6 @@ export const MediaItemPage = () => {
                       <p className="media-file-card__label">{l('Path')}</p>
                       <p className="media-file-card__path">{selectedMediaFile.file_path}</p>
                     </div>
-
-                    <dl className="media-file-card__facts">
-                      {buildMediaSourceFacts(selectedMediaFile).map((fact) => (
-                        <div
-                          className="media-file-card__fact"
-                          key={`${selectedMediaFile.id}-${fact.label}`}
-                        >
-                          <dt>{fact.label}</dt>
-                          <dd>{fact.value}</dd>
-                        </div>
-                      ))}
-                    </dl>
                   </div>
 
                   <div className="media-tech-stack">

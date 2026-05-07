@@ -179,24 +179,24 @@ export const LibraryPage = () => {
       : null
 
   return (
-    <div className="page-stack">
-      <div className="library-page__toolbar">
-        <Link className="back-link library-page__home-link" to="/">
-          <svg aria-hidden="true" className="back-link__icon" fill="none" viewBox="0 0 16 16">
-            <path
-              d="M9.5 3.5L5.5 8L9.5 12.5"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="1.8"
-            />
-          </svg>
-          <span>{l('Back Home')}</span>
-        </Link>
-      </div>
-
+    <div className="page-stack library-page">
       <section className="library-hero library-hero--compact">
         <div className="library-hero__content">
+          <div className="library-hero__navigation-row">
+            <Link className="back-link library-hero__back-link" to="/">
+              <svg aria-hidden="true" className="back-link__icon" fill="none" viewBox="0 0 16 16">
+                <path
+                  d="M9.5 3.5L5.5 8L9.5 12.5"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.8"
+                />
+              </svg>
+              <span>{l('Back Home')}</span>
+            </Link>
+          </div>
+
           <div className="library-hero__copy">
             <h2>{currentLibrary?.name ?? l('Loading…')}</h2>
             {libraryDescription ? (
