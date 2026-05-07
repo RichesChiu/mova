@@ -271,6 +271,7 @@ fn build_media_entry(
         video_bit_depth: file.video_bit_depth,
         video_pixel_format: file.video_pixel_format,
         video_reference_frames: file.video_reference_frames,
+        technical_tags: file.technical_tags,
         audio_tracks: file
             .audio_tracks
             .into_iter()

@@ -196,6 +196,7 @@ export interface MediaFile {
   video_bit_depth?: number | null
   video_pixel_format?: string | null
   video_reference_frames?: number | null
+  technical_tags: string[]
   scan_hash: string | null
   created_at: string
   updated_at: string

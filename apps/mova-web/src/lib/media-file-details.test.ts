@@ -3,7 +3,7 @@ import {
   buildAudioTrackFacts,
   buildAudioTrackOptions,
   buildAudioTrackTitle,
-  buildMediaFileFeatureBadges,
+  buildMediaFileTechnicalBadges,
   buildMediaSourceFacts,
   buildMediaVersionOptions,
   buildSubtitleTrackFacts,
@@ -12,7 +12,6 @@ import {
   buildVideoCardFacts,
   buildVideoTrackOptions,
   formatMediaFileBitrate,
-  formatMediaFileDolby,
   formatMediaFileResolution,
   getMediaFileDisplayName,
 } from './media-file-details'
@@ -42,6 +41,7 @@ const sampleFile = {
   video_bit_depth: 10,
   video_pixel_format: 'yuv420p10le',
   video_reference_frames: 4,
+  technical_tags: ['Dolby Vision', 'Atmos'],
   scan_hash: null,
   created_at: '',
   updated_at: '',
@@ -58,18 +58,17 @@ describe('media file detail helpers', () => {
     expect(formatMediaFileBitrate(820_000)).toBe('820 kb/s')
   })
 
-  it('detects Dolby markers conservatively from codec and path', () => {
-    expect(formatMediaFileDolby(sampleFile)).toBe('Dolby Audio · Dolby Vision')
-    expect(
-      formatMediaFileDolby({
-        audio_codec: 'aac',
-        file_path: '/media/movies/Plain Title/plain-title.mkv',
-      }),
-    ).toBe('No Dolby markers found')
-  })
-
   it('builds source badges and video facts for the details view', () => {
-    expect(buildMediaFileFeatureBadges(sampleFile)).toEqual(['Dolby Audio', 'Dolby Vision'])
+    expect(buildMediaFileTechnicalBadges(sampleFile)).toEqual([
+      {
+        iconSrc: '/media-tech/dolby-vision.svg',
+        label: 'Dolby Vision',
+      },
+      {
+        iconSrc: '/media-tech/dolby-atmos.svg',
+        label: 'Atmos',
+      },
+    ])
 
     expect(buildMediaSourceFacts(sampleFile)).toContainEqual({
       label: 'File Size',

@@ -4,7 +4,7 @@ use super::{
         discover_media_files_with_progress_item_and_cancel, discover_media_paths,
         inspect_media_file,
     },
-    infer_series_folder_metadata, is_likely_episode_path,
+    infer_series_file_metadata, is_likely_episode_path,
     parse::{humanize_file_stem, parse_media_metadata, ParsedMediaMetadata},
     probe::{parse_ffprobe_output, MediaProbe},
     sidecar::{parse_nfo_metadata, ParsedSidecarMetadata},
@@ -21,6 +21,13 @@ fn humanize_file_stem_replaces_common_separators() {
     let path = Path::new("The.Matrix_1999.1080p.mkv");
 
     assert_eq!(humanize_file_stem(path), "The Matrix 1999 1080p");
+}
+
+#[test]
+fn humanize_file_stem_keeps_embedded_series_tokens() {
+    let path = Path::new("The.BeautyS01E01.2026.2160p.mkv");
+
+    assert_eq!(humanize_file_stem(path), "The BeautyS01E01 2026 2160p");
 }
 
 #[test]
@@ -108,7 +115,7 @@ fn parse_media_metadata_decodes_basic_html_entities_in_file_names() {
 }
 
 #[test]
-fn parse_media_metadata_prefers_movie_folder_title_when_file_name_is_noisy() {
+fn parse_media_metadata_keeps_noisy_movie_file_title_without_folder_guessing() {
     let path = Path::new(
         "刺杀小说家/刺杀小说家 (2025) [4K蓝光原盘珍藏版]/A Writer&#39;s Odyssey 2 (2025) - 2160p WEB-DL HDR HQ H265 DTS.mkv",
     );
@@ -116,8 +123,8 @@ fn parse_media_metadata_prefers_movie_folder_title_when_file_name_is_noisy() {
     assert_eq!(
         parse_media_metadata(path),
         ParsedMediaMetadata {
-            title: "刺杀小说家".to_string(),
-            source_title: "刺杀小说家".to_string(),
+            title: "A Writer's Odyssey 2".to_string(),
+            source_title: "A Writer's Odyssey 2".to_string(),
             original_title: None,
             sort_title: None,
             year: Some(2025),
@@ -252,24 +259,52 @@ fn parse_media_metadata_extracts_episode_numbers_and_title() {
 }
 
 #[test]
-fn parse_media_metadata_uses_series_folder_for_episode_number_only_files() {
+fn parse_media_metadata_keeps_embedded_series_token_as_local_file() {
+    let path = Path::new("美丽毒素/S01/The.BeautyS01E01.2026.2160p.WEB-DL.mkv");
+
+    assert_eq!(
+        parse_media_metadata(path),
+        ParsedMediaMetadata {
+            title: "The BeautyS01E01".to_string(),
+            source_title: "The BeautyS01E01".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: Some(2026),
+            season_number: None,
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: None,
+            episode_title: None,
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+        }
+    );
+}
+
+#[test]
+fn parse_media_metadata_keeps_episode_number_only_file_as_local_file() {
     let path = Path::new("Arcane/Season 01/01 Some Mysteries Are Better Left Unsolved.mkv");
 
     assert_eq!(
         parse_media_metadata(path),
         ParsedMediaMetadata {
-            title: "Arcane".to_string(),
-            source_title: "Arcane".to_string(),
+            title: "Some Mysteries Are Better Left Unsolved".to_string(),
+            source_title: "Some Mysteries Are Better Left Unsolved".to_string(),
             original_title: None,
             sort_title: None,
             year: None,
-            season_number: Some(1),
+            season_number: None,
             season_title: None,
             season_overview: None,
             season_poster_path: None,
             season_backdrop_path: None,
-            episode_number: Some(1),
-            episode_title: Some("Some Mysteries Are Better Left Unsolved".to_string()),
+            episode_number: None,
+            episode_title: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
@@ -280,24 +315,24 @@ fn parse_media_metadata_uses_series_folder_for_episode_number_only_files() {
 }
 
 #[test]
-fn parse_media_metadata_supports_ep_prefixed_episode_tokens() {
+fn parse_media_metadata_keeps_ep_prefixed_file_without_series_token_as_local_file() {
     let path = Path::new("Arcane/Season 01/EP02 Some Mysteries Are Better Left Unsolved.mkv");
 
     assert_eq!(
         parse_media_metadata(path),
         ParsedMediaMetadata {
-            title: "Arcane".to_string(),
-            source_title: "Arcane".to_string(),
+            title: "EP02 Some Mysteries Are Better Left Unsolved".to_string(),
+            source_title: "EP02 Some Mysteries Are Better Left Unsolved".to_string(),
             original_title: None,
             sort_title: None,
             year: None,
-            season_number: Some(1),
+            season_number: None,
             season_title: None,
             season_overview: None,
             season_poster_path: None,
             season_backdrop_path: None,
-            episode_number: Some(2),
-            episode_title: Some("Some Mysteries Are Better Left Unsolved".to_string()),
+            episode_number: None,
+            episode_title: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
@@ -308,24 +343,24 @@ fn parse_media_metadata_supports_ep_prefixed_episode_tokens() {
 }
 
 #[test]
-fn parse_media_metadata_supports_chinese_episode_tokens() {
+fn parse_media_metadata_keeps_chinese_episode_file_without_series_token_as_local_file() {
     let path = Path::new("三体/Season 1/第03集 黑暗森林.mkv");
 
     assert_eq!(
         parse_media_metadata(path),
         ParsedMediaMetadata {
-            title: "三体".to_string(),
-            source_title: "三体".to_string(),
+            title: "第03集 黑暗森林".to_string(),
+            source_title: "第03集 黑暗森林".to_string(),
             original_title: None,
             sort_title: None,
             year: None,
-            season_number: Some(1),
+            season_number: None,
             season_title: None,
             season_overview: None,
             season_poster_path: None,
             season_backdrop_path: None,
-            episode_number: Some(3),
-            episode_title: Some("黑暗森林".to_string()),
+            episode_number: None,
+            episode_title: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
@@ -336,7 +371,7 @@ fn parse_media_metadata_supports_chinese_episode_tokens() {
 }
 
 #[test]
-fn parse_media_metadata_extracts_trailing_year_from_series_folder_name() {
+fn parse_media_metadata_does_not_extract_year_from_series_folder_name() {
     let path = Path::new("神雕侠侣1993/Season 01/神雕侠侣.S01E01.mp4");
 
     assert_eq!(
@@ -346,7 +381,7 @@ fn parse_media_metadata_extracts_trailing_year_from_series_folder_name() {
             source_title: "神雕侠侣".to_string(),
             original_title: None,
             sort_title: None,
-            year: Some(1993),
+            year: None,
             season_number: Some(1),
             season_title: None,
             season_overview: None,
@@ -364,20 +399,102 @@ fn parse_media_metadata_extracts_trailing_year_from_series_folder_name() {
 }
 
 #[test]
-fn infer_series_folder_metadata_keeps_display_name_and_lookup_title() {
-    let metadata =
-        infer_series_folder_metadata(Path::new("神雕侠侣1993/Season 01/神雕侠侣.S01E01.mp4"))
-            .expect("series folder metadata should be inferred");
+fn parse_media_metadata_uses_file_title_for_named_season_folders() {
+    let path = Path::new("布里杰顿家族 (2020)/布里杰顿家族 - S01/布里杰顿家族 - S01E01.mkv");
 
-    assert!(metadata.folder_path.ends_with("神雕侠侣1993"));
-    assert_eq!(metadata.display_title, "神雕侠侣1993");
-    assert_eq!(metadata.title, "神雕侠侣");
-    assert_eq!(metadata.year, Some(1993));
+    assert_eq!(
+        parse_media_metadata(path),
+        ParsedMediaMetadata {
+            title: "布里杰顿家族".to_string(),
+            source_title: "布里杰顿家族".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: None,
+            season_number: Some(1),
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: Some(1),
+            episode_title: None,
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+        }
+    );
 }
 
 #[test]
-fn infer_series_folder_metadata_ignores_generic_series_root_for_direct_files() {
-    assert!(infer_series_folder_metadata(Path::new("series/Arcane.S01E01.mkv")).is_none());
+fn parse_media_metadata_accepts_common_separators_before_episode_token() {
+    let cases = [
+        "我是电视剧.S01E01.mkv",
+        "我是电视剧 - S01E01.mkv",
+        "我是电视剧_S01E01.mkv",
+        "我是电视剧-S01E01.mkv",
+        "我是电视剧—S01E01.mkv",
+    ];
+
+    for path in cases {
+        let metadata = parse_media_metadata(Path::new(path));
+
+        assert_eq!(metadata.title, "我是电视剧", "path: {path}");
+        assert_eq!(metadata.source_title, "我是电视剧", "path: {path}");
+        assert_eq!(metadata.season_number, Some(1), "path: {path}");
+        assert_eq!(metadata.episode_number, Some(1), "path: {path}");
+        assert_eq!(metadata.episode_title, None, "path: {path}");
+    }
+}
+
+#[test]
+fn infer_series_file_metadata_extracts_title_before_sxxexx_token() {
+    let metadata =
+        infer_series_file_metadata(Path::new("任何目录/随便什么文件夹/我是电视剧.S01E01.mkv"))
+            .expect("series file metadata should be inferred");
+
+    assert_eq!(metadata.display_title, "我是电视剧");
+    assert_eq!(metadata.title, "我是电视剧");
+    assert_eq!(metadata.year, None);
+}
+
+#[test]
+fn infer_series_file_metadata_accepts_common_episode_separators() {
+    for path in [
+        "任何目录/随便什么文件夹/我是电视剧 - S01E01.mkv",
+        "任何目录/随便什么文件夹/我是电视剧_S01E01.mkv",
+        "任何目录/随便什么文件夹/我是电视剧-S01E01.mkv",
+    ] {
+        let metadata =
+            infer_series_file_metadata(Path::new(path)).expect("series file metadata should exist");
+
+        assert_eq!(metadata.display_title, "我是电视剧", "path: {path}");
+        assert_eq!(metadata.title, "我是电视剧", "path: {path}");
+        assert_eq!(metadata.year, None, "path: {path}");
+    }
+}
+
+#[test]
+fn infer_series_file_metadata_extracts_year_before_sxxexx_token() {
+    let metadata = infer_series_file_metadata(Path::new("任何目录/Alls Fair (2025) - S01E01.mkv"))
+        .expect("series file metadata should be inferred");
+
+    assert_eq!(metadata.display_title, "Alls Fair (2025)");
+    assert_eq!(metadata.title, "Alls Fair");
+    assert_eq!(metadata.year, Some(2025));
+}
+
+#[test]
+fn infer_series_file_metadata_ignores_embedded_sxxexx_without_separator() {
+    assert!(infer_series_file_metadata(Path::new(
+        "任何目录/随便什么文件夹/The.BeautyS01E01.2026.mkv"
+    ))
+    .is_none());
+}
+
+#[test]
+fn infer_series_file_metadata_ignores_episode_only_file_names() {
+    assert!(infer_series_file_metadata(Path::new("V世代 (2023)/Season 01/S01E01.mkv")).is_none());
 }
 
 #[test]
@@ -389,19 +506,24 @@ fn is_likely_episode_path_detects_sxxexx_file_names() {
 }
 
 #[test]
-fn is_likely_episode_path_detects_season_directories() {
-    assert!(is_likely_episode_path(Path::new(
+fn is_likely_episode_path_ignores_season_directory_without_episode_file_signal() {
+    assert!(!is_likely_episode_path(Path::new(
+        "美丽毒素/S01/The.BeautyS01E01.2026.mkv"
+    )));
+    assert!(!is_likely_episode_path(Path::new(
         "Arcane/Season 01/episode-file.mkv"
     )));
 }
 
 #[test]
-fn is_likely_episode_path_detects_episode_numbers_inside_season_directories() {
-    assert!(is_likely_episode_path(Path::new("Arcane/Season 01/01.mkv")));
-    assert!(is_likely_episode_path(Path::new(
+fn is_likely_episode_path_ignores_episode_numbers_inside_season_directories() {
+    assert!(!is_likely_episode_path(Path::new(
+        "Arcane/Season 01/01.mkv"
+    )));
+    assert!(!is_likely_episode_path(Path::new(
         "Arcane/Season 01/EP02.mkv"
     )));
-    assert!(is_likely_episode_path(Path::new(
+    assert!(!is_likely_episode_path(Path::new(
         "三体/Season 1/第03集.mkv"
     )));
 }
@@ -513,9 +635,55 @@ fn parse_ffprobe_output_extracts_media_probe_fields() {
             video_bit_depth: Some(10),
             video_pixel_format: Some("yuv420p10le".to_string()),
             video_reference_frames: Some(4),
+            technical_tags: vec!["HDR10".to_string()],
             audio_streams: Vec::new(),
             subtitle_streams: Vec::new(),
         }
+    );
+}
+
+#[test]
+fn parse_ffprobe_output_extracts_technical_tags() {
+    let probe = parse_ffprobe_output(
+        br#"{
+            "streams": [
+                {
+                    "codec_type": "video",
+                    "codec_name": "hevc",
+                    "codec_tag_string": "dvh1",
+                    "color_transfer": "smpte2084",
+                    "color_primaries": "bt2020",
+                    "side_data_list": [
+                        { "side_data_type": "DOVI configuration record" },
+                        { "side_data_type": "HDR Dynamic Metadata SMPTE2094-40 (HDR10+)" }
+                    ]
+                },
+                {
+                    "codec_type": "audio",
+                    "codec_name": "truehd",
+                    "profile": "Dolby TrueHD with Dolby Atmos",
+                    "tags": {
+                        "title": "English Atmos"
+                    }
+                },
+                {
+                    "codec_type": "audio",
+                    "codec_name": "dts",
+                    "profile": "DTS-HD MA"
+                }
+            ],
+            "format": {}
+        }"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        probe.technical_tags,
+        vec![
+            "Dolby Vision".to_string(),
+            "Atmos".to_string(),
+            "DTS-HD".to_string()
+        ]
     );
 }
 

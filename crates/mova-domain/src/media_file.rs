@@ -29,6 +29,7 @@ pub struct MediaFile {
     pub video_bit_depth: Option<i32>,
     pub video_pixel_format: Option<String>,
     pub video_reference_frames: Option<i32>,
+    pub technical_tags: Vec<String>,
     pub scan_hash: Option<String>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,

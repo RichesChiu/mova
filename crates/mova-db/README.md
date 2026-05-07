@@ -143,7 +143,8 @@
 
 ## 7. 当前值得注意的点
 
-- 仓库仍处于 pre-1.0 阶段，migration 目前集中在根目录 [`../../migrations/`](../../migrations/)。
+- 仓库仍处于 pre-1.0 阶段，用户确认正式 MVP 前 migration 保持在根目录 [`../../migrations/0001_init.sql`](../../migrations/0001_init.sql)。
+- 这个阶段 schema 变更默认要求重建数据库 / 重置数据目录，不新增后续 migration 兼容旧库。
 - `mova-server` 启动时会直接调用这里的 `connect / migrate / ping / fail_incomplete_scan_jobs`。
 - `mova-application` 的大部分业务用例都会在这里落到最终 SQL。
 

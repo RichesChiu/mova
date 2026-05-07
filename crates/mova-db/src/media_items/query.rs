@@ -276,6 +276,7 @@ pub async fn get_media_file(pool: &PgPool, media_file_id: i64) -> Result<Option<
             video_bit_depth,
             video_pixel_format,
             video_reference_frames,
+            technical_tags,
             scan_hash,
             created_at,
             updated_at
@@ -323,6 +324,7 @@ pub async fn update_media_file_metadata(
             video_bit_depth = $21,
             video_pixel_format = $22,
             video_reference_frames = $23,
+            technical_tags = $24,
             updated_at = now()
         where id = $1
         returning
@@ -351,6 +353,7 @@ pub async fn update_media_file_metadata(
             video_bit_depth,
             video_pixel_format,
             video_reference_frames,
+            technical_tags,
             scan_hash,
             created_at,
             updated_at
@@ -379,6 +382,7 @@ pub async fn update_media_file_metadata(
     .bind(params.video_bit_depth)
     .bind(&params.video_pixel_format)
     .bind(params.video_reference_frames)
+    .bind(&params.technical_tags)
     .fetch_optional(pool)
     .await
     .context("failed to update media file metadata")?;
@@ -419,6 +423,7 @@ pub async fn list_media_files_for_media_item(
             video_bit_depth,
             video_pixel_format,
             video_reference_frames,
+            technical_tags,
             scan_hash,
             created_at,
             updated_at
@@ -1182,6 +1187,7 @@ fn map_media_file_row(row: PgRow) -> MediaFile {
         video_bit_depth: row.get("video_bit_depth"),
         video_pixel_format: row.get("video_pixel_format"),
         video_reference_frames: row.get("video_reference_frames"),
+        technical_tags: row.get("technical_tags"),
         scan_hash: row.get("scan_hash"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),

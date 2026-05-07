@@ -102,6 +102,10 @@
   margin: 0;
 }
 
+.detail-hero__technical-badges {
+  margin-top: -4px;
+}
+
 .detail-hero__rating-badge {
   display: inline-flex;
   align-items: center;
@@ -403,24 +407,76 @@
   gap: 8px;
 }
 
-.media-file-card__badge {
-  display: inline-flex;
+.media-technical-badges {
+  display: flex;
   align-items: center;
-  min-height: 28px;
-  padding: 4px 10px;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--floating-surface) 72%, var(--panel-background-soft));
-  color: var(--text-soft);
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.media-file-card__badge--feature {
-  border-color: color-mix(in srgb, var(--accent) 38%, var(--floating-border));
-  color: var(--accent-strong);
-  background: color-mix(in srgb, var(--accent) 14%, var(--floating-surface));
+.media-technical-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 78px;
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, #ffffff 14%, var(--floating-border));
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.13), transparent 52%),
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.16), transparent 46%),
+    #090f1a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 12px 28px rgba(0, 0, 0, 0.22);
+}
+
+.media-technical-badge img {
+  display: block;
+  max-width: 104px;
+  max-height: 18px;
+  object-fit: contain;
+  filter: invert(1) brightness(1.1) contrast(1.04);
+}
+
+.media-technical-badge--text span {
+  color: #f8fafc;
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.media-technical-badges--compact {
+  justify-content: flex-start;
+}
+
+.media-technical-badges--compact .media-technical-badge {
+  min-width: 68px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+
+.media-technical-badges--compact .media-technical-badge img {
+  max-width: 92px;
+  max-height: 16px;
+}
+
+.media-technical-badges--compact .media-technical-badge--text span {
+  font-size: 0.72rem;
+}
+
+/* Keep any unknown backend tag readable even before a logo asset exists. */
+.media-technical-badge--text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .media-file-card__path-block {

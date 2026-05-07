@@ -12,6 +12,21 @@ export type MediaFileTrackOption = {
   value: string
 }
 
+export type MediaFileTechnicalBadge = {
+  iconSrc: string | null
+  label: string
+}
+
+const TECHNICAL_TAG_ICONS: Record<string, string> = {
+  Atmos: '/media-tech/dolby-atmos.svg',
+  DTS: '/media-tech/dts.svg',
+  'DTS-HD': '/media-tech/dts-hd.svg',
+  'Dolby Vision': '/media-tech/dolby-vision.svg',
+  HDR10: '/media-tech/hdr10.svg',
+  'HDR10+': '/media-tech/hdr10-plus.svg',
+  HLG: '/media-tech/hlg.svg',
+}
+
 const CODEC_LABELS: Record<string, string> = {
   av1: 'AV1',
   avc: 'AVC',
@@ -87,20 +102,6 @@ const extractFileName = (filePath: string) => {
   return tokens[tokens.length - 1] ?? filePath
 }
 
-const detectDolbyFlags = (file: Pick<MediaFile, 'audio_codec' | 'file_path'>) => {
-  const normalizedCodec = normalizeCodecToken(file.audio_codec)
-  const normalizedPath = file.file_path.toLowerCase()
-  const hasDolbyAudio =
-    ['ac3', 'ac-3', 'eac3', 'e-ac-3', 'truehd'].includes(normalizedCodec) ||
-    /\b(dolby|ddp|dd\+|atmos|truehd|eac3|ac3)\b/i.test(normalizedPath)
-  const hasDolbyVision = /\b(dolby[ ._-]?vision|dovi)\b/i.test(normalizedPath)
-
-  return {
-    hasDolbyAudio,
-    hasDolbyVision,
-  }
-}
-
 const normalizeChannelLayout = (layout: string | null | undefined) => {
   const trimmed = layout?.trim()
 
@@ -167,10 +168,7 @@ export const buildMediaVersionOptions = (mediaFiles: MediaFile[]): MediaFileTrac
       .join(' · ')
 
     return {
-      label: [
-        displayName || translateCurrent('Version {{index}}', { index: index + 1 }),
-        meta,
-      ]
+      label: [displayName || translateCurrent('Version {{index}}', { index: index + 1 }), meta]
         .filter(Boolean)
         .join(' · '),
       value: String(file.id),
@@ -198,31 +196,25 @@ export const formatMediaFileBitrate = (bitrate: number | null | undefined) => {
   return `${Math.round(bitrate / 1_000)} kb/s`
 }
 
-export const formatMediaFileDolby = (file: Pick<MediaFile, 'audio_codec' | 'file_path'>) => {
-  const { hasDolbyAudio, hasDolbyVision } = detectDolbyFlags(file)
+export const buildMediaFileTechnicalBadges = (
+  file: Pick<MediaFile, 'technical_tags'>,
+): MediaFileTechnicalBadge[] => {
+  const seen = new Set<string>()
 
-  if (hasDolbyAudio && hasDolbyVision) {
-    return 'Dolby Audio · Dolby Vision'
-  }
+  return file.technical_tags
+    .map((tag) => tag.trim())
+    .filter((tag) => {
+      if (!tag || seen.has(tag)) {
+        return false
+      }
 
-  if (hasDolbyAudio) {
-    return 'Dolby Audio'
-  }
-
-  if (hasDolbyVision) {
-    return 'Dolby Vision'
-  }
-
-  return translateCurrent('No Dolby markers found')
-}
-
-export const buildMediaFileFeatureBadges = (file: Pick<MediaFile, 'audio_codec' | 'file_path'>) => {
-  const { hasDolbyAudio, hasDolbyVision } = detectDolbyFlags(file)
-
-  return [
-    hasDolbyAudio ? 'Dolby Audio' : null,
-    hasDolbyVision ? 'Dolby Vision' : null,
-  ].filter((badge): badge is string => Boolean(badge))
+      seen.add(tag)
+      return true
+    })
+    .map((tag) => ({
+      iconSrc: TECHNICAL_TAG_ICONS[tag] ?? null,
+      label: tag,
+    }))
 }
 
 export const buildMediaSourceFacts = (file: MediaFile): MediaFileFact[] => [
@@ -237,10 +229,6 @@ export const buildMediaSourceFacts = (file: MediaFile): MediaFileFact[] => [
   {
     label: translateCurrent('Overall Bitrate'),
     value: formatMediaFileBitrate(file.bitrate),
-  },
-  {
-    label: translateCurrent('Dolby'),
-    value: formatMediaFileDolby(file),
   },
 ]
 

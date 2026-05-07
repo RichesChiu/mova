@@ -9,7 +9,7 @@ pub use discover::{
     discover_media_files_with_progress_and_cancel,
     discover_media_files_with_progress_item_and_cancel, discover_media_paths, inspect_media_file,
 };
-pub use parse::{infer_series_folder_metadata, is_likely_episode_path, SeriesFolderMetadata};
+pub use parse::{infer_series_file_metadata, is_likely_episode_path, SeriesFileMetadata};
 
 use std::path::PathBuf;
 
@@ -87,6 +87,7 @@ pub struct DiscoveredMediaFile {
     pub video_bit_depth: Option<i32>,
     pub video_pixel_format: Option<String>,
     pub video_reference_frames: Option<i32>,
+    pub technical_tags: Vec<String>,
     pub audio_tracks: Vec<DiscoveredAudioTrack>,
     pub subtitle_tracks: Vec<DiscoveredSubtitleTrack>,
 }

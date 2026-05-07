@@ -33,13 +33,14 @@ import { formatMediaCountry } from '../../lib/media-country'
 import {
   buildAudioTrackFacts,
   buildAudioTrackOptions,
-  buildMediaFileFeatureBadges,
+  buildMediaFileTechnicalBadges,
   buildMediaSourceFacts,
   buildMediaVersionOptions,
   buildSubtitleTrackFacts,
   buildSubtitleTrackOptions,
   buildVideoCardFacts,
   getMediaFileDisplayName,
+  type MediaFileTechnicalBadge,
 } from '../../lib/media-file-details'
 import { mediaItemDetailPath, mediaItemPlayPath } from '../../lib/media-routes'
 import {
@@ -71,6 +72,24 @@ function preferHeroArtwork(path: string | null | undefined): string | null {
 
   return path.includes(GENERATED_EPISODE_STILL_SEGMENT) ? null : path
 }
+
+const renderMediaTechnicalBadge = (badge: MediaFileTechnicalBadge, key: string) => (
+  <li
+    className={
+      badge.iconSrc
+        ? 'media-technical-badge media-technical-badge--icon'
+        : 'media-technical-badge media-technical-badge--text'
+    }
+    key={key}
+    title={badge.label}
+  >
+    {badge.iconSrc ? (
+      <img alt={badge.label} loading="lazy" src={badge.iconSrc} />
+    ) : (
+      <span>{badge.label}</span>
+    )}
+  </li>
+)
 
 const SeasonBlock = ({
   scanItems,
@@ -259,16 +278,31 @@ export const MediaItemPage = () => {
   const selectedSeasonYear = selectedSeason?.year ?? null
   const selectedSeasonEpisodeCount =
     selectedSeason?.episodes.filter((episode) => episode.is_available).length ?? 0
-  const selectedSeasonResourceEpisode = pickSeriesPlaybackTargetEpisode(
+  const isSeriesView = mediaItemQuery.data?.media_type === 'series'
+  const selectedSeasonPlayableEpisodes =
     selectedSeason?.episodes
       .filter((episode) => episode.is_available && episode.media_item_id !== null)
-      .map((episode) => episode),
+      .map((episode) => ({
+        ...episode,
+        season_number: selectedSeason.season_number,
+      })) ?? []
+  // Keep the resource panel aligned with the episode the primary Play button will open.
+  const seriesPlaybackTargetEpisode = pickSeriesPlaybackTargetEpisode(
+    availableSeasons.flatMap((season) =>
+      season.episodes
+        .filter((episode) => episode.is_available && episode.media_item_id !== null)
+        .map((episode) => ({
+          ...episode,
+          season_number: season.season_number,
+        })),
+    ),
+    selectedSeasonPlayableEpisodes,
   )
   const shouldShowMediaFilesSection =
     mediaItemQuery.data?.media_type === 'movie' || mediaItemQuery.data?.media_type === 'series'
   const sourceMediaItemId = shouldShowMediaFilesSection
     ? mediaItemQuery.data?.media_type === 'series'
-      ? (selectedSeasonResourceEpisode?.media_item_id ?? null)
+      ? (seriesPlaybackTargetEpisode?.media_item_id ?? null)
       : mediaItemId
     : null
   const mediaFilesQuery = useQuery({
@@ -281,6 +315,9 @@ export const MediaItemPage = () => {
   const mediaFiles = mediaFilesQuery.data ?? []
   const selectedMediaFile =
     mediaFiles.find((file) => file.id === selectedMediaVersionId) ?? mediaFiles[0] ?? null
+  const selectedTechnicalBadges = selectedMediaFile
+    ? buildMediaFileTechnicalBadges(selectedMediaFile)
+    : []
   const audioTracksQuery = useQuery({
     gcTime: MEDIA_QUERY_GC_TIME_MS,
     enabled: shouldShowMediaFilesSection && selectedMediaFile !== null,
@@ -338,9 +375,9 @@ export const MediaItemPage = () => {
     const moviePlaybackProgress = moviePlaybackProgressQuery.data
     const preferredMediaFile =
       mediaItemQuery.data?.media_type === 'movie'
-        ? (moviePlaybackProgress &&
+        ? ((moviePlaybackProgress &&
             mediaFiles.find((file) => file.id === moviePlaybackProgress.media_file_id)) ??
-          mediaFiles[0]
+          mediaFiles[0])
         : mediaFiles[0]
 
     setSelectedMediaVersionId((current) =>
@@ -351,7 +388,6 @@ export const MediaItemPage = () => {
     mediaItemQuery.data?.media_type,
     moviePlaybackProgressQuery.data,
     shouldShowMediaFilesSection,
-    sourceMediaItemId,
   ])
 
   useEffect(() => {
@@ -363,7 +399,6 @@ export const MediaItemPage = () => {
     setSelectedSubtitleTrackId('')
   }, [selectedMediaVersionId, shouldShowMediaFilesSection])
 
-  const isSeriesView = mediaItemQuery.data?.media_type === 'series'
   const canMatchMetadata =
     canManageLibraries(currentUser) && mediaItemQuery.data?.media_type !== 'episode'
   const currentScanRuntime = mediaItemQuery.data
@@ -402,15 +437,6 @@ export const MediaItemPage = () => {
           ),
       )
     : []
-  // 剧集详情页优先沿着“最近一次观看”的那一集继续；如果最近一集已完成，则直接跳到下一集。
-  const seriesPlaybackTargetEpisode = pickSeriesPlaybackTargetEpisode(
-    availableSeasons.flatMap((season) =>
-      season.episodes
-        .filter((episode) => episode.is_available && episode.media_item_id !== null)
-        .map((episode) => episode),
-    ),
-    selectedSeason?.episodes,
-  )
   const playbackTargetMediaItemId = isSeriesView
     ? (seriesPlaybackTargetEpisode?.media_item_id ?? null)
     : (mediaItemQuery.data?.id ?? null)
@@ -475,8 +501,7 @@ export const MediaItemPage = () => {
       ? (selectedSeason.overview ??
         l('Currently showing {{season}}.', {
           season:
-            selectedSeasonLabel ??
-            l('Season {{season}}', { season: selectedSeason.season_number }),
+            selectedSeasonLabel ?? l('Season {{season}}', { season: selectedSeason.season_number }),
         }))
       : (mediaItemQuery.data?.overview ?? l('No overview available yet.'))
   const heroFacts = isSeriesView
@@ -560,16 +585,12 @@ export const MediaItemPage = () => {
       ].filter(isHeroFact)
   const sourceContextEyebrow = isSeriesView ? l('Episode Source') : l('Source Details')
   const sourceContextTitle =
-    isSeriesView && selectedSeasonResourceEpisode
-      ? `S${String(selectedSeason?.season_number ?? 0).padStart(2, '0')} · E${String(selectedSeasonResourceEpisode.episode_number).padStart(2, '0')} · ${selectedSeasonResourceEpisode.title.trim() || l('Episode {{episode}}', { episode: selectedSeasonResourceEpisode.episode_number })}`
+    isSeriesView && seriesPlaybackTargetEpisode
+      ? `S${String(seriesPlaybackTargetEpisode.season_number).padStart(2, '0')} · E${String(seriesPlaybackTargetEpisode.episode_number).padStart(2, '0')} · ${seriesPlaybackTargetEpisode.title.trim() || l('Episode {{episode}}', { episode: seriesPlaybackTargetEpisode.episode_number })}`
       : null
   const sourceContextDescription =
-    isSeriesView && selectedSeasonResourceEpisode
-      ? selectedSeasonResourceEpisode.playback_progress?.is_finished
-        ? l('Showing the next playable episode after your latest completed watch in this season.')
-        : selectedSeasonResourceEpisode.playback_progress
-          ? l('Showing the episode that best matches your current playback progress in this season.')
-          : l('No playback history for this season yet, so this defaults to the first available episode.')
+    isSeriesView && seriesPlaybackTargetEpisode
+      ? l('Showing resource details for the episode the Play button will open.')
       : null
 
   if (!Number.isFinite(mediaItemId)) {
@@ -659,12 +680,23 @@ export const MediaItemPage = () => {
               </span>
             ) : null}
           </div>
+          {selectedTechnicalBadges.length > 0 ? (
+            <ul
+              className="detail-hero__technical-badges media-technical-badges"
+              aria-label={l('Resource Tags')}
+            >
+              {selectedTechnicalBadges.map((badge) =>
+                renderMediaTechnicalBadge(badge, `hero-${selectedMediaFile?.id}-${badge.label}`),
+              )}
+            </ul>
+          ) : null}
           {isSeriesView && availableSeasons.length > 0 ? (
             <div className="detail-hero__season-picker">
               <div className="detail-hero__season-heading">
                 <p className="detail-hero__season-label">{l('Season')}</p>
                 <span className="muted">
-                  {selectedSeasonLabel ?? l('Season {{season}}', { season: selectedSeasonNumber ?? 1 })}
+                  {selectedSeasonLabel ??
+                    l('Season {{season}}', { season: selectedSeasonNumber ?? 1 })}
                 </span>
               </div>
               <div className="season-picker" role="tablist">
@@ -880,7 +912,9 @@ export const MediaItemPage = () => {
             ) : null}
           </div>
 
-          {mediaFilesQuery.isLoading ? <p className="muted">{l('Loading source details…')}</p> : null}
+          {mediaFilesQuery.isLoading ? (
+            <p className="muted">{l('Loading source details…')}</p>
+          ) : null}
 
           {mediaFilesQuery.isError ? (
             <p className="callout callout--danger">
@@ -903,25 +937,15 @@ export const MediaItemPage = () => {
                       <h4>{getMediaFileDisplayName(selectedMediaFile.file_path)}</h4>
                     </div>
 
-                    {buildMediaFileFeatureBadges(selectedMediaFile).length > 0 ? (
-                      <div className="media-file-card__badges">
-                        {buildMediaFileFeatureBadges(selectedMediaFile).map((badge) => {
-                          const isFeatureBadge = badge.startsWith('Dolby')
-
-                          return (
-                            <span
-                              className={
-                                isFeatureBadge
-                                  ? 'media-file-card__badge media-file-card__badge--feature'
-                                  : 'media-file-card__badge'
-                              }
-                              key={`${selectedMediaFile.id}-${badge}`}
-                            >
-                              {badge}
-                            </span>
-                          )
-                        })}
-                      </div>
+                    {selectedTechnicalBadges.length > 0 ? (
+                      <ul className="media-file-card__badges media-technical-badges media-technical-badges--compact">
+                        {selectedTechnicalBadges.map((badge) =>
+                          renderMediaTechnicalBadge(
+                            badge,
+                            `source-${selectedMediaFile.id}-${badge.label}`,
+                          ),
+                        )}
+                      </ul>
                     ) : null}
                   </div>
 

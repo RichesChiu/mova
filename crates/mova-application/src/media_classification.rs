@@ -4,12 +4,8 @@ pub const LIBRARY_TYPE_MIXED: &str = "mixed";
 pub const LIBRARY_TYPE_MOVIE: &str = "movie";
 pub const LIBRARY_TYPE_SERIES: &str = "series";
 
-pub fn classify_media_type(library_type: &str, file_path: &Path) -> &'static str {
-    if library_type.eq_ignore_ascii_case(LIBRARY_TYPE_SERIES) {
-        "episode"
-    } else if library_type.eq_ignore_ascii_case(LIBRARY_TYPE_MIXED)
-        && mova_scan::is_likely_episode_path(file_path)
-    {
+pub fn classify_media_type(_library_type: &str, file_path: &Path) -> &'static str {
+    if mova_scan::is_likely_episode_path(file_path) {
         "episode"
     } else {
         "movie"
@@ -33,13 +29,17 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn classify_media_type_uses_file_heuristics_for_mixed_libraries() {
+    fn classify_media_type_uses_file_name_heuristics_for_all_libraries() {
         assert_eq!(
             classify_media_type(LIBRARY_TYPE_MIXED, Path::new("Arcane.S01E01.mkv")),
             "episode"
         );
         assert_eq!(
             classify_media_type(LIBRARY_TYPE_MIXED, Path::new("Spirited.Away.2001.mkv")),
+            "movie"
+        );
+        assert_eq!(
+            classify_media_type(LIBRARY_TYPE_SERIES, Path::new("Spirited.Away.2001.mkv")),
             "movie"
         );
     }

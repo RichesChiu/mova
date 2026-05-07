@@ -824,6 +824,7 @@ pub async fn refresh_media_item_metadata(
             video_bit_depth: discovered_file.video_bit_depth,
             video_pixel_format: discovered_file.video_pixel_format.clone(),
             video_reference_frames: discovered_file.video_reference_frames,
+            technical_tags: discovered_file.technical_tags.clone(),
         },
     )
     .await

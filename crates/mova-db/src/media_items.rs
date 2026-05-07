@@ -97,6 +97,7 @@ pub struct CreateMediaEntryParams {
     pub video_bit_depth: Option<i32>,
     pub video_pixel_format: Option<String>,
     pub video_reference_frames: Option<i32>,
+    pub technical_tags: Vec<String>,
     pub audio_tracks: Vec<CreateAudioTrackParams>,
     pub subtitle_tracks: Vec<CreateSubtitleTrackParams>,
 }
@@ -145,6 +146,7 @@ pub struct UpdateMediaFileMetadataParams {
     pub video_bit_depth: Option<i32>,
     pub video_pixel_format: Option<String>,
     pub video_reference_frames: Option<i32>,
+    pub technical_tags: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

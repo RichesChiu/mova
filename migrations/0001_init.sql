@@ -186,6 +186,7 @@ create table if not exists media_files (
     video_bit_depth integer,
     video_pixel_format varchar(64),
     video_reference_frames integer,
+    technical_tags text[] not null default '{}'::text[],
     scan_hash varchar(128),
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),

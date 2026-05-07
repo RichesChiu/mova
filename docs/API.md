@@ -292,7 +292,7 @@
   "item": {
     "scan_job_id": 41,
     "library_id": 7,
-    "item_key": "/media/series/Arcane",
+    "item_key": "series-title:arcane",
     "media_type": "series",
     "title": "Arcane",
     "season_number": null,
@@ -306,7 +306,7 @@
 ```
 
 字段说明：
-- `item_key`：当前扫描条目的稳定键；电影当前直接使用文件路径，剧集会优先使用系列目录路径，避免前端在扫描中先看到一集一集被打散
+- `item_key`：当前扫描条目的稳定键；电影和无法确认剧名的本地文件直接使用文件路径，文件名里能确认剧名的剧集使用 `series-title:*` 键，避免前端在扫描中先看到一集一集被打散
 - `item_index` / `total_items`：当前条目在整批扫描里的位置，用于前端估算总进度
 - `stage`：当前条目处理阶段，当前会使用 `discovered` / `metadata` / `artwork` / `completed`
 - `progress_percent`：当前条目自身的粗粒度进度百分比，便于前端直接驱动占位卡进度条
@@ -475,7 +475,7 @@
 - `id`：媒体库 ID
 - `name`：媒体库名称
 - `description`：媒体库描述，可为空
-- `library_type`：媒体库类型，当前支持 `mixed` / `movie` / `series`
+- `library_type`：兼容性响应字段，当前新建媒体库固定为 `mixed`，前端不再要求用户选择库类型
 - `metadata_language`：该媒体库扫描和 TMDB 补全时使用的语言，当前支持 `zh-CN` / `en-US`
 - `root_path`：扫描根目录
 - `is_enabled`：是否启用
@@ -494,7 +494,6 @@
 {
   "name": "Media",
   "description": "家庭影音混合库",
-  "library_type": "mixed",
   "metadata_language": "zh-CN",
   "root_path": "/data/media",
   "is_enabled": true
@@ -504,7 +503,6 @@
 字段说明：
 - `name`：媒体库名称
 - `description`：可选，媒体库描述
-- `library_type`：媒体库类型，支持 `mixed` / `movie` / `series`
 - `metadata_language`：TMDB 元数据语言，当前支持 `zh-CN` / `en-US`，不传时默认 `zh-CN`
 - `root_path`：要扫描的本地目录
 - `is_enabled`：可选，不传时默认为 `true`
@@ -520,14 +518,14 @@
 - 返回创建后的 `LibraryResponse`
 
 说明：
-- 创建媒体库不会自动开始扫描；后续需要显式调用 `POST /api/libraries/{id}/scan`
+- 创建且启用的媒体库会自动触发一次后台扫描；后续仍可显式调用 `POST /api/libraries/{id}/scan`
 - `is_enabled = false` 只表示这个媒体库当前处于禁用状态，不再承担“自动监听/自动同步”的语义
 - 当前允许重叠或完全相同的 `root_path`。同一个物理文件如果被多个库路径覆盖，会在各自库里独立建模和展示。
-- `mixed` 是推荐默认值。它允许一个目录里同时放电影和剧集，扫描时会按单个文件自动判断：
-  - 命中 `S01E02`、`1x02`、`Season 01/` 这类信号时按剧集处理
+- 媒体库现在统一自动识别电影和剧集，不再要求用户选择库类型。扫描时会按单个视频文件判断：
+  - 文件名里命中 `剧名.S01E02.mkv`、`剧名 - S01E02.mkv`、`剧名_S01E02.mkv`、`剧名-S01E02.mkv`、`剧名.1x02.mkv` 这类有清晰分隔符的显式剧名和季集信号时，优先按文件名里的剧名归组
+  - 文件名只有 `S01E02.mkv`、`01.mkv`、`EP02.mkv`、`第03集.mkv` 这类季集或集号时，不再结合目录信号归组
+  - `The.BeautyS01E01.mkv` 这类标题和季集号没有分隔符的脏命名不会强行拆分，也不会递归猜父级剧名，会作为本地文件名条目保留
   - 其他文件默认按电影处理
-- `movie` 会把该库所有视频文件都按电影处理
-- `series` 会把该库所有视频文件都按剧集处理
 
 ### `GET /api/libraries/{id}`
 
@@ -861,10 +859,12 @@
 - `video_bitrate` / `video_frame_rate` / `video_aspect_ratio` / `video_scan_type`：视频码率、帧率、宽高比、扫描类型
 - `video_color_primaries` / `video_color_space` / `video_color_transfer`：色彩原色、色域、传递特性
 - `video_bit_depth` / `video_pixel_format` / `video_reference_frames`：位深、像素格式、参考帧
+- `technical_tags`：从 `ffprobe` 探测结果归一化出来的资源技术标签，例如 `HDR10`、`HDR10+`、`Dolby Vision`、`HLG`、`DTS`、`DTS-HD`、`Atmos`
 
 说明：
 - 当前前端播放时应先从这个接口拿到 `media_file_id`
-- 如果服务运行环境里安装了 `ffprobe`，扫描时会尽量填充时长、编码、分辨率和码率
+- 如果服务运行环境里安装了 `ffprobe`，扫描时会尽量填充时长、编码、分辨率、码率和 `technical_tags`
+- `technical_tags` 是文件维度字段；同一个电影或单集有多个版本时，每个 `media_file` 可以返回不同标签
 - 如果没有安装 `ffprobe`，或者文件探测失败，这些字段会保持为空，但不会阻断扫描
 - 如果这个条目是 `series`，这里通常返回空列表；请改用 `/api/media-items/{id}/seasons`
 

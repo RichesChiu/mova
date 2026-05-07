@@ -740,6 +740,7 @@ mod tests {
             video_bit_depth: None,
             video_pixel_format: None,
             video_reference_frames: None,
+            technical_tags: Vec::new(),
             audio_tracks: Vec::new(),
             subtitle_tracks: Vec::new(),
         }

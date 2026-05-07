@@ -1,7 +1,7 @@
 # mova-scan
 
 `mova-scan` 是 Mova 的文件系统扫描能力 crate。  
-它负责从磁盘发现媒体文件、解析文件名和目录信息、读取 sidecar、探测媒体流信息，以及补出扫描阶段可直接使用的结构化结果。
+它负责从磁盘发现媒体文件、解析文件名、读取 sidecar、探测媒体流信息，以及补出扫描阶段可直接使用的结构化结果。
 
 ## 1. 这个 crate 在系统里的位置
 
@@ -12,8 +12,8 @@
 它的职责是：
 
 - 递归发现媒体文件
-- 识别电影/剧集线索
-- 尽量把剧集目录先归成一个扫描组，而不是先把每一集都当成独立展示单位
+- 只根据视频文件名识别电影/剧集线索
+- 文件名没有明确剧名和季集号时，保留为本地文件条目，不递归猜目录名
 - 读取 `.nfo` / `poster` / `fanart` 等 sidecar
 - 通过 `ffprobe` 补充媒体技术信息
 - 发现内嵌音轨、外挂或内嵌字幕轨道
@@ -36,9 +36,9 @@
 | 文件 | 作用 |
 | --- | --- |
 | `src/discover.rs` | 递归发现媒体文件、路径级扫描、支持进度回调和取消信号。 |
-| `src/parse.rs` | 从文件名/路径中识别电影或剧集信号，例如 `S01E02`、`EP02`、`Episode 03`、`第03集`，以及 `Season 01/01.mkv` 这类依赖目录信息的命名。文件名很脏时会优先参考更干净的父目录标题，但会避开 `合集 / collection / box set` 这类合集目录。 |
+| `src/parse.rs` | 从文件名中识别电影或剧集信号，例如 `剧名.S01E02.mkv`、`剧名 - S01E02.mkv`、`剧名_S01E02.mkv`、`剧名-S01E02.mkv`、`剧名.1x02.mkv`。文件名必须同时提供剧名和季集号才会按剧集归组；`S01E02.mkv`、`01.mkv`、`EP02.mkv`、`第03集.mkv` 这类缺少剧名的文件不会回退目录名，`The.BeautyS01E01.mkv` 这类标题和季集号没有分隔符的脏命名也不会强行拆分，会作为本地文件名条目保留。 |
 | `src/sidecar.rs` | 读取 `.nfo`、海报、背景图等 sidecar 资产。 |
-| `src/probe.rs` | 调用 `ffprobe`，补时长、编码、分辨率和码率。 |
+| `src/probe.rs` | 调用 `ffprobe`，补时长、编码、分辨率、码率，并归一化 `HDR10`、`HDR10+`、`Dolby Vision`、`HLG`、`DTS`、`DTS-HD`、`Atmos` 等资源技术标签。 |
 | `src/subtitle.rs` | 字幕轨道相关发现与归一化。 |
 | `src/tests.rs` | crate 级扫描测试。 |
 
@@ -52,6 +52,7 @@
 - `discover_media_files_with_progress_item_and_cancel`
 - `discover_media_paths`
 - `inspect_media_file`
+- `infer_series_file_metadata`
 - `is_likely_episode_path`
 - `DiscoveredMediaFile`
 - `DiscoveredAudioTrack`
@@ -70,6 +71,7 @@
 - 简介
 - 海报/背景图路径
 - 文件大小、容器、时长、编码、分辨率、码率
+- 从 `ffprobe` 探测结果归一化出的资源技术标签
 - 内嵌音轨列表
 - 字幕轨道列表
 
@@ -98,8 +100,8 @@
 
 1. `mova-application` 调用 `discover_media_files_with_progress_*`
 2. `mova-scan` 递归发现媒体文件
-3. 对每个文件做文件名解析、sidecar 读取、探测
-4. 对剧集路径优先从目录名里推导“系列展示名 / 远端匹配标题 / 年份”这类组级信息
+3. 对每个文件做文件名解析、sidecar 读取、`ffprobe` 探测和技术标签归一化
+4. 对剧集路径只从文件名里的 `剧名.S01E01`、`剧名 - S01E01`、`剧名_S01E01` 这类显式标题推导“系列展示名 / 远端匹配标题 / 年份”，无显式标题时保留为本地文件条目
 5. 返回 `DiscoveredMediaFile`
 6. 应用层再决定如何补元数据、如何写库
 
@@ -114,7 +116,7 @@
 适合继续放在这里的：
 
 - 文件发现
-- 文件名/目录结构解析
+- 文件名解析
 - sidecar 读取
 - `ffprobe` / 字幕探测
 

@@ -22,6 +22,7 @@ pub(crate) struct MediaProbe {
     pub video_bit_depth: Option<i32>,
     pub video_pixel_format: Option<String>,
     pub video_reference_frames: Option<i32>,
+    pub technical_tags: Vec<String>,
     pub audio_streams: Vec<EmbeddedAudioStream>,
     pub subtitle_streams: Vec<EmbeddedSubtitleStream>,
 }
@@ -88,6 +89,8 @@ struct FfprobeStream {
     index: Option<i32>,
     codec_type: Option<String>,
     codec_name: Option<String>,
+    codec_long_name: Option<String>,
+    codec_tag_string: Option<String>,
     profile: Option<String>,
     level: Option<i32>,
     width: Option<i32>,
@@ -106,8 +109,14 @@ struct FfprobeStream {
     bits_per_raw_sample: Option<String>,
     bits_per_sample: Option<i32>,
     refs: Option<i32>,
+    side_data_list: Option<Vec<FfprobeSideData>>,
     disposition: Option<FfprobeDisposition>,
     tags: Option<FfprobeStreamTags>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FfprobeSideData {
+    side_data_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,10 +177,8 @@ fn run_ffprobe(path: &Path) -> Result<MediaProbe, ProbeError> {
     let output = Command::new("ffprobe")
         .arg("-v")
         .arg("error")
-        .arg("-show_entries")
-        .arg(
-            "format=duration,bit_rate:stream=index,codec_type,codec_name,profile,level,width,height,display_aspect_ratio,field_order,avg_frame_rate,bit_rate,sample_rate,channels,channel_layout,pix_fmt,color_space,color_transfer,color_primaries,bits_per_raw_sample,bits_per_sample,refs:stream_tags=language,title:stream_disposition=default,forced,hearing_impaired",
-        )
+        .arg("-show_format")
+        .arg("-show_streams")
         .arg("-of")
         .arg("json")
         .arg(path)
@@ -287,9 +294,134 @@ pub(crate) fn parse_ffprobe_output(output: &[u8]) -> Result<MediaProbe, ProbeErr
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()),
         video_reference_frames: video_stream.and_then(|stream| stream.refs),
+        technical_tags: detect_technical_tags(video_stream, &parsed.streams),
         audio_streams,
         subtitle_streams,
     })
+}
+
+fn detect_technical_tags(
+    video_stream: Option<&FfprobeStream>,
+    streams: &[FfprobeStream],
+) -> Vec<String> {
+    let mut tags = Vec::new();
+
+    if let Some(video_stream) = video_stream {
+        if is_dolby_vision_stream(video_stream) {
+            push_unique_tag(&mut tags, "Dolby Vision");
+        } else if is_hdr10_plus_stream(video_stream) {
+            push_unique_tag(&mut tags, "HDR10+");
+        } else if is_hlg_stream(video_stream) {
+            push_unique_tag(&mut tags, "HLG");
+        } else if is_hdr10_stream(video_stream) {
+            push_unique_tag(&mut tags, "HDR10");
+        }
+    }
+
+    for stream in streams
+        .iter()
+        .filter(|stream| stream.codec_type.as_deref() == Some("audio"))
+    {
+        if is_atmos_audio_stream(stream) {
+            push_unique_tag(&mut tags, "Atmos");
+        }
+
+        if is_dts_hd_audio_stream(stream) {
+            push_unique_tag(&mut tags, "DTS-HD");
+        } else if is_dts_audio_stream(stream) {
+            push_unique_tag(&mut tags, "DTS");
+        }
+    }
+
+    tags
+}
+
+fn push_unique_tag(tags: &mut Vec<String>, tag: &str) {
+    if !tags.iter().any(|value| value == tag) {
+        tags.push(tag.to_string());
+    }
+}
+
+fn is_dolby_vision_stream(stream: &FfprobeStream) -> bool {
+    stream_text_values(stream).any(|value| {
+        let normalized = value.to_ascii_lowercase();
+        normalized.contains("dovi")
+            || normalized.contains("dolby vision")
+            || normalized.contains("dvhe")
+            || normalized.contains("dvh1")
+    })
+}
+
+fn is_hdr10_plus_stream(stream: &FfprobeStream) -> bool {
+    stream_text_values(stream).any(|value| {
+        let normalized = value.to_ascii_lowercase();
+        normalized.contains("hdr10+") || normalized.contains("smpte2094-40")
+    })
+}
+
+fn is_hlg_stream(stream: &FfprobeStream) -> bool {
+    matches!(
+        stream.color_transfer.as_deref().map(str::to_ascii_lowercase),
+        Some(value) if value == "arib-std-b67"
+    )
+}
+
+fn is_hdr10_stream(stream: &FfprobeStream) -> bool {
+    let has_pq_transfer = matches!(
+        stream.color_transfer.as_deref().map(str::to_ascii_lowercase),
+        Some(value) if value == "smpte2084"
+    );
+    let has_bt2020_primaries = stream
+        .color_primaries
+        .as_deref()
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|value| value.contains("bt2020"));
+
+    has_pq_transfer && has_bt2020_primaries
+}
+
+fn is_atmos_audio_stream(stream: &FfprobeStream) -> bool {
+    stream_text_values(stream).any(|value| {
+        let normalized = value.to_ascii_lowercase();
+        normalized.contains("atmos") || normalized.contains("joc")
+    })
+}
+
+fn is_dts_hd_audio_stream(stream: &FfprobeStream) -> bool {
+    is_dts_audio_stream(stream)
+        && stream_text_values(stream).any(|value| {
+            let normalized = value.to_ascii_lowercase();
+            normalized.contains("dts-hd")
+                || normalized.contains("master audio")
+                || normalized.contains("high resolution audio")
+                || normalized.contains("hra")
+        })
+}
+
+fn is_dts_audio_stream(stream: &FfprobeStream) -> bool {
+    matches!(
+        stream.codec_name.as_deref().map(str::to_ascii_lowercase),
+        Some(value) if value == "dts" || value == "dca"
+    )
+}
+
+fn stream_text_values(stream: &FfprobeStream) -> impl Iterator<Item = &str> {
+    stream
+        .codec_name
+        .as_deref()
+        .into_iter()
+        .chain(stream.codec_long_name.as_deref())
+        .chain(stream.codec_tag_string.as_deref())
+        .chain(stream.profile.as_deref())
+        .chain(stream.tags.as_ref().and_then(|tags| tags.title.as_deref()))
+        .chain(
+            stream
+                .side_data_list
+                .as_deref()
+                .into_iter()
+                .flatten()
+                .filter_map(|side_data| side_data.side_data_type.as_deref()),
+        )
 }
 
 fn map_embedded_audio_stream(stream: &FfprobeStream) -> Option<EmbeddedAudioStream> {

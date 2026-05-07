@@ -232,6 +232,7 @@ fn build_discovered_media_file(
         video_bit_depth: probe.video_bit_depth,
         video_pixel_format: probe.video_pixel_format,
         video_reference_frames: probe.video_reference_frames,
+        technical_tags: probe.technical_tags,
         audio_tracks: probe
             .audio_streams
             .into_iter()

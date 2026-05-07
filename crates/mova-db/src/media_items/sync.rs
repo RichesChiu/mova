@@ -551,11 +551,12 @@ pub(super) async fn insert_media_file(
             video_bit_depth,
             video_pixel_format,
             video_reference_frames,
+            technical_tags,
             scan_hash
         )
         values (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-            $16, $17, $18, $19, $20, $21, $22, $23, $24, null
+            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, null
         )
         returning id
         "#,
@@ -584,6 +585,7 @@ pub(super) async fn insert_media_file(
     .bind(entry.video_bit_depth)
     .bind(&entry.video_pixel_format)
     .bind(entry.video_reference_frames)
+    .bind(&entry.technical_tags)
     .fetch_one(&mut **tx)
     .await
     .context("failed to insert media file")?;
@@ -626,6 +628,7 @@ pub(super) async fn update_media_file_from_entry(
             video_bit_depth = $21,
             video_pixel_format = $22,
             video_reference_frames = $23,
+            technical_tags = $24,
             updated_at = now()
         where id = $1
         "#,
@@ -653,6 +656,7 @@ pub(super) async fn update_media_file_from_entry(
     .bind(entry.video_bit_depth)
     .bind(&entry.video_pixel_format)
     .bind(entry.video_reference_frames)
+    .bind(&entry.technical_tags)
     .execute(&mut **tx)
     .await
     .context("failed to update media file during library sync")?;
@@ -800,6 +804,7 @@ pub(super) async fn reassign_media_file_to_media_item(
             video_bit_depth = $22,
             video_pixel_format = $23,
             video_reference_frames = $24,
+            technical_tags = $25,
             updated_at = now()
         where id = $1
         "#,
@@ -828,6 +833,7 @@ pub(super) async fn reassign_media_file_to_media_item(
     .bind(entry.video_bit_depth)
     .bind(&entry.video_pixel_format)
     .bind(entry.video_reference_frames)
+    .bind(&entry.technical_tags)
     .execute(&mut **tx)
     .await
     .context("failed to reassign media file during library sync")?;
@@ -954,6 +960,7 @@ mod tests {
             video_bit_depth: Some(10),
             video_pixel_format: Some("yuv420p10le".to_string()),
             video_reference_frames: Some(4),
+            technical_tags: vec!["HDR10".to_string(), "Atmos".to_string()],
             audio_tracks: Vec::new(),
             subtitle_tracks: Vec::new(),
         }
@@ -1008,6 +1015,7 @@ mod tests {
             video_bit_depth: Some(8),
             video_pixel_format: Some("yuv420p".to_string()),
             video_reference_frames: None,
+            technical_tags: Vec::new(),
             audio_tracks: Vec::new(),
             subtitle_tracks: Vec::new(),
         }
