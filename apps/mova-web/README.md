@@ -96,7 +96,7 @@ src/
 | 组件 | 文件 | 作用 | 主要使用位置 |
 | --- | --- | --- | --- |
 | `AppShell` | `components/app-shell/index.tsx` | 登录后壳层，负责当前用户、媒体库列表、SSE、顶栏和 `Outlet` 上下文。 | 所有非登录、非沉浸式播放器页面 |
-| `useServerEvents` | `components/app-shell/use-server-events.ts` | 通过 `EventSource('/api/events')` 订阅 SSE，解析扫描/媒体库/元数据事件，并触发 React Query 刷新。 | `AppShell` |
+| `useServerEvents` | `components/app-shell/use-server-events.ts` | 通过 `EventSource('/api/events')` 订阅 SSE，解析扫描/媒体库/元数据事件，触发 React Query 刷新，并只保留每个库最近一批扫描运行时条目。 | `AppShell` |
 | `scan-runtime` | `components/app-shell/scan-runtime.ts` | 把 SSE 运行时扫描数据整理成库级进度、条目级占位卡、详情页同步提示和状态文案。 | 首页、媒体库页、媒体详情页、设置页 |
 | `ContentHeader` | `components/content-header/index.tsx` | 顶部品牌和用户菜单；顶栏用户区会优先显示昵称，没有昵称时回退到用户名。语言与主题偏好统一收进个人设置页，不再在 header 里分散放入口。 | `AppShell` |
 

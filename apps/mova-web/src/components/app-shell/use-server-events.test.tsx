@@ -417,4 +417,47 @@ describe('useServerEvents', () => {
       expect(screen.getByTestId('scan-runtime')).toHaveTextContent('{}')
     })
   })
+
+  it('keeps only the latest scan runtime items for a library', async () => {
+    const queryClient = createTestQueryClient()
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route element={<HookHarness enabled />} path="*" />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    const eventSource = FakeEventSource.instances[0]
+
+    for (let index = 1; index <= 45; index += 1) {
+      eventSource.emitMessage('scan.item.updated', {
+        type: 'scan.item.updated',
+        item: {
+          scan_job_id: 41,
+          library_id: 7,
+          item_key: `/media/movies/Movie ${index}.mkv`,
+          media_type: 'movie',
+          title: `Movie ${index}`,
+          season_number: null,
+          episode_number: null,
+          item_index: index,
+          total_items: 45,
+          stage: 'discovered',
+          progress_percent: 6,
+        },
+      })
+    }
+
+    await waitFor(() => {
+      const runtimeText = screen.getByTestId('scan-runtime').textContent ?? ''
+
+      expect(runtimeText).toContain('Movie 45')
+      expect(runtimeText).toContain('Movie 6')
+      expect(runtimeText).not.toContain('Movie 5')
+    })
+  })
 })

@@ -6,6 +6,7 @@ import type { LibraryDetail, ScanJob } from '../../api/types'
 import type { ScanRuntimeByLibrary, ScanRuntimeItem } from './scan-runtime'
 
 const SERVER_EVENTS_URL = '/api/events'
+const MAX_SCAN_RUNTIME_ITEMS_PER_LIBRARY = 40
 
 type ScanJobRealtimeEvent =
   | {
@@ -162,7 +163,7 @@ const replaceLibraryScanRuntime = (
     ...previousItems.filter(
       (entry) => entry.scan_job_id === item.scan_job_id && entry.item_key !== item.item_key,
     ),
-  ]
+  ].slice(0, MAX_SCAN_RUNTIME_ITEMS_PER_LIBRARY)
 
   return {
     ...current,

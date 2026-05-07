@@ -16,6 +16,7 @@ use std::{
         atomic::{AtomicBool, AtomicI32, Ordering},
         Arc,
     },
+    time::{Duration, Instant},
 };
 
 /// 触发媒体库扫描时返回的结果。
@@ -110,6 +111,59 @@ const SCAN_ITEM_STAGE_ARTWORK: &str = "artwork";
 const SCAN_ITEM_STAGE_COMPLETED: &str = "completed";
 
 const SCAN_PHASE_INITIALIZING: &str = "initializing";
+const SCAN_DISCOVERY_PROGRESS_MIN_FILE_DELTA: i32 = 25;
+const SCAN_DISCOVERY_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(500);
+
+fn should_flush_discovery_progress(
+    persisted_progress: i32,
+    pending_progress: i32,
+    last_flush_at: Option<Instant>,
+    now: Instant,
+) -> bool {
+    if pending_progress <= persisted_progress {
+        return false;
+    }
+
+    if persisted_progress <= 0 {
+        return true;
+    }
+
+    if pending_progress.saturating_sub(persisted_progress) >= SCAN_DISCOVERY_PROGRESS_MIN_FILE_DELTA
+    {
+        return true;
+    }
+
+    last_flush_at.is_some_and(|last_flush_at| {
+        now.saturating_duration_since(last_flush_at) >= SCAN_DISCOVERY_PROGRESS_MIN_INTERVAL
+    })
+}
+
+async fn flush_discovery_progress(
+    pool: &PgPool,
+    scan_job_id: i64,
+    scanned_files: i32,
+    event_listener: &Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
+) -> Option<i32> {
+    match mova_db::update_scan_job_progress(pool, scan_job_id, None, scanned_files).await {
+        Ok(Some(scan_job)) => {
+            event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
+                scan_job,
+                SCAN_PHASE_DISCOVERING,
+            )));
+            Some(scanned_files)
+        }
+        Ok(None) => None,
+        Err(error) => {
+            tracing::warn!(
+                scan_job_id,
+                scanned_files,
+                error = ?error,
+                "failed to update throttled scan progress"
+            );
+            None
+        }
+    }
+}
 
 /// 读取某个媒体库的扫描历史。
 pub async fn list_scan_jobs_for_library(
@@ -630,40 +684,51 @@ async fn discover_media_files(
 
     let progress_task = tokio::spawn(async move {
         let mut persisted_progress = 0;
+        let mut pending_progress = 0;
+        let mut last_flush_at: Option<Instant> = None;
 
         while let Some(scanned_files) = progress_rx.recv().await {
-            if scanned_files <= persisted_progress {
+            if scanned_files <= pending_progress {
                 continue;
             }
 
-            match mova_db::update_scan_job_progress(
+            pending_progress = scanned_files;
+            let now = Instant::now();
+
+            if !should_flush_discovery_progress(
+                persisted_progress,
+                pending_progress,
+                last_flush_at,
+                now,
+            ) {
+                continue;
+            }
+
+            if let Some(flushed_progress) = flush_discovery_progress(
                 &progress_pool,
                 scan_job_id,
-                None,
-                scanned_files,
+                pending_progress,
+                &progress_event_listener,
             )
             .await
             {
-                Ok(Some(scan_job)) => {
-                    progress_event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
-                        scan_job,
-                        SCAN_PHASE_DISCOVERING,
-                    )));
-                }
-                Ok(None) => continue,
-                Err(error) => {
-                    tracing::warn!(
-                        scan_job_id,
-                        scanned_files,
-                        error = ?error,
-                        "failed to update scan progress"
-                    );
-                    continue;
-                }
+                persisted_progress = flushed_progress;
+                last_flush_at = Some(now);
+                last_progress_for_task.store(flushed_progress, Ordering::SeqCst);
             }
+        }
 
-            persisted_progress = scanned_files;
-            last_progress_for_task.store(scanned_files, Ordering::SeqCst);
+        if pending_progress > persisted_progress {
+            if let Some(flushed_progress) = flush_discovery_progress(
+                &progress_pool,
+                scan_job_id,
+                pending_progress,
+                &progress_event_listener,
+            )
+            .await
+            {
+                last_progress_for_task.store(flushed_progress, Ordering::SeqCst);
+            }
         }
     });
 
@@ -856,13 +921,14 @@ fn normalize_discovered_files_for_local_structure(
         let group = groups
             .entry(group_seed.item_key.clone())
             .or_insert_with(|| LocalSeriesGroup {
-                lookup_title: group_seed.lookup_title,
-                display_title: group_seed.display_title,
+                lookup_title: group_seed.lookup_title.clone(),
+                display_title: group_seed.display_title.clone(),
                 year: group_seed.year,
                 file_indexes: Vec::new(),
                 classified_episode_count: 0,
             });
 
+        apply_local_series_group_seed(group, &group_seed);
         group.file_indexes.push(index);
 
         if classify_media_type(&library.library_type, &file.file_path)
@@ -898,7 +964,7 @@ fn local_series_group_seed_for_file(file: &DiscoveredMediaFile) -> Option<LocalS
         if let Some(file_metadata) = infer_series_file_metadata(&file.file_path) {
             let year = file_metadata.year.or(file.year);
             return Some(LocalSeriesGroupSeed {
-                item_key: series_title_item_key(&file_metadata.title, year),
+                item_key: series_group_item_key(&file.file_path, &file_metadata.title),
                 lookup_title: file_metadata.title,
                 display_title: file_metadata.display_title,
                 year,
@@ -909,17 +975,109 @@ fn local_series_group_seed_for_file(file: &DiscoveredMediaFile) -> Option<LocalS
     None
 }
 
-fn series_title_item_key(title: &str, year: Option<i32>) -> String {
+fn apply_local_series_group_seed(group: &mut LocalSeriesGroup, group_seed: &LocalSeriesGroupSeed) {
+    let should_replace_identity = match (group.year, group_seed.year) {
+        (None, Some(_)) => true,
+        (Some(current_year), Some(candidate_year)) => candidate_year < current_year,
+        _ => false,
+    };
+
+    if should_replace_identity {
+        group.lookup_title = group_seed.lookup_title.clone();
+        group.display_title = group_seed.display_title.clone();
+        group.year = group_seed.year;
+    }
+}
+
+fn series_group_item_key(file_path: &std::path::Path, title: &str) -> String {
+    series_container_item_key(file_path).unwrap_or_else(|| series_title_item_key(title))
+}
+
+fn series_title_item_key(title: &str) -> String {
     let normalized_title = title
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .to_ascii_lowercase();
 
-    match year {
-        Some(year) => format!("series-title:{normalized_title}:{year}"),
-        None => format!("series-title:{normalized_title}"),
+    format!("series-title:{normalized_title}")
+}
+
+fn series_container_item_key(file_path: &std::path::Path) -> Option<String> {
+    let parent = file_path.parent()?;
+    let mut directories = parent
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .filter(|component| !component.trim().is_empty())
+        .collect::<Vec<_>>();
+
+    while directories
+        .last()
+        .is_some_and(|directory| is_series_variant_directory_name(directory))
+    {
+        directories.pop();
     }
+
+    let season_directory_index = directories
+        .iter()
+        .rposition(|directory| is_season_directory_name(directory))?;
+
+    if season_directory_index == 0 {
+        return None;
+    }
+
+    let container_key = directories[..season_directory_index]
+        .iter()
+        .map(|component| normalize_series_key_component(component))
+        .collect::<Vec<_>>()
+        .join("/");
+
+    (!container_key.is_empty()).then(|| format!("series-folder:{container_key}"))
+}
+
+fn normalize_series_key_component(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+fn is_series_variant_directory_name(name: &str) -> bool {
+    let normalized = name
+        .trim()
+        .replace(['.', '_', '-', '—', '–'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+
+    matches!(
+        normalized.as_str(),
+        "dv" | "dovi" | "dolby vision" | "hdr" | "hdr10" | "hdr10+" | "sdr"
+    ) || normalized.contains("杜比")
+}
+
+fn is_season_directory_name(name: &str) -> bool {
+    let normalized = name.trim().replace(['.', '_', '-', '—', '–'], " ");
+    let normalized_lower = normalized.to_ascii_lowercase();
+    let has_ascii_digit = normalized_lower.chars().any(|value| value.is_ascii_digit());
+
+    if has_ascii_digit && normalized_lower.contains("season") {
+        return true;
+    }
+
+    if has_ascii_digit && normalized.contains('季') {
+        return true;
+    }
+
+    normalized_lower.split_whitespace().any(|token| {
+        token.strip_prefix('s').is_some_and(|suffix| {
+            !suffix.is_empty()
+                && suffix.len() <= 2
+                && suffix.chars().all(|value| value.is_ascii_digit())
+        })
+    })
 }
 
 fn should_promote_local_series_group(group: &LocalSeriesGroup) -> bool {
@@ -937,9 +1095,7 @@ fn assign_local_series_structure(
         file.source_title = group.lookup_title.clone();
         file.title = group.display_title.clone();
 
-        if file.year.is_none() {
-            file.year = group.year;
-        }
+        file.year = group.year;
 
         let season_number = file.season_number.unwrap_or(1);
         file.season_number = Some(season_number);
@@ -1146,12 +1302,26 @@ fn build_scan_presentation_group(
 
     if media_type == "episode" {
         if let Some(file_metadata) = infer_series_file_metadata(&file.file_path) {
-            let year = file_metadata.year.or(file.year);
+            let source_title = file.source_title.trim();
+            let lookup_title =
+                if source_title.is_empty() || is_episode_like_source_title(source_title) {
+                    file_metadata.title.clone()
+                } else {
+                    file.source_title.clone()
+                };
+            let file_title = file.title.trim();
+            let title =
+                if file_title.is_empty() || file_title.eq_ignore_ascii_case(&file_metadata.title) {
+                    file_metadata.display_title
+                } else {
+                    file.title.clone()
+                };
+            let year = file.year.or(file_metadata.year);
             return ScanPresentationGroup {
-                item_key: series_title_item_key(&file_metadata.title, year),
+                item_key: series_group_item_key(&file.file_path, &lookup_title),
                 media_type: "series".to_string(),
-                title: file_metadata.display_title,
-                lookup_title: file_metadata.title,
+                title,
+                lookup_title,
                 year,
             };
         }
@@ -1177,6 +1347,11 @@ fn build_scan_presentation_group(
         lookup_title: file.source_title.clone(),
         year: file.year,
     }
+}
+
+fn is_episode_like_source_title(value: &str) -> bool {
+    let pseudo_file_name = format!("{value}.mkv");
+    infer_series_file_metadata(std::path::Path::new(&pseudo_file_name)).is_some()
 }
 
 fn group_discovered_files_for_scan(
@@ -1276,7 +1451,10 @@ mod tests {
     use mova_db::ExistingMediaMetadataSummary;
     use mova_domain::Library;
     use mova_scan::DiscoveredMediaFile;
-    use std::path::{Path, PathBuf};
+    use std::{
+        path::{Path, PathBuf},
+        time::Instant,
+    };
     use time::OffsetDateTime;
 
     fn build_discovered_file() -> DiscoveredMediaFile {
@@ -1477,6 +1655,40 @@ mod tests {
     }
 
     #[test]
+    fn should_flush_discovery_progress_for_first_visible_count() {
+        let now = Instant::now();
+
+        assert!(super::should_flush_discovery_progress(0, 1, None, now));
+    }
+
+    #[test]
+    fn should_flush_discovery_progress_after_file_delta_or_interval() {
+        let now = Instant::now();
+        let last_flush_at = now
+            .checked_sub(super::SCAN_DISCOVERY_PROGRESS_MIN_INTERVAL)
+            .expect("test instant should support subtraction");
+
+        assert!(!super::should_flush_discovery_progress(
+            10,
+            20,
+            Some(now),
+            now
+        ));
+        assert!(super::should_flush_discovery_progress(
+            10,
+            10 + super::SCAN_DISCOVERY_PROGRESS_MIN_FILE_DELTA,
+            Some(now),
+            now
+        ));
+        assert!(super::should_flush_discovery_progress(
+            10,
+            20,
+            Some(last_flush_at),
+            now
+        ));
+    }
+
+    #[test]
     fn build_scan_item_progress_update_emits_group_level_series_payload() {
         let presentation =
             super::build_scan_presentation_group(LIBRARY_TYPE_SERIES, &build_discovered_file());
@@ -1499,7 +1711,7 @@ mod tests {
         assert_eq!(progress.progress_percent, 6);
         assert_eq!(progress.item_index, 1);
         assert_eq!(progress.total_items, 3);
-        assert_eq!(progress.item_key, "series-title:arcane:2021");
+        assert_eq!(progress.item_key, "series-title:arcane");
     }
 
     #[test]
@@ -1523,7 +1735,122 @@ mod tests {
         assert_eq!(groups[0].presentation.media_type, "series");
         assert_eq!(groups[0].presentation.title, "Arcane");
         assert_eq!(groups[0].files.len(), 2);
-        assert_eq!(groups[0].presentation.item_key, "series-title:arcane:2021");
+        assert_eq!(groups[0].presentation.item_key, "series-folder:arcane");
+    }
+
+    #[test]
+    fn group_discovered_files_for_scan_merges_multi_season_series_years_by_title() {
+        let mut first_file = build_discovered_file();
+        first_file.file_path = PathBuf::from("黑袍纠察队/Season 01/The Boys (2019) - S01E01.mkv");
+        first_file.title = "The Boys".to_string();
+        first_file.source_title = "The Boys".to_string();
+        first_file.year = Some(2019);
+        first_file.season_number = Some(1);
+        first_file.episode_number = Some(1);
+
+        let mut second_file = build_discovered_file();
+        second_file.file_path = PathBuf::from("黑袍纠察队/Season 02/The Boys (2020) - S02E01.mkv");
+        second_file.title = "The Boys".to_string();
+        second_file.source_title = "The Boys".to_string();
+        second_file.year = Some(2020);
+        second_file.season_number = Some(2);
+        second_file.episode_number = Some(1);
+
+        let mut third_file = build_discovered_file();
+        third_file.file_path =
+            PathBuf::from("黑袍纠察队/Season 05/黑袍纠察队.S05E01.2026.2160p.mkv");
+        third_file.title = "黑袍纠察队".to_string();
+        third_file.source_title = "黑袍纠察队".to_string();
+        third_file.year = None;
+        third_file.season_number = Some(5);
+        third_file.episode_number = Some(1);
+
+        let groups = super::group_discovered_files_for_scan(
+            &build_library(LIBRARY_TYPE_MIXED),
+            vec![first_file, second_file, third_file],
+        );
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].presentation.media_type, "series");
+        assert_eq!(groups[0].presentation.title, "The Boys (2019)");
+        assert_eq!(groups[0].presentation.lookup_title, "The Boys");
+        assert_eq!(groups[0].presentation.year, Some(2019));
+        assert_eq!(groups[0].presentation.item_key, "series-folder:黑袍纠察队");
+        assert_eq!(groups[0].files.len(), 3);
+        assert!(groups[0].files.iter().all(|file| file.year == Some(2019)));
+        assert!(groups[0]
+            .files
+            .iter()
+            .all(|file| file.source_title == "The Boys"));
+    }
+
+    #[test]
+    fn group_discovered_files_for_scan_uses_earliest_series_year_as_metadata_hint() {
+        let mut later_file = build_discovered_file();
+        later_file.file_path = PathBuf::from("The Boys/A Season 02/The Boys (2020) - S02E01.mkv");
+        later_file.title = "The Boys".to_string();
+        later_file.source_title = "The Boys".to_string();
+        later_file.year = Some(2020);
+        later_file.season_number = Some(2);
+        later_file.episode_number = Some(1);
+
+        let mut earlier_file = build_discovered_file();
+        earlier_file.file_path = PathBuf::from("The Boys/Z Season 01/The Boys (2019) - S01E01.mkv");
+        earlier_file.title = "The Boys".to_string();
+        earlier_file.source_title = "The Boys".to_string();
+        earlier_file.year = Some(2019);
+        earlier_file.season_number = Some(1);
+        earlier_file.episode_number = Some(1);
+
+        let groups = super::group_discovered_files_for_scan(
+            &build_library(LIBRARY_TYPE_MIXED),
+            vec![later_file, earlier_file],
+        );
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].presentation.title, "The Boys (2019)");
+        assert_eq!(groups[0].presentation.lookup_title, "The Boys");
+        assert_eq!(groups[0].presentation.year, Some(2019));
+        assert!(groups[0].files.iter().all(|file| file.year == Some(2019)));
+    }
+
+    #[test]
+    fn build_media_entries_normalizes_multi_season_series_years_before_sync() {
+        let mut first_file = build_discovered_file();
+        first_file.file_path = PathBuf::from("黑袍纠察队/Season 01/The Boys (2019) - S01E01.mkv");
+        first_file.title = "The Boys".to_string();
+        first_file.source_title = "The Boys".to_string();
+        first_file.year = Some(2019);
+        first_file.season_number = Some(1);
+        first_file.episode_number = Some(1);
+
+        let mut second_file = build_discovered_file();
+        second_file.file_path = PathBuf::from("黑袍纠察队/Season 02/The Boys (2020) - S02E01.mkv");
+        second_file.title = "The Boys".to_string();
+        second_file.source_title = "The Boys".to_string();
+        second_file.year = Some(2020);
+        second_file.season_number = Some(2);
+        second_file.episode_number = Some(1);
+
+        let mut third_file = build_discovered_file();
+        third_file.file_path =
+            PathBuf::from("黑袍纠察队/Season 05/黑袍纠察队.S05E01.2026.2160p.mkv");
+        third_file.title = "黑袍纠察队".to_string();
+        third_file.source_title = "黑袍纠察队".to_string();
+        third_file.year = None;
+        third_file.season_number = Some(5);
+        third_file.episode_number = Some(1);
+
+        let entries = super::build_media_entries(
+            &build_library(LIBRARY_TYPE_MIXED),
+            vec![first_file, second_file, third_file],
+        )
+        .unwrap();
+
+        assert_eq!(entries.len(), 3);
+        assert!(entries.iter().all(|entry| entry.media_type == "episode"));
+        assert!(entries.iter().all(|entry| entry.source_title == "The Boys"));
+        assert!(entries.iter().all(|entry| entry.year == Some(2019)));
     }
 
     #[test]
@@ -1557,7 +1884,10 @@ mod tests {
         assert_eq!(groups[0].presentation.lookup_title, "布里杰顿家族");
         assert_eq!(groups[0].presentation.year, None);
         assert_eq!(groups[0].files.len(), 2);
-        assert_eq!(groups[0].presentation.item_key, "series-title:布里杰顿家族");
+        assert_eq!(
+            groups[0].presentation.item_key,
+            "series-folder:布里杰顿家族 (2020)"
+        );
     }
 
     #[test]
