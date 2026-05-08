@@ -253,7 +253,7 @@ Web 端：
 
 ## 7. 测试与验证
 
-Docker 镜像构建时，前端依赖阶段固定使用 `pnpm@9.15.9`，不要回退成 `corepack enable && pnpm ...` 这类动态解析版本的写法。当前 Node 22 镜像里的 Corepack 可能会选择 pnpm 11，而 pnpm 11 会把未显式批准的依赖 build script（例如 `@parcel/watcher`）作为安装错误处理，导致容器构建在前端依赖安装阶段失败。
+Docker 镜像构建时，前端阶段使用 `node:24-bookworm` 和 `pnpm@11.0.8`。pnpm 10+ 默认会拦截未显式批准的依赖 lifecycle script，所以 `apps/mova-web/package.json` 里通过 `pnpm.onlyBuiltDependencies` 批准 `@parcel/watcher`，保证 Docker 非交互安装依赖时不会卡在 `ERR_PNPM_IGNORED_BUILDS`。
 
 当前 `mova-server` 里主要有两层测试：
 
