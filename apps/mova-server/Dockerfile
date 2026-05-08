@@ -23,7 +23,7 @@ COPY apps/mova-web ./apps/mova-web
 
 RUN pnpm --dir apps/mova-web build
 
-FROM rust:1-bookworm AS builder
+FROM richeschiu/mova-rust-build-base:1-bookworm AS builder
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
