@@ -101,9 +101,16 @@ const LibrariesSectionBody = ({ isLoading, libraryModules }: LibrariesSectionPro
               : isSyncingLibraryState
                 ? 10
                 : 0
+            const spotlightClassName = [
+              'library-spotlight',
+              isScanning ? 'library-spotlight--scanning' : '',
+              collagePosters.length === 0 ? 'library-spotlight--empty-artwork' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')
 
             return (
-              <Link className="library-spotlight" key={library.id} to={`/libraries/${library.id}`}>
+              <Link className={spotlightClassName} key={library.id} to={`/libraries/${library.id}`}>
                 <div className="library-spotlight__backdrop" aria-hidden="true">
                   {collagePosters.length > 0 ? (
                     collagePosters.map((posterPath, posterIndex) => (

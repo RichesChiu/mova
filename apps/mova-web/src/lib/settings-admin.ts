@@ -71,6 +71,12 @@ export const getScanStatusSummary = (scanJob: ScanJob | null | undefined) => {
   }
 
   if (scanJob.status === 'running') {
+    if (scanJob.total_files <= 0 || scanJob.scanned_files > scanJob.total_files) {
+      return translateCurrent('Discovered {{count}} files.', {
+        count: scanJob.scanned_files,
+      })
+    }
+
     return translateCurrent('Scanned {{scanned}}/{{total}} files.', {
       scanned: scanJob.scanned_files,
       total: scanJob.total_files,

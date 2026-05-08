@@ -102,6 +102,10 @@
       color-mix(in srgb, var(--floating-surface-strong) 88%, transparent),
       color-mix(in srgb, var(--panel-background-strong) 94%, transparent)
     );
+  --library-spotlight-fallback-scanning:
+    radial-gradient(circle at 18% 16%, rgba(255, 214, 145, 0.2), transparent 34%),
+    radial-gradient(circle at 86% 18%, rgba(201, 215, 255, 0.16), transparent 36%),
+    linear-gradient(135deg, rgba(22, 29, 41, 0.94), rgba(10, 15, 24, 0.98));
 
   --hero-background:
     linear-gradient(145deg, rgba(6, 10, 18, 0.92), rgba(12, 13, 22, 0.82) 52%, rgba(17, 11, 22, 0.76)),
@@ -212,6 +216,10 @@
     linear-gradient(135deg, rgba(199, 216, 242, 0.5), rgba(226, 236, 249, 0.38));
   --library-spotlight-fallback-loading:
     linear-gradient(135deg, rgba(199, 216, 242, 0.5), rgba(226, 236, 249, 0.38));
+  --library-spotlight-fallback-scanning:
+    radial-gradient(circle at 16% 14%, rgba(89, 120, 197, 0.16), transparent 34%),
+    radial-gradient(circle at 90% 18%, rgba(128, 181, 222, 0.24), transparent 36%),
+    linear-gradient(135deg, rgba(250, 253, 255, 0.82), rgba(224, 236, 252, 0.68) 52%, rgba(239, 245, 252, 0.78));
 
   --hero-background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(247, 251, 255, 0.7)),

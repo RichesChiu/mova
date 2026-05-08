@@ -41,6 +41,29 @@ describe('scan runtime helpers', () => {
     expect(getScanJobProgressPercent(null, runtime)).toBe(12)
   })
 
+  it('shows discovered file count when the scan total is unknown or stale', () => {
+    const runtime: LibraryScanRuntime = {
+      items: [],
+      scanJob: buildScanJob({
+        total_files: 0,
+        scanned_files: 169,
+      }),
+    }
+
+    expect(formatScanJobStatusCopy(null, runtime)).toBe('Discovered 169 files')
+    expect(getScanJobProgressPercent(null, runtime)).toBe(12)
+
+    expect(
+      formatScanJobStatusCopy(null, {
+        ...runtime,
+        scanJob: buildScanJob({
+          total_files: 12,
+          scanned_files: 13,
+        }),
+      }),
+    ).toBe('Discovered 13 files')
+  })
+
   it('falls back to item-level progress copy when only a temporary scan card exists', () => {
     const runtime: LibraryScanRuntime = {
       scanJob: null,

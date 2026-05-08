@@ -203,12 +203,16 @@
 }
 
 .chip--scan {
+  display: inline-grid;
+  place-items: center;
   min-height: 28px;
+  height: 28px;
   padding: 0 11px;
   border-color: color-mix(in srgb, rgba(255, 213, 142, 0.92) 58%, transparent);
   background: color-mix(in srgb, rgba(255, 235, 196, 0.2) 72%, var(--pill-background));
   color: color-mix(in srgb, var(--accent-strong) 86%, white 14%);
   line-height: 1;
+  text-align: center;
 }
 
 .media-card__pill {

@@ -85,13 +85,14 @@ export const formatScanJobStatusCopy = (
               title: primaryItem?.title ?? translateCurrent('new item'),
             })
       }
-      return effectiveScanJob.total_files > 0
+      return effectiveScanJob.total_files > 0 &&
+        effectiveScanJob.scanned_files <= effectiveScanJob.total_files
         ? translateCurrent('Scanning files {{scanned}}/{{total}}', {
             scanned: effectiveScanJob.scanned_files,
             total: effectiveScanJob.total_files,
           })
-        : translateCurrent('Scanning files {{scanned}}', {
-            scanned: effectiveScanJob.scanned_files,
+        : translateCurrent('Discovered {{count}} files', {
+            count: effectiveScanJob.scanned_files,
           })
     case 'enriching':
       if (primaryItem) {
@@ -139,7 +140,10 @@ export const getScanJobProgressPercent = (
   }
 
   if (effectiveScanJob.phase === 'discovering') {
-    if (effectiveScanJob.total_files <= 0) {
+    if (
+      effectiveScanJob.total_files <= 0 ||
+      effectiveScanJob.scanned_files > effectiveScanJob.total_files
+    ) {
       return 12
     }
 

@@ -269,6 +269,13 @@ describe('settings admin helpers', () => {
     expect(getScanStatusLabel(scanJob)).toBe('Running')
     expect(getScanStatusTone(scanJob)).toBe('running')
     expect(getScanStatusSummary(scanJob)).toBe('Scanned 6/20 files.')
+    expect(
+      getScanStatusSummary({
+        ...scanJob,
+        total_files: 0,
+        scanned_files: 169,
+      }),
+    ).toBe('Discovered 169 files.')
     expect(getScanStatusSummary(null)).toBe('No scan has run yet.')
     expect(
       getScanStatusSummary({

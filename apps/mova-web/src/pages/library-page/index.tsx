@@ -61,42 +61,39 @@ const MediaSection = ({
   scanItems: ScanRuntimeItem[]
   title: string
 }) => {
-  const { l } = useI18n()
+  if (items.length === 0 && scanItems.length === 0 && !pendingScanPlaceholder) {
+    return null
+  }
+
   return (
     <section className="catalog-block">
       <div className="catalog-block__header">
         <h3>{title}</h3>
       </div>
 
-      {items.length === 0 && scanItems.length === 0 ? (
-        <div className="catalog-block__empty">
-          <p className="muted">{l('No items in this section yet.')}</p>
-        </div>
-      ) : (
-        <div className="media-grid">
-          {pendingScanPlaceholder ? (
-            <MediaCardScanPlaceholder
-              placeholderLabel={pendingScanPlaceholder.placeholderLabel}
-              progressPercent={pendingScanPlaceholder.progressPercent}
-              progressText={pendingScanPlaceholder.progressText}
-              title={pendingScanPlaceholder.title}
-            />
-          ) : null}
-          {scanItems.map((item) => (
-            <MediaCardScanPlaceholder
-              key={`scan-${item.item_key}`}
-              placeholderLabel={item.media_type.toUpperCase()}
-              progressPercent={item.progress_percent}
-              progressText={formatScanItemProgressCopy(item)}
-              subtitle={formatLibraryScanItemSubtitle(item)}
-              title={item.title}
-            />
-          ))}
-          {items.map((item) => (
-            <MediaCard item={item} key={item.id} showTypeTag={false} />
-          ))}
-        </div>
-      )}
+      <div className="media-grid">
+        {pendingScanPlaceholder ? (
+          <MediaCardScanPlaceholder
+            placeholderLabel={pendingScanPlaceholder.placeholderLabel}
+            progressPercent={pendingScanPlaceholder.progressPercent}
+            progressText={pendingScanPlaceholder.progressText}
+            title={pendingScanPlaceholder.title}
+          />
+        ) : null}
+        {scanItems.map((item) => (
+          <MediaCardScanPlaceholder
+            key={`scan-${item.item_key}`}
+            placeholderLabel={item.media_type.toUpperCase()}
+            progressPercent={item.progress_percent}
+            progressText={formatScanItemProgressCopy(item)}
+            subtitle={formatLibraryScanItemSubtitle(item)}
+            title={item.title}
+          />
+        ))}
+        {items.map((item) => (
+          <MediaCard item={item} key={item.id} showTypeTag={false} />
+        ))}
+      </div>
     </section>
   )
 }

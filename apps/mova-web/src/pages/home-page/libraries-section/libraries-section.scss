@@ -40,6 +40,21 @@
   cursor: progress;
 }
 
+.library-spotlight--scanning.library-spotlight--empty-artwork {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--floating-border));
+  background:
+    radial-gradient(circle at 16% 12%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 42%),
+    var(--library-spotlight-surface-strong);
+}
+
+.library-spotlight--scanning.library-spotlight--empty-artwork .library-spotlight__backdrop {
+  opacity: 0.9;
+}
+
+.library-spotlight--scanning.library-spotlight--empty-artwork .library-spotlight__fallback {
+  background: var(--library-spotlight-fallback-scanning);
+}
+
 .library-spotlight__backdrop {
   position: absolute;
   inset: 0;
