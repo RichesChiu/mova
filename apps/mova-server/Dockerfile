@@ -16,6 +16,7 @@ WORKDIR /app
 
 COPY apps/mova-web/package.json ./apps/mova-web/package.json
 COPY apps/mova-web/pnpm-lock.yaml ./apps/mova-web/pnpm-lock.yaml
+COPY apps/mova-web/pnpm-workspace.yaml ./apps/mova-web/pnpm-workspace.yaml
 
 RUN npm install --global pnpm@${PNPM_VERSION} \
     && pnpm --dir apps/mova-web install --frozen-lockfile
