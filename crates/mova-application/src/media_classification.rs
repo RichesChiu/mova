@@ -35,6 +35,10 @@ mod tests {
             "episode"
         );
         assert_eq!(
+            classify_media_type(LIBRARY_TYPE_MIXED, Path::new("The.BeautyS01E01.2026.mkv")),
+            "episode"
+        );
+        assert_eq!(
             classify_media_type(LIBRARY_TYPE_MIXED, Path::new("Spirited.Away.2001.mkv")),
             "movie"
         );

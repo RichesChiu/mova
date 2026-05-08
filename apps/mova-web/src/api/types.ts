@@ -42,6 +42,7 @@ export interface LibraryDetail extends Library {
 }
 
 export type MediaType = 'movie' | 'series' | 'episode' | string
+export type MetadataStatus = 'matched' | 'unmatched' | 'failed' | 'skipped' | string
 
 export interface MediaItem {
   id: number
@@ -53,6 +54,9 @@ export interface MediaItem {
   sort_title: string | null
   metadata_provider: string | null
   metadata_provider_item_id: number | null
+  metadata_status: MetadataStatus
+  metadata_failure_reason: string | null
+  remote_media_type: string | null
   year: number | null
   imdb_rating?: string | null
   country?: string | null

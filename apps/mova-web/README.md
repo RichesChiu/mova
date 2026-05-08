@@ -104,7 +104,7 @@ src/
 
 | 组件 | 文件 | 作用 | 主要使用位置 |
 | --- | --- | --- | --- |
-| `MediaCard` / `MediaCardSkeleton` / `MediaCardScanPlaceholder` | `components/media-card/index.tsx` | 统一的媒体卡片、骨架卡和扫描中占位卡；扫描态会尽量保持与最终卡片一致的占位尺寸，减少同步完成时的跳动，标题和扫描文案也会固定在更稳定的单行/单层布局里，避免首页库卡与媒体卡被长文案撑高。扫描中电影通常按文件展示，剧集则优先按系列目录组展示；媒体库页按 Movies / Series / Other 分区展示，分区内隐藏重复的类型标签。 | 首页、媒体库页 |
+| `MediaCard` / `MediaCardSkeleton` / `MediaCardScanPlaceholder` | `components/media-card/index.tsx` | 统一的媒体卡片、骨架卡和扫描中占位卡；扫描态会尽量保持与最终卡片一致的占位尺寸，减少同步完成时的跳动，标题和扫描文案也会固定在更稳定的单行/单层布局里，避免首页库卡与媒体卡被长文案撑高。扫描中电影通常按文件展示，剧集则优先按系列目录组展示；媒体库页优先读取后端 `metadata_status`，把 `unmatched` / `failed` 条目放在 Other 作为文件名异常或刮削失败复核区，`skipped` 代表 TMDB 未启用并继续按本地 `media_type` 展示；分区内隐藏重复的类型标签。 | 首页、媒体库页 |
 | `EpisodeCard` / `EpisodeCardSkeleton` | `components/episode-card/index.tsx` | 统一的剧集卡片，支持可播放/不可播放状态和播放进度条。 | 媒体详情页 |
 | `ScrollableRail` | `components/scrollable-rail/index.tsx` | 横向滚动容器，支持左右按钮、鼠标滚轮直接横滑、提示文案。 | 首页 rail、剧集页、演员区 |
 | `MediaPlayerPanel` | `components/media-player-panel/index.tsx` | 真正的播放器核心组件，负责媒体源、字幕、音轨切换、播放进度、缓冲态、错误分类、非阻塞字幕/自动播放/全屏降级和集切换；进入播放页后会在元数据就绪时自动起播，并支持空格键切换播放/暂停；当当前剧集存在片头区间时会显示 `Skip Intro`，有下一集资源时会在时间轴上方右下角给出常驻 `Next Episode` 入口，并在倒数 30 秒再显示一次更明显的下一集提示；音轨菜单也会给出当前选中状态、切换中提示和更友好的加载/失败文案；播放器会优先等可播放文件列表返回，播放进度查询不会再把整页长期卡在 `Loading player…`。 | `MediaPlayerPage` |

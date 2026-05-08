@@ -53,6 +53,7 @@
 - TMDB provider 现在从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取；但每个媒体库仍可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。
 - 如果额外配置了可选的 `MOVA_OMDB_API_KEY`，服务端会在已拿到 `imdb_id` 的前提下补齐 `imdb_rating`；不配置时该字段保持为空，不影响扫描、入库和播放。
 - 本地海报和背景图这类图片资源，对外返回的 URL 现在会带版本参数（例如 `/api/media-items/42/poster?v=1704164645`），浏览器可以长期缓存；当媒体元数据更新时，版本参数会变化，前端会自动拿到新图。
+- 当前 pre-1.0 阶段的数据库 schema 只维护 `migrations/0001_init.sql`；本版新增媒体元数据复核状态字段，已有开发库需要重建数据库 / 重扫媒体库才能得到完整状态。
 
 ## 接口总览
 
@@ -524,13 +525,14 @@
 - `is_enabled = false` 只表示这个媒体库当前处于禁用状态，不再承担“自动监听/自动同步”的语义
 - 当前允许重叠或完全相同的 `root_path`。同一个物理文件如果被多个库路径覆盖，会在各自库里独立建模和展示。
 - 媒体库现在统一自动识别电影和剧集，不再要求用户选择库类型。扫描时会按单个视频文件判断：
-  - 文件名里命中 `剧名.S01E02.mkv`、`剧名 S01E02 - 第 2 集.mkv`、`剧名 - S01E02.mkv`、`剧名_S01E02.mkv`、`剧名-S01E02.mkv`、`剧名.1x02.mkv` 这类有清晰分隔符的显式剧名和季集信号时，优先按文件名里的剧名归组
+  - 文件名里命中 `剧名.S01E02.mkv`、`剧名 S01E02 - 第 2 集.mkv`、`剧名 - S01E02.mkv`、`剧名_S01E02.mkv`、`剧名-S01E02.mkv`、`剧名.1x02.mkv`、`剧名S01E02.mkv` 这类显式剧名和季集信号时，优先按文件名里的剧名归组
   - 显式剧集文件如果位于明确季目录树下，会先按共同剧集容器聚合，再统一写库；同一剧集目录里不同季、不同语言文件名不会被拆成多个剧集；季目录上一级如果带年份，例如 `流氓读书会 (2025)`，年份只作为远端元数据搜索提示
   - 剧集文件名里的年份只作为元数据匹配提示，不作为剧集身份键；例如 `The Boys (2019) - S01E01.mkv` 和 `The Boys (2020) - S02E01.mkv` 会自动聚合到同一剧集
   - `第 1 集`、`Episode 1` 这类跟在季集号后的通用集数文案不会当作远端集标题，远端集标题仍可在刮削成功后覆盖
   - 文件名只有 `S01E02.mkv`、`01.mkv`、`EP02.mkv`、`第03集.mkv` 这类季集或集号时，不再结合目录信号归组
-  - `The.BeautyS01E01.mkv` 这类标题和季集号没有分隔符的脏命名不会强行拆分，也不会递归猜父级剧名，会作为本地文件名条目保留
-  - 其他文件默认按电影处理
+  - 没有季集号的文件会同时参考 TMDB movie / tv 搜索结果；远端明确匹配电影时才绑定电影 metadata
+  - 如果远端更像剧集但本地没有季集号，或者远端没有命中，文件会以 `metadata_status = unmatched` 和明确 `metadata_failure_reason` 入库，并进入前端 `Other` 复核区
+  - 如果没有启用 TMDB，文件会以 `metadata_status = skipped` 入库；这种情况不视为刮削失败，前端仍按本地识别出的 `media_type` 展示
 
 ### `GET /api/libraries/{id}`
 
@@ -650,6 +652,7 @@
 
 说明：
 - 列表当前返回顶层媒体条目，也就是电影和剧；剧集的单集不会直接出现在这个列表里
+- `items[]` 使用 `MediaItemResponse`，会返回 `metadata_status` / `metadata_failure_reason` / `remote_media_type`；前端把 `metadata_status = unmatched` 或 `failed` 的条目放进 `Other`，其余条目按 `media_type` 进入 Movies / Series
 - 默认按名称升序返回
 - 当前只支持名称筛选和发行年筛选，尚未支持更多排序和筛选组合
 
@@ -747,7 +750,10 @@
 关键字段：
 - `title`：当前前端默认展示名；TMDB 命中后优先使用当前媒体库语言对应的标题
 - `source_title`：文件名解析出的原始资源名，主要用于后续元数据匹配和问题排查，不建议直接作为前端展示名
-- `metadata_provider` / `metadata_provider_item_id`：远端 metadata 绑定信息；为空表示当前条目还只是本地兜底或远端刮削失败，前端会在媒体库页把它归入 `Other`
+- `metadata_provider` / `metadata_provider_item_id`：远端 metadata 绑定信息，只表达当前条目是否绑定到具体 TMDB 条目，不再用于判断 `Other`
+- `metadata_status`：元数据处理状态，当前会使用 `matched` / `unmatched` / `failed` / `skipped`
+- `metadata_failure_reason`：当 `metadata_status` 为 `unmatched` 或 `failed` 时解释原因，例如 `no_remote_match`、`remote_series_without_episode_identity`、`remote_detection_failed`
+- `remote_media_type`：远端识别到的媒体类型，当前会使用 `movie` / `series`；没有远端判断或 TMDB 未启用时可为 `null`
 - `imdb_rating`：可选的 IMDb 评分字符串；只有在配置了 `MOVA_OMDB_API_KEY` 且当前条目能解析到 `imdb_id` 时才会有值
 - `country`：可选的国家/地区信息；电影会优先使用 TMDB 的 production countries，剧集会优先使用 TMDB 的 origin country
 - `genres`：可选的题材类型字符串；来自 TMDB genres，会按展示顺序拼接
@@ -769,6 +775,9 @@
   "sort_title": null,
   "metadata_provider": "tmdb",
   "metadata_provider_item_id": 94605,
+  "metadata_status": "matched",
+  "metadata_failure_reason": null,
+  "remote_media_type": "series",
   "year": 2021,
   "imdb_rating": "9.0",
   "country": "US",
@@ -1028,7 +1037,7 @@
 ```
 
 说明：
-- 当前会把选中的 TMDB 条目 ID 持久化到 `media_items.metadata_provider_item_id`
+- 当前会把选中的 TMDB 条目 ID 持久化到 `media_items.metadata_provider_item_id`，并把 `metadata_status` 更新为 `matched`
 - 后续该媒体条目的演员数据和剧集 outline 会优先按这个精确 TMDB ID 拉取，而不是再走模糊搜索
 - 如果当前条目是剧集，确认替换后会立即拉取该剧的远端季 / 集大纲，并把本地已存在季、已存在集的标题、简介、季海报和集封面写回数据库；因此旧的首帧图或旧海报会被选中 TMDB 条目的远端图片覆盖
 - 当前若所属媒体库正在扫描或正在删除，会返回 `409 Conflict`
@@ -1056,6 +1065,7 @@
 说明：
 - 这个动作会重新读取该媒体条目关联的源文件、本地 sidecar 和本地图片文件
 - 如果内置 TMDB token 可用，会继续按“本地优先，远程补空字段”的规则补齐缺失 metadata
+- 刷新后会同步更新 `metadata_status`、`metadata_failure_reason` 和 `remote_media_type`
 - 如果命中远程图片，仍会优先缓存到本地后再写回 `poster_path` / `backdrop_path`
 - 如果该媒体条目之前已经通过 `POST /api/media-items/{id}/metadata-match` 绑定过精确 TMDB 条目，后续演员数据和剧集 outline 仍会沿用该绑定
 - 如果源文件已经被重命名、移动或删除，当前会返回 `409 Conflict` 并要求你重扫库

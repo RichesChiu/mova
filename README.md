@@ -20,7 +20,7 @@ Mova is a self-hosted media server for organizing, browsing, and playing local m
 
 The project aims to keep the media-server experience simple and dependable: mount a media folder, scan the library, enrich metadata when needed, and browse or play from a clean Web interface. The current release is a usable MVP for local machines, home servers, and private media setups.
 
-Series grouping is intentionally filename-first. Use filenames such as `Show.Name.S01E01.mkv`, `Show S01E01 - Episode 1.mkv`, `Show - S01E01.mkv`, or `Show_S01E01.mkv`; Mova does not infer series identity from arbitrary folder names. When an explicit season folder sits under a clean series folder such as `Study Group (2025)/Season 01/Study Group S01E01.mkv`, the folder year is used only as a metadata search hint.
+Series grouping is intentionally filename-first. Use filenames such as `Show.Name.S01E01.mkv`, `Show S01E01 - Episode 1.mkv`, `Show - S01E01.mkv`, `Show_S01E01.mkv`, or `ShowNameS01E01.mkv`; Mova does not infer series identity from arbitrary folder names. When an explicit season folder sits under a clean series folder such as `Study Group (2025)/Season 01/Study Group S01E01.mkv`, the folder year is used only as a metadata search hint. Files without season/episode identity are checked against TMDB movie and TV results; TV matches without local season/episode identity, failed matches, and malformed filenames are stored with explicit metadata review status and stay in the Other section. If TMDB is disabled, metadata is marked as skipped and local movie/series detection still remains visible.
 
 When `ffprobe` is available, Mova also stores resource-level technical tags such as HDR10, Dolby Vision, DTS-HD, and Atmos for each physical media file, then surfaces those tags as resource badges on detail pages.
 
@@ -78,7 +78,7 @@ After startup, Mova creates two runtime folders:
 - `data/postgres/`: PostgreSQL database files for libraries, users, metadata, and playback progress.
 - `data/cache/`: cached artwork and generated media assets.
 
-During the current pre-MVP development stage, database schema changes can require rebuilding `data/postgres/`.
+During the current pre-MVP development stage, database schema changes can require rebuilding `data/postgres/`. The current metadata review schema is stored in `migrations/0001_init.sql`, so existing development databases should be rebuilt after pulling this change.
 
 Your media folder is mounted read-only. Mova does not modify your original media files.
 

@@ -175,6 +175,9 @@ async fn insert_series_item_from_entry(
             sort_title,
             metadata_provider,
             metadata_provider_item_id,
+            metadata_status,
+            metadata_failure_reason,
+            remote_media_type,
             year,
             country,
             genres,
@@ -183,7 +186,10 @@ async fn insert_series_item_from_entry(
             poster_path,
             backdrop_path
         )
-        values ($1, 'series', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        values (
+            $1, 'series', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+            $12, $13, $14, $15, $16, $17
+        )
         returning id
         "#,
     )
@@ -194,6 +200,9 @@ async fn insert_series_item_from_entry(
     .bind(&entry.sort_title)
     .bind(&entry.metadata_provider)
     .bind(entry.metadata_provider_item_id)
+    .bind(&entry.metadata_status)
+    .bind(&entry.metadata_failure_reason)
+    .bind(&entry.remote_media_type)
     .bind(entry.year)
     .bind(&entry.country)
     .bind(&entry.genres)
@@ -233,13 +242,16 @@ async fn update_series_item_from_entry(
             sort_title = $5,
             metadata_provider = $6,
             metadata_provider_item_id = $7,
-            year = $8,
-            country = $9,
-            genres = $10,
-            studio = $11,
-            overview = $12,
-            poster_path = $13,
-            backdrop_path = $14,
+            metadata_status = $8,
+            metadata_failure_reason = $9,
+            remote_media_type = $10,
+            year = $11,
+            country = $12,
+            genres = $13,
+            studio = $14,
+            overview = $15,
+            poster_path = $16,
+            backdrop_path = $17,
             updated_at = now()
         where id = $1
         "#,
@@ -251,6 +263,9 @@ async fn update_series_item_from_entry(
     .bind(&entry.sort_title)
     .bind(&entry.metadata_provider)
     .bind(entry.metadata_provider_item_id)
+    .bind(&entry.metadata_status)
+    .bind(&entry.metadata_failure_reason)
+    .bind(&entry.remote_media_type)
     .bind(entry.year)
     .bind(&entry.country)
     .bind(&entry.genres)
@@ -327,6 +342,9 @@ async fn insert_episode_media_item(
             source_title,
             original_title,
             sort_title,
+            metadata_status,
+            metadata_failure_reason,
+            remote_media_type,
             year,
             country,
             genres,
@@ -335,7 +353,10 @@ async fn insert_episode_media_item(
             poster_path,
             backdrop_path
         )
-        values ($1, 'episode', $2, $3, null, null, null, null, null, null, $4, $5, $6)
+        values (
+            $1, 'episode', $2, $3, null, null, $4, $5, $6,
+            null, null, null, null, $7, $8, $9
+        )
         returning id
         "#,
     )
@@ -348,6 +369,9 @@ async fn insert_episode_media_item(
             .cloned()
             .unwrap_or_else(|| entry.source_title.clone()),
     )
+    .bind(&entry.metadata_status)
+    .bind(&entry.metadata_failure_reason)
+    .bind(&entry.remote_media_type)
     .bind(&entry.overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
@@ -375,13 +399,16 @@ async fn update_episode_media_item_from_entry(
             source_title = $3,
             original_title = null,
             sort_title = null,
+            metadata_status = $4,
+            metadata_failure_reason = $5,
+            remote_media_type = $6,
             year = null,
             country = null,
             genres = null,
             studio = null,
-            overview = $4,
-            poster_path = $5,
-            backdrop_path = $6,
+            overview = $7,
+            poster_path = $8,
+            backdrop_path = $9,
             updated_at = now()
         where id = $1
         "#,
@@ -395,6 +422,9 @@ async fn update_episode_media_item_from_entry(
             .cloned()
             .unwrap_or_else(|| entry.source_title.clone()),
     )
+    .bind(&entry.metadata_status)
+    .bind(&entry.metadata_failure_reason)
+    .bind(&entry.remote_media_type)
     .bind(&entry.overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)

@@ -130,12 +130,22 @@ fn parse_media_name(path: &Path) -> ParsedNameMetadata {
 pub fn infer_series_file_metadata(path: &Path) -> Option<SeriesFileMetadata> {
     let normalized = humanize_file_stem(path);
     let tokens = normalized.split_whitespace().collect::<Vec<_>>();
-    let episode_token_index = tokens
+    let (episode_token_index, episode_token) = tokens
         .iter()
-        .position(|token| parse_episode_token(token).is_some())?;
+        .enumerate()
+        .find_map(|(index, token)| parse_episode_token_marker(token).map(|token| (index, token)))?;
     let mut title_end = episode_token_index;
+    let mut title_tokens = tokens[..title_end]
+        .iter()
+        .map(|token| (*token).to_string())
+        .collect::<Vec<_>>();
 
-    while title_end > 0 && is_separator_token(tokens[title_end - 1]) {
+    if let Some(prefix) = episode_token.title_prefix {
+        title_tokens.push(prefix);
+        title_end = title_tokens.len();
+    }
+
+    while title_end > 0 && is_separator_token(&title_tokens[title_end - 1]) {
         title_end -= 1;
     }
 
@@ -143,7 +153,7 @@ pub fn infer_series_file_metadata(path: &Path) -> Option<SeriesFileMetadata> {
         return None;
     }
 
-    let display_title = tokens[..title_end].join(" ");
+    let display_title = title_tokens[..title_end].join(" ");
     let parsed_name = parse_title_year_from_humanized_name(&display_title);
 
     if parsed_name.title.trim().is_empty()
@@ -156,7 +166,9 @@ pub fn infer_series_file_metadata(path: &Path) -> Option<SeriesFileMetadata> {
     Some(SeriesFileMetadata {
         display_title,
         title: parsed_name.title,
-        year: parsed_name.year,
+        year: parsed_name
+            .year
+            .or_else(|| parse_year_after_episode_token(&tokens, episode_token_index + 1)),
     })
 }
 
@@ -172,11 +184,20 @@ fn parse_episode_identity(path: &Path) -> Option<ParsedEpisodeIdentity> {
     let tokens = normalized.split_whitespace().collect::<Vec<_>>();
     let (_, title_start, season_number, episode_number) =
         tokens.iter().enumerate().find_map(|(index, token)| {
-            parse_episode_token(token).and_then(|(season, episode)| {
-                tokens[..index]
+            parse_episode_token_marker(token).and_then(|episode_token| {
+                let has_title_prefix = episode_token
+                    .title_prefix
+                    .as_deref()
+                    .is_some_and(|value| !value.trim().is_empty());
+                let has_title_before = tokens[..index]
                     .iter()
-                    .any(|value| !is_separator_token(value))
-                    .then_some((index, index + 1, season, episode))
+                    .any(|value| !is_separator_token(value));
+                (has_title_prefix || has_title_before).then_some((
+                    index,
+                    index + 1,
+                    episode_token.season_number,
+                    episode_token.episode_number,
+                ))
             })
         })?;
 
@@ -247,12 +268,54 @@ pub(crate) fn parse_year_token(token: &str) -> Option<i32> {
     (1900..=2100).contains(&year).then_some(year)
 }
 
-fn is_episode_token(token: &str) -> bool {
-    parse_episode_token(token).is_some()
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedEpisodeToken {
+    title_prefix: Option<String>,
+    season_number: i32,
+    episode_number: i32,
 }
 
-fn parse_episode_token(token: &str) -> Option<(i32, i32)> {
-    parse_series_token(token).or_else(|| parse_x_episode_token(token))
+fn parse_episode_token_marker(token: &str) -> Option<ParsedEpisodeToken> {
+    if let Some((season_number, episode_number)) =
+        parse_series_token(token).or_else(|| parse_x_episode_token(token))
+    {
+        return Some(ParsedEpisodeToken {
+            title_prefix: None,
+            season_number,
+            episode_number,
+        });
+    }
+
+    parse_embedded_episode_token(token)
+}
+
+fn parse_embedded_episode_token(token: &str) -> Option<ParsedEpisodeToken> {
+    for (index, _) in token.char_indices().skip(1) {
+        let prefix = &token[..index];
+        if !prefix.chars().any(|ch| ch.is_alphanumeric()) {
+            continue;
+        }
+
+        let suffix = &token[index..];
+        if let Some((season_number, episode_number)) =
+            parse_series_token(suffix).or_else(|| parse_x_episode_token(suffix))
+        {
+            return Some(ParsedEpisodeToken {
+                title_prefix: Some(prefix.to_string()),
+                season_number,
+                episode_number,
+            });
+        }
+    }
+
+    None
+}
+
+fn parse_year_after_episode_token<T: AsRef<str>>(tokens: &[T], start_index: usize) -> Option<i32> {
+    tokens
+        .iter()
+        .skip(start_index)
+        .find_map(|token| parse_year_token(token.as_ref()))
 }
 
 fn parse_series_token(token: &str) -> Option<(i32, i32)> {
@@ -418,7 +481,18 @@ fn parse_title_year_from_humanized_name(value: &str) -> ParsedNameMetadata {
             break;
         }
 
-        if is_episode_token(tokens[index].as_str()) || is_release_token(tokens[index].as_str()) {
+        if let Some(episode_token) = parse_episode_token_marker(tokens[index].as_str()) {
+            if let Some(prefix) = episode_token.title_prefix {
+                tokens[index] = prefix;
+                title_end = index + 1;
+            } else {
+                title_end = index;
+            }
+            year = year.or_else(|| parse_year_after_episode_token(&tokens, index + 1));
+            break;
+        }
+
+        if is_release_token(tokens[index].as_str()) {
             title_end = index;
             break;
         }

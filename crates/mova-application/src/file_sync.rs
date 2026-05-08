@@ -5,6 +5,11 @@ use crate::{
     media_enrichment::MetadataEnrichmentContext,
     metadata::MetadataProvider,
 };
+use mova_domain::{
+    METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED, METADATA_STATUS_MATCHED,
+    METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE,
+    REMOTE_MEDIA_TYPE_SERIES,
+};
 use mova_scan::DiscoveredMediaFile;
 use sqlx::postgres::PgPool;
 use std::{
@@ -25,6 +30,7 @@ pub async fn sync_library_filesystem_changes(
     metadata_provider: Arc<dyn MetadataProvider>,
 ) -> ApplicationResult<()> {
     let library = get_library(pool, library_id).await?;
+    let metadata_provider_enabled = metadata_provider.is_enabled();
     let mut enrichment = MetadataEnrichmentContext::new(
         artwork_cache_dir,
         metadata_provider,
@@ -68,6 +74,11 @@ pub async fn sync_library_filesystem_changes(
         enrichment
             .enrich_file(lookup_type, &mut discovered_file)
             .await;
+        finalize_file_metadata_status(
+            &mut discovered_file,
+            metadata_provider_enabled,
+            remote_media_type_for_lookup_type(lookup_type),
+        );
         let Some(entry) = build_media_entry(&library, media_type, discovered_file)? else {
             continue;
         };
@@ -228,6 +239,11 @@ fn build_media_entry(
         media_type: media_type.to_string(),
         metadata_provider: file.metadata_provider,
         metadata_provider_item_id: file.metadata_provider_item_id,
+        metadata_status: file
+            .metadata_status
+            .unwrap_or_else(|| METADATA_STATUS_SKIPPED.to_string()),
+        metadata_failure_reason: file.metadata_failure_reason,
+        remote_media_type: file.remote_media_type,
         title: file.title,
         source_title: file.source_title,
         original_title: file.original_title,
@@ -306,6 +322,41 @@ fn build_media_entry(
             })
             .collect(),
     }))
+}
+
+fn finalize_file_metadata_status(
+    file: &mut DiscoveredMediaFile,
+    metadata_provider_enabled: bool,
+    remote_media_type: Option<&'static str>,
+) {
+    file.remote_media_type = remote_media_type.map(str::to_string);
+
+    if !metadata_provider_enabled {
+        file.metadata_status = Some(METADATA_STATUS_SKIPPED.to_string());
+        file.metadata_failure_reason = Some(METADATA_FAILURE_PROVIDER_DISABLED.to_string());
+        return;
+    }
+
+    if file.metadata_provider_item_id.is_some() {
+        file.metadata_status = Some(METADATA_STATUS_MATCHED.to_string());
+        file.metadata_failure_reason = None;
+        return;
+    }
+
+    file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
+    file.metadata_failure_reason = Some(METADATA_FAILURE_NO_REMOTE_MATCH.to_string());
+}
+
+fn remote_media_type_for_lookup_type(lookup_type: &str) -> Option<&'static str> {
+    if lookup_type.eq_ignore_ascii_case("series") {
+        return Some(REMOTE_MEDIA_TYPE_SERIES);
+    }
+
+    if lookup_type.eq_ignore_ascii_case("movie") {
+        return Some(REMOTE_MEDIA_TYPE_MOVIE);
+    }
+
+    None
 }
 
 fn is_supported_video_path(path: &Path) -> bool {

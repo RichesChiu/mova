@@ -2,26 +2,26 @@ import type { MediaItem } from '../api/types'
 
 export type LibraryMediaSection = 'movies' | 'series' | 'other'
 
-type MediaSectionInput = Pick<MediaItem, 'media_type' | 'metadata_provider_item_id'>
+type MediaSectionInput = Pick<MediaItem, 'media_type' | 'metadata_status'>
 
 type ScanSectionInput = {
   media_type: string
 }
 
-export const hasMatchedMetadata = (item: MediaSectionInput) =>
-  typeof item.metadata_provider_item_id === 'number' && Number.isFinite(item.metadata_provider_item_id)
+const needsReview = (item: MediaSectionInput) =>
+  item.metadata_status === 'unmatched' || item.metadata_status === 'failed'
 
 export const getLibraryMediaSection = (item: MediaSectionInput): LibraryMediaSection => {
-  if (!hasMatchedMetadata(item)) {
+  if (needsReview(item)) {
     return 'other'
+  }
+
+  if (item.media_type === 'series' || item.media_type === 'episode') {
+    return 'series'
   }
 
   if (item.media_type === 'movie') {
     return 'movies'
-  }
-
-  if (item.media_type === 'series') {
-    return 'series'
   }
 
   return 'other'
@@ -32,7 +32,7 @@ export const getLibraryScanSection = (item: ScanSectionInput): LibraryMediaSecti
     return 'movies'
   }
 
-  if (item.media_type === 'series') {
+  if (item.media_type === 'series' || item.media_type === 'episode') {
     return 'series'
   }
 

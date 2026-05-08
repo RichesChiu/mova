@@ -69,6 +69,20 @@ pub struct RemoteMetadataSearchResult {
     pub backdrop_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteMediaKind {
+    Movie,
+    Series,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteMediaTypeMatch {
+    pub media_kind: RemoteMediaKind,
+    pub provider_item_id: i64,
+    pub title: String,
+    pub year: Option<i32>,
+}
+
 /// 第三方元数据源返回的剧集季/集大纲结构。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteSeriesEpisodeOutline {
@@ -123,6 +137,13 @@ pub trait MetadataProvider: Send + Sync {
         _lookup: &MetadataLookup,
     ) -> anyhow::Result<Vec<RemoteMetadataSearchResult>> {
         Ok(Vec::new())
+    }
+
+    async fn detect_media_type(
+        &self,
+        _lookup: &MetadataLookup,
+    ) -> anyhow::Result<Option<RemoteMediaTypeMatch>> {
+        Ok(None)
     }
 }
 
@@ -870,6 +891,45 @@ impl MetadataProvider for TmdbMetadataProvider {
             })
             .collect())
     }
+
+    async fn detect_media_type(
+        &self,
+        lookup: &MetadataLookup,
+    ) -> anyhow::Result<Option<RemoteMediaTypeMatch>> {
+        if lookup.title.trim().is_empty() {
+            return Ok(None);
+        }
+
+        let movie_lookup = MetadataLookup {
+            library_type: "movie".to_string(),
+            ..lookup.clone()
+        };
+        let series_lookup = MetadataLookup {
+            library_type: "series".to_string(),
+            ..lookup.clone()
+        };
+
+        let movie_candidates = self.search_movie_candidates(&movie_lookup).await?;
+        let series_candidates = self.search_tv_candidates(&series_lookup).await?;
+
+        let movie_match =
+            select_best_match_with_rank(lookup.title.as_str(), lookup.year, &movie_candidates);
+        let series_match =
+            select_best_match_with_rank(lookup.title.as_str(), lookup.year, &series_candidates);
+
+        match (movie_match, series_match) {
+            (Some((movie_rank, movie)), Some((series_rank, series))) => {
+                if movie_rank >= series_rank {
+                    Ok(Some(remote_movie_type_match(movie)))
+                } else {
+                    Ok(Some(remote_series_type_match(series)))
+                }
+            }
+            (Some((_, movie)), None) => Ok(Some(remote_movie_type_match(movie))),
+            (None, Some((_, series))) => Ok(Some(remote_series_type_match(series))),
+            (None, None) => Ok(None),
+        }
+    }
 }
 
 fn merge_search_results<T, F>(primary: Vec<T>, fallback: Vec<T>, id_fn: F) -> Vec<T>
@@ -1204,11 +1264,28 @@ struct OmdbRatingResponse {
     imdb_rating: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct MatchRank {
+    score: i32,
+    popularity: i64,
+}
+
 fn select_best_match<'a, T>(
     query_title: &str,
     query_year: Option<i32>,
     candidates: &'a [T],
 ) -> Option<&'a T>
+where
+    T: TmdbSearchCandidate,
+{
+    select_best_match_with_rank(query_title, query_year, candidates).map(|(_, candidate)| candidate)
+}
+
+fn select_best_match_with_rank<'a, T>(
+    query_title: &str,
+    query_year: Option<i32>,
+    candidates: &'a [T],
+) -> Option<(MatchRank, &'a T)>
 where
     T: TmdbSearchCandidate,
 {
@@ -1237,14 +1314,15 @@ where
             let score = best_title_score + year_score;
 
             (
-                score,
-                (candidate.candidate_popularity() * 1000.0) as i64,
+                MatchRank {
+                    score,
+                    popularity: (candidate.candidate_popularity() * 1000.0) as i64,
+                },
                 candidate,
             )
         })
-        .filter(|(score, _, _)| *score > 0)
-        .max_by_key(|(score, popularity, _)| (*score, *popularity))
-        .map(|(_, _, candidate)| candidate)
+        .filter(|(rank, _)| rank.score > 0)
+        .max_by_key(|(rank, _)| *rank)
 }
 
 fn title_match_score(query: &str, candidate: &str) -> i32 {
@@ -1352,6 +1430,32 @@ fn pick_primary_character_name(roles: &[TmdbTvAggregateRole]) -> Option<String> 
         })
         .max_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)))
         .map(|(_, character_name)| character_name)
+}
+
+fn remote_movie_type_match(candidate: &TmdbMovieSearchResult) -> RemoteMediaTypeMatch {
+    RemoteMediaTypeMatch {
+        media_kind: RemoteMediaKind::Movie,
+        provider_item_id: candidate.id,
+        title: candidate
+            .candidate_title()
+            .or_else(|| candidate.candidate_original_title())
+            .unwrap_or_default()
+            .to_string(),
+        year: candidate.candidate_year(),
+    }
+}
+
+fn remote_series_type_match(candidate: &TmdbTvSearchResult) -> RemoteMediaTypeMatch {
+    RemoteMediaTypeMatch {
+        media_kind: RemoteMediaKind::Series,
+        provider_item_id: candidate.id,
+        title: candidate
+            .candidate_title()
+            .or_else(|| candidate.candidate_original_title())
+            .unwrap_or_default()
+            .to_string(),
+        year: candidate.candidate_year(),
+    }
 }
 
 /// 扫描任务内部使用的查询缓存。

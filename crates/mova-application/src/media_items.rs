@@ -9,6 +9,9 @@ use crate::{
 };
 use mova_domain::{
     AudioTrack, Episode, MediaFile, MediaItem, PlaybackProgress, Season, SubtitleFile,
+    METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED, METADATA_STATUS_MATCHED,
+    METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE,
+    REMOTE_MEDIA_TYPE_SERIES,
 };
 use sqlx::postgres::PgPool;
 use std::{
@@ -789,6 +792,7 @@ pub async fn refresh_media_item_metadata(
     let lookup_type = metadata_lookup_type_for_media_type(&media_item.media_type);
     let library = get_library(pool, media_item.library_id).await?;
     let metadata_provider_for_cast = metadata_provider.clone();
+    let metadata_provider_enabled = metadata_provider.is_enabled();
     let mut enrichment = MetadataEnrichmentContext::new(
         artwork_cache_dir,
         metadata_provider,
@@ -797,6 +801,11 @@ pub async fn refresh_media_item_metadata(
     enrichment
         .enrich_file(lookup_type, &mut discovered_file)
         .await;
+    finalize_refreshed_file_metadata_status(
+        &mut discovered_file,
+        metadata_provider_enabled,
+        remote_media_type_for_lookup_type(lookup_type),
+    );
 
     mova_db::update_media_file_metadata(
         pool,
@@ -847,6 +856,15 @@ pub async fn refresh_media_item_metadata(
             metadata_provider_item_id: discovered_file
                 .metadata_provider_item_id
                 .or(media_item.metadata_provider_item_id),
+            metadata_status: discovered_file
+                .metadata_status
+                .unwrap_or(media_item.metadata_status),
+            metadata_failure_reason: discovered_file
+                .metadata_failure_reason
+                .or(media_item.metadata_failure_reason),
+            remote_media_type: discovered_file
+                .remote_media_type
+                .or(media_item.remote_media_type),
             year: discovered_file.year,
             imdb_rating: discovered_file.imdb_rating,
             country: discovered_file.country,
@@ -883,6 +901,41 @@ async fn inspect_media_file_path(path: &str) -> io::Result<mova_scan::Discovered
                 join_path, error
             ))
         })?
+}
+
+fn finalize_refreshed_file_metadata_status(
+    file: &mut mova_scan::DiscoveredMediaFile,
+    metadata_provider_enabled: bool,
+    remote_media_type: Option<&'static str>,
+) {
+    file.remote_media_type = remote_media_type.map(str::to_string);
+
+    if !metadata_provider_enabled {
+        file.metadata_status = Some(METADATA_STATUS_SKIPPED.to_string());
+        file.metadata_failure_reason = Some(METADATA_FAILURE_PROVIDER_DISABLED.to_string());
+        return;
+    }
+
+    if file.metadata_provider_item_id.is_some() {
+        file.metadata_status = Some(METADATA_STATUS_MATCHED.to_string());
+        file.metadata_failure_reason = None;
+        return;
+    }
+
+    file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
+    file.metadata_failure_reason = Some(METADATA_FAILURE_NO_REMOTE_MATCH.to_string());
+}
+
+fn remote_media_type_for_lookup_type(lookup_type: &str) -> Option<&'static str> {
+    if lookup_type.eq_ignore_ascii_case("series") {
+        return Some(REMOTE_MEDIA_TYPE_SERIES);
+    }
+
+    if lookup_type.eq_ignore_ascii_case("movie") {
+        return Some(REMOTE_MEDIA_TYPE_MOVIE);
+    }
+
+    None
 }
 
 fn map_refresh_source_error(

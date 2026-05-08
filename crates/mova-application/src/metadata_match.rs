@@ -10,7 +10,9 @@ use crate::{
         TMDB_PROVIDER_NAME,
     },
 };
-use mova_domain::MediaItem;
+use mova_domain::{
+    MediaItem, METADATA_STATUS_MATCHED, REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
+};
 use sqlx::postgres::PgPool;
 use std::sync::Arc;
 
@@ -115,6 +117,10 @@ pub async fn apply_media_item_metadata_match(
             sort_title: media_item.sort_title,
             metadata_provider: Some(TMDB_PROVIDER_NAME.to_string()),
             metadata_provider_item_id: Some(input.provider_item_id),
+            metadata_status: METADATA_STATUS_MATCHED.to_string(),
+            metadata_failure_reason: None,
+            remote_media_type: remote_media_type_for_media_type(&media_item.media_type)
+                .map(str::to_string),
             year: remote_metadata.year.or(media_item.year),
             imdb_rating: remote_metadata.imdb_rating.or(media_item.imdb_rating),
             country: remote_metadata.country.or(media_item.country),
@@ -144,6 +150,18 @@ pub async fn apply_media_item_metadata_match(
     ensure_media_item_cast(pool, &updated_media_item, metadata_provider).await?;
 
     Ok(updated_media_item)
+}
+
+fn remote_media_type_for_media_type(media_type: &str) -> Option<&'static str> {
+    if media_type.eq_ignore_ascii_case("series") || media_type.eq_ignore_ascii_case("episode") {
+        return Some(REMOTE_MEDIA_TYPE_SERIES);
+    }
+
+    if media_type.eq_ignore_ascii_case("movie") {
+        return Some(REMOTE_MEDIA_TYPE_MOVIE);
+    }
+
+    None
 }
 
 async fn apply_selected_series_episode_metadata(
@@ -297,7 +315,7 @@ fn map_match_candidate(candidate: RemoteMetadataSearchResult) -> MetadataMatchCa
 #[cfg(test)]
 mod tests {
     use super::{metadata_lookup_type_for_media_item, normalize_match_query, normalize_match_year};
-    use mova_domain::MediaItem;
+    use mova_domain::{MediaItem, METADATA_STATUS_SKIPPED};
     use time::OffsetDateTime;
 
     fn sample_media_item(media_type: &str) -> MediaItem {
@@ -311,6 +329,9 @@ mod tests {
             sort_title: None,
             metadata_provider: None,
             metadata_provider_item_id: None,
+            metadata_status: METADATA_STATUS_SKIPPED.to_string(),
+            metadata_failure_reason: None,
+            remote_media_type: None,
             year: Some(2025),
             imdb_rating: None,
             country: None,

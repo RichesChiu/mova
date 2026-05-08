@@ -66,6 +66,9 @@ create table if not exists media_items (
     sort_title varchar(512),
     metadata_provider varchar(32),
     metadata_provider_item_id bigint,
+    metadata_status varchar(32) not null default 'skipped', -- matched / unmatched / failed / skipped
+    metadata_failure_reason varchar(64),
+    remote_media_type varchar(32), -- movie / series
     year integer,
     imdb_rating varchar(8),
     country varchar(255),
@@ -81,6 +84,7 @@ create table if not exists media_items (
 
 create index if not exists idx_media_items_library_id on media_items(library_id);
 create index if not exists idx_media_items_media_type on media_items(media_type);
+create index if not exists idx_media_items_metadata_status on media_items(metadata_status);
 create index if not exists idx_media_items_title on media_items(title);
 
 create table if not exists seasons (

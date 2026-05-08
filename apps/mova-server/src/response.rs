@@ -117,6 +117,11 @@ pub struct MediaItemResponse {
     pub source_title: String,
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
+    pub metadata_provider: Option<String>,
+    pub metadata_provider_item_id: Option<i64>,
+    pub metadata_status: String,
+    pub metadata_failure_reason: Option<String>,
+    pub remote_media_type: Option<String>,
     pub year: Option<i32>,
     pub imdb_rating: Option<String>,
     pub country: Option<String>,
@@ -147,6 +152,11 @@ pub struct MediaItemDetailResponse {
     pub source_title: String,
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
+    pub metadata_provider: Option<String>,
+    pub metadata_provider_item_id: Option<i64>,
+    pub metadata_status: String,
+    pub metadata_failure_reason: Option<String>,
+    pub remote_media_type: Option<String>,
     pub year: Option<i32>,
     pub imdb_rating: Option<String>,
     pub country: Option<String>,
@@ -482,6 +492,11 @@ impl MediaItemResponse {
             source_title: media_item.source_title,
             original_title: media_item.original_title,
             sort_title: media_item.sort_title,
+            metadata_provider: media_item.metadata_provider,
+            metadata_provider_item_id: media_item.metadata_provider_item_id,
+            metadata_status: media_item.metadata_status,
+            metadata_failure_reason: media_item.metadata_failure_reason,
+            remote_media_type: media_item.remote_media_type,
             year: media_item.year,
             imdb_rating: media_item.imdb_rating,
             country: media_item.country,
@@ -530,6 +545,11 @@ impl MediaItemDetailResponse {
             source_title: media_item.source_title,
             original_title: media_item.original_title,
             sort_title: media_item.sort_title,
+            metadata_provider: media_item.metadata_provider,
+            metadata_provider_item_id: media_item.metadata_provider_item_id,
+            metadata_status: media_item.metadata_status,
+            metadata_failure_reason: media_item.metadata_failure_reason,
+            remote_media_type: media_item.remote_media_type,
             year: media_item.year,
             imdb_rating: media_item.imdb_rating,
             country: media_item.country,
@@ -1075,8 +1095,11 @@ fn is_external_url(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{public_media_item_asset_path, public_season_asset_path, MediaItemResponse};
-    use mova_domain::MediaItem;
+    use super::{
+        public_media_item_asset_path, public_season_asset_path, MediaItemDetailResponse,
+        MediaItemResponse,
+    };
+    use mova_domain::{MediaItem, METADATA_STATUS_MATCHED, REMOTE_MEDIA_TYPE_MOVIE};
     use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
 
     fn sample_media_item() -> MediaItem {
@@ -1094,8 +1117,11 @@ mod tests {
             source_title: "Spirited Away".to_string(),
             original_title: None,
             sort_title: None,
-            metadata_provider: None,
-            metadata_provider_item_id: None,
+            metadata_provider: Some("tmdb".to_string()),
+            metadata_provider_item_id: Some(129),
+            metadata_status: METADATA_STATUS_MATCHED.to_string(),
+            metadata_failure_reason: None,
+            remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE.to_string()),
             year: Some(2001),
             imdb_rating: Some("8.6".to_string()),
             country: Some("Japan".to_string()),
@@ -1172,6 +1198,28 @@ mod tests {
         assert_eq!(
             response.backdrop_path.as_deref(),
             Some("https://images.example.com/backdrop.jpg")
+        );
+        assert_eq!(response.metadata_provider.as_deref(), Some("tmdb"));
+        assert_eq!(response.metadata_provider_item_id, Some(129));
+        assert_eq!(response.metadata_status, METADATA_STATUS_MATCHED);
+        assert_eq!(response.metadata_failure_reason, None);
+        assert_eq!(
+            response.remote_media_type.as_deref(),
+            Some(REMOTE_MEDIA_TYPE_MOVIE)
+        );
+    }
+
+    #[test]
+    fn media_item_detail_response_exposes_metadata_binding() {
+        let response = MediaItemDetailResponse::from_domain(sample_media_item(), UtcOffset::UTC);
+
+        assert_eq!(response.metadata_provider.as_deref(), Some("tmdb"));
+        assert_eq!(response.metadata_provider_item_id, Some(129));
+        assert_eq!(response.metadata_status, METADATA_STATUS_MATCHED);
+        assert_eq!(response.metadata_failure_reason, None);
+        assert_eq!(
+            response.remote_media_type.as_deref(),
+            Some(REMOTE_MEDIA_TYPE_MOVIE)
         );
     }
 }

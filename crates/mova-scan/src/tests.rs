@@ -339,23 +339,23 @@ fn parse_media_metadata_extracts_episode_numbers_and_title() {
 }
 
 #[test]
-fn parse_media_metadata_keeps_embedded_series_token_as_local_file() {
+fn parse_media_metadata_extracts_embedded_series_token_suffix() {
     let path = Path::new("美丽毒素/S01/The.BeautyS01E01.2026.2160p.WEB-DL.mkv");
 
     assert_eq!(
         parse_media_metadata(path),
         ParsedMediaMetadata {
-            title: "The BeautyS01E01".to_string(),
-            source_title: "The BeautyS01E01".to_string(),
+            title: "The Beauty".to_string(),
+            source_title: "The Beauty".to_string(),
             original_title: None,
             sort_title: None,
             year: Some(2026),
-            season_number: None,
+            season_number: Some(1),
             season_title: None,
             season_overview: None,
             season_poster_path: None,
             season_backdrop_path: None,
-            episode_number: None,
+            episode_number: Some(1),
             episode_title: None,
             overview: None,
             series_poster_path: None,
@@ -565,11 +565,15 @@ fn infer_series_file_metadata_extracts_year_before_sxxexx_token() {
 }
 
 #[test]
-fn infer_series_file_metadata_ignores_embedded_sxxexx_without_separator() {
-    assert!(infer_series_file_metadata(Path::new(
-        "任何目录/随便什么文件夹/The.BeautyS01E01.2026.mkv"
+fn infer_series_file_metadata_extracts_embedded_sxxexx_suffix() {
+    let metadata = infer_series_file_metadata(Path::new(
+        "任何目录/随便什么文件夹/The.BeautyS01E01.2026.mkv",
     ))
-    .is_none());
+    .expect("embedded SxxExx suffix should still expose a series title");
+
+    assert_eq!(metadata.display_title, "The Beauty");
+    assert_eq!(metadata.title, "The Beauty");
+    assert_eq!(metadata.year, Some(2026));
 }
 
 #[test]
@@ -586,8 +590,8 @@ fn is_likely_episode_path_detects_sxxexx_file_names() {
 }
 
 #[test]
-fn is_likely_episode_path_ignores_season_directory_without_episode_file_signal() {
-    assert!(!is_likely_episode_path(Path::new(
+fn is_likely_episode_path_uses_file_name_episode_signal_not_season_directory_only() {
+    assert!(is_likely_episode_path(Path::new(
         "美丽毒素/S01/The.BeautyS01E01.2026.mkv"
     )));
     assert!(!is_likely_episode_path(Path::new(

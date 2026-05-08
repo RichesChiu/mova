@@ -52,6 +52,9 @@ pub async fn list_media_items_for_library(
             sort_title,
             metadata_provider,
             metadata_provider_item_id,
+            metadata_status,
+            metadata_failure_reason,
+            remote_media_type,
             year,
             imdb_rating,
             country,
@@ -106,6 +109,9 @@ pub async fn get_media_item(pool: &PgPool, media_item_id: i64) -> Result<Option<
             sort_title,
             metadata_provider,
             metadata_provider_item_id,
+            metadata_status,
+            metadata_failure_reason,
+            remote_media_type,
             year,
             imdb_rating,
             country,
@@ -193,14 +199,17 @@ pub async fn update_media_item_metadata(
             sort_title = $5,
             metadata_provider = $6,
             metadata_provider_item_id = $7,
-            year = $8,
-            imdb_rating = $9,
-            country = $10,
-            genres = $11,
-            studio = $12,
-            overview = $13,
-            poster_path = $14,
-            backdrop_path = $15,
+            metadata_status = $8,
+            metadata_failure_reason = $9,
+            remote_media_type = $10,
+            year = $11,
+            imdb_rating = $12,
+            country = $13,
+            genres = $14,
+            studio = $15,
+            overview = $16,
+            poster_path = $17,
+            backdrop_path = $18,
             updated_at = now()
         where id = $1
         returning
@@ -213,6 +222,9 @@ pub async fn update_media_item_metadata(
             sort_title,
             metadata_provider,
             metadata_provider_item_id,
+            metadata_status,
+            metadata_failure_reason,
+            remote_media_type,
             year,
             imdb_rating,
             country,
@@ -232,6 +244,9 @@ pub async fn update_media_item_metadata(
     .bind(&params.sort_title)
     .bind(&params.metadata_provider)
     .bind(params.metadata_provider_item_id)
+    .bind(&params.metadata_status)
+    .bind(&params.metadata_failure_reason)
+    .bind(&params.remote_media_type)
     .bind(params.year)
     .bind(&params.imdb_rating)
     .bind(&params.country)
@@ -1136,6 +1151,9 @@ pub async fn list_existing_media_metadata_for_file_paths(
             mi.media_type,
             mi.metadata_provider,
             mi.metadata_provider_item_id,
+            mi.metadata_status,
+            mi.metadata_failure_reason,
+            mi.remote_media_type,
             mi.title,
             mi.source_title,
             mi.original_title,
@@ -1198,6 +1216,9 @@ fn map_media_item_row(row: PgRow) -> MediaItem {
         sort_title: row.get("sort_title"),
         metadata_provider: row.get("metadata_provider"),
         metadata_provider_item_id: row.get("metadata_provider_item_id"),
+        metadata_status: row.get("metadata_status"),
+        metadata_failure_reason: row.get("metadata_failure_reason"),
+        remote_media_type: row.get("remote_media_type"),
         year: row.get("year"),
         imdb_rating: row.get("imdb_rating"),
         country: row.get("country"),
@@ -1305,6 +1326,9 @@ fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataS
         media_type: row.get("media_type"),
         metadata_provider: row.get("metadata_provider"),
         metadata_provider_item_id: row.get("metadata_provider_item_id"),
+        metadata_status: row.get("metadata_status"),
+        metadata_failure_reason: row.get("metadata_failure_reason"),
+        remote_media_type: row.get("remote_media_type"),
         title: row.get("title"),
         source_title: row.get("source_title"),
         original_title: row.get("original_title"),

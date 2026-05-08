@@ -430,6 +430,9 @@ async fn insert_media_item(
             sort_title,
             metadata_provider,
             metadata_provider_item_id,
+            metadata_status,
+            metadata_failure_reason,
+            remote_media_type,
             year,
             imdb_rating,
             country,
@@ -439,7 +442,10 @@ async fn insert_media_item(
             poster_path,
             backdrop_path
         )
-        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        values (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+            $15, $16, $17, $18, $19
+        )
         returning id
         "#,
     )
@@ -451,6 +457,9 @@ async fn insert_media_item(
     .bind(&entry.sort_title)
     .bind(&entry.metadata_provider)
     .bind(entry.metadata_provider_item_id)
+    .bind(&entry.metadata_status)
+    .bind(&entry.metadata_failure_reason)
+    .bind(&entry.remote_media_type)
     .bind(entry.year)
     .bind(&entry.imdb_rating)
     .bind(&entry.country)
@@ -484,14 +493,17 @@ async fn update_media_item_from_entry(
             sort_title = $6,
             metadata_provider = $7,
             metadata_provider_item_id = $8,
-            year = $9,
-            imdb_rating = $10,
-            country = $11,
-            genres = $12,
-            studio = $13,
-            overview = $14,
-            poster_path = $15,
-            backdrop_path = $16,
+            metadata_status = $9,
+            metadata_failure_reason = $10,
+            remote_media_type = $11,
+            year = $12,
+            imdb_rating = $13,
+            country = $14,
+            genres = $15,
+            studio = $16,
+            overview = $17,
+            poster_path = $18,
+            backdrop_path = $19,
             updated_at = now()
         where id = $1
         "#,
@@ -504,6 +516,9 @@ async fn update_media_item_from_entry(
     .bind(&entry.sort_title)
     .bind(&entry.metadata_provider)
     .bind(entry.metadata_provider_item_id)
+    .bind(&entry.metadata_status)
+    .bind(&entry.metadata_failure_reason)
+    .bind(&entry.remote_media_type)
     .bind(entry.year)
     .bind(&entry.imdb_rating)
     .bind(&entry.country)
@@ -910,6 +925,7 @@ pub(super) async fn delete_media_item(
 mod tests {
     use super::sync_library_media;
     use crate::{create_library, CreateLibraryParams, CreateMediaEntryParams};
+    use mova_domain::{METADATA_STATUS_MATCHED, REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES};
 
     fn build_movie_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams {
         CreateMediaEntryParams {
@@ -917,6 +933,9 @@ mod tests {
             media_type: "movie".to_string(),
             metadata_provider: Some("tmdb".to_string()),
             metadata_provider_item_id: Some(101),
+            metadata_status: METADATA_STATUS_MATCHED.to_string(),
+            metadata_failure_reason: None,
+            remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE.to_string()),
             title: "A Writer's Odyssey".to_string(),
             source_title: "A Writer's Odyssey".to_string(),
             original_title: Some("刺杀小说家".to_string()),
@@ -972,6 +991,9 @@ mod tests {
             media_type: "episode".to_string(),
             metadata_provider: Some("tmdb".to_string()),
             metadata_provider_item_id: Some(202),
+            metadata_status: METADATA_STATUS_MATCHED.to_string(),
+            metadata_failure_reason: None,
+            remote_media_type: Some(REMOTE_MEDIA_TYPE_SERIES.to_string()),
             title: "Interstellar Classroom".to_string(),
             source_title: "Interstellar Classroom".to_string(),
             original_title: Some("Interstellar Classroom".to_string()),
