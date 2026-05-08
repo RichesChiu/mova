@@ -1992,6 +1992,8 @@ fn build_scan_group_progress_update(
         ScanItemStage::Artwork => (SCAN_ITEM_STAGE_ARTWORK, 76),
         ScanItemStage::Completed => (SCAN_ITEM_STAGE_COMPLETED, 100),
     };
+    let artwork_preview_file = scan_progress_artwork_preview_file(stage, preview_file);
+
     ScanJobItemProgressUpdate {
         scan_job_id,
         library_id,
@@ -2002,8 +2004,14 @@ fn build_scan_group_progress_update(
             .and_then(|file| file.year)
             .or(presentation.year),
         overview: scan_progress_overview(presentation, preview_file),
-        poster_path: scan_progress_poster_path(presentation, preview_file),
-        backdrop_path: scan_progress_backdrop_path(presentation, preview_file),
+        poster_path: browser_visible_scan_artwork_path(scan_progress_poster_path(
+            presentation,
+            artwork_preview_file,
+        )),
+        backdrop_path: browser_visible_scan_artwork_path(scan_progress_backdrop_path(
+            presentation,
+            artwork_preview_file,
+        )),
         metadata_status: preview_file.and_then(|file| file.metadata_status.clone()),
         season_number: None,
         episode_number: None,
@@ -2011,6 +2019,31 @@ fn build_scan_group_progress_update(
         total_items,
         stage: stage_name.to_string(),
         progress_percent,
+    }
+}
+
+fn scan_progress_artwork_preview_file<'a>(
+    stage: ScanItemStage,
+    file: Option<&'a DiscoveredMediaFile>,
+) -> Option<&'a DiscoveredMediaFile> {
+    if matches!(stage, ScanItemStage::Completed) {
+        file
+    } else {
+        None
+    }
+}
+
+fn browser_visible_scan_artwork_path(path: Option<String>) -> Option<String> {
+    let path = path?;
+    let trimmed = path.trim();
+
+    if trimmed.starts_with("http://")
+        || trimmed.starts_with("https://")
+        || trimmed.starts_with("/api/")
+    {
+        Some(trimmed.to_string())
+    } else {
+        None
     }
 }
 
@@ -2509,6 +2542,58 @@ mod tests {
         assert_eq!(progress.item_index, 1);
         assert_eq!(progress.total_items, 3);
         assert_eq!(progress.item_key, "series-title:arcane");
+    }
+
+    #[test]
+    fn build_scan_item_progress_update_holds_artwork_until_completed_and_browser_visible() {
+        let mut file = build_discovered_file();
+        file.series_poster_path =
+            Some("https://image.tmdb.org/t/p/original/poster.jpg".to_string());
+        file.series_backdrop_path =
+            Some("https://image.tmdb.org/t/p/original/backdrop.jpg".to_string());
+        let presentation = super::build_scan_presentation_group(LIBRARY_TYPE_SERIES, &file);
+
+        let artwork_progress = super::build_scan_group_progress_update(
+            41,
+            7,
+            &presentation,
+            Some(&file),
+            1,
+            3,
+            super::ScanItemStage::Artwork,
+        );
+        assert_eq!(artwork_progress.poster_path, None);
+        assert_eq!(artwork_progress.backdrop_path, None);
+
+        let completed_progress = super::build_scan_group_progress_update(
+            41,
+            7,
+            &presentation,
+            Some(&file),
+            1,
+            3,
+            super::ScanItemStage::Completed,
+        );
+        assert_eq!(
+            completed_progress.poster_path.as_deref(),
+            Some("https://image.tmdb.org/t/p/original/poster.jpg")
+        );
+        assert_eq!(
+            completed_progress.backdrop_path.as_deref(),
+            Some("https://image.tmdb.org/t/p/original/backdrop.jpg")
+        );
+
+        file.series_poster_path = Some("/media/series/Arcane/poster.jpg".to_string());
+        let completed_with_local_artwork = super::build_scan_group_progress_update(
+            41,
+            7,
+            &presentation,
+            Some(&file),
+            1,
+            3,
+            super::ScanItemStage::Completed,
+        );
+        assert_eq!(completed_with_local_artwork.poster_path, None);
     }
 
     #[test]

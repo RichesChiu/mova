@@ -300,27 +300,27 @@
     "title": "Arcane",
     "year": 2021,
     "overview": "Two sisters fight from opposite sides of a divided city.",
-    "poster_path": "/artwork/tmdb/poster/abc123.jpg",
-    "backdrop_path": "/artwork/tmdb/backdrop/def456.jpg",
+    "poster_path": null,
+    "backdrop_path": null,
     "metadata_status": "matched",
     "season_number": null,
     "episode_number": null,
     "item_index": 12,
     "total_items": 240,
     "stage": "artwork",
-    "progress_percent": 72
+    "progress_percent": 76
   }
 }
 ```
 
 字段说明：
 - `item_key`：当前扫描条目的稳定键；电影和无法确认剧名的本地文件直接使用文件路径，文件名里能确认剧名的剧集会使用 `series-title:*` 或明确季目录树下的 `series-folder:*` 键，避免前端在扫描中先看到一集一集、或多季年份不同导致被打散
-- `year` / `overview` / `poster_path` / `backdrop_path`：当前条目的临时展示信息；metadata 或 artwork 阶段可能逐步补齐，前端可直接用它把扫描占位卡替换成带海报的临时卡
+- `year` / `overview` / `poster_path` / `backdrop_path`：当前条目的临时展示信息；metadata 或 artwork 阶段会先补齐标题和简介，海报字段只在服务端确认是浏览器可访问 URL 时返回，否则保持 `null`
 - `metadata_status`：当前条目的元数据状态；`unmatched` / `failed` 可提前归到 Other，`matched` 表示已命中远端 metadata
 - `item_index` / `total_items`：当前条目在整批扫描里的位置，用于前端估算总进度
 - `stage`：当前条目处理阶段，当前会使用 `discovered` / `metadata` / `artwork` / `completed`
 - `progress_percent`：当前条目自身的粗粒度进度百分比，便于前端直接驱动占位卡进度条
-- 前端可以把同一个 `item_key` 当成一张临时扫描卡：发现文件或目录组时先渲染出来，后续收到新事件后只更新这张卡；海报和简介拿到后应立即展示，而不是等扫描结束后整块列表一次性刷新
+- 前端可以把同一个 `item_key` 当成一张临时扫描卡：发现文件或目录组时先渲染出来，后续收到新事件后只更新这张卡；图片需要等 `load` 成功后再从占位切换，避免缓存完成前出现 broken image
 - `stage = completed` 表示该条目已经完成 metadata / 海报并写入媒体库；客户端应立即重拉该库的媒体列表、首页 shelf 和库详情计数，让真实媒体卡也按条目逐个出现
 - 当某个远端元数据步骤失败但扫描继续时，当前仍以服务端日志为主；日志会明确标出是 metadata enrichment 阶段失败，并说明会回退到本地数据
 

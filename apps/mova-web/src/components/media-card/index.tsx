@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { MediaItem } from '../../api/types'
 import { useI18n } from '../../i18n'
@@ -67,18 +68,37 @@ export const MediaCardScanPlaceholder = ({
   title,
 }: MediaCardScanPlaceholderProps) => {
   const { l } = useI18n()
+  const [posterState, setPosterState] = useState<'idle' | 'loading' | 'loaded' | 'failed'>(
+    posterPath ? 'loading' : 'idle',
+  )
   const clampedProgress = Math.max(0, Math.min(100, progressPercent))
+  const shouldRenderPoster = Boolean(posterPath) && posterState !== 'failed'
+  const shouldShowPlaceholder = !posterPath || posterState !== 'loaded'
+
+  useEffect(() => {
+    setPosterState(posterPath ? 'loading' : 'idle')
+  }, [posterPath])
 
   return (
     <div aria-live="polite" className="media-card media-card--scanning">
       <div className="media-card__poster">
-        {posterPath ? (
-          <img alt={`${title} poster`} loading="lazy" src={posterPath} />
-        ) : (
+        {shouldShowPlaceholder ? (
           <div className="media-card__placeholder media-card__placeholder--loading media-card__placeholder--scanning">
             <span>{placeholderLabel}</span>
           </div>
-        )}
+        ) : null}
+        {shouldRenderPoster ? (
+          <img
+            alt={`${title} poster`}
+            className={`media-card__poster-image ${
+              posterState === 'loaded' ? 'media-card__poster-image--loaded' : ''
+            }`}
+            loading="lazy"
+            onError={() => setPosterState('failed')}
+            onLoad={() => setPosterState('loaded')}
+            src={posterPath ?? undefined}
+          />
+        ) : null}
       </div>
 
       <div className="media-card__body">

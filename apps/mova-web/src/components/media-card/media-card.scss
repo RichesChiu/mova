@@ -44,7 +44,19 @@
   object-fit: cover;
 }
 
+.media-card__poster-image {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.media-card__poster-image--loaded {
+  opacity: 1;
+}
+
 .media-card__placeholder {
+  position: relative;
   display: grid;
   place-items: center;
   width: 100%;
@@ -60,8 +72,16 @@
 
 .media-card__placeholder--scanning {
   background:
-    radial-gradient(circle at top left, rgba(255, 214, 145, 0.16), transparent 36%),
-    linear-gradient(145deg, rgba(24, 30, 40, 0.94), rgba(12, 15, 22, 0.98));
+    radial-gradient(
+      circle at top left,
+      color-mix(in srgb, var(--button-primary-glow) 28%, transparent),
+      transparent 38%
+    ),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--panel-background-strong) 88%, var(--accent) 12%),
+      var(--panel-background)
+    );
 }
 
 .media-card__body {
