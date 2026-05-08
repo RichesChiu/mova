@@ -253,7 +253,9 @@ Web 端：
 
 ## 7. 测试与验证
 
-Docker 镜像构建时，前端阶段使用 `node:24-bookworm` 和 `pnpm@11.0.8`。pnpm 11 不再读取 `package.json` 里的 `pnpm` 配置字段，所以 `apps/mova-web/pnpm-workspace.yaml` 通过 `allowBuilds` 批准 `@parcel/watcher`，保证 Docker 非交互安装依赖时不会卡在 `ERR_PNPM_IGNORED_BUILDS`。
+Docker 镜像构建时，前端阶段使用 `richeschiu/mova-web-build-base:node24-pnpm11`，runtime 阶段使用 `richeschiu/mova-runtime-base:bookworm-ffmpeg-python3`。这两张基础镜像提前内置 pnpm、ffmpeg、Python 和 runtime 证书依赖，减少每次 `docker compose up -d --build` 时重复访问上游镜像与 apt/npm 源。
+
+pnpm 11 不再读取 `package.json` 里的 `pnpm` 配置字段，所以 `apps/mova-web/pnpm-workspace.yaml` 通过 `allowBuilds` 批准 `@parcel/watcher`，保证 Docker 非交互安装依赖时不会卡在 `ERR_PNPM_IGNORED_BUILDS`。
 
 当前 `mova-server` 里主要有两层测试：
 

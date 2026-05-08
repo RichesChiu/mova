@@ -1,9 +1,8 @@
-FROM node:24-bookworm AS web-builder
+FROM richeschiu/mova-web-build-base:node24-pnpm11 AS web-builder
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
 ARG ALL_PROXY
-ARG PNPM_VERSION=11.0.8
 ENV HTTP_PROXY=$HTTP_PROXY \
     HTTPS_PROXY=$HTTPS_PROXY \
     NO_PROXY=$NO_PROXY \
@@ -18,8 +17,7 @@ COPY apps/mova-web/package.json ./apps/mova-web/package.json
 COPY apps/mova-web/pnpm-lock.yaml ./apps/mova-web/pnpm-lock.yaml
 COPY apps/mova-web/pnpm-workspace.yaml ./apps/mova-web/pnpm-workspace.yaml
 
-RUN npm install --global pnpm@${PNPM_VERSION} \
-    && pnpm --dir apps/mova-web install --frozen-lockfile
+RUN pnpm --dir apps/mova-web install --frozen-lockfile
 
 COPY apps/mova-web ./apps/mova-web
 
@@ -48,7 +46,7 @@ COPY migrations ./migrations
 
 RUN cargo build --locked --release -p mova-server
 
-FROM debian:bookworm-slim AS runtime
+FROM richeschiu/mova-runtime-base:bookworm-ffmpeg-python3 AS runtime
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
@@ -62,10 +60,6 @@ ENV HTTP_PROXY=$HTTP_PROXY \
     no_proxy=$NO_PROXY \
     all_proxy=$ALL_PROXY
 WORKDIR /app
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates ffmpeg python3 \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/mova-server /usr/local/bin/mova-server
 COPY --from=web-builder /app/apps/mova-web/dist /app/web
