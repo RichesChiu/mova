@@ -53,8 +53,8 @@
 | `src/watch_history.rs` | 观看历史表读写。 |
 | `src/media_cast.rs` | 演员成员表与演员同步记录表读写；详情页按需补全后会直接持久化到这里。 |
 | `src/media_items.rs` | 媒体条目相关父模块。 |
-| `src/media_items/query.rs` | 媒体列表、详情、文件、音轨、季集、outline cache 等读侧查询，也负责按 `file_path` 读取既有 metadata 摘要和 `metadata_status` 复核状态，供重扫时复用。 |
-| `src/media_items/sync.rs` | 按路径 upsert / delete 媒体项、媒体文件、音轨和字幕轨道，并在文件删除或重归属时清理孤立条目；同一部电影的多个本地版本也会在这里复用同一个 `movie media_item`。当整库事务同步被单条脏数据卡住时，也会从这里回退到逐条 best-effort 写入，同时写入 metadata 复核状态。 |
+| `src/media_items/query.rs` | 媒体列表、详情、文件、音轨、季集、outline cache 等读侧查询，也负责按 `file_path` 读取既有 metadata 摘要、`metadata_status` 复核状态和 `scan_hash`，供重扫时判断是否需要重探测。 |
+| `src/media_items/sync.rs` | 按路径 upsert / delete 媒体项、媒体文件、音轨和字幕轨道，并在文件删除或重归属时清理孤立条目；同一部电影的多个本地版本也会在这里复用同一个 `movie media_item`。扫描主链路使用变化集同步：缺失路径逐条删除，新增或变更路径逐条 upsert，同时写入 metadata 复核状态和新的 `scan_hash`。 |
 | `src/media_items/series.rs` | 剧集聚合写入与 `series / seasons / episodes` 相关持久化；同一季同一集的多个文件版本会复用同一个 episode 记录，并把剧集级 metadata 复核状态写在 series media item 上。 |
 
 ## 5. 主要导出能力
@@ -144,7 +144,7 @@
 ## 7. 当前值得注意的点
 
 - 仓库仍处于 pre-1.0 阶段，用户确认正式 MVP 前 migration 保持在根目录 [`../../migrations/0001_init.sql`](../../migrations/0001_init.sql)。
-- 这个阶段 schema 变更默认要求重建数据库 / 重置数据目录，不新增后续 migration 兼容旧库；本版新增 `media_items.metadata_status`、`metadata_failure_reason`、`remote_media_type`，旧开发库需要重建后重扫。
+- 这个阶段 schema 变更默认要求重建数据库 / 重置数据目录，不新增后续 migration 兼容旧库；本次增量扫描继续使用 `migrations/0001_init.sql` 里已有的 `media_files.scan_hash`，没有新增 schema。旧数据如果 `scan_hash` 为空，下一次扫描会把这些路径当作变化项处理并写入指纹，之后才会进入真正的跳过路径。
 - `mova-server` 启动时会直接调用这里的 `connect / migrate / ping / fail_incomplete_scan_jobs`。
 - `mova-application` 的大部分业务用例都会在这里落到最终 SQL。
 

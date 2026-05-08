@@ -14,7 +14,10 @@ use mova_domain::{
     METADATA_STATUS_MATCHED, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
     REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
 };
-use mova_scan::{infer_series_file_metadata, DiscoveredMediaFile};
+use mova_scan::{
+    discovered_media_file_inventory_scan_hash, discovered_media_file_scan_hash,
+    infer_series_file_metadata, DiscoveredMediaFile, DiscoveredMediaFileInventory,
+};
 use sqlx::postgres::PgPool;
 use std::{
     collections::{HashMap, HashSet},
@@ -61,6 +64,11 @@ pub struct ScanJobItemProgressUpdate {
     pub item_key: String,
     pub media_type: String,
     pub title: String,
+    pub year: Option<i32>,
+    pub overview: Option<String>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+    pub metadata_status: Option<String>,
     pub season_number: Option<i32>,
     pub episode_number: Option<i32>,
     pub item_index: i32,
@@ -79,7 +87,7 @@ enum ScanItemStage {
 
 #[derive(Debug)]
 enum DiscoverMediaFilesOutcome {
-    Completed(Vec<DiscoveredMediaFile>),
+    Completed(Vec<DiscoveredMediaFileInventory>),
     Cancelled(i32),
 }
 
@@ -105,6 +113,18 @@ struct ScanPresentationGroup {
 struct ScanDiscoveredGroup {
     presentation: ScanPresentationGroup,
     files: Vec<DiscoveredMediaFile>,
+}
+
+#[derive(Debug)]
+struct IncrementalScanPlan {
+    discovered_paths: Vec<String>,
+    changed_files: Vec<IncrementalScanFile>,
+}
+
+#[derive(Debug)]
+struct IncrementalScanFile {
+    inventory: DiscoveredMediaFileInventory,
+    existing_metadata: Option<mova_db::ExistingMediaMetadataSummary>,
 }
 
 #[derive(Debug, Clone)]
@@ -442,22 +462,20 @@ pub async fn execute_scan_job_with_cancellation(
     )
     .await;
 
-    let discovered_files =
-        reuse_existing_metadata_for_discovered_files(pool, library.id, discovered_files).await;
-
-    let discovered_files = enrich_discovered_files(
-        &library,
-        scan_job_id,
+    let IncrementalScanPlan {
+        discovered_paths,
+        changed_files,
+    } = build_incremental_scan_plan(
+        pool,
+        library.id,
         discovered_files,
-        cancellation_flag.clone(),
-        artwork_cache_dir,
-        metadata_provider.clone(),
-        event_listener.clone(),
+        metadata_provider.is_enabled(),
+        &library.metadata_language,
     )
     .await;
 
-    let media_entries = match build_media_entries(&library, discovered_files) {
-        Ok(entries) => entries,
+    let changed_files = match inspect_incremental_scan_files(changed_files).await {
+        Ok(files) => files,
         Err(error) => {
             if let Some(scan_job) = finalize_failed_scan(
                 pool,
@@ -466,7 +484,43 @@ pub async fn execute_scan_job_with_cancellation(
                 0,
                 &format_scan_phase_error(
                     SCAN_PHASE_ENRICHING,
-                    format!("Failed to build media entries: {}", error),
+                    format!("Failed to inspect changed media files: {}", error),
+                ),
+            )
+            .await
+            {
+                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                    scan_job,
+                    SCAN_PHASE_FINISHED,
+                )));
+            }
+
+            return Err(error);
+        }
+    };
+
+    let mut sync_outcome = match enrich_discovered_files(
+        pool,
+        &library,
+        scan_job_id,
+        changed_files,
+        cancellation_flag.clone(),
+        artwork_cache_dir,
+        metadata_provider.clone(),
+        event_listener.clone(),
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            if let Some(scan_job) = finalize_failed_scan(
+                pool,
+                scan_job_id,
+                total_files,
+                0,
+                &format_scan_phase_error(
+                    SCAN_PHASE_ENRICHING,
+                    format!("Failed to save enriched media: {}", error),
                 ),
             )
             .await
@@ -500,50 +554,40 @@ pub async fn execute_scan_job_with_cancellation(
     )
     .await;
 
-    if let Err(error) = mova_db::sync_library_media(pool, library.id, &media_entries).await {
+    let removal_outcome =
+        mova_db::sync_library_media_changes(pool, library.id, &discovered_paths, &[])
+            .await
+            .map_err(ApplicationError::Unexpected)?;
+    merge_sync_outcome(&mut sync_outcome, removal_outcome);
+
+    if sync_outcome.failed_count > 0 {
         tracing::warn!(
             library_id = library.id,
             scan_job_id,
-            error = ?error,
-            "full library sync failed, retrying in best-effort mode"
+            removed_count = sync_outcome.removed_count,
+            upserted_count = sync_outcome.upserted_count,
+            failed_count = sync_outcome.failed_count,
+            "incremental library sync skipped one or more problematic media changes"
         );
+    }
 
-        let fallback_outcome =
-            mova_db::sync_library_media_best_effort(pool, library.id, &media_entries)
-                .await
-                .map_err(ApplicationError::Unexpected)?;
+    if sync_outcome.removed_count == 0
+        && sync_outcome.upserted_count == 0
+        && sync_outcome.failed_count > 0
+    {
+        let message =
+            format_scan_phase_error(SCAN_PHASE_SYNCING, "Failed to save changed library data");
 
-        if fallback_outcome.failed_count > 0 {
-            tracing::warn!(
-                library_id = library.id,
-                scan_job_id,
-                removed_count = fallback_outcome.removed_count,
-                upserted_count = fallback_outcome.upserted_count,
-                failed_count = fallback_outcome.failed_count,
-                "best-effort library sync skipped one or more problematic media entries"
-            );
-        }
-
-        if fallback_outcome.removed_count == 0
-            && fallback_outcome.upserted_count == 0
-            && fallback_outcome.failed_count > 0
+        if let Some(scan_job) =
+            finalize_failed_scan(pool, scan_job_id, total_files, 0, &message).await
         {
-            let message = format_scan_phase_error(
-                SCAN_PHASE_SYNCING,
-                format!("Failed to save library data: {}", error),
-            );
-
-            if let Some(scan_job) =
-                finalize_failed_scan(pool, scan_job_id, total_files, 0, &message).await
-            {
-                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
-                    scan_job,
-                    SCAN_PHASE_FINISHED,
-                )));
-            }
-
-            return Err(ApplicationError::Unexpected(error));
+            event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                scan_job,
+                SCAN_PHASE_FINISHED,
+            )));
         }
+
+        return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
     }
 
     match mova_db::finalize_scan_job(pool, scan_job_id, "success", total_files, total_files, None)
@@ -562,6 +606,7 @@ pub async fn execute_scan_job_with_cancellation(
 }
 
 async fn enrich_discovered_files(
+    pool: &PgPool,
     library: &Library,
     scan_job_id: i64,
     discovered_files: Vec<DiscoveredMediaFile>,
@@ -569,7 +614,7 @@ async fn enrich_discovered_files(
     artwork_cache_dir: PathBuf,
     metadata_provider: Arc<dyn MetadataProvider>,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
-) -> Vec<DiscoveredMediaFile> {
+) -> ApplicationResult<mova_db::SyncLibraryMediaBestEffortOutcome> {
     let mut enrichment = MetadataEnrichmentContext::new(
         artwork_cache_dir,
         metadata_provider.clone(),
@@ -577,6 +622,7 @@ async fn enrich_discovered_files(
     );
     let mut groups = group_discovered_files_for_scan(library, discovered_files);
     let total_items = i32::try_from(groups.len()).unwrap_or(i32::MAX);
+    let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
 
     for (index, group) in groups.iter_mut().enumerate() {
         if is_cancelled(&cancellation_flag) {
@@ -606,6 +652,16 @@ async fn enrich_discovered_files(
         let progress_listener = event_listener.clone();
         let mut presentation = group.presentation.clone();
 
+        progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
+            scan_job_id,
+            library.id,
+            &presentation,
+            None,
+            item_index,
+            total_items,
+            ScanItemStage::Discovered,
+        )));
+
         let Some(lookup_type) = metadata_decision.lookup_type else {
             clear_remote_metadata_for_review(
                 primary_file,
@@ -613,14 +669,6 @@ async fn enrich_discovered_files(
                 metadata_decision.metadata_failure_reason,
                 metadata_decision.remote_media_type,
             );
-            progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
-                scan_job_id,
-                library.id,
-                &presentation,
-                item_index,
-                total_items,
-                ScanItemStage::Completed,
-            )));
             for file in remaining_files.iter_mut() {
                 clear_remote_metadata_for_review(
                     file,
@@ -629,9 +677,21 @@ async fn enrich_discovered_files(
                     metadata_decision.remote_media_type,
                 );
             }
+            let group_outcome = sync_scan_group_media_entries(pool, library, group).await?;
+            merge_sync_outcome(&mut sync_outcome, group_outcome);
+            progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
+                scan_job_id,
+                library.id,
+                &group.presentation,
+                group.files.first(),
+                item_index,
+                total_items,
+                ScanItemStage::Completed,
+            )));
             continue;
         };
 
+        let enrichment_progress_listener = progress_listener.clone();
         enrichment
             .enrich_file_with_progress(lookup_type, primary_file, move |stage, file| {
                 if stage != MetadataEnrichmentStage::Metadata {
@@ -640,14 +700,21 @@ async fn enrich_discovered_files(
                     }
                 }
 
-                progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
-                    scan_job_id,
-                    library.id,
-                    &presentation,
-                    item_index,
-                    total_items,
-                    stage.into(),
-                )));
+                if stage == MetadataEnrichmentStage::Completed {
+                    return;
+                }
+
+                enrichment_progress_listener(ScanJobEvent::ItemUpdated(
+                    build_scan_group_progress_update(
+                        scan_job_id,
+                        library.id,
+                        &presentation,
+                        Some(file),
+                        item_index,
+                        total_items,
+                        stage.into(),
+                    ),
+                ));
             })
             .await;
 
@@ -673,9 +740,60 @@ async fn enrich_discovered_files(
                     .or_else(|| remote_media_type_for_lookup_type(lookup_type)),
             );
         }
+
+        let group_outcome = sync_scan_group_media_entries(pool, library, group).await?;
+        merge_sync_outcome(&mut sync_outcome, group_outcome);
+        progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
+            scan_job_id,
+            library.id,
+            &group.presentation,
+            group.files.first(),
+            item_index,
+            total_items,
+            ScanItemStage::Completed,
+        )));
     }
 
-    groups.into_iter().flat_map(|group| group.files).collect()
+    Ok(sync_outcome)
+}
+
+async fn sync_scan_group_media_entries(
+    pool: &PgPool,
+    library: &Library,
+    group: &ScanDiscoveredGroup,
+) -> ApplicationResult<mova_db::SyncLibraryMediaBestEffortOutcome> {
+    let entries = build_media_entries(library, group.files.clone())?;
+    let mut outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
+
+    for entry in entries {
+        match mova_db::upsert_library_media_entry_by_file_path(pool, library.id, &entry).await {
+            Ok(_) => {
+                outcome.upserted_count += 1;
+            }
+            Err(error) => {
+                outcome.failed_count += 1;
+                tracing::warn!(
+                    library_id = library.id,
+                    file_path = %entry.file_path,
+                    media_type = %entry.media_type,
+                    title = %entry.title,
+                    error = ?error,
+                    "scan group sync failed to upsert enriched media entry"
+                );
+            }
+        }
+    }
+
+    Ok(outcome)
+}
+
+fn merge_sync_outcome(
+    target: &mut mova_db::SyncLibraryMediaBestEffortOutcome,
+    source: mova_db::SyncLibraryMediaBestEffortOutcome,
+) {
+    target.removed_count += source.removed_count;
+    target.upserted_count += source.upserted_count;
+    target.failed_count += source.failed_count;
 }
 
 async fn resolve_group_metadata_lookup_type(
@@ -825,11 +943,13 @@ fn clear_remote_metadata_for_review(
     file.backdrop_path = None;
 }
 
-async fn reuse_existing_metadata_for_discovered_files(
+async fn build_incremental_scan_plan(
     pool: &PgPool,
     library_id: i64,
-    mut discovered_files: Vec<DiscoveredMediaFile>,
-) -> Vec<DiscoveredMediaFile> {
+    discovered_files: Vec<DiscoveredMediaFileInventory>,
+    metadata_provider_enabled: bool,
+    metadata_language: &str,
+) -> IncrementalScanPlan {
     let file_paths = discovered_files
         .iter()
         .map(|file| file.file_path.to_string_lossy().to_string())
@@ -849,7 +969,16 @@ async fn reuse_existing_metadata_for_discovered_files(
                 error = ?error,
                 "failed to load existing media metadata before enrichment; continuing with full enrichment"
             );
-            return discovered_files;
+            return IncrementalScanPlan {
+                discovered_paths: file_paths,
+                changed_files: discovered_files
+                    .into_iter()
+                    .map(|inventory| IncrementalScanFile {
+                        inventory,
+                        existing_metadata: None,
+                    })
+                    .collect(),
+            };
         }
     };
 
@@ -858,16 +987,124 @@ async fn reuse_existing_metadata_for_discovered_files(
         .map(|summary| (summary.file_path.clone(), summary))
         .collect::<HashMap<_, _>>();
 
-    for file in &mut discovered_files {
-        let file_path = file.file_path.to_string_lossy().to_string();
-        let Some(summary) = existing_by_path.get(file_path.as_str()) else {
-            continue;
-        };
+    let mut changed_files = Vec::new();
 
-        apply_existing_media_metadata(file, summary);
+    for inventory in discovered_files {
+        let file_path = inventory.file_path.to_string_lossy().to_string();
+        let scan_hash = discovered_media_file_inventory_scan_hash(&inventory);
+
+        match existing_by_path.get(file_path.as_str()) {
+            Some(summary)
+                if can_skip_existing_media_summary(
+                    summary,
+                    scan_hash.as_str(),
+                    metadata_provider_enabled,
+                    metadata_language,
+                    &inventory.file_path,
+                ) =>
+            {
+                continue;
+            }
+            existing_metadata => changed_files.push(IncrementalScanFile {
+                inventory,
+                existing_metadata: existing_metadata.cloned(),
+            }),
+        }
     }
 
-    discovered_files
+    IncrementalScanPlan {
+        discovered_paths: file_paths,
+        changed_files,
+    }
+}
+
+fn can_skip_existing_media_summary(
+    summary: &mova_db::ExistingMediaMetadataSummary,
+    scan_hash: &str,
+    metadata_provider_enabled: bool,
+    metadata_language: &str,
+    file_path: &std::path::Path,
+) -> bool {
+    if summary.scan_hash.as_deref() != Some(scan_hash) {
+        return false;
+    }
+
+    if metadata_provider_enabled
+        && should_retry_localized_series_metadata(summary, metadata_language, file_path)
+    {
+        return false;
+    }
+
+    summary.metadata_status == METADATA_STATUS_MATCHED
+        || (!metadata_provider_enabled && summary.metadata_status == METADATA_STATUS_SKIPPED)
+}
+
+fn should_retry_localized_series_metadata(
+    summary: &mova_db::ExistingMediaMetadataSummary,
+    metadata_language: &str,
+    file_path: &std::path::Path,
+) -> bool {
+    if !is_chinese_metadata_language(metadata_language) {
+        return false;
+    }
+
+    if !summary.media_type.eq_ignore_ascii_case("episode")
+        && !summary
+            .remote_media_type
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case(REMOTE_MEDIA_TYPE_SERIES))
+    {
+        return false;
+    }
+
+    let current_title = summary
+        .series_title
+        .as_deref()
+        .unwrap_or(summary.title.as_str());
+    if contains_cjk_character(current_title) {
+        return false;
+    }
+
+    localized_series_container_title_for_path(file_path)
+        .as_deref()
+        .is_some_and(contains_cjk_character)
+}
+
+async fn inspect_incremental_scan_files(
+    changed_files: Vec<IncrementalScanFile>,
+) -> ApplicationResult<Vec<DiscoveredMediaFile>> {
+    tokio::task::spawn_blocking(move || {
+        let mut discovered_files = Vec::with_capacity(changed_files.len());
+
+        for changed_file in changed_files {
+            let file_path = changed_file.inventory.file_path.display().to_string();
+            let mut discovered_file = mova_scan::inspect_media_file_inventory(
+                changed_file.inventory,
+            )
+            .map_err(|error| {
+                ApplicationError::Unexpected(anyhow::anyhow!(
+                    "Unable to inspect changed media file {}: {}",
+                    file_path,
+                    error
+                ))
+            })?;
+
+            if let Some(existing_metadata) = changed_file.existing_metadata.as_ref() {
+                apply_existing_media_metadata(&mut discovered_file, existing_metadata);
+            }
+
+            discovered_files.push(discovered_file);
+        }
+
+        Ok(discovered_files)
+    })
+    .await
+    .map_err(|error| {
+        ApplicationError::Unexpected(anyhow::anyhow!(
+            "The changed media inspection worker exited unexpectedly: {}",
+            error
+        ))
+    })?
 }
 
 async fn discover_media_files(
@@ -877,17 +1114,14 @@ async fn discover_media_files(
     cancellation_flag: Arc<AtomicBool>,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> ApplicationResult<DiscoverMediaFilesOutcome> {
-    let library_id = library.id;
     let root_path = library.root_path.as_str();
     let root_path_string = root_path.to_string();
     let root_path_for_task = root_path_string.clone();
-    let library_type_for_task = library.library_type.clone();
     let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel::<i32>();
     let progress_pool = pool.clone();
     let last_progress = Arc::new(AtomicI32::new(0));
     let last_progress_for_task = last_progress.clone();
     let progress_event_listener = event_listener.clone();
-    let item_event_listener = event_listener.clone();
 
     let progress_task = tokio::spawn(async move {
         let mut persisted_progress = 0;
@@ -941,32 +1175,10 @@ async fn discover_media_files(
 
     let cancellation_for_task = cancellation_flag.clone();
     let result = tokio::task::spawn_blocking(move || {
-        let mut discovered_group_count = 0_i32;
-        let mut discovered_groups = HashMap::<String, i32>::new();
-
-        mova_scan::discover_media_files_with_progress_item_and_cancel(
+        mova_scan::discover_media_file_inventory_with_progress_and_cancel(
             std::path::Path::new(&root_path_for_task),
             |count| {
                 let _ = progress_tx.send(count as i32);
-            },
-            |file| {
-                let presentation = build_scan_presentation_group(&library_type_for_task, file);
-
-                if discovered_groups.contains_key(&presentation.item_key) {
-                    return;
-                }
-
-                discovered_group_count = discovered_group_count.saturating_add(1);
-                discovered_groups.insert(presentation.item_key.clone(), discovered_group_count);
-
-                item_event_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
-                    scan_job_id,
-                    library_id,
-                    &presentation,
-                    discovered_group_count,
-                    discovered_group_count,
-                    ScanItemStage::Discovered,
-                )));
             },
             || cancellation_for_task.load(Ordering::SeqCst),
         )
@@ -1023,6 +1235,7 @@ fn build_media_entries(
                 file_path
             ))
         })?;
+        let scan_hash = discovered_media_file_scan_hash(&file);
 
         entries.push(mova_db::CreateMediaEntryParams {
             library_id: library.id,
@@ -1111,6 +1324,7 @@ fn build_media_entries(
                     is_hearing_impaired: subtitle.is_hearing_impaired,
                 })
                 .collect(),
+            scan_hash: Some(scan_hash),
         });
     }
 
@@ -1253,6 +1467,143 @@ fn normalize_series_key_component(value: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_ascii_lowercase()
+}
+
+fn localized_series_container_title_for_path(file_path: &std::path::Path) -> Option<String> {
+    let parent = file_path.parent()?;
+    let mut directories = parent
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .filter(|component| !component.trim().is_empty())
+        .collect::<Vec<_>>();
+
+    while directories
+        .last()
+        .is_some_and(|directory| is_series_variant_directory_name(directory))
+    {
+        directories.pop();
+    }
+
+    let season_directory_index = directories
+        .iter()
+        .rposition(|directory| is_season_directory_name(directory))?;
+    if season_directory_index == 0 {
+        return None;
+    }
+
+    let title = directories[season_directory_index - 1]
+        .replace(['.', '_', '-', '—', '–'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let parsed_title = strip_year_from_localized_container_title(&title);
+
+    (!parsed_title.trim().is_empty()).then_some(parsed_title)
+}
+
+fn strip_year_from_localized_container_title(value: &str) -> String {
+    let mut tokens = value
+        .split_whitespace()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let mut title_end = tokens.len();
+
+    for index in 0..tokens.len() {
+        if parse_localized_container_year_token(tokens[index].as_str()).is_some() {
+            title_end = index;
+            break;
+        }
+
+        if let Some(prefix) = split_localized_container_trailing_year(tokens[index].as_str()) {
+            tokens[index] = prefix;
+            title_end = index + 1;
+            break;
+        }
+    }
+
+    while title_end > 0
+        && tokens[title_end - 1]
+            .chars()
+            .all(is_container_separator_char)
+    {
+        title_end -= 1;
+    }
+
+    let title = tokens[..title_end].join(" ");
+    if title.trim().is_empty() {
+        value.to_string()
+    } else {
+        title
+    }
+}
+
+fn split_localized_container_trailing_year(token: &str) -> Option<String> {
+    let trimmed = token.trim_matches(|ch| {
+        matches!(
+            ch,
+            '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '（' | '）' | '【' | '】' | '《' | '》'
+        )
+    });
+    let characters = trimmed.chars().collect::<Vec<_>>();
+
+    if characters.len() <= 4 {
+        return None;
+    }
+
+    let suffix = characters[characters.len() - 4..]
+        .iter()
+        .collect::<String>();
+    parse_localized_container_year_token(&suffix)?;
+
+    let prefix = characters[..characters.len() - 4]
+        .iter()
+        .collect::<String>();
+    (!prefix.is_empty() && !prefix.chars().all(|ch| ch.is_ascii_digit())).then_some(prefix)
+}
+
+fn parse_localized_container_year_token(token: &str) -> Option<i32> {
+    let token = token.trim_matches(|ch| {
+        matches!(
+            ch,
+            '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '（' | '）' | '【' | '】' | '《' | '》'
+        )
+    });
+
+    if token.len() != 4 || !token.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+
+    let year = token.parse::<i32>().ok()?;
+    (1900..=2100).contains(&year).then_some(year)
+}
+
+fn is_container_separator_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '-' | '|' | ':' | '：' | '·' | '•' | '~' | '–' | '—' | '/' | '\\'
+    )
+}
+
+fn is_chinese_metadata_language(metadata_language: &str) -> bool {
+    metadata_language
+        .trim()
+        .to_ascii_lowercase()
+        .starts_with("zh")
+}
+
+fn contains_cjk_character(value: &str) -> bool {
+    value.chars().any(|ch| {
+        matches!(
+            ch,
+            '\u{3400}'..='\u{4dbf}'
+                | '\u{4e00}'..='\u{9fff}'
+                | '\u{f900}'..='\u{faff}'
+                | '\u{20000}'..='\u{2a6df}'
+                | '\u{2a700}'..='\u{2b73f}'
+                | '\u{2b740}'..='\u{2b81f}'
+                | '\u{2b820}'..='\u{2ceaf}'
+        )
+    })
 }
 
 fn is_series_variant_directory_name(name: &str) -> bool {
@@ -1630,6 +1981,7 @@ fn build_scan_group_progress_update(
     scan_job_id: i64,
     library_id: i64,
     presentation: &ScanPresentationGroup,
+    preview_file: Option<&DiscoveredMediaFile>,
     item_index: i32,
     total_items: i32,
     stage: ScanItemStage,
@@ -1646,6 +1998,13 @@ fn build_scan_group_progress_update(
         item_key: presentation.item_key.clone(),
         media_type: presentation.media_type.clone(),
         title: presentation.title.clone(),
+        year: preview_file
+            .and_then(|file| file.year)
+            .or(presentation.year),
+        overview: scan_progress_overview(presentation, preview_file),
+        poster_path: scan_progress_poster_path(presentation, preview_file),
+        backdrop_path: scan_progress_backdrop_path(presentation, preview_file),
+        metadata_status: preview_file.and_then(|file| file.metadata_status.clone()),
         season_number: None,
         episode_number: None,
         item_index,
@@ -1653,6 +2012,56 @@ fn build_scan_group_progress_update(
         stage: stage_name.to_string(),
         progress_percent,
     }
+}
+
+fn scan_progress_poster_path(
+    presentation: &ScanPresentationGroup,
+    file: Option<&DiscoveredMediaFile>,
+) -> Option<String> {
+    let file = file?;
+
+    if presentation.media_type.eq_ignore_ascii_case("series") {
+        return file
+            .series_poster_path
+            .clone()
+            .or_else(|| file.season_poster_path.clone())
+            .or_else(|| file.poster_path.clone());
+    }
+
+    file.poster_path.clone()
+}
+
+fn scan_progress_backdrop_path(
+    presentation: &ScanPresentationGroup,
+    file: Option<&DiscoveredMediaFile>,
+) -> Option<String> {
+    let file = file?;
+
+    if presentation.media_type.eq_ignore_ascii_case("series") {
+        return file
+            .series_backdrop_path
+            .clone()
+            .or_else(|| file.season_backdrop_path.clone())
+            .or_else(|| file.backdrop_path.clone());
+    }
+
+    file.backdrop_path.clone()
+}
+
+fn scan_progress_overview(
+    presentation: &ScanPresentationGroup,
+    file: Option<&DiscoveredMediaFile>,
+) -> Option<String> {
+    let file = file?;
+
+    if presentation.media_type.eq_ignore_ascii_case("series") {
+        return file
+            .season_overview
+            .clone()
+            .or_else(|| file.overview.clone());
+    }
+
+    file.overview.clone()
 }
 
 impl From<MetadataEnrichmentStage> for ScanItemStage {
@@ -1701,8 +2110,9 @@ mod tests {
     use mova_db::ExistingMediaMetadataSummary;
     use mova_domain::{
         Library, METADATA_FAILURE_NO_REMOTE_MATCH,
-        METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY, METADATA_STATUS_MATCHED,
-        METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
+        METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY, METADATA_STATUS_FAILED,
+        METADATA_STATUS_MATCHED, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
+        REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
     };
     use mova_scan::DiscoveredMediaFile;
     use std::{
@@ -1714,6 +2124,7 @@ mod tests {
     fn build_discovered_file() -> DiscoveredMediaFile {
         DiscoveredMediaFile {
             file_path: PathBuf::from("/media/series/Arcane/Arcane.S01E01.mkv"),
+            file_modified_at_ms: Some(1_700_000_000_000),
             metadata_provider: None,
             metadata_provider_item_id: None,
             title: "Arcane".to_string(),
@@ -1826,6 +2237,7 @@ mod tests {
             overview: Some("Stored overview".to_string()),
             poster_path: Some("/cache/poster.jpg".to_string()),
             backdrop_path: Some("/cache/backdrop.jpg".to_string()),
+            scan_hash: Some("movie-hash".to_string()),
             series_title: None,
             series_source_title: None,
             series_original_title: None,
@@ -1867,6 +2279,7 @@ mod tests {
             overview: Some("Episode overview".to_string()),
             poster_path: Some("/cache/episode-poster.jpg".to_string()),
             backdrop_path: Some("/cache/episode-backdrop.jpg".to_string()),
+            scan_hash: Some("episode-hash".to_string()),
             series_title: Some("Arcane".to_string()),
             series_source_title: Some("Arcane".to_string()),
             series_original_title: Some("Arcane Original".to_string()),
@@ -1885,6 +2298,102 @@ mod tests {
             season_backdrop_path: Some("/cache/season-backdrop.jpg".to_string()),
             episode_title: Some("Welcome to the Playground".to_string()),
         }
+    }
+
+    #[test]
+    fn can_skip_existing_media_summary_only_skips_successful_rows() {
+        let mut summary = build_existing_movie_metadata();
+        summary.scan_hash = Some("same-hash".to_string());
+
+        assert!(super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+
+        summary.metadata_status = METADATA_STATUS_UNMATCHED.to_string();
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+
+        summary.metadata_status = METADATA_STATUS_FAILED.to_string();
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+
+        summary.metadata_status = METADATA_STATUS_SKIPPED.to_string();
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+        assert!(super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            false,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "changed-hash",
+            false,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+    }
+
+    #[test]
+    fn can_skip_existing_media_summary_retries_english_series_title_with_chinese_container() {
+        let mut summary = build_existing_episode_metadata();
+        summary.scan_hash = Some("same-hash".to_string());
+        summary.series_title = Some("All Her Fault 2025".to_string());
+        summary.series_source_title = Some("All Her Fault".to_string());
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new(
+                "/media/overseas_tv/都是她的错.2025/Season 01/All.Her.Fault.2025.S01E01.2160p.PCOK.WEB-DL.DDP5.1.H.265-KRATOS.mkv",
+            ),
+        ));
+
+        summary.series_title = Some("都是她的错".to_string());
+        assert!(super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new(
+                "/media/overseas_tv/都是她的错.2025/Season 01/All.Her.Fault.2025.S01E01.2160p.PCOK.WEB-DL.DDP5.1.H.265-KRATOS.mkv",
+            ),
+        ));
+
+        summary.series_title = Some("All Her Fault 2025".to_string());
+        assert!(super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "en-US",
+            Path::new(
+                "/media/overseas_tv/都是她的错.2025/Season 01/All.Her.Fault.2025.S01E01.2160p.PCOK.WEB-DL.DDP5.1.H.265-KRATOS.mkv",
+            ),
+        ));
     }
 
     #[test]
@@ -1983,6 +2492,7 @@ mod tests {
             41,
             7,
             &presentation,
+            None,
             1,
             3,
             super::ScanItemStage::Discovered,

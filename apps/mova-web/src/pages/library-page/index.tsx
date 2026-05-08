@@ -7,8 +7,8 @@ import type { ScanRuntimeItem } from '../../components/app-shell/scan-runtime'
 import {
   formatFailedScanCopy,
   formatPendingScanPlaceholderCopy,
+  formatScanItemCardSummary,
   formatScanItemMeta,
-  formatScanItemProgressCopy,
   getEffectiveScanJob,
   getLibraryScanRuntime,
   getScanJobProgressPercent,
@@ -84,8 +84,9 @@ const MediaSection = ({
           <MediaCardScanPlaceholder
             key={`scan-${item.item_key}`}
             placeholderLabel={item.media_type.toUpperCase()}
+            posterPath={item.poster_path ?? item.backdrop_path}
             progressPercent={item.progress_percent}
-            progressText={formatScanItemProgressCopy(item)}
+            progressText={formatScanItemCardSummary(item)}
             subtitle={formatLibraryScanItemSubtitle(item)}
             title={item.title}
           />

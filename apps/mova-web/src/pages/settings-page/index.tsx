@@ -43,9 +43,9 @@ import {
 } from '../../lib/settings-admin'
 import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
 
-const USER_SKELETON_COUNT = 4
+const USER_SKELETON_COUNT = 1
 const LIBRARY_SKELETON_COUNT = 3
-const USER_SKELETON_KEYS = ['user-a', 'user-b', 'user-c', 'user-d'] as const
+const USER_SKELETON_KEYS = ['current-user'] as const
 const LIBRARY_SKELETON_KEYS = ['library-a', 'library-b', 'library-c'] as const
 
 type PendingSettingsConfirmation =

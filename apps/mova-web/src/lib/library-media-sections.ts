@@ -6,6 +6,7 @@ type MediaSectionInput = Pick<MediaItem, 'media_type' | 'metadata_status'>
 
 type ScanSectionInput = {
   media_type: string
+  metadata_status?: string | null
 }
 
 const needsReview = (item: MediaSectionInput) =>
@@ -28,6 +29,10 @@ export const getLibraryMediaSection = (item: MediaSectionInput): LibraryMediaSec
 }
 
 export const getLibraryScanSection = (item: ScanSectionInput): LibraryMediaSection => {
+  if (item.metadata_status === 'unmatched' || item.metadata_status === 'failed') {
+    return 'other'
+  }
+
   if (item.media_type === 'movie') {
     return 'movies'
   }

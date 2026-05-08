@@ -2,12 +2,13 @@ use crate::{
     parse::{extension_lowercase, parse_media_metadata},
     probe::{probe_media_file, ProbeAvailability},
     subtitle::discover_subtitle_tracks,
-    DiscoveredAudioTrack, DiscoveredMediaFile,
+    DiscoveredAudioTrack, DiscoveredMediaFile, DiscoveredMediaFileInventory,
 };
 use std::{
     fs,
     io::{self, ErrorKind},
     path::{Path, PathBuf},
+    time::UNIX_EPOCH,
 };
 
 /// 递归扫描目录，找出当前支持的视频文件。
@@ -50,6 +51,23 @@ where
         |_| {},
         &mut should_cancel,
     )
+}
+
+/// 递归扫描目录，只返回支持的视频文件清单，不做 ffprobe 探测。
+pub fn discover_media_file_inventory_with_progress_and_cancel<F, C>(
+    root_path: &Path,
+    mut on_progress: F,
+    mut should_cancel: C,
+) -> io::Result<Vec<DiscoveredMediaFileInventory>>
+where
+    F: FnMut(usize),
+    C: FnMut() -> bool,
+{
+    let mut files = Vec::new();
+    visit_dir_inventory(root_path, &mut files, &mut on_progress, &mut should_cancel)?;
+    files.sort_by(|left, right| left.file_path.cmp(&right.file_path));
+
+    Ok(files)
 }
 
 /// 递归扫描目录，支持在发现单个媒体文件时立即回调，便于上层做增量 UI。
@@ -97,10 +115,20 @@ pub fn inspect_media_file(path: &Path) -> io::Result<DiscoveredMediaFile> {
         ));
     }
 
-    let mut probe_availability = ProbeAvailability::Unknown;
-    Ok(build_discovered_media_file(
+    inspect_media_file_inventory(build_discovered_media_file_inventory(
         path.to_path_buf(),
         metadata.len(),
+        metadata_modified_at_ms(&metadata),
+    ))
+}
+
+/// 对已确认发生新增或变化的视频文件做完整解析和 ffprobe 探测。
+pub fn inspect_media_file_inventory(
+    inventory: DiscoveredMediaFileInventory,
+) -> io::Result<DiscoveredMediaFile> {
+    let mut probe_availability = ProbeAvailability::Unknown;
+    Ok(build_discovered_media_file(
+        inventory,
         &mut probe_availability,
     ))
 }
@@ -145,14 +173,57 @@ where
             continue;
         }
 
-        files.push(build_discovered_media_file(
+        let inventory = build_discovered_media_file_inventory(
             path,
             metadata.len(),
-            probe_availability,
-        ));
+            metadata_modified_at_ms(&metadata),
+        );
+        files.push(build_discovered_media_file(inventory, probe_availability));
         if let Some(file) = files.last() {
             on_item_discovered(file);
         }
+        on_progress(files.len());
+    }
+
+    Ok(())
+}
+
+fn visit_dir_inventory<F>(
+    dir: &Path,
+    files: &mut Vec<DiscoveredMediaFileInventory>,
+    on_progress: &mut F,
+    should_cancel: &mut impl FnMut() -> bool,
+) -> io::Result<()>
+where
+    F: FnMut(usize),
+{
+    if should_cancel() {
+        return Err(io::Error::new(io::ErrorKind::Interrupted, "scan cancelled"));
+    }
+
+    for entry in fs::read_dir(dir)? {
+        if should_cancel() {
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "scan cancelled"));
+        }
+
+        let entry = entry?;
+        let path = entry.path();
+        let metadata = entry.metadata()?;
+
+        if metadata.is_dir() {
+            visit_dir_inventory(&path, files, on_progress, should_cancel)?;
+            continue;
+        }
+
+        if !metadata.is_file() || !is_supported_video(&path) {
+            continue;
+        }
+
+        files.push(build_discovered_media_file_inventory(
+            path,
+            metadata.len(),
+            metadata_modified_at_ms(&metadata),
+        ));
         on_progress(files.len());
     }
 
@@ -180,15 +251,28 @@ fn visit_dir_paths(dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
     Ok(())
 }
 
-fn build_discovered_media_file(
+fn build_discovered_media_file_inventory(
     path: PathBuf,
     file_size: u64,
+    file_modified_at_ms: Option<i64>,
+) -> DiscoveredMediaFileInventory {
+    DiscoveredMediaFileInventory {
+        file_path: path,
+        file_size,
+        file_modified_at_ms,
+    }
+}
+
+fn build_discovered_media_file(
+    inventory: DiscoveredMediaFileInventory,
     probe_availability: &mut ProbeAvailability,
 ) -> DiscoveredMediaFile {
+    let path = inventory.file_path;
     let parsed = parse_media_metadata(&path);
     let probe = probe_media_file(&path, probe_availability);
 
     DiscoveredMediaFile {
+        file_modified_at_ms: inventory.file_modified_at_ms,
         metadata_provider: None,
         metadata_provider_item_id: None,
         title: parsed.title,
@@ -253,8 +337,15 @@ fn build_discovered_media_file(
             .collect(),
         subtitle_tracks: discover_subtitle_tracks(&path, &probe.subtitle_streams),
         file_path: path,
-        file_size,
+        file_size: inventory.file_size,
     }
+}
+
+fn metadata_modified_at_ms(metadata: &fs::Metadata) -> Option<i64> {
+    let modified = metadata.modified().ok()?;
+    let duration = modified.duration_since(UNIX_EPOCH).ok()?;
+
+    i64::try_from(duration.as_millis()).ok()
 }
 
 pub(crate) fn is_supported_video(path: &Path) -> bool {

@@ -1,5 +1,6 @@
 import {
   formatPendingScanPlaceholderCopy,
+  formatScanItemCardSummary,
   formatScanItemMeta,
   formatScanItemProgressCopy,
   formatScanJobStatusCopy,
@@ -176,8 +177,9 @@ const LibraryContentSectionsBody = ({
                           placeholderLabel={
                             item.media_type === 'movie' ? l('Movies') : l('Series')
                           }
+                          posterPath={item.poster_path ?? item.backdrop_path}
                           progressPercent={item.progress_percent}
-                          progressText={formatScanItemProgressCopy(item)}
+                          progressText={formatScanItemCardSummary(item)}
                           subtitle={formatScanItemMeta(item)}
                           title={item.title}
                         />

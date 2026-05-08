@@ -113,6 +113,66 @@ pub async fn sync_library_media_best_effort(
     Ok(outcome)
 }
 
+/// 增量同步当前扫描确认有变化的媒体记录。
+/// `discovered_paths` 是本轮仍存在的全部视频路径；`entries` 只包含新增或内容发生变化的路径。
+pub async fn sync_library_media_changes(
+    pool: &PgPool,
+    library_id: i64,
+    discovered_paths: &[String],
+    entries: &[CreateMediaEntryParams],
+) -> Result<SyncLibraryMediaBestEffortOutcome> {
+    let existing_paths = super::list_library_media_file_paths(pool, library_id)
+        .await
+        .context("failed to list existing library media paths for incremental sync")?;
+    let discovered_paths = discovered_paths
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let mut outcome = SyncLibraryMediaBestEffortOutcome::default();
+
+    for existing_path in existing_paths {
+        if discovered_paths.contains(existing_path.as_str()) {
+            continue;
+        }
+
+        match delete_library_media_by_file_path(pool, library_id, &existing_path).await {
+            Ok(_) => {
+                outcome.removed_count += 1;
+            }
+            Err(error) => {
+                outcome.failed_count += 1;
+                tracing::warn!(
+                    library_id,
+                    file_path = %existing_path,
+                    error = ?error,
+                    "incremental library sync failed to delete missing media path"
+                );
+            }
+        }
+    }
+
+    for entry in entries {
+        match upsert_library_media_entry_by_file_path(pool, library_id, entry).await {
+            Ok(_) => {
+                outcome.upserted_count += 1;
+            }
+            Err(error) => {
+                outcome.failed_count += 1;
+                tracing::warn!(
+                    library_id,
+                    file_path = %entry.file_path,
+                    media_type = %entry.media_type,
+                    title = %entry.title,
+                    error = ?error,
+                    "incremental library sync failed to upsert media entry"
+                );
+            }
+        }
+    }
+
+    Ok(outcome)
+}
+
 /// 按文件路径增量 upsert 单条媒体记录。
 pub async fn upsert_library_media_entry_by_file_path(
     pool: &PgPool,
@@ -571,7 +631,7 @@ pub(super) async fn insert_media_file(
         )
         values (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, null
+            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
         )
         returning id
         "#,
@@ -601,6 +661,7 @@ pub(super) async fn insert_media_file(
     .bind(&entry.video_pixel_format)
     .bind(entry.video_reference_frames)
     .bind(&entry.technical_tags)
+    .bind(&entry.scan_hash)
     .fetch_one(&mut **tx)
     .await
     .context("failed to insert media file")?;
@@ -644,6 +705,7 @@ pub(super) async fn update_media_file_from_entry(
             video_pixel_format = $22,
             video_reference_frames = $23,
             technical_tags = $24,
+            scan_hash = $25,
             updated_at = now()
         where id = $1
         "#,
@@ -672,6 +734,7 @@ pub(super) async fn update_media_file_from_entry(
     .bind(&entry.video_pixel_format)
     .bind(entry.video_reference_frames)
     .bind(&entry.technical_tags)
+    .bind(&entry.scan_hash)
     .execute(&mut **tx)
     .await
     .context("failed to update media file during library sync")?;
@@ -982,6 +1045,7 @@ mod tests {
             technical_tags: vec!["HDR10".to_string(), "Atmos".to_string()],
             audio_tracks: Vec::new(),
             subtitle_tracks: Vec::new(),
+            scan_hash: Some(format!("movie-{file_path}")),
         }
     }
 
@@ -1040,6 +1104,7 @@ mod tests {
             technical_tags: Vec::new(),
             audio_tracks: Vec::new(),
             subtitle_tracks: Vec::new(),
+            scan_hash: Some(format!("episode-{file_path}")),
         }
     }
 

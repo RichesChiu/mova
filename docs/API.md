@@ -274,6 +274,7 @@
 - 事件本身更适合作为“资源已变化”的通知；客户端收到后，应按事件类型重新拉对应 HTTP 接口，而不是把 SSE 负载直接当成最终页面数据
 - 当前服务端只推送连接建立之后的新事件；客户端断线后应自动重连，并在重连成功后主动补一轮关键查询，避免断开期间漏掉一次刷新
 - 扫描文件发现阶段的 `scan.job.updated` 进度会做服务端节流与合并，客户端应把它当成近实时进度，不要依赖每个文件都会对应一条 SSE
+- 已经成功匹配且文件指纹未变化的条目不会再次发出 `scan.item.updated`；该事件只覆盖本轮新增、删除后重建、移动改名后新增、大小 / 修改时间变化、或仍需重试匹配的资源
 - 当前已实现事件：
   - `scan.job.updated`
   - `scan.job.finished`
@@ -286,7 +287,7 @@
   - `enriching`：正在补全元数据和图片
   - `syncing`：正在写入媒体库
   - `finished`：任务已结束
-- `scan.item.updated` 用于扫描中的条目级提示；现在从“刚发现新的电影文件或剧集目录组”开始就会推送，同一个 `item_key` 会在后续元数据、图片和写库前阶段持续更新，当前结构如下：
+- `scan.item.updated` 用于扫描中的条目级提示；现在从“刚发现新的电影文件或剧集目录组”开始就会推送，同一个 `item_key` 会在后续元数据、图片和完成写库后持续更新，当前结构如下：
 
 ```json
 {
@@ -297,6 +298,11 @@
     "item_key": "series-title:arcane",
     "media_type": "series",
     "title": "Arcane",
+    "year": 2021,
+    "overview": "Two sisters fight from opposite sides of a divided city.",
+    "poster_path": "/artwork/tmdb/poster/abc123.jpg",
+    "backdrop_path": "/artwork/tmdb/backdrop/def456.jpg",
+    "metadata_status": "matched",
     "season_number": null,
     "episode_number": null,
     "item_index": 12,
@@ -309,11 +315,13 @@
 
 字段说明：
 - `item_key`：当前扫描条目的稳定键；电影和无法确认剧名的本地文件直接使用文件路径，文件名里能确认剧名的剧集会使用 `series-title:*` 或明确季目录树下的 `series-folder:*` 键，避免前端在扫描中先看到一集一集、或多季年份不同导致被打散
+- `year` / `overview` / `poster_path` / `backdrop_path`：当前条目的临时展示信息；metadata 或 artwork 阶段可能逐步补齐，前端可直接用它把扫描占位卡替换成带海报的临时卡
+- `metadata_status`：当前条目的元数据状态；`unmatched` / `failed` 可提前归到 Other，`matched` 表示已命中远端 metadata
 - `item_index` / `total_items`：当前条目在整批扫描里的位置，用于前端估算总进度
 - `stage`：当前条目处理阶段，当前会使用 `discovered` / `metadata` / `artwork` / `completed`
 - `progress_percent`：当前条目自身的粗粒度进度百分比，便于前端直接驱动占位卡进度条
-- 前端可以把同一个 `item_key` 当成一张临时扫描卡：发现文件或目录组时先渲染出来，后续收到新事件后只更新这张卡，而不是整块列表突然出现或突然消失
-- `scan.item.updated` 属于扫描期间的临时 UI 提示；客户端可以只保留最近一批条目，最终媒体列表仍以扫描完成后的 HTTP 查询结果为准
+- 前端可以把同一个 `item_key` 当成一张临时扫描卡：发现文件或目录组时先渲染出来，后续收到新事件后只更新这张卡；海报和简介拿到后应立即展示，而不是等扫描结束后整块列表一次性刷新
+- `stage = completed` 表示该条目已经完成 metadata / 海报并写入媒体库；客户端应立即重拉该库的媒体列表、首页 shelf 和库详情计数，让真实媒体卡也按条目逐个出现
 - 当某个远端元数据步骤失败但扫描继续时，当前仍以服务端日志为主；日志会明确标出是 metadata enrichment 阶段失败，并说明会回退到本地数据
 
 ### `PUT /api/auth/password`
@@ -723,6 +731,7 @@
 - 当前库如果已经有 `pending` 或 `running` 任务，不会重复启动第二个扫描
 - 扫描在后台执行，前端应拿返回的 `scan_job.id` 去轮询 `/api/libraries/{id}/scan-jobs/{scan_job_id}`
 - 当前扫描会按 `(library_id, file_path)` 做增量同步：同路径文件原地更新，缺失路径删除，改名或移动会表现成旧路径删除加新路径新增
+- 已经成功匹配的路径会先按文件大小和修改时间生成稳定指纹；指纹一致时跳过 `ffprobe`、TMDB / OMDb、图片缓存和数据库 upsert，只保留现有数据。`unmatched` / `failed` 条目仍会在后续手动扫描中重试；如果当前没有启用 metadata provider，`skipped` 条目也可按指纹跳过
 - 现在只有手动扫描会驱动这套库存对齐与元数据补全链路；新增、删除、改名和移动都会在手动扫描时收敛出来
 
 ## 4. 媒体条目

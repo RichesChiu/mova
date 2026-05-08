@@ -367,6 +367,21 @@ fn parse_media_metadata_extracts_embedded_series_token_suffix() {
 }
 
 #[test]
+fn parse_media_metadata_strips_dotted_year_before_series_token() {
+    let path = Path::new(
+        "/media/overseas_tv/都是她的错.2025/Season 01/All.Her.Fault.2025.S01E01.2160p.PCOK.WEB-DL.DDP5.1.H.265-KRATOS.mkv",
+    );
+
+    let metadata = parse_media_metadata(path);
+
+    assert_eq!(metadata.title, "All Her Fault");
+    assert_eq!(metadata.source_title, "All Her Fault");
+    assert_eq!(metadata.year, Some(2025));
+    assert_eq!(metadata.season_number, Some(1));
+    assert_eq!(metadata.episode_number, Some(1));
+}
+
+#[test]
 fn parse_media_metadata_keeps_episode_number_only_file_as_local_file() {
     let path = Path::new("Arcane/Season 01/01 Some Mysteries Are Better Left Unsolved.mkv");
 
@@ -561,6 +576,18 @@ fn infer_series_file_metadata_extracts_year_before_sxxexx_token() {
 
     assert_eq!(metadata.display_title, "Alls Fair (2025)");
     assert_eq!(metadata.title, "Alls Fair");
+    assert_eq!(metadata.year, Some(2025));
+}
+
+#[test]
+fn infer_series_file_metadata_extracts_dotted_year_before_sxxexx_token() {
+    let metadata = infer_series_file_metadata(Path::new(
+        "/media/overseas_tv/都是她的错.2025/Season 01/All.Her.Fault.2025.S01E01.2160p.PCOK.WEB-DL.DDP5.1.H.265-KRATOS.mkv",
+    ))
+    .expect("series file metadata should be inferred");
+
+    assert_eq!(metadata.display_title, "All Her Fault 2025");
+    assert_eq!(metadata.title, "All Her Fault");
     assert_eq!(metadata.year, Some(2025));
 }
 

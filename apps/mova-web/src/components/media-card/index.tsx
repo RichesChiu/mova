@@ -14,6 +14,7 @@ interface MediaCardSkeletonProps {
 
 interface MediaCardScanPlaceholderProps {
   placeholderLabel?: string
+  posterPath?: string | null
   progressPercent: number
   progressText: string
   subtitle?: string | null
@@ -59,6 +60,7 @@ export const MediaCard = ({ item, showTypeTag = true }: MediaCardProps) => {
 
 export const MediaCardScanPlaceholder = ({
   placeholderLabel = 'MEDIA',
+  posterPath,
   progressPercent,
   progressText,
   subtitle,
@@ -70,9 +72,13 @@ export const MediaCardScanPlaceholder = ({
   return (
     <div aria-live="polite" className="media-card media-card--scanning">
       <div className="media-card__poster">
-        <div className="media-card__placeholder media-card__placeholder--loading media-card__placeholder--scanning">
-          <span>{placeholderLabel}</span>
-        </div>
+        {posterPath ? (
+          <img alt={`${title} poster`} loading="lazy" src={posterPath} />
+        ) : (
+          <div className="media-card__placeholder media-card__placeholder--loading media-card__placeholder--scanning">
+            <span>{placeholderLabel}</span>
+          </div>
+        )}
       </div>
 
       <div className="media-card__body">

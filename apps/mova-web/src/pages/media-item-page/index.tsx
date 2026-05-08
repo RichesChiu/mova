@@ -14,8 +14,8 @@ import {
 import type { EpisodeOutlineSeason, MediaCastMember } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import {
+  formatScanItemCardSummary,
   formatScanItemMeta,
-  formatScanItemProgressCopy,
   getLibraryScanRuntime,
   getMediaItemScanRuntimeItems,
   type ScanRuntimeItem,
@@ -105,7 +105,8 @@ const SeasonBlock = ({
         return (
           <EpisodeCard
             artworkAlt={`${metaLabel} artwork`}
-            description={formatScanItemProgressCopy(item)}
+            artworkSrc={item.poster_path ?? item.backdrop_path}
+            description={formatScanItemCardSummary(item)}
             key={`scan-${item.item_key}`}
             metaLabel={metaLabel}
             placeholderLabel={metaLabel}

@@ -17,8 +17,8 @@ pub use query::{
 };
 pub use sync::{
     delete_library_media_by_file_path, delete_library_media_by_path_prefix, sync_library_media,
-    sync_library_media_best_effort, upsert_library_media_entry_by_file_path,
-    SyncLibraryMediaBestEffortOutcome,
+    sync_library_media_best_effort, sync_library_media_changes,
+    upsert_library_media_entry_by_file_path, SyncLibraryMediaBestEffortOutcome,
 };
 use time::OffsetDateTime;
 
@@ -104,6 +104,7 @@ pub struct CreateMediaEntryParams {
     pub technical_tags: Vec<String>,
     pub audio_tracks: Vec<CreateAudioTrackParams>,
     pub subtitle_tracks: Vec<CreateSubtitleTrackParams>,
+    pub scan_hash: Option<String>,
 }
 
 /// 手动刷新单个媒体条目时允许更新的 metadata 字段。
@@ -240,6 +241,7 @@ pub struct ExistingMediaMetadataSummary {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub scan_hash: Option<String>,
     pub series_title: Option<String>,
     pub series_source_title: Option<String>,
     pub series_original_title: Option<String>,

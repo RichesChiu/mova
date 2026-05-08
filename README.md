@@ -22,6 +22,8 @@ The project aims to keep the media-server experience simple and dependable: moun
 
 Series grouping is intentionally filename-first. Use filenames such as `Show.Name.S01E01.mkv`, `Show S01E01 - Episode 1.mkv`, `Show - S01E01.mkv`, `Show_S01E01.mkv`, or `ShowNameS01E01.mkv`; Mova does not infer series identity from arbitrary folder names. When an explicit season folder sits under a clean series folder such as `Study Group (2025)/Season 01/Study Group S01E01.mkv`, the folder year is used only as a metadata search hint. Files without season/episode identity are checked against TMDB movie and TV results; TV matches without local season/episode identity, failed matches, and malformed filenames are stored with explicit metadata review status and stay in the Other section. If TMDB is disabled, metadata is marked as skipped and local movie/series detection still remains visible.
 
+After a successful scan, later scans first compare a lightweight file fingerprint based on path, size, and modified time. Successfully matched unchanged files stay in the library without re-running media probing, TMDB enrichment, artwork download, or database upsert; only new, deleted, moved, modified, or still-unmatched files are reconciled.
+
 When `ffprobe` is available, Mova also stores resource-level technical tags such as HDR10, Dolby Vision, DTS-HD, and Atmos for each physical media file, then surfaces those tags as resource badges on detail pages.
 
 ## Screenshots

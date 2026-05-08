@@ -10,7 +10,7 @@ use mova_domain::{
     METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE,
     REMOTE_MEDIA_TYPE_SERIES,
 };
-use mova_scan::DiscoveredMediaFile;
+use mova_scan::{discovered_media_file_scan_hash, DiscoveredMediaFile};
 use sqlx::postgres::PgPool;
 use std::{
     collections::HashSet,
@@ -227,6 +227,7 @@ fn build_media_entry(
     }
 
     let file_path = file.file_path.to_string_lossy().to_string();
+    let scan_hash = discovered_media_file_scan_hash(&file);
     let file_size = i64::try_from(file.file_size).map_err(|_| {
         ApplicationError::Unexpected(anyhow::anyhow!(
             "file is too large to store in database: {}",
@@ -321,6 +322,7 @@ fn build_media_entry(
                 is_hearing_impaired: subtitle.is_hearing_impaired,
             })
             .collect(),
+        scan_hash: Some(scan_hash),
     }))
 }
 

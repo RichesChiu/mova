@@ -7,6 +7,11 @@ export interface ScanRuntimeItem {
   item_key: string
   media_type: string
   title: string
+  year: number | null
+  overview: string | null
+  poster_path: string | null
+  backdrop_path: string | null
+  metadata_status: string | null
   season_number: number | null
   episode_number: number | null
   item_index: number
@@ -105,7 +110,7 @@ export const formatScanJobStatusCopy = (
         }
 
         if (primaryItem.stage === 'completed') {
-          return `${primaryItem.title} · ${translateCurrent('Waiting to save')}`
+          return `${primaryItem.title} · ${translateCurrent('Saved to library')}`
         }
 
         return `${primaryItem.title} · ${translateCurrent('Fetching metadata')}`
@@ -254,7 +259,14 @@ export const formatScanItemMeta = (item: ScanRuntimeItem) => {
     return `S${String(item.season_number).padStart(2, '0')} · E${String(item.episode_number).padStart(2, '0')}`
   }
 
-  return item.media_type === 'series' ? translateCurrent('Series') : translateCurrent('Movie')
+  const typeLabel =
+    item.media_type === 'series'
+      ? translateCurrent('Series')
+      : item.media_type === 'movie'
+        ? translateCurrent('Movie')
+        : translateCurrent('Other')
+
+  return item.year ? `${typeLabel} · ${item.year}` : typeLabel
 }
 
 export const formatScanItemProgressCopy = (item: ScanRuntimeItem) => {
@@ -264,11 +276,14 @@ export const formatScanItemProgressCopy = (item: ScanRuntimeItem) => {
     case 'artwork':
       return translateCurrent('Fetching artwork & overview')
     case 'completed':
-      return translateCurrent('Waiting to save to library')
+      return translateCurrent('Saved to library')
     default:
       return translateCurrent('Fetching metadata')
   }
 }
+
+export const formatScanItemCardSummary = (item: ScanRuntimeItem) =>
+  item.stage === 'completed' && item.overview ? item.overview : formatScanItemProgressCopy(item)
 
 const normalizeScanMatchText = (value: string | null | undefined) =>
   (value ?? '')

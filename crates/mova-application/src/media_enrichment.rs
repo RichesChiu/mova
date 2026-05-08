@@ -667,7 +667,29 @@ fn metadata_lookup_candidates(
         }
     }
 
+    prioritize_localized_lookup_candidates(&mut candidates, metadata_language);
     candidates
+}
+
+fn prioritize_localized_lookup_candidates(
+    candidates: &mut [MetadataLookup],
+    metadata_language: &str,
+) {
+    if !metadata_language
+        .trim()
+        .to_ascii_lowercase()
+        .starts_with("zh")
+    {
+        return;
+    }
+
+    candidates.sort_by_key(|candidate| {
+        if contains_cjk_character(&candidate.title) {
+            0
+        } else {
+            1
+        }
+    });
 }
 
 fn push_metadata_lookup_candidate(
@@ -865,6 +887,21 @@ fn normalize_lookup_title(value: &str) -> String {
         .to_ascii_lowercase()
 }
 
+fn contains_cjk_character(value: &str) -> bool {
+    value.chars().any(|ch| {
+        matches!(
+            ch,
+            '\u{3400}'..='\u{4dbf}'
+                | '\u{4e00}'..='\u{9fff}'
+                | '\u{f900}'..='\u{faff}'
+                | '\u{20000}'..='\u{2a6df}'
+                | '\u{2a700}'..='\u{2b73f}'
+                | '\u{2b740}'..='\u{2b81f}'
+                | '\u{2b820}'..='\u{2ceaf}'
+        )
+    })
+}
+
 fn is_series_variant_directory_name(name: &str) -> bool {
     let normalized = normalize_lookup_title(name);
 
@@ -1020,16 +1057,34 @@ mod tests {
     }
 
     #[test]
-    fn metadata_lookup_candidates_try_file_title_before_series_container_title() {
+    fn metadata_lookup_candidates_keep_file_title_first_for_non_chinese_language() {
         let mut file = build_discovered_episode();
         file.file_path = PathBuf::from("/media/模范出租车/S01/Taxi.Driver.S01E01.mkv");
         file.source_title = "Taxi Driver".to_string();
 
-        let lookups = metadata_lookup_candidates("series", &file, "zh-CN");
+        let lookups = metadata_lookup_candidates("series", &file, "en-US");
 
         assert_eq!(lookups.len(), 2);
         assert_eq!(lookups[0].title, "Taxi Driver");
         assert_eq!(lookups[1].title, "模范出租车");
+    }
+
+    #[test]
+    fn metadata_lookup_candidates_prefer_chinese_container_title_for_chinese_libraries() {
+        let mut file = build_discovered_episode();
+        file.file_path = PathBuf::from(
+            "/media/overseas_tv/都是她的错.2025/Season 01/All.Her.Fault.2025.S01E01.2160p.PCOK.WEB-DL.DDP5.1.H.265-KRATOS.mkv",
+        );
+        file.source_title = "All Her Fault".to_string();
+        file.year = Some(2025);
+
+        let lookups = metadata_lookup_candidates("series", &file, "zh-CN");
+
+        assert_eq!(lookups.len(), 2);
+        assert_eq!(lookups[0].title, "都是她的错");
+        assert_eq!(lookups[0].year, Some(2025));
+        assert_eq!(lookups[1].title, "All Her Fault");
+        assert_eq!(lookups[1].year, Some(2025));
     }
 
     #[test]
@@ -1044,15 +1099,16 @@ mod tests {
         let lookups = metadata_lookup_candidates("series", &file, "zh-CN");
 
         assert_eq!(lookups.len(), 2);
-        assert_eq!(lookups[0].title, "Study Group");
+        assert_eq!(lookups[0].title, "流氓读书会");
         assert_eq!(lookups[0].year, Some(2025));
-        assert_eq!(lookups[1].title, "流氓读书会");
+        assert_eq!(lookups[1].title, "Study Group");
         assert_eq!(lookups[1].year, Some(2025));
     }
 
     fn build_discovered_episode() -> DiscoveredMediaFile {
         DiscoveredMediaFile {
             file_path: PathBuf::from("/media/series/Show/Season 01/Show.S01E01.mkv"),
+            file_modified_at_ms: Some(1_700_000_000_000),
             metadata_provider: None,
             metadata_provider_item_id: None,
             title: "Show".to_string(),

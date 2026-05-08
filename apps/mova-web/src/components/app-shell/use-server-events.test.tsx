@@ -360,6 +360,11 @@ describe('useServerEvents', () => {
         item_key: '/media/movies/Interstellar (2014)/Interstellar.mkv',
         media_type: 'movie',
         title: 'Interstellar',
+        year: 2014,
+        overview: 'A team travels through a wormhole.',
+        poster_path: '/cache/interstellar.jpg',
+        backdrop_path: null,
+        metadata_status: 'matched',
         season_number: null,
         episode_number: null,
         item_index: 1,
@@ -376,6 +381,11 @@ describe('useServerEvents', () => {
         item_key: '/media/series/Arcane/S01E01.mkv',
         media_type: 'episode',
         title: 'Arcane',
+        year: 2021,
+        overview: null,
+        poster_path: '/cache/arcane.jpg',
+        backdrop_path: null,
+        metadata_status: 'matched',
         season_number: 1,
         episode_number: 1,
         item_index: 2,
@@ -418,6 +428,64 @@ describe('useServerEvents', () => {
     })
   })
 
+  it('refreshes library media as soon as one scan item is saved', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateQueriesSpy = vi
+      .spyOn(queryClient, 'invalidateQueries')
+      .mockResolvedValue(undefined)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/libraries/7']}>
+          <Routes>
+            <Route element={<HookHarness enabled />} path="*" />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+
+    const eventSource = FakeEventSource.instances[0]
+    eventSource.emitMessage('scan.item.updated', {
+      type: 'scan.item.updated',
+      item: {
+        scan_job_id: 41,
+        library_id: 7,
+        item_key: 'series-title:arcane',
+        media_type: 'series',
+        title: 'Arcane',
+        year: 2021,
+        overview: 'Two sisters fight from opposite sides of a divided city.',
+        poster_path: '/cache/arcane.jpg',
+        backdrop_path: null,
+        metadata_status: 'matched',
+        season_number: null,
+        episode_number: null,
+        item_index: 1,
+        total_items: 2,
+        stage: 'completed',
+        progress_percent: 100,
+      },
+    })
+
+    await waitFor(() => {
+      expect(invalidateQueriesSpy).toHaveBeenCalledTimes(4)
+    })
+
+    const invalidatedQueryKeys = invalidateQueriesSpy.mock.calls.map(([filters]) =>
+      JSON.stringify(filters?.queryKey ?? null),
+    )
+
+    expect(invalidatedQueryKeys).toEqual(
+      expect.arrayContaining([
+        JSON.stringify(['library', 7]),
+        JSON.stringify(['library-media', 7]),
+        JSON.stringify(['home-library-detail', 7]),
+        JSON.stringify(['home-library-shelf', 7]),
+      ]),
+    )
+    expect(screen.getByTestId('scan-runtime')).toHaveTextContent('Arcane')
+  })
+
   it('keeps only the latest scan runtime items for a library', async () => {
     const queryClient = createTestQueryClient()
 
@@ -442,6 +510,11 @@ describe('useServerEvents', () => {
           item_key: `/media/movies/Movie ${index}.mkv`,
           media_type: 'movie',
           title: `Movie ${index}`,
+          year: null,
+          overview: null,
+          poster_path: null,
+          backdrop_path: null,
+          metadata_status: null,
           season_number: null,
           episode_number: null,
           item_index: index,
