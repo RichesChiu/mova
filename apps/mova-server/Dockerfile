@@ -3,6 +3,7 @@ ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
 ARG ALL_PROXY
+ARG PNPM_VERSION=9.15.9
 ENV HTTP_PROXY=$HTTP_PROXY \
     HTTPS_PROXY=$HTTPS_PROXY \
     NO_PROXY=$NO_PROXY \
@@ -16,7 +17,8 @@ WORKDIR /app
 COPY apps/mova-web/package.json ./apps/mova-web/package.json
 COPY apps/mova-web/pnpm-lock.yaml ./apps/mova-web/pnpm-lock.yaml
 
-RUN corepack enable && pnpm --dir apps/mova-web install --frozen-lockfile
+RUN npm install --global pnpm@${PNPM_VERSION} \
+    && pnpm --dir apps/mova-web install --frozen-lockfile
 
 COPY apps/mova-web ./apps/mova-web
 
