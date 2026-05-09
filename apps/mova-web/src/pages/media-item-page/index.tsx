@@ -18,6 +18,7 @@ import {
   formatScanItemMeta,
   getLibraryScanRuntime,
   getMediaItemScanRuntimeItems,
+  getScanItemCardProgressPercent,
   type ScanRuntimeItem,
 } from '../../components/app-shell/scan-runtime'
 import { EpisodeCard, EpisodeCardSkeleton } from '../../components/episode-card'
@@ -110,7 +111,7 @@ const SeasonBlock = ({
             key={`scan-${item.item_key}`}
             metaLabel={metaLabel}
             placeholderLabel={metaLabel}
-            progressPercent={item.progress_percent}
+            progressPercent={getScanItemCardProgressPercent(item)}
             status="progress"
             title={item.title}
           />
@@ -473,87 +474,66 @@ export const MediaItemPage = () => {
   const heroStudio = mediaItemQuery.data?.studio?.trim() || null
   const heroOverview =
     isSeriesView && selectedSeason
-      ? (selectedSeason.overview ?? mediaItemQuery.data?.overview ?? l('No overview available yet.'))
+      ? (selectedSeason.overview ??
+        mediaItemQuery.data?.overview ??
+        l('No overview available yet.'))
       : (mediaItemQuery.data?.overview ?? l('No overview available yet.'))
-  const heroFacts = isSeriesView
-    ? [
-        mediaItemQuery.data?.original_title &&
-        mediaItemQuery.data.original_title !== mediaItemQuery.data.title
-          ? {
-              label: l('Original title'),
-              value: mediaItemQuery.data.original_title,
-            }
-          : null,
-        selectedSeasonYear
-          ? {
-              label: l('Season air year'),
-              value: String(selectedSeasonYear),
-            }
-          : mediaItemQuery.data?.year
-            ? {
-                label: l('Series first air year'),
-                value: String(mediaItemQuery.data.year),
-              }
-            : null,
-        heroGenres
-          ? {
-              label: l('Genres'),
-              value: heroGenres,
-            }
-          : null,
-        heroStudio
-          ? {
-              label: l('Studio'),
-              value: heroStudio,
-            }
-          : null,
-        selectedSeason
-          ? {
-              label: l('Available episodes'),
-              value: String(selectedSeasonEpisodeCount),
-            }
-          : {
-              label: l('Available seasons'),
-              value: String(availableSeasons.length),
-            },
-        heroCountry
-          ? {
-              label: l('Country'),
-              value: heroCountry,
-            }
-          : null,
-      ].filter(isHeroFact)
-    : [
-        mediaItemQuery.data?.original_title &&
-        mediaItemQuery.data.original_title !== mediaItemQuery.data.title
-          ? {
-              label: l('Original title'),
-              value: mediaItemQuery.data.original_title,
-            }
-          : null,
-        {
-          label: l('Release year'),
-          value: mediaItemQuery.data?.year ? String(mediaItemQuery.data.year) : l('Unknown'),
-        },
-        heroGenres
-          ? {
-              label: l('Genres'),
-              value: heroGenres,
-            }
-          : null,
-        heroStudio
-          ? {
-              label: l('Studio'),
-              value: heroStudio,
-            }
-          : null,
-        heroCountry
-          ? {
-              label: l('Country'),
-              value: heroCountry,
-            }
-          : null,
-      ].filter(isHeroFact)
+  const heroOriginalTitleFact =
+    mediaItemQuery.data?.original_title &&
+    mediaItemQuery.data.original_title !== mediaItemQuery.data.title
+      ? {
+          label: l('Original title'),
+          value: mediaItemQuery.data.original_title,
+        }
+      : null
+  const heroYearFact = isSeriesView
+    ? selectedSeasonYear
+      ? {
+          label: l('Season air year'),
+          value: String(selectedSeasonYear),
+        }
+      : mediaItemQuery.data?.year
+        ? {
+            label: l('Series first air year'),
+            value: String(mediaItemQuery.data.year),
+          }
+        : null
+    : {
+        label: l('Release year'),
+        value: mediaItemQuery.data?.year ? String(mediaItemQuery.data.year) : l('Unknown'),
+      }
+  const heroPrimaryFacts = [heroOriginalTitleFact, heroYearFact].filter(isHeroFact)
+  const heroSecondaryFacts = [
+    heroGenres
+      ? {
+          label: l('Genres'),
+          value: heroGenres,
+        }
+      : null,
+    heroStudio
+      ? {
+          label: l('Studio'),
+          value: heroStudio,
+        }
+      : null,
+    heroCountry
+      ? {
+          label: l('Country'),
+          value: heroCountry,
+        }
+      : null,
+  ].filter(isHeroFact)
+  const heroAvailabilityText = isSeriesView
+    ? selectedSeason
+      ? selectedSeasonEpisodeCount === 1
+        ? l('1 available episode')
+        : l('{{count}} available episodes', { count: selectedSeasonEpisodeCount })
+      : availableSeasons.length > 0
+        ? availableSeasons.length === 1
+          ? l('1 available season')
+          : l('{{count}} available seasons', { count: availableSeasons.length })
+        : null
+    : null
   const sourceContextEyebrow = isSeriesView ? l('Episode Source') : l('Source Details')
   const sourceContextTitle =
     isSeriesView && seriesPlaybackTargetEpisode
@@ -623,17 +603,6 @@ export const MediaItemPage = () => {
               </div>
             )}
           </div>
-
-          {selectedTechnicalBadges.length > 0 ? (
-            <ul
-              className="detail-hero__technical-badges media-technical-badges media-technical-badges--hero"
-              aria-label={l('Resource Tags')}
-            >
-              {selectedTechnicalBadges.map((badge) =>
-                renderMediaTechnicalBadge(badge, `hero-${selectedMediaFile?.id}-${badge.label}`),
-              )}
-            </ul>
-          ) : null}
         </div>
 
         <div className="detail-hero__body">
@@ -691,9 +660,39 @@ export const MediaItemPage = () => {
               </div>
             </div>
           ) : null}
-          {heroFacts.length > 0 ? (
-            <div className="detail-hero__facts">
-              {heroFacts.map((item) => (
+          {heroPrimaryFacts.length > 0 ? (
+            <div className="detail-hero__facts detail-hero__facts--primary">
+              {heroPrimaryFacts.map((item) => (
+                <article className="detail-hero__fact" key={item.label}>
+                  <p className="detail-hero__fact-label">{item.label}</p>
+                  <p className="detail-hero__fact-value">{item.value}</p>
+                </article>
+              ))}
+            </div>
+          ) : null}
+          {heroAvailabilityText || selectedTechnicalBadges.length > 0 ? (
+            <div className="detail-hero__resource-row">
+              {heroAvailabilityText ? (
+                <p className="detail-hero__availability">{heroAvailabilityText}</p>
+              ) : null}
+              {selectedTechnicalBadges.length > 0 ? (
+                <ul
+                  className="detail-hero__technical-badges media-technical-badges media-technical-badges--hero"
+                  aria-label={l('Resource Tags')}
+                >
+                  {selectedTechnicalBadges.map((badge) =>
+                    renderMediaTechnicalBadge(
+                      badge,
+                      `hero-${selectedMediaFile?.id}-${badge.label}`,
+                    ),
+                  )}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+          {heroSecondaryFacts.length > 0 ? (
+            <div className="detail-hero__facts detail-hero__facts--secondary">
+              {heroSecondaryFacts.map((item) => (
                 <article className="detail-hero__fact" key={item.label}>
                   <p className="detail-hero__fact-label">{item.label}</p>
                   <p className="detail-hero__fact-value">{item.value}</p>

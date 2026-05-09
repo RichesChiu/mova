@@ -6,10 +6,12 @@ import type { AppShellOutletContext } from '../../components/app-shell'
 import type { ScanRuntimeItem } from '../../components/app-shell/scan-runtime'
 import {
   formatFailedScanCopy,
+  formatScanItemCardProgressLabel,
   formatScanItemCardSummary,
   formatScanItemMeta,
   getEffectiveScanJob,
   getLibraryScanRuntime,
+  getScanItemCardProgressPercent,
   getScanRuntimeItems,
   hasFailedLibraryScan,
   isLibraryScanActive,
@@ -18,6 +20,7 @@ import {
 import { MediaCard, MediaCardScanPlaceholder, MediaCardSkeleton } from '../../components/media-card'
 import { useI18n } from '../../i18n'
 import { getLibraryMediaSection, getLibraryScanSection } from '../../lib/library-media-sections'
+import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
 
 const PAGE_SIZE = 500
 const MEDIA_SECTION_SKELETON_COUNT = 6
@@ -52,6 +55,8 @@ const MediaSection = ({
   scanItems: ScanRuntimeItem[]
   title: string
 }) => {
+  const { l } = useI18n()
+
   if (items.length === 0 && scanItems.length === 0) {
     return null
   }
@@ -66,9 +71,10 @@ const MediaSection = ({
         {scanItems.map((item) => (
           <MediaCardScanPlaceholder
             key={`scan-${item.item_key}`}
-            placeholderLabel={item.media_type.toUpperCase()}
+            placeholderLabel={formatLibraryMediaTypeLabel(item.media_type, l)}
             posterPath={item.poster_path ?? item.backdrop_path}
-            progressPercent={item.progress_percent}
+            progressLabel={formatScanItemCardProgressLabel(item)}
+            progressPercent={getScanItemCardProgressPercent(item)}
             progressText={formatScanItemCardSummary(item)}
             subtitle={formatLibraryScanItemSubtitle(item)}
             title={item.title}
@@ -153,12 +159,16 @@ export const LibraryPage = () => {
   const otherItems = mediaItems.filter((item) => getLibraryMediaSection(item) === 'other')
   const visibleScanItems = scanItems.filter((item) => getLibraryScanSection(item) !== null)
   const movieScanItems = visibleScanItems.filter((item) => getLibraryScanSection(item) === 'movies')
-  const seriesScanItems = visibleScanItems.filter((item) => getLibraryScanSection(item) === 'series')
+  const seriesScanItems = visibleScanItems.filter(
+    (item) => getLibraryScanSection(item) === 'series',
+  )
   const otherScanItems = visibleScanItems.filter((item) => getLibraryScanSection(item) === 'other')
   const shouldShowMediaSkeleton =
     mediaItemsQuery.isLoading && mediaItems.length === 0 && visibleScanItems.length === 0
   const isScanning = isLibraryScanActive(currentScan, currentScanRuntime)
-  const detectedMovieCount = mediaItemsQuery.data ? movieItems.length : (currentLibrary?.movie_count ?? 0)
+  const detectedMovieCount = mediaItemsQuery.data
+    ? movieItems.length
+    : (currentLibrary?.movie_count ?? 0)
   const detectedSeriesCount = mediaItemsQuery.data
     ? seriesItems.length
     : (currentLibrary?.series_count ?? 0)
@@ -266,16 +276,8 @@ export const LibraryPage = () => {
 
         {!shouldShowMediaSkeleton && (mediaItems.length > 0 || visibleScanItems.length > 0) ? (
           <div className="catalog-stack">
-            <MediaSection
-              items={movieItems}
-              scanItems={movieScanItems}
-              title={l('Movies')}
-            />
-            <MediaSection
-              items={seriesItems}
-              scanItems={seriesScanItems}
-              title={l('Series')}
-            />
+            <MediaSection items={movieItems} scanItems={movieScanItems} title={l('Movies')} />
+            <MediaSection items={seriesItems} scanItems={seriesScanItems} title={l('Series')} />
             <MediaSection items={otherItems} scanItems={otherScanItems} title={l('Other')} />
           </div>
         ) : null}

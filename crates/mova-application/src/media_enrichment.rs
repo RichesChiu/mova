@@ -901,12 +901,25 @@ fn series_container_metadata_for_episode_path(
 
     let season_directory_index = directories
         .iter()
-        .rposition(|directory| is_season_directory_name(directory))?;
-    if season_directory_index == 0 {
-        return None;
+        .rposition(|directory| is_season_directory_name(directory));
+
+    if let Some(season_directory_index) = season_directory_index {
+        if season_directory_index == 0 {
+            return None;
+        }
+
+        return parse_series_container_directory_metadata(directories[season_directory_index - 1]);
     }
 
-    parse_series_container_directory_metadata(directories[season_directory_index - 1])
+    parse_direct_series_container_directory_metadata(directories.last().copied()?)
+}
+
+fn parse_direct_series_container_directory_metadata(
+    value: &str,
+) -> Option<SeriesContainerMetadata> {
+    let metadata = parse_series_container_directory_metadata(value)?;
+
+    contains_cjk_character(&metadata.title).then_some(metadata)
 }
 
 fn parse_series_container_directory_metadata(value: &str) -> Option<SeriesContainerMetadata> {
@@ -991,6 +1004,10 @@ fn split_lookup_trailing_year_suffix(token: &str) -> Option<(String, i32)> {
     let prefix = characters[..characters.len() - 4]
         .iter()
         .collect::<String>();
+    let prefix = trim_lookup_wrapping_punctuation(&prefix)
+        .trim_matches(is_lookup_separator_char)
+        .trim()
+        .to_string();
 
     if prefix.is_empty() || prefix.chars().all(|ch| ch.is_ascii_digit()) {
         return None;
@@ -1024,6 +1041,21 @@ fn is_lookup_separator_char(ch: char) -> bool {
         ch,
         '-' | '|' | ':' | '：' | '·' | '•' | '~' | '–' | '—' | '/' | '\\'
     )
+}
+
+fn contains_cjk_character(value: &str) -> bool {
+    value.chars().any(|ch| {
+        matches!(
+            ch,
+            '\u{3400}'..='\u{4dbf}'
+                | '\u{4e00}'..='\u{9fff}'
+                | '\u{f900}'..='\u{faff}'
+                | '\u{20000}'..='\u{2a6df}'
+                | '\u{2a700}'..='\u{2b73f}'
+                | '\u{2b740}'..='\u{2b81f}'
+                | '\u{2b820}'..='\u{2ceaf}'
+        )
+    })
 }
 
 fn same_lookup_title(left: &str, right: &str) -> bool {
@@ -1199,6 +1231,17 @@ mod tests {
                 year: None,
             })
         );
+
+        file.file_path = PathBuf::from(
+            "/media/overseas_tv/莎拉的真伪人生(2026)/The.Art.of.Sarah.S01E01.2160p.NF.WEB-DL.DDP.5.1.DV.H.265.mkv",
+        );
+        assert_eq!(
+            series_container_metadata_for_episode_path(&file),
+            Some(super::SeriesContainerMetadata {
+                title: "莎拉的真伪人生".to_string(),
+                year: Some(2026),
+            })
+        );
     }
 
     #[test]
@@ -1248,6 +1291,24 @@ mod tests {
         assert_eq!(lookups[0].year, Some(2025));
         assert_eq!(lookups[1].title, "流氓读书会");
         assert_eq!(lookups[1].year, Some(2025));
+    }
+
+    #[test]
+    fn metadata_lookup_candidates_use_cjk_direct_parent_for_flat_episode_layouts() {
+        let mut file = build_discovered_episode();
+        file.file_path = PathBuf::from(
+            "/media/overseas_tv/莎拉的真伪人生(2026)/The.Art.of.Sarah.S01E01.2160p.NF.WEB-DL.DDP.5.1.DV.H.265.mkv",
+        );
+        file.source_title = "The Art of Sarah".to_string();
+        file.year = Some(2026);
+
+        let lookups = metadata_lookup_candidates("series", &file, "zh-CN");
+
+        assert_eq!(lookups.len(), 2);
+        assert_eq!(lookups[0].title, "The Art of Sarah");
+        assert_eq!(lookups[0].year, Some(2026));
+        assert_eq!(lookups[1].title, "莎拉的真伪人生");
+        assert_eq!(lookups[1].year, Some(2026));
     }
 
     #[test]

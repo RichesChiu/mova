@@ -1,10 +1,12 @@
 import {
   formatPendingScanPlaceholderCopy,
+  formatScanItemCardProgressLabel,
   formatScanItemCardSummary,
   formatScanItemMeta,
   formatScanItemProgressCopy,
   formatScanJobStatusCopy,
   getEffectiveScanJob,
+  getScanItemCardProgressPercent,
   getScanJobProgressPercent,
   getScanRuntimeItems,
   isLibraryScanActive,
@@ -15,9 +17,10 @@ import {
   MediaCardScanPlaceholder,
   MediaCardSkeleton,
 } from '../../../components/media-card'
-import { useI18n } from '../../../i18n'
 import { ScrollableRail } from '../../../components/scrollable-rail'
 import { SectionHelp } from '../../../components/section-help'
+import { useI18n } from '../../../i18n'
+import { formatLibraryMediaTypeLabel } from '../../../lib/media-type-label'
 import type { HomeLibraryModuleData } from '../types'
 
 interface LibraryContentSectionsProps {
@@ -62,10 +65,7 @@ export const LibraryContentSections = ({
   <LibraryContentSectionsBody isLoading={isLoading} libraryModules={libraryModules} />
 )
 
-const LibraryContentSectionsBody = ({
-  isLoading,
-  libraryModules,
-}: LibraryContentSectionsProps) => {
+const LibraryContentSectionsBody = ({ isLoading, libraryModules }: LibraryContentSectionsProps) => {
   const { l } = useI18n()
 
   return (
@@ -84,118 +84,121 @@ const LibraryContentSectionsBody = ({
               shelfItems,
               shelfLoading,
             }) => {
-            const effectiveScanJob = getEffectiveScanJob(detail?.last_scan, scanRuntime)
-            const isScanning = isLibraryScanActive(effectiveScanJob, scanRuntime)
-            const showScanPlaceholder = shouldShowScanPlaceholder(detail?.last_scan, scanRuntime)
-            const scanItems = showScanPlaceholder ? getScanRuntimeItems(scanRuntime) : []
-            const currentScanItem = scanItems[0] ?? null
-            const scanCopy =
-              formatScanJobStatusCopy(effectiveScanJob, scanRuntime) ??
-              (detailLoading ? l('Syncing library state') : null)
-            const scanProgressPercent = getScanJobProgressPercent(effectiveScanJob, scanRuntime)
+              const effectiveScanJob = getEffectiveScanJob(detail?.last_scan, scanRuntime)
+              const isScanning = isLibraryScanActive(effectiveScanJob, scanRuntime)
+              const showScanPlaceholder = shouldShowScanPlaceholder(detail?.last_scan, scanRuntime)
+              const scanItems = showScanPlaceholder ? getScanRuntimeItems(scanRuntime) : []
+              const currentScanItem = scanItems[0] ?? null
+              const scanCopy =
+                formatScanJobStatusCopy(effectiveScanJob, scanRuntime) ??
+                (detailLoading ? l('Syncing library state') : null)
+              const scanProgressPercent = getScanJobProgressPercent(effectiveScanJob, scanRuntime)
 
-            return (
-              <section className="catalog-block library-content-sections__block" key={library.id}>
-                <div className="catalog-block__header">
-                  <div className="catalog-block__title-row">
-                    <h3>{library.name}</h3>
-                    <SectionHelp
-                      detail={l(
-                        'This shelf shows a quick preview from the library.',
-                      )}
-                      placement="bottom"
-                      title={l('About {{name}}', { name: library.name })}
-                    />
+              return (
+                <section className="catalog-block library-content-sections__block" key={library.id}>
+                  <div className="catalog-block__header">
+                    <div className="catalog-block__title-row">
+                      <h3>{library.name}</h3>
+                      <SectionHelp
+                        detail={l('This shelf shows a quick preview from the library.')}
+                        placement="bottom"
+                        title={l('About {{name}}', { name: library.name })}
+                      />
+                    </div>
                   </div>
-                </div>
 
-                {currentScanItem ? (
-                  <p className="muted">
-                    {formatScanItemProgressCopy(currentScanItem)}
-                    {scanItems.length > 1
-                      ? ` · ${l('{{count}} new items discovered', { count: scanItems.length })}`
-                      : null}
-                  </p>
-                ) : scanCopy ? (
-                  <p className="muted">{scanCopy}</p>
-                ) : null}
-                {shelfLoading ? <p className="muted">{l('Loading library shelf…')}</p> : null}
-                {shelfError ? (
-                  <p className="callout callout--danger">{shelfError.message}</p>
-                ) : null}
+                  {currentScanItem ? (
+                    <p className="muted">
+                      {formatScanItemProgressCopy(currentScanItem)}
+                      {scanItems.length > 1
+                        ? ` · ${l('{{count}} new items discovered', { count: scanItems.length })}`
+                        : null}
+                    </p>
+                  ) : scanCopy ? (
+                    <p className="muted">{scanCopy}</p>
+                  ) : null}
+                  {shelfLoading ? <p className="muted">{l('Loading library shelf…')}</p> : null}
+                  {shelfError ? (
+                    <p className="callout callout--danger">{shelfError.message}</p>
+                  ) : null}
 
-                {!shelfLoading && !shelfError && shelfItems.length === 0 && !showScanPlaceholder ? (
-                  <div className="catalog-block__empty">
-                    <p className="muted">{l('No items yet.')}</p>
-                  </div>
-                ) : null}
+                  {!shelfLoading &&
+                  !shelfError &&
+                  shelfItems.length === 0 &&
+                  !showScanPlaceholder ? (
+                    <div className="catalog-block__empty">
+                      <p className="muted">{l('No items yet.')}</p>
+                    </div>
+                  ) : null}
 
-                {shelfLoading && shelfItems.length === 0 && !showScanPlaceholder ? (
-                  <ScrollableRail
-                    hint={l('Scroll horizontally.')}
-                    viewportClassName="library-content-sections__viewport"
-                  >
-                    {SHELF_SKELETON_KEYS.slice(0, SHELF_SKELETON_COUNT).map((key) => (
-                      <div className="library-content-sections__item" key={`${library.id}-${key}`}>
-                        <MediaCardSkeleton />
-                      </div>
-                    ))}
-                  </ScrollableRail>
-                ) : null}
+                  {shelfLoading && shelfItems.length === 0 && !showScanPlaceholder ? (
+                    <ScrollableRail
+                      hint={l('Scroll horizontally.')}
+                      viewportClassName="library-content-sections__viewport"
+                    >
+                      {SHELF_SKELETON_KEYS.slice(0, SHELF_SKELETON_COUNT).map((key) => (
+                        <div
+                          className="library-content-sections__item"
+                          key={`${library.id}-${key}`}
+                        >
+                          <MediaCardSkeleton />
+                        </div>
+                      ))}
+                    </ScrollableRail>
+                  ) : null}
 
-                {shelfItems.length > 0 || showScanPlaceholder ? (
-                  // Reuse the shared rail so library shelves, continue watching, and episodes all expose
-                  // the same desktop scrolling affordances.
-                  <ScrollableRail
-                    hint={l('Scroll horizontally.')}
-                    viewportClassName="library-content-sections__viewport"
-                  >
-                    {isScanning && scanItems.length === 0 ? (
-                      <div
-                        className="library-content-sections__item"
-                        key={`scan-pending-${library.id}`}
-                      >
-                        <MediaCardScanPlaceholder
-                          placeholderLabel={l('Media')}
-                          progressPercent={scanProgressPercent}
-                          progressText={formatPendingScanPlaceholderCopy(
-                            effectiveScanJob,
-                            scanRuntime,
-                            library.name,
-                          )}
-                          subtitle={l('Library')}
-                          title={library.name}
-                        />
-                      </div>
-                    ) : null}
-                    {scanItems.map((item) => (
-                      <div
-                        className="library-content-sections__item"
-                        key={`scan-${library.id}-${item.item_key}`}
-                      >
-                        <MediaCardScanPlaceholder
-                          placeholderLabel={
-                            item.media_type === 'movie' ? l('Movies') : l('Series')
-                          }
-                          posterPath={item.poster_path ?? item.backdrop_path}
-                          progressPercent={item.progress_percent}
-                          progressText={formatScanItemCardSummary(item)}
-                          subtitle={formatScanItemMeta(item)}
-                          title={item.title}
-                        />
-                      </div>
-                    ))}
-                    {shelfItems.map((item) => (
-                      <div className="library-content-sections__item" key={item.id}>
-                        <MediaCard item={item} />
-                      </div>
-                    ))}
-                  </ScrollableRail>
-                ) : null}
-              </section>
-            )
-          },
-        )}
+                  {shelfItems.length > 0 || showScanPlaceholder ? (
+                    // Reuse the shared rail so library shelves, continue watching, and episodes all expose
+                    // the same desktop scrolling affordances.
+                    <ScrollableRail
+                      hint={l('Scroll horizontally.')}
+                      viewportClassName="library-content-sections__viewport"
+                    >
+                      {isScanning && scanItems.length === 0 ? (
+                        <div
+                          className="library-content-sections__item"
+                          key={`scan-pending-${library.id}`}
+                        >
+                          <MediaCardScanPlaceholder
+                            placeholderLabel={l('Media')}
+                            progressPercent={scanProgressPercent}
+                            progressText={formatPendingScanPlaceholderCopy(
+                              effectiveScanJob,
+                              scanRuntime,
+                              library.name,
+                            )}
+                            subtitle={l('Library')}
+                            title={library.name}
+                          />
+                        </div>
+                      ) : null}
+                      {scanItems.map((item) => (
+                        <div
+                          className="library-content-sections__item"
+                          key={`scan-${library.id}-${item.item_key}`}
+                        >
+                          <MediaCardScanPlaceholder
+                            placeholderLabel={formatLibraryMediaTypeLabel(item.media_type, l)}
+                            posterPath={item.poster_path ?? item.backdrop_path}
+                            progressLabel={formatScanItemCardProgressLabel(item)}
+                            progressPercent={getScanItemCardProgressPercent(item)}
+                            progressText={formatScanItemCardSummary(item)}
+                            subtitle={formatScanItemMeta(item)}
+                            title={item.title}
+                          />
+                        </div>
+                      ))}
+                      {shelfItems.map((item) => (
+                        <div className="library-content-sections__item" key={item.id}>
+                          <MediaCard item={item} />
+                        </div>
+                      ))}
+                    </ScrollableRail>
+                  ) : null}
+                </section>
+              )
+            },
+          )}
     </div>
   )
 }

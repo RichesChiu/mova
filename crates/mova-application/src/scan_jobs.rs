@@ -2038,12 +2038,25 @@ fn localized_series_container_title_for_path(file_path: &std::path::Path) -> Opt
 
     let season_directory_index = directories
         .iter()
-        .rposition(|directory| is_season_directory_name(directory))?;
-    if season_directory_index == 0 {
-        return None;
-    }
+        .rposition(|directory| is_season_directory_name(directory));
+    let directory_title = if let Some(season_directory_index) = season_directory_index {
+        if season_directory_index == 0 {
+            return None;
+        }
 
-    let title = directories[season_directory_index - 1]
+        directories[season_directory_index - 1]
+    } else {
+        let candidate = directories.last().copied()?;
+        let parsed = localized_title_from_container_directory(candidate)?;
+
+        return contains_cjk_character(&parsed).then_some(parsed);
+    };
+
+    localized_title_from_container_directory(directory_title)
+}
+
+fn localized_title_from_container_directory(directory_title: &str) -> Option<String> {
+    let title = directory_title
         .replace(['.', '_', '-', '—', '–'], " ")
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -2110,6 +2123,27 @@ fn split_localized_container_trailing_year(token: &str) -> Option<String> {
     let prefix = characters[..characters.len() - 4]
         .iter()
         .collect::<String>();
+    let prefix = prefix
+        .trim_matches(|ch| {
+            matches!(
+                ch,
+                '(' | ')'
+                    | '['
+                    | ']'
+                    | '{'
+                    | '}'
+                    | '<'
+                    | '>'
+                    | '（'
+                    | '）'
+                    | '【'
+                    | '】'
+                    | '《'
+                    | '》'
+            ) || is_container_separator_char(ch)
+        })
+        .trim()
+        .to_string();
     (!prefix.is_empty() && !prefix.chars().all(|ch| ch.is_ascii_digit())).then_some(prefix)
 }
 
@@ -3195,6 +3229,16 @@ mod tests {
             "zh-CN",
             Path::new(
                 "/media/overseas_tv/都是她的错.2025/Season 01/All.Her.Fault.2025.S01E01.2160p.PCOK.WEB-DL.DDP5.1.H.265-KRATOS.mkv",
+            ),
+        ));
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new(
+                "/media/overseas_tv/莎拉的真伪人生(2026)/The.Art.of.Sarah.S01E01.2160p.NF.WEB-DL.DDP.5.1.DV.H.265.mkv",
             ),
         ));
 

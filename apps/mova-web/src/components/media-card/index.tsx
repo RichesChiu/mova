@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { MediaItem } from '../../api/types'
 import { useI18n } from '../../i18n'
 import { mediaItemPrimaryPath } from '../../lib/media-routes'
+import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
 
 interface MediaCardProps {
   item: MediaItem
@@ -15,6 +16,7 @@ interface MediaCardSkeletonProps {
 
 interface MediaCardScanPlaceholderProps {
   placeholderLabel?: string
+  progressLabel?: string
   posterPath?: string | null
   progressPercent: number
   progressText: string
@@ -26,8 +28,7 @@ export const MediaCard = ({ item, showTypeTag = true }: MediaCardProps) => {
   const { l } = useI18n()
   const title = item.title.trim() || item.source_title.trim() || l('Untitled')
   const subtitle = item.overview ?? item.original_title ?? l('No summary yet')
-  const mediaTypeLabel =
-    item.media_type === 'series' ? l('Series') : item.media_type === 'movie' ? l('Movie') : l('Other')
+  const mediaTypeLabel = formatLibraryMediaTypeLabel(item.media_type, l)
 
   return (
     <Link className="media-card" to={mediaItemPrimaryPath(item)}>
@@ -61,6 +62,7 @@ export const MediaCard = ({ item, showTypeTag = true }: MediaCardProps) => {
 
 export const MediaCardScanPlaceholder = ({
   placeholderLabel = 'MEDIA',
+  progressLabel,
   posterPath,
   progressPercent,
   progressText,
@@ -72,6 +74,7 @@ export const MediaCardScanPlaceholder = ({
     posterPath ? 'loading' : 'idle',
   )
   const clampedProgress = Math.max(0, Math.min(100, progressPercent))
+  const scanProgressLabel = progressLabel ?? l('syncing')
   const shouldRenderPoster = Boolean(posterPath) && posterState !== 'failed'
   const shouldShowPlaceholder = !posterPath || posterState !== 'loaded'
 
@@ -119,7 +122,7 @@ export const MediaCardScanPlaceholder = ({
 
         <div className="media-card__scan">
           <div className="media-card__scan-row">
-            <span className="media-card__scan-copy">{l('syncing')}</span>
+            <span className="media-card__scan-copy">{scanProgressLabel}</span>
             <strong>{clampedProgress}%</strong>
           </div>
           <div aria-hidden="true" className="media-card__scan-track">

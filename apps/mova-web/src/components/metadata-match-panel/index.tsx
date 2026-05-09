@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { ApiError, applyMediaItemMetadataMatch, searchMediaItemMetadata } from '../../api/client'
 import type { MetadataSearchResult } from '../../api/types'
 import { useI18n } from '../../i18n'
+import { formatMediaTypeLabel } from '../../lib/media-type-label'
 
 interface MetadataMatchPanelProps {
   canOpen: boolean
@@ -253,7 +254,7 @@ export const MetadataMatchPanel = ({
                               <img alt={result.title} loading="lazy" src={result.poster_path} />
                             ) : (
                               <div className="media-card__placeholder">
-                                <span>{mediaType}</span>
+                                <span>{formatMediaTypeLabel(mediaType, l)}</span>
                               </div>
                             )}
                           </div>
@@ -268,7 +269,7 @@ export const MetadataMatchPanel = ({
                                   {result.original_title}
                                 </p>
                               ) : null}
-                                <p className="metadata-match-card__overview">
+                              <p className="metadata-match-card__overview">
                                 {result.overview ?? l('No overview available.')}
                               </p>
                             </div>

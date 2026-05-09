@@ -14,13 +14,9 @@
   justify-content: space-between;
   gap: 14px;
   padding: 10px 20px 8px;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--shell-background) 98%, transparent) 0%,
-    color-mix(in srgb, var(--shell-background) 82%, transparent) 68%,
-    transparent 100%
-  );
-  backdrop-filter: blur(18px) saturate(130%);
+  background: var(--content-header-background);
+  box-shadow: var(--content-header-shadow);
+  backdrop-filter: blur(14px) saturate(118%);
 }
 
 .content-header__brand {

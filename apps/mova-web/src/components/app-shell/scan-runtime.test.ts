@@ -4,9 +4,11 @@ import {
   formatFailedScanCopy,
   formatMediaItemScanStatusCopy,
   formatPendingScanPlaceholderCopy,
+  formatScanItemCardProgressLabel,
   formatScanItemProgressCopy,
   formatScanJobStatusCopy,
   getMediaItemScanRuntimeItems,
+  getScanItemCardProgressPercent,
   getScanJobProgressPercent,
   hasFailedLibraryScan,
   isLibraryScanActive,
@@ -118,6 +120,32 @@ describe('scan runtime helpers', () => {
     )
     expect(getScanJobProgressPercent(null, runtime)).toBe(68)
     expect(formatScanItemProgressCopy(runtime.items[0])).toBe('Fetching artwork & overview')
+    expect(formatScanItemCardProgressLabel(runtime.items[0])).toBe('syncing')
+    expect(getScanItemCardProgressPercent(runtime.items[0])).toBe(68)
+  })
+
+  it('keeps completed placeholder cards below full progress until real cards replace them', () => {
+    const item = {
+      scan_job_id: 41,
+      library_id: 7,
+      item_key: '/media/movies/interstellar.mkv',
+      media_type: 'movie',
+      title: 'Interstellar',
+      year: 2014,
+      overview: 'A team travels through a wormhole.',
+      poster_path: null,
+      backdrop_path: null,
+      metadata_status: 'matched',
+      season_number: null,
+      episode_number: null,
+      item_index: 1,
+      total_items: 1,
+      stage: 'completed',
+      progress_percent: 100,
+    }
+
+    expect(formatScanItemCardProgressLabel(item)).toBe('Updating card')
+    expect(getScanItemCardProgressPercent(item)).toBe(96)
   })
 
   it('matches a movie detail against scan runtime items by title and file path', () => {

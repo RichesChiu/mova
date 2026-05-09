@@ -1,5 +1,6 @@
 import type { MediaItem, ScanJob } from '../../api/types'
 import { translateCurrent } from '../../i18n'
+import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
 
 export interface ScanRuntimeItem {
   scan_job_id: number
@@ -265,12 +266,7 @@ export const formatScanItemMeta = (item: ScanRuntimeItem) => {
     return `S${String(item.season_number).padStart(2, '0')} · E${String(item.episode_number).padStart(2, '0')}`
   }
 
-  const typeLabel =
-    item.media_type === 'series'
-      ? translateCurrent('Series')
-      : item.media_type === 'movie'
-        ? translateCurrent('Movie')
-        : translateCurrent('Other')
+  const typeLabel = formatLibraryMediaTypeLabel(item.media_type, translateCurrent)
 
   return item.year ? `${typeLabel} · ${item.year}` : typeLabel
 }
@@ -287,6 +283,12 @@ export const formatScanItemProgressCopy = (item: ScanRuntimeItem) => {
       return translateCurrent('Fetching metadata')
   }
 }
+
+export const formatScanItemCardProgressLabel = (item: ScanRuntimeItem) =>
+  item.stage === 'completed' ? translateCurrent('Updating card') : translateCurrent('syncing')
+
+export const getScanItemCardProgressPercent = (item: ScanRuntimeItem) =>
+  item.stage === 'completed' ? Math.min(96, item.progress_percent) : item.progress_percent
 
 export const formatScanItemCardSummary = (item: ScanRuntimeItem) =>
   item.stage === 'completed' && item.overview ? item.overview : formatScanItemProgressCopy(item)

@@ -133,7 +133,7 @@
 }
 
 .detail-hero__technical-badges {
-  justify-content: center;
+  justify-content: flex-start;
 }
 
 .detail-hero__rating-badge {
@@ -196,8 +196,25 @@
 
 .detail-hero__facts {
   display: flex;
+  align-items: stretch;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.detail-hero__resource-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+}
+
+.detail-hero__availability {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 .detail-hero__season-picker {
