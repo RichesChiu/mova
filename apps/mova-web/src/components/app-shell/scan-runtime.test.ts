@@ -62,6 +62,16 @@ describe('scan runtime helpers', () => {
         }),
       }),
     ).toBe('Discovered 13 files')
+
+    expect(
+      formatScanJobStatusCopy(null, {
+        ...runtime,
+        scanJob: buildScanJob({
+          total_files: 791,
+          scanned_files: 791,
+        }),
+      }),
+    ).toBe('Discovered 791 files')
   })
 
   it('shows local analysis copy before metadata enrichment starts', () => {

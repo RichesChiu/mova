@@ -91,7 +91,7 @@ export const formatScanJobStatusCopy = (
             })
       }
       return effectiveScanJob.total_files > 0 &&
-        effectiveScanJob.scanned_files <= effectiveScanJob.total_files
+        effectiveScanJob.scanned_files < effectiveScanJob.total_files
         ? translateCurrent('Scanning files {{scanned}}/{{total}}', {
             scanned: effectiveScanJob.scanned_files,
             total: effectiveScanJob.total_files,

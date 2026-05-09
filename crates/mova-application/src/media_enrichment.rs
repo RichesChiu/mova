@@ -687,29 +687,7 @@ fn metadata_lookup_candidates(
         }
     }
 
-    prioritize_localized_lookup_candidates(&mut candidates, metadata_language);
     candidates
-}
-
-fn prioritize_localized_lookup_candidates(
-    candidates: &mut [MetadataLookup],
-    metadata_language: &str,
-) {
-    if !metadata_language
-        .trim()
-        .to_ascii_lowercase()
-        .starts_with("zh")
-    {
-        return;
-    }
-
-    candidates.sort_by_key(|candidate| {
-        if contains_cjk_character(&candidate.title) {
-            0
-        } else {
-            1
-        }
-    });
 }
 
 fn push_metadata_lookup_candidate(
@@ -907,21 +885,6 @@ fn normalize_lookup_title(value: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn contains_cjk_character(value: &str) -> bool {
-    value.chars().any(|ch| {
-        matches!(
-            ch,
-            '\u{3400}'..='\u{4dbf}'
-                | '\u{4e00}'..='\u{9fff}'
-                | '\u{f900}'..='\u{faff}'
-                | '\u{20000}'..='\u{2a6df}'
-                | '\u{2a700}'..='\u{2b73f}'
-                | '\u{2b740}'..='\u{2b81f}'
-                | '\u{2b820}'..='\u{2ceaf}'
-        )
-    })
-}
-
 fn is_series_variant_directory_name(name: &str) -> bool {
     let normalized = normalize_lookup_title(name);
 
@@ -1091,7 +1054,7 @@ mod tests {
     }
 
     #[test]
-    fn metadata_lookup_candidates_prefer_chinese_container_title_for_chinese_libraries() {
+    fn metadata_lookup_candidates_keep_file_title_first_for_chinese_libraries() {
         let mut file = build_discovered_episode();
         file.file_path = PathBuf::from(
             "/media/overseas_tv/都是她的错.2025/Season 01/All.Her.Fault.2025.S01E01.2160p.PCOK.WEB-DL.DDP5.1.H.265-KRATOS.mkv",
@@ -1102,9 +1065,9 @@ mod tests {
         let lookups = metadata_lookup_candidates("series", &file, "zh-CN");
 
         assert_eq!(lookups.len(), 2);
-        assert_eq!(lookups[0].title, "都是她的错");
+        assert_eq!(lookups[0].title, "All Her Fault");
         assert_eq!(lookups[0].year, Some(2025));
-        assert_eq!(lookups[1].title, "All Her Fault");
+        assert_eq!(lookups[1].title, "都是她的错");
         assert_eq!(lookups[1].year, Some(2025));
     }
 
@@ -1120,9 +1083,9 @@ mod tests {
         let lookups = metadata_lookup_candidates("series", &file, "zh-CN");
 
         assert_eq!(lookups.len(), 2);
-        assert_eq!(lookups[0].title, "流氓读书会");
+        assert_eq!(lookups[0].title, "Study Group");
         assert_eq!(lookups[0].year, Some(2025));
-        assert_eq!(lookups[1].title, "Study Group");
+        assert_eq!(lookups[1].title, "流氓读书会");
         assert_eq!(lookups[1].year, Some(2025));
     }
 

@@ -37,6 +37,18 @@
   - 旧数据库是否可以平滑迁移
   - 还是需要重建数据库 / 清理数据目录
 
+## 构建与发布
+
+- 当用户在本仓库中说“构建且发布”“构建并发布”或“发布镜像”时，默认含义是：使用当前工作区代码构建多架构 Docker 镜像并推送到 Docker Hub。
+- 默认发布镜像为 `richeschiu/mova:latest`。
+- 默认构建命令为：
+  `docker buildx build --platform linux/amd64,linux/arm64 -f apps/mova-server/Dockerfile -t richeschiu/mova:latest --push .`
+- 发布完成后，必须运行：
+  `docker buildx imagetools inspect richeschiu/mova:latest`
+- 最终说明里要写清楚镜像 digest、已发布平台，以及当前未提交改动是否已经被包含进镜像。
+- “构建且发布”本身视为用户对推送镜像的明确授权；如果用户只说“构建”或表达不明确，只构建或先确认，不要擅自推送。
+- 构建发布不等于提交代码；除非用户同时要求提交，否则不要自动 commit。
+
 ## 当前版本阶段
 
 - 当前版本尚未进入 `1.0`，仍处于 pre-1.0 快速迭代阶段。

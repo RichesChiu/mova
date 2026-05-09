@@ -272,6 +272,13 @@ describe('settings admin helpers', () => {
     expect(
       getScanStatusSummary({
         ...scanJob,
+        total_files: 791,
+        scanned_files: 791,
+      }),
+    ).toBe('Discovered 791 files.')
+    expect(
+      getScanStatusSummary({
+        ...scanJob,
         total_files: 0,
         scanned_files: 169,
       }),
