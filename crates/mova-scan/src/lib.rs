@@ -8,7 +8,7 @@ pub use discover::{
     discover_media_file_inventory_with_progress_and_cancel, discover_media_files,
     discover_media_files_with_progress, discover_media_files_with_progress_and_cancel,
     discover_media_files_with_progress_item_and_cancel, discover_media_paths, inspect_media_file,
-    inspect_media_file_inventory,
+    inspect_media_file_inventory, inspect_media_file_inventory_shallow,
 };
 pub use parse::{infer_series_file_metadata, is_likely_episode_path, SeriesFileMetadata};
 

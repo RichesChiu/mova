@@ -1,6 +1,6 @@
 use crate::{
-    parse::{extension_lowercase, parse_media_metadata},
-    probe::{probe_media_file, ProbeAvailability},
+    parse::{extension_lowercase, parse_media_metadata, parse_media_metadata_without_sidecar},
+    probe::{probe_media_file, MediaProbe, ProbeAvailability},
     subtitle::discover_subtitle_tracks,
     DiscoveredAudioTrack, DiscoveredMediaFile, DiscoveredMediaFileInventory,
 };
@@ -131,6 +131,13 @@ pub fn inspect_media_file_inventory(
         inventory,
         &mut probe_availability,
     ))
+}
+
+/// 只做文件名/路径轻量解析，不读取 sidecar、不调用 ffprobe。
+pub fn inspect_media_file_inventory_shallow(
+    inventory: DiscoveredMediaFileInventory,
+) -> io::Result<DiscoveredMediaFile> {
+    Ok(build_discovered_media_file_without_probe(inventory))
 }
 
 fn visit_dir<F>(
@@ -267,9 +274,34 @@ fn build_discovered_media_file(
     inventory: DiscoveredMediaFileInventory,
     probe_availability: &mut ProbeAvailability,
 ) -> DiscoveredMediaFile {
-    let path = inventory.file_path;
+    let path = inventory.file_path.clone();
     let parsed = parse_media_metadata(&path);
     let probe = probe_media_file(&path, probe_availability);
+
+    build_discovered_media_file_from_parts(inventory, parsed, probe, true)
+}
+
+fn build_discovered_media_file_without_probe(
+    inventory: DiscoveredMediaFileInventory,
+) -> DiscoveredMediaFile {
+    let path = inventory.file_path.clone();
+    let parsed = parse_media_metadata_without_sidecar(&path);
+
+    build_discovered_media_file_from_parts(inventory, parsed, MediaProbe::default(), false)
+}
+
+fn build_discovered_media_file_from_parts(
+    inventory: DiscoveredMediaFileInventory,
+    parsed: crate::parse::ParsedMediaMetadata,
+    probe: MediaProbe,
+    discover_sidecar_subtitles: bool,
+) -> DiscoveredMediaFile {
+    let path = inventory.file_path;
+    let subtitle_tracks = if discover_sidecar_subtitles {
+        discover_subtitle_tracks(&path, &probe.subtitle_streams)
+    } else {
+        Vec::new()
+    };
 
     DiscoveredMediaFile {
         file_modified_at_ms: inventory.file_modified_at_ms,
@@ -335,7 +367,7 @@ fn build_discovered_media_file(
                 is_default: audio.is_default,
             })
             .collect(),
-        subtitle_tracks: discover_subtitle_tracks(&path, &probe.subtitle_streams),
+        subtitle_tracks,
         file_path: path,
         file_size: inventory.file_size,
     }

@@ -104,6 +104,35 @@ pub(crate) fn parse_media_metadata(path: &Path) -> ParsedMediaMetadata {
     }
 }
 
+pub(crate) fn parse_media_metadata_without_sidecar(path: &Path) -> ParsedMediaMetadata {
+    let parsed_name = parse_media_name(path);
+    let episode_identity = parse_episode_identity(path);
+
+    ParsedMediaMetadata {
+        title: parsed_name.title.clone(),
+        source_title: parsed_name.title,
+        original_title: None,
+        sort_title: None,
+        year: parsed_name.year,
+        season_number: episode_identity
+            .as_ref()
+            .map(|identity| identity.season_number),
+        season_title: None,
+        season_overview: None,
+        season_poster_path: None,
+        season_backdrop_path: None,
+        episode_number: episode_identity
+            .as_ref()
+            .map(|identity| identity.episode_number),
+        episode_title: episode_identity.and_then(|identity| identity.episode_title),
+        overview: None,
+        series_poster_path: None,
+        series_backdrop_path: None,
+        poster_path: None,
+        backdrop_path: None,
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct ParsedNameMetadata {
     title: String,

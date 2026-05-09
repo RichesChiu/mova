@@ -117,15 +117,26 @@ struct ScanDiscoveredGroup {
 }
 
 #[derive(Debug)]
+struct PendingScanGroup {
+    files: Vec<IncrementalScanFile>,
+}
+
+#[derive(Debug)]
 struct IncrementalScanPlan {
     discovered_paths: Vec<String>,
     changed_files: Vec<IncrementalScanFile>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct IncrementalScanFile {
     inventory: DiscoveredMediaFileInventory,
     existing_metadata: Option<mova_db::ExistingMediaMetadataSummary>,
+}
+
+#[derive(Debug)]
+struct PendingScanFile {
+    changed_file: IncrementalScanFile,
+    file: DiscoveredMediaFile,
 }
 
 #[derive(Debug, Clone)]
@@ -477,8 +488,42 @@ pub async fn execute_scan_job_with_cancellation(
     )
     .await;
 
-    let discovered_groups = match analyze_incremental_scan_files(&library, changed_files).await {
+    let pending_groups = match build_pending_scan_groups(&library, changed_files).await {
         Ok(groups) => groups,
+        Err(error) => {
+            if let Some(scan_job) = finalize_failed_scan(
+                pool,
+                scan_job_id,
+                total_files,
+                0,
+                &format_scan_phase_error(
+                    SCAN_PHASE_ANALYZING,
+                    format!("Failed to analyze changed media files: {}", error),
+                ),
+            )
+            .await
+            {
+                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                    scan_job,
+                    SCAN_PHASE_FINISHED,
+                )));
+            }
+
+            return Err(error);
+        }
+    };
+
+    let (discovered_groups, mut sync_outcome) = match analyze_pending_scan_groups(
+        pool,
+        &library,
+        scan_job_id,
+        pending_groups,
+        cancellation_flag.clone(),
+        event_listener.clone(),
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
         Err(error) => {
             if let Some(scan_job) = finalize_failed_scan(
                 pool,
@@ -510,7 +555,7 @@ pub async fn execute_scan_job_with_cancellation(
     )
     .await;
 
-    let mut sync_outcome = match enrich_discovered_groups(
+    let enriched_sync_outcome = match enrich_discovered_groups(
         pool,
         &library,
         scan_job_id,
@@ -544,6 +589,7 @@ pub async fn execute_scan_job_with_cancellation(
             return Err(error);
         }
     };
+    merge_sync_outcome(&mut sync_outcome, enriched_sync_outcome);
 
     if is_cancelled(&cancellation_flag) {
         if let Some(scan_job) =
@@ -616,16 +662,96 @@ pub async fn execute_scan_job_with_cancellation(
     }
 }
 
-async fn analyze_incremental_scan_files(
+async fn build_pending_scan_groups(
     library: &Library,
     changed_files: Vec<IncrementalScanFile>,
-) -> ApplicationResult<Vec<ScanDiscoveredGroup>> {
-    let discovered_files = inspect_incremental_scan_files(changed_files).await?;
-    let mut groups = group_discovered_files_for_scan(library, discovered_files);
+) -> ApplicationResult<Vec<PendingScanGroup>> {
+    let pending_files = inspect_incremental_scan_files_shallow(changed_files).await?;
 
-    prepare_scan_groups_for_metadata_lookup(&mut groups);
+    Ok(build_pending_scan_groups_from_files(library, pending_files))
+}
 
-    Ok(groups)
+fn build_pending_scan_groups_from_files(
+    library: &Library,
+    pending_files: Vec<PendingScanFile>,
+) -> Vec<PendingScanGroup> {
+    let mut changed_files_by_path = HashMap::new();
+    let mut shallow_files = Vec::with_capacity(pending_files.len());
+
+    for pending_file in pending_files {
+        let file_path = pending_file.file.file_path.to_string_lossy().to_string();
+        shallow_files.push(pending_file.file);
+        changed_files_by_path.insert(file_path, pending_file.changed_file);
+    }
+
+    let groups = group_discovered_files_for_scan(library, shallow_files);
+    let mut pending_groups = Vec::with_capacity(groups.len());
+
+    for group in groups {
+        let mut group_files = Vec::with_capacity(group.files.len());
+
+        for file in group.files {
+            let file_path = file.file_path.to_string_lossy().to_string();
+            if let Some(changed_file) = changed_files_by_path.remove(file_path.as_str()) {
+                group_files.push(changed_file);
+            }
+        }
+
+        if group_files.is_empty() {
+            continue;
+        }
+
+        pending_groups.push(PendingScanGroup { files: group_files });
+    }
+
+    pending_groups
+}
+
+async fn analyze_pending_scan_groups(
+    pool: &PgPool,
+    library: &Library,
+    scan_job_id: i64,
+    pending_groups: Vec<PendingScanGroup>,
+    cancellation_flag: Arc<AtomicBool>,
+    event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
+) -> ApplicationResult<(
+    Vec<ScanDiscoveredGroup>,
+    mova_db::SyncLibraryMediaBestEffortOutcome,
+)> {
+    let total_items = i32::try_from(pending_groups.len()).unwrap_or(i32::MAX);
+    let mut discovered_groups = Vec::new();
+    let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
+
+    for pending_group in pending_groups {
+        if is_cancelled(&cancellation_flag) {
+            break;
+        }
+
+        let discovered_files = inspect_incremental_scan_files(pending_group.files).await?;
+        let mut groups = group_discovered_files_for_scan(library, discovered_files);
+
+        prepare_scan_groups_for_metadata_lookup(&mut groups);
+
+        for group in groups {
+            let item_index = i32::try_from(discovered_groups.len() + 1).unwrap_or(i32::MAX);
+            let group_outcome = sync_scan_group_media_entries(pool, library, &group).await?;
+            merge_sync_outcome(&mut sync_outcome, group_outcome);
+
+            event_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
+                scan_job_id,
+                library.id,
+                &group.presentation,
+                group.files.first(),
+                item_index,
+                total_items.max(item_index),
+                ScanItemStage::Discovered,
+            )));
+
+            discovered_groups.push(group);
+        }
+    }
+
+    Ok((discovered_groups, sync_outcome))
 }
 
 fn prepare_scan_groups_for_metadata_lookup(groups: &mut [ScanDiscoveredGroup]) {
@@ -661,17 +787,6 @@ async fn enrich_discovered_groups(
     );
     let total_items = i32::try_from(groups.len()).unwrap_or(i32::MAX);
     let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
-
-    emit_analyzed_scan_groups(
-        scan_job_id,
-        library.id,
-        &groups,
-        cancellation_flag.clone(),
-        event_listener.clone(),
-    );
-
-    let analyzed_sync_outcome = sync_analyzed_scan_groups(pool, library, &groups).await?;
-    merge_sync_outcome(&mut sync_outcome, analyzed_sync_outcome);
 
     for (index, group) in groups.iter_mut().enumerate() {
         if is_cancelled(&cancellation_flag) {
@@ -768,49 +883,6 @@ async fn enrich_discovered_groups(
     }
 
     Ok(sync_outcome)
-}
-
-async fn sync_analyzed_scan_groups(
-    pool: &PgPool,
-    library: &Library,
-    groups: &[ScanDiscoveredGroup],
-) -> ApplicationResult<mova_db::SyncLibraryMediaBestEffortOutcome> {
-    let mut outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
-
-    for group in groups {
-        let group_outcome = sync_scan_group_media_entries(pool, library, group).await?;
-        merge_sync_outcome(&mut outcome, group_outcome);
-    }
-
-    Ok(outcome)
-}
-
-fn emit_analyzed_scan_groups(
-    scan_job_id: i64,
-    library_id: i64,
-    groups: &[ScanDiscoveredGroup],
-    cancellation_flag: Arc<AtomicBool>,
-    event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
-) {
-    let total_items = i32::try_from(groups.len()).unwrap_or(i32::MAX);
-
-    for (index, group) in groups.iter().enumerate() {
-        if is_cancelled(&cancellation_flag) {
-            break;
-        }
-
-        let item_index = i32::try_from(index + 1).unwrap_or(i32::MAX);
-
-        event_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
-            scan_job_id,
-            library_id,
-            &group.presentation,
-            None,
-            item_index,
-            total_items,
-            ScanItemStage::Discovered,
-        )));
-    }
 }
 
 async fn sync_scan_group_media_entries(
@@ -1398,6 +1470,38 @@ async fn inspect_incremental_scan_files(
     .map_err(|error| {
         ApplicationError::Unexpected(anyhow::anyhow!(
             "The changed media inspection worker exited unexpectedly: {}",
+            error
+        ))
+    })?
+}
+
+async fn inspect_incremental_scan_files_shallow(
+    changed_files: Vec<IncrementalScanFile>,
+) -> ApplicationResult<Vec<PendingScanFile>> {
+    tokio::task::spawn_blocking(move || {
+        let mut pending_files = Vec::with_capacity(changed_files.len());
+
+        for changed_file in changed_files {
+            let file_path = changed_file.inventory.file_path.display().to_string();
+            let file =
+                mova_scan::inspect_media_file_inventory_shallow(changed_file.inventory.clone())
+                    .map_err(|error| {
+                        ApplicationError::Unexpected(anyhow::anyhow!(
+                            "Unable to inspect changed media file {}: {}",
+                            file_path,
+                            error
+                        ))
+                    })?;
+
+            pending_files.push(PendingScanFile { changed_file, file });
+        }
+
+        Ok(pending_files)
+    })
+    .await
+    .map_err(|error| {
+        ApplicationError::Unexpected(anyhow::anyhow!(
+            "The shallow media inspection worker exited unexpectedly: {}",
             error
         ))
     })?
@@ -2670,6 +2774,20 @@ mod tests {
         }
     }
 
+    fn build_pending_scan_file(file: DiscoveredMediaFile) -> super::PendingScanFile {
+        super::PendingScanFile {
+            changed_file: super::IncrementalScanFile {
+                inventory: DiscoveredMediaFileInventory {
+                    file_path: file.file_path.clone(),
+                    file_size: file.file_size,
+                    file_modified_at_ms: file.file_modified_at_ms,
+                },
+                existing_metadata: None,
+            },
+            file,
+        }
+    }
+
     #[derive(Debug, Clone)]
     struct FixedDetectionProvider {
         enabled: bool,
@@ -3471,6 +3589,71 @@ mod tests {
         assert_eq!(entries[0].source_title, "Alls Fair");
         assert_eq!(entries[0].original_title.as_deref(), Some("All's Fair"));
         assert_eq!(entries[0].year, Some(2025));
+    }
+
+    #[test]
+    fn build_pending_scan_groups_groups_series_before_full_inspection() {
+        let mut first_file = build_discovered_file();
+        first_file.file_path = PathBuf::from(
+            "/media/overseas_tv/All's Fair (2025)/Season 01/Alls Fair (2025) - S01E01.mkv",
+        );
+        first_file.title = "Alls Fair (2025)".to_string();
+        first_file.source_title = "Alls Fair".to_string();
+        first_file.year = Some(2025);
+
+        let mut second_file = first_file.clone();
+        second_file.file_path = PathBuf::from(
+            "/media/overseas_tv/All's Fair (2025)/Season 01/Alls Fair (2025) - S01E02.mkv",
+        );
+        second_file.episode_number = Some(2);
+
+        let groups = super::build_pending_scan_groups_from_files(
+            &build_library(LIBRARY_TYPE_MIXED),
+            vec![
+                build_pending_scan_file(first_file),
+                build_pending_scan_file(second_file),
+            ],
+        );
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].files.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn inspect_incremental_scan_files_shallow_ignores_stale_existing_titles() {
+        let mut summary = build_existing_episode_metadata();
+        summary.series_title = Some("Wrong Old Title".to_string());
+        summary.series_source_title = Some("Wrong Old Title".to_string());
+        summary.title = "Wrong Old Episode".to_string();
+        summary.source_title = "Wrong Old Episode".to_string();
+
+        let pending_files = super::inspect_incremental_scan_files_shallow(vec![
+            super::IncrementalScanFile {
+                inventory: DiscoveredMediaFileInventory {
+                    file_path: PathBuf::from(
+                        "/media/overseas_tv/All's Fair (2025)/Season 01/Alls Fair (2025) - S01E01.mkv",
+                    ),
+                    file_size: 2048,
+                    file_modified_at_ms: Some(1_700_000_000_000),
+                },
+                existing_metadata: Some(summary),
+            },
+        ])
+        .await
+        .expect("shallow inspection should parse without touching the filesystem");
+
+        assert_eq!(pending_files.len(), 1);
+        assert_eq!(pending_files[0].file.title, "Alls Fair");
+        assert_eq!(pending_files[0].file.source_title, "Alls Fair");
+        assert_eq!(pending_files[0].file.year, Some(2025));
+        assert_eq!(
+            pending_files[0]
+                .changed_file
+                .existing_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.series_title.as_deref()),
+            Some("Wrong Old Title")
+        );
     }
 
     #[test]
