@@ -39,10 +39,12 @@
 
 ## 构建与发布
 
-- 当用户在本仓库中说“构建且发布”“构建并发布”或“发布镜像”时，默认含义是：使用当前工作区代码构建多架构 Docker 镜像并推送到 Docker Hub。
+- 当用户在本仓库中说“构建且发布”“构建并发布”或“发布镜像”时，默认含义是：使用当前工作区代码构建测试期 Docker 镜像并推送到 Docker Hub。
 - 默认发布镜像为 `richeschiu/mova:latest`。
 - 默认构建命令为：
-  `docker buildx build --platform linux/amd64,linux/arm64 -f apps/mova-server/Dockerfile -t richeschiu/mova:latest --push .`
+  `docker buildx build --platform linux/amd64 -f apps/mova-server/Dockerfile -t richeschiu/mova:latest --push .`
+- 当前测试期默认只发布 `linux/amd64`，暂不主动兼容 `linux/arm64`；只有用户明确要求多架构时，才追加 `linux/arm64`。
+- 这条命令固定从仓库根目录执行；不要因为上下文丢失再搜索 Dockerfile 或 compose 文件位置，除非该命令实际失败且错误明确指向路径变更。
 - 发布完成后，必须运行：
   `docker buildx imagetools inspect richeschiu/mova:latest`
 - 最终说明里要写清楚镜像 digest、已发布平台，以及当前未提交改动是否已经被包含进镜像。
