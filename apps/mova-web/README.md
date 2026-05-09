@@ -255,10 +255,16 @@ MOVA_API_PROXY_TARGET=http://127.0.0.1:36080 pnpm dev
 根目录执行：
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-构建后的前端静态文件会进入 `mova-server` 镜像，由后端直接托管；运行时继续走同域 `/api/*`。
+默认部署直接运行已发布的 `richeschiu/mova:latest` 镜像；本地没有镜像时 `docker compose up -d` 会自动拉取，是否升级到最新镜像由用户自己通过 `docker compose pull` 决定。前端静态文件已经包含在镜像内，由后端直接托管，运行时继续走同域 `/api/*`。
+
+如果要在本机从源码重新构建镜像，执行：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
 
 如果你要看项目入口、部署和升级说明，见 [`../../README.md`](../../README.md)。
 

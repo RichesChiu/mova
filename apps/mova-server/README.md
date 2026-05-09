@@ -253,7 +253,9 @@ Web 端：
 
 ## 7. 测试与验证
 
-Docker 镜像构建时，前端阶段使用 `richeschiu/mova-web-build-base:node24-pnpm11`，Rust builder 阶段使用 `richeschiu/mova-rust-build-base:1-bookworm`，runtime 阶段使用 `richeschiu/mova-runtime-base:bookworm-ffmpeg-python3`。这些基础镜像提前内置 pnpm、Rust toolchain、ffmpeg、Python 和 runtime 证书依赖，减少每次 `docker compose up -d --build` 时重复访问上游镜像与 apt/npm 源。
+默认部署时，`docker-compose.yml` 直接运行已发布的 `richeschiu/mova:latest`，不会在部署机器上从源码构建镜像。本地没有镜像时，`docker compose up -d` 会自动拉取；是否升级到最新发布镜像由用户自己通过 `docker compose pull` 决定。需要本地源码构建时，使用 `docker-compose.build.yml` 覆盖默认服务。
+
+源码构建时，前端阶段使用 `richeschiu/mova-web-build-base:node24-pnpm11`，Rust builder 阶段使用 `richeschiu/mova-rust-build-base:1-bookworm`，runtime 阶段使用 `richeschiu/mova-runtime-base:bookworm-ffmpeg-python3`。这些基础镜像提前内置 pnpm、Rust toolchain、ffmpeg、Python 和 runtime 证书依赖，减少本地 Docker build 时重复访问上游镜像与 apt/npm 源。
 
 pnpm 11 不再读取 `package.json` 里的 `pnpm` 配置字段，所以 `apps/mova-web/pnpm-workspace.yaml` 通过 `allowBuilds` 批准 `@parcel/watcher`，保证 Docker 非交互安装依赖时不会卡在 `ERR_PNPM_IGNORED_BUILDS`。
 

@@ -65,7 +65,7 @@ HTTPS_PROXY=
 ### 启动
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
 默认地址：
@@ -81,6 +81,12 @@ docker compose up -d --build
 当前仍处于 pre-MVP 开发阶段，数据库 schema 变化时可能需要重建 `data/postgres/`。本次元数据复核状态 schema 写在 `migrations/0001_init.sql`，已有开发数据库拉取后应重建。
 
 媒体目录只读挂载，Mova 不会修改你的原始媒体文件。
+
+默认 Compose 文件会直接运行已发布的 `richeschiu/mova:latest` 镜像，不在部署机器上从源码构建。本地没有镜像时，`docker compose up -d` 会自动拉取；如果你想主动升级到最新发布镜像，自己先执行 `docker compose pull`，再执行 `docker compose up -d`。如果需要本地开发构建，使用：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
 
 ### 首次使用
 

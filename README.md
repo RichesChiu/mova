@@ -67,7 +67,7 @@ HTTPS_PROXY=
 ### Start
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
 Default endpoints:
@@ -83,6 +83,12 @@ After startup, Mova creates two runtime folders:
 During the current pre-MVP development stage, database schema changes can require rebuilding `data/postgres/`. The current metadata review schema is stored in `migrations/0001_init.sql`, so existing development databases should be rebuilt after pulling this change.
 
 Your media folder is mounted read-only. Mova does not modify your original media files.
+
+The default Compose file runs the published `richeschiu/mova:latest` image, so the deployment machine only needs `docker compose up -d` and does not build from source. Compose will pull the image when it is missing locally; when you want to upgrade to the latest published image, run `docker compose pull` yourself before `docker compose up -d`. For local development builds, run:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
 
 ### First Run
 
