@@ -312,8 +312,7 @@ async fn upsert_movie_media_entry(
 ) -> Result<()> {
     let movie_group_title = movie_group_title_for_entry(entry);
     let existing_movie_media_item_id =
-        find_existing_movie_media_item(tx, entry.library_id, &movie_group_title, entry.year)
-            .await?;
+        find_existing_movie_media_item(tx, entry, &movie_group_title).await?;
 
     if let Some(existing) = existing {
         if !existing.media_type.eq_ignore_ascii_case("movie") {
@@ -372,10 +371,40 @@ fn movie_group_title_for_entry(entry: &CreateMediaEntryParams) -> String {
 
 async fn find_existing_movie_media_item(
     tx: &mut Transaction<'_, Postgres>,
-    library_id: i64,
+    entry: &CreateMediaEntryParams,
     source_title: &str,
-    year: Option<i32>,
 ) -> Result<Option<i64>> {
+    if let (Some(provider), Some(provider_item_id)) = (
+        entry.metadata_provider.as_deref(),
+        entry.metadata_provider_item_id,
+    ) {
+        let row = sqlx::query(
+            r#"
+            select id
+            from media_items
+            where library_id = $1
+              and media_type = 'movie'
+              and metadata_provider = $2
+              and metadata_provider_item_id = $3
+            order by
+              case when source_title = $4 then 0 else 1 end,
+              id asc
+            limit 1
+            "#,
+        )
+        .bind(entry.library_id)
+        .bind(provider)
+        .bind(provider_item_id)
+        .bind(source_title)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("failed to find existing movie item by remote metadata id")?;
+
+        if let Some(row) = row {
+            return Ok(Some(row.get("id")));
+        }
+    }
+
     let row = sqlx::query(
         r#"
         select id
@@ -391,9 +420,9 @@ async fn find_existing_movie_media_item(
         limit 1
         "#,
     )
-    .bind(library_id)
+    .bind(entry.library_id)
     .bind(source_title)
-    .bind(year)
+    .bind(entry.year)
     .fetch_optional(&mut **tx)
     .await
     .context("failed to find existing movie item")?;
@@ -1148,6 +1177,77 @@ mod tests {
         ];
 
         sync_library_media(&pool, library.id, &entries)
+            .await
+            .unwrap();
+
+        let movie_media_item_count = sqlx::query_scalar::<_, i64>(
+            "select count(*) from media_items where media_type = 'movie'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let media_file_count = sqlx::query_scalar::<_, i64>("select count(*) from media_files")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let linked_file_count = sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)
+            from media_files
+            where media_item_id = (
+                select id
+                from media_items
+                where media_type = 'movie'
+                limit 1
+            )
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(movie_media_item_count, 1);
+        assert_eq!(media_file_count, 2);
+        assert_eq!(linked_file_count, 2);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn sync_library_media_reuses_one_movie_record_for_same_remote_id(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let library = create_library(
+            &pool,
+            CreateLibraryParams {
+                name: "Movies".to_string(),
+                description: None,
+                metadata_language: "zh-CN".to_string(),
+                root_path: "/media/movies".to_string(),
+                is_enabled: true,
+            },
+        )
+        .await
+        .unwrap();
+
+        let mut first_entry = build_movie_entry(
+            library.id,
+            "/media/movies/Avatar: Fire and Ash/Avatar: Fire and Ash.2025.2160p.mkv",
+        );
+        first_entry.metadata_provider_item_id = Some(999_001);
+        first_entry.title = "阿凡达：火与烬".to_string();
+        first_entry.source_title = "Avatar: Fire and Ash".to_string();
+        first_entry.original_title = Some("Avatar: Fire and Ash".to_string());
+
+        let mut second_entry = build_movie_entry(
+            library.id,
+            "/media/movies/阿凡达.2025/Avatar： Fire and Ash (2025) - 1080p WEB-DL.mkv",
+        );
+        second_entry.metadata_provider_item_id = Some(999_001);
+        second_entry.title = "阿凡达：火与烬".to_string();
+        second_entry.source_title = "Avatar： Fire and Ash".to_string();
+        second_entry.original_title = Some("Avatar: Fire and Ash".to_string());
+
+        sync_library_media(&pool, library.id, &[first_entry, second_entry])
             .await
             .unwrap();
 

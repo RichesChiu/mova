@@ -12,6 +12,7 @@ pub const DEFAULT_TMDB_API_BASE_URL: &str = "https://api.themoviedb.org/3";
 pub const DEFAULT_TMDB_IMAGE_BASE_URL: &str = "https://image.tmdb.org/t/p/original";
 pub const DEFAULT_OMDB_API_BASE_URL: &str = "https://www.omdbapi.com";
 pub const TMDB_PROVIDER_NAME: &str = "tmdb";
+const TMDB_ARTWORK_FALLBACK_LANGUAGE: &str = "en-US";
 const METADATA_PROVIDER_CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
 const METADATA_PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 
@@ -238,6 +239,7 @@ impl TmdbMetadataProvider {
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Option<RemoteMetadata>> {
         let request_language = self.request_language(lookup);
+        let mut search_artwork_fallback = None;
         let movie_id = match lookup.provider_item_id {
             Some(movie_id) => movie_id,
             None => {
@@ -247,11 +249,20 @@ impl TmdbMetadataProvider {
                     return Ok(None);
                 };
 
+                search_artwork_fallback = Some(TmdbArtworkFallback::from_movie_search(best_match));
                 best_match.id
             }
         };
 
         let details = self.fetch_movie_details(movie_id, request_language).await?;
+        let artwork_fallback = self
+            .movie_artwork_fallback(
+                movie_id,
+                request_language,
+                &details,
+                search_artwork_fallback,
+            )
+            .await;
         let imdb_rating = self
             .fetch_imdb_rating(
                 details
@@ -260,7 +271,12 @@ impl TmdbMetadataProvider {
                     .and_then(|external_ids| external_ids.imdb_id.as_deref()),
             )
             .await;
-        Ok(Some(self.map_movie_details(movie_id, details, imdb_rating)))
+        Ok(Some(self.map_movie_details(
+            movie_id,
+            details,
+            imdb_rating,
+            artwork_fallback.as_ref(),
+        )))
     }
 
     async fn search_movie_candidates(
@@ -395,6 +411,45 @@ impl TmdbMetadataProvider {
             .await?;
 
         Ok(details)
+    }
+
+    async fn movie_artwork_fallback(
+        &self,
+        movie_id: i64,
+        request_language: &str,
+        details: &TmdbMovieDetails,
+        mut fallback: Option<TmdbArtworkFallback>,
+    ) -> Option<TmdbArtworkFallback> {
+        if !movie_needs_artwork_fallback(details, fallback.as_ref()) {
+            return fallback;
+        }
+
+        if request_language.eq_ignore_ascii_case(TMDB_ARTWORK_FALLBACK_LANGUAGE) {
+            return fallback;
+        }
+
+        match self
+            .fetch_movie_details(movie_id, TMDB_ARTWORK_FALLBACK_LANGUAGE)
+            .await
+        {
+            Ok(fallback_details) => {
+                let fallback_details = TmdbArtworkFallback::from_movie_details(&fallback_details);
+                match fallback.as_mut() {
+                    Some(existing) => existing.fill_missing(fallback_details),
+                    None => fallback = Some(fallback_details),
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    movie_id,
+                    language = TMDB_ARTWORK_FALLBACK_LANGUAGE,
+                    error = ?error,
+                    "failed to fetch tmdb movie artwork fallback"
+                );
+            }
+        }
+
+        fallback
     }
 
     async fn fetch_tv_details(&self, tv_id: i64, language: &str) -> anyhow::Result<TmdbTvDetails> {
@@ -751,7 +806,19 @@ impl TmdbMetadataProvider {
         movie_id: i64,
         details: TmdbMovieDetails,
         imdb_rating: Option<String>,
+        artwork_fallback: Option<&TmdbArtworkFallback>,
     ) -> RemoteMetadata {
+        let poster_path = details
+            .poster_path
+            .as_deref()
+            .or_else(|| artwork_fallback.and_then(|fallback| fallback.poster_path.as_deref()))
+            .map(|path| self.build_image_url(path));
+        let backdrop_path = details
+            .backdrop_path
+            .as_deref()
+            .or_else(|| artwork_fallback.and_then(|fallback| fallback.backdrop_path.as_deref()))
+            .map(|path| self.build_image_url(path));
+
         RemoteMetadata {
             provider_item_id: Some(movie_id),
             title: empty_to_none(details.title),
@@ -762,14 +829,8 @@ impl TmdbMetadataProvider {
             genres: format_named_items(&details.genres),
             studio: format_named_items(&details.production_companies),
             overview: empty_to_none(details.overview),
-            poster_path: details
-                .poster_path
-                .as_deref()
-                .map(|path| self.build_image_url(path)),
-            backdrop_path: details
-                .backdrop_path
-                .as_deref()
-                .map(|path| self.build_image_url(path)),
+            poster_path,
+            backdrop_path,
         }
     }
 
@@ -1090,6 +1151,50 @@ struct TmdbMovieSearchResult {
     backdrop_path: Option<String>,
     #[serde(default)]
     popularity: f64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct TmdbArtworkFallback {
+    poster_path: Option<String>,
+    backdrop_path: Option<String>,
+}
+
+impl TmdbArtworkFallback {
+    fn from_movie_search(result: &TmdbMovieSearchResult) -> Self {
+        Self {
+            poster_path: result.poster_path.clone(),
+            backdrop_path: result.backdrop_path.clone(),
+        }
+    }
+
+    fn from_movie_details(details: &TmdbMovieDetails) -> Self {
+        Self {
+            poster_path: details.poster_path.clone(),
+            backdrop_path: details.backdrop_path.clone(),
+        }
+    }
+
+    fn fill_missing(&mut self, fallback: TmdbArtworkFallback) {
+        if self.poster_path.is_none() {
+            self.poster_path = fallback.poster_path;
+        }
+
+        if self.backdrop_path.is_none() {
+            self.backdrop_path = fallback.backdrop_path;
+        }
+    }
+}
+
+fn movie_needs_artwork_fallback(
+    details: &TmdbMovieDetails,
+    fallback: Option<&TmdbArtworkFallback>,
+) -> bool {
+    let has_poster = details.poster_path.is_some()
+        || fallback.is_some_and(|fallback| fallback.poster_path.is_some());
+    let has_backdrop = details.backdrop_path.is_some()
+        || fallback.is_some_and(|fallback| fallback.backdrop_path.is_some());
+
+    !has_poster || !has_backdrop
 }
 
 impl TmdbSearchCandidate for TmdbMovieSearchResult {
@@ -1474,8 +1579,9 @@ mod tests {
         apply_remote_metadata, build_metadata_provider, format_country_codes, merge_search_results,
         normalize_base_url, normalize_metadata_language, normalize_optional_value, normalize_title,
         parse_year, pick_primary_character_name, select_best_match, MetadataLookup,
-        MetadataProviderConfig, RemoteMetadata, TmdbMetadataProvider, TmdbMetadataProviderConfig,
-        TmdbMovieSearchResult, TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL, TMDB_PROVIDER_NAME,
+        MetadataProviderConfig, RemoteMetadata, TmdbArtworkFallback, TmdbMetadataProvider,
+        TmdbMetadataProviderConfig, TmdbMovieDetails, TmdbMovieSearchResult, TmdbTvAggregateRole,
+        DEFAULT_OMDB_API_BASE_URL, TMDB_PROVIDER_NAME,
     };
 
     #[test]
@@ -1640,6 +1746,50 @@ mod tests {
         assert_eq!(
             provider.build_image_url("/poster.jpg"),
             "https://image.tmdb.org/t/p/original/poster.jpg".to_string()
+        );
+    }
+
+    #[test]
+    fn map_movie_details_uses_artwork_fallback_when_details_omit_images() {
+        let provider = TmdbMetadataProvider::new(TmdbMetadataProviderConfig {
+            access_token: "token".to_string(),
+            language: "zh-CN".to_string(),
+            api_base_url: "https://api.themoviedb.org/3".to_string(),
+            image_base_url: "https://image.tmdb.org/t/p/original".to_string(),
+            omdb_api_key: None,
+            omdb_api_base_url: DEFAULT_OMDB_API_BASE_URL.to_string(),
+        })
+        .unwrap();
+        let fallback = TmdbArtworkFallback {
+            poster_path: Some("/search-poster.jpg".to_string()),
+            backdrop_path: Some("/search-backdrop.jpg".to_string()),
+        };
+
+        let metadata = provider.map_movie_details(
+            88,
+            TmdbMovieDetails {
+                title: Some("狂野时代".to_string()),
+                original_title: Some("Resurrection".to_string()),
+                release_date: Some("2025-01-01".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+                production_countries: Vec::new(),
+                genres: Vec::new(),
+                production_companies: Vec::new(),
+                external_ids: None,
+            },
+            None,
+            Some(&fallback),
+        );
+
+        assert_eq!(
+            metadata.poster_path.as_deref(),
+            Some("https://image.tmdb.org/t/p/original/search-poster.jpg")
+        );
+        assert_eq!(
+            metadata.backdrop_path.as_deref(),
+            Some("https://image.tmdb.org/t/p/original/search-backdrop.jpg")
         );
     }
 

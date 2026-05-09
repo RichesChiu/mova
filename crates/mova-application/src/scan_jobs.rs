@@ -2,8 +2,9 @@ use crate::{
     error::{ApplicationError, ApplicationResult},
     libraries::get_library,
     media_classification::classify_media_type,
-    media_enrichment::MetadataEnrichmentContext,
-    media_enrichment::MetadataEnrichmentStage,
+    media_enrichment::{
+        normalize_lookup_punctuation_candidate, MetadataEnrichmentContext, MetadataEnrichmentStage,
+    },
     metadata::{MetadataLookup, MetadataProvider, RemoteMediaKind, TMDB_PROVIDER_NAME},
 };
 use mova_domain::{Library, ScanJob};
@@ -161,7 +162,7 @@ const SCAN_ITEM_STAGE_COMPLETED: &str = "completed";
 const SCAN_PHASE_INITIALIZING: &str = "initializing";
 const SCAN_DISCOVERY_PROGRESS_MIN_FILE_DELTA: i32 = 25;
 const SCAN_DISCOVERY_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(500);
-pub(crate) const LOCAL_ANALYSIS_VERSION: i32 = 1;
+pub(crate) const LOCAL_ANALYSIS_VERSION: i32 = 2;
 
 fn should_flush_discovery_progress(
     persisted_progress: i32,
@@ -947,68 +948,123 @@ async fn resolve_group_metadata_lookup_type(
         };
     }
 
-    let lookup = MetadataLookup {
-        title: presentation.lookup_title.clone(),
-        year: presentation.year,
-        library_type: "mixed".to_string(),
-        language: Some(metadata_language.to_string()),
-        provider_item_id: None,
-    };
-
-    match metadata_provider.detect_media_type(&lookup).await {
-        Ok(Some(remote_match)) if remote_match.media_kind == RemoteMediaKind::Movie => {
-            GroupMetadataLookupDecision {
-                lookup_type: Some("movie"),
-                metadata_status: METADATA_STATUS_UNMATCHED,
-                metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
-                remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE),
+    let mut remote_series_match = None;
+    let mut last_detection_error = None;
+    for lookup in metadata_detection_lookups(presentation, metadata_language) {
+        match metadata_provider.detect_media_type(&lookup).await {
+            Ok(Some(remote_match)) if remote_match.media_kind == RemoteMediaKind::Movie => {
+                return GroupMetadataLookupDecision {
+                    lookup_type: Some("movie"),
+                    metadata_status: METADATA_STATUS_UNMATCHED,
+                    metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
+                    remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE),
+                };
             }
-        }
-        Ok(Some(remote_match)) => {
-            tracing::info!(
-                title = %lookup.title,
-                year = lookup.year,
-                remote_kind = ?remote_match.media_kind,
-                provider_item_id = remote_match.provider_item_id,
-                "remote metadata matched a tv item without local season/episode identity; keeping item for Other review"
-            );
-            GroupMetadataLookupDecision {
-                lookup_type: None,
-                metadata_status: METADATA_STATUS_UNMATCHED,
-                metadata_failure_reason: Some(
-                    METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY,
-                ),
-                remote_media_type: Some(REMOTE_MEDIA_TYPE_SERIES),
+            Ok(Some(remote_match)) => {
+                remote_series_match.get_or_insert((lookup, remote_match));
             }
-        }
-        Ok(None) => {
-            tracing::info!(
-                title = %lookup.title,
-                year = lookup.year,
-                "remote metadata did not identify movie-like item; keeping item for Other review"
-            );
-            GroupMetadataLookupDecision {
-                lookup_type: None,
-                metadata_status: METADATA_STATUS_UNMATCHED,
-                metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
-                remote_media_type: None,
-            }
-        }
-        Err(error) => {
-            tracing::warn!(
-                title = %lookup.title,
-                year = lookup.year,
-                error = ?error,
-                "failed to detect remote media type for movie-like item; keeping item for Other review"
-            );
-            GroupMetadataLookupDecision {
-                lookup_type: None,
-                metadata_status: METADATA_STATUS_FAILED,
-                metadata_failure_reason: Some(METADATA_FAILURE_REMOTE_DETECTION_FAILED),
-                remote_media_type: None,
+            Ok(None) => {}
+            Err(error) => {
+                last_detection_error = Some((lookup, error));
             }
         }
     }
+
+    if let Some((lookup, remote_match)) = remote_series_match {
+        tracing::info!(
+            title = %lookup.title,
+            year = lookup.year,
+            remote_kind = ?remote_match.media_kind,
+            provider_item_id = remote_match.provider_item_id,
+            "remote metadata matched a tv item without local season/episode identity; keeping item for Other review"
+        );
+        return GroupMetadataLookupDecision {
+            lookup_type: None,
+            metadata_status: METADATA_STATUS_UNMATCHED,
+            metadata_failure_reason: Some(METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY),
+            remote_media_type: Some(REMOTE_MEDIA_TYPE_SERIES),
+        };
+    }
+
+    if let Some((lookup, error)) = last_detection_error {
+        tracing::warn!(
+            title = %lookup.title,
+            year = lookup.year,
+            error = ?error,
+            "failed to detect remote media type for movie-like item; keeping item for Other review"
+        );
+        return GroupMetadataLookupDecision {
+            lookup_type: None,
+            metadata_status: METADATA_STATUS_FAILED,
+            metadata_failure_reason: Some(METADATA_FAILURE_REMOTE_DETECTION_FAILED),
+            remote_media_type: None,
+        };
+    }
+
+    tracing::info!(
+        title = %presentation.lookup_title,
+        year = presentation.year,
+        "remote metadata did not identify movie-like item; keeping item for Other review"
+    );
+    GroupMetadataLookupDecision {
+        lookup_type: None,
+        metadata_status: METADATA_STATUS_UNMATCHED,
+        metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
+        remote_media_type: None,
+    }
+}
+
+fn metadata_detection_lookups(
+    presentation: &ScanPresentationGroup,
+    metadata_language: &str,
+) -> Vec<MetadataLookup> {
+    let mut lookups = Vec::new();
+    push_metadata_detection_lookup(
+        &mut lookups,
+        presentation.lookup_title.clone(),
+        presentation.year,
+        metadata_language,
+    );
+
+    let normalized_lookup_title =
+        normalize_lookup_punctuation_candidate(&presentation.lookup_title);
+    if normalized_lookup_title != presentation.lookup_title {
+        push_metadata_detection_lookup(
+            &mut lookups,
+            normalized_lookup_title,
+            presentation.year,
+            metadata_language,
+        );
+    }
+
+    lookups
+}
+
+fn push_metadata_detection_lookup(
+    lookups: &mut Vec<MetadataLookup>,
+    title: String,
+    year: Option<i32>,
+    metadata_language: &str,
+) {
+    let title = title.trim().to_string();
+    if title.is_empty() {
+        return;
+    }
+
+    if lookups
+        .iter()
+        .any(|lookup| lookup.title.eq_ignore_ascii_case(&title) && lookup.year == year)
+    {
+        return;
+    }
+
+    lookups.push(MetadataLookup {
+        title,
+        year,
+        library_type: "mixed".to_string(),
+        language: Some(metadata_language.to_string()),
+        provider_item_id: None,
+    });
 }
 
 fn finalize_file_metadata_status(
@@ -2846,6 +2902,39 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone)]
+    struct TitleDetectionProvider {
+        enabled: bool,
+        movie_title: String,
+    }
+
+    #[async_trait]
+    impl MetadataProvider for TitleDetectionProvider {
+        fn is_enabled(&self) -> bool {
+            self.enabled
+        }
+
+        async fn lookup(&self, _lookup: &MetadataLookup) -> anyhow::Result<Option<RemoteMetadata>> {
+            Ok(None)
+        }
+
+        async fn detect_media_type(
+            &self,
+            lookup: &MetadataLookup,
+        ) -> anyhow::Result<Option<RemoteMediaTypeMatch>> {
+            if lookup.title != self.movie_title {
+                return Ok(None);
+            }
+
+            Ok(Some(RemoteMediaTypeMatch {
+                media_kind: RemoteMediaKind::Movie,
+                provider_item_id: 123_456,
+                title: self.movie_title.clone(),
+                year: lookup.year,
+            }))
+        }
+    }
+
     fn build_library(library_type: &str) -> Library {
         Library {
             id: 7,
@@ -3883,6 +3972,35 @@ mod tests {
             decision.metadata_failure_reason,
             Some(METADATA_FAILURE_NO_REMOTE_MATCH)
         );
+    }
+
+    #[tokio::test]
+    async fn resolve_group_metadata_lookup_type_tries_ascii_punctuation_candidate() {
+        let mut file = build_discovered_file();
+        file.file_path =
+            PathBuf::from("movies/阿凡达.2025/Avatar： Fire and Ash (2025) - 1080p WEB-DL.mkv");
+        file.title = "Avatar： Fire and Ash".to_string();
+        file.source_title = "Avatar： Fire and Ash".to_string();
+        file.year = Some(2025);
+        file.season_number = None;
+        file.episode_number = None;
+        file.episode_title = None;
+
+        let groups =
+            super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
+        assert_eq!(groups[0].presentation.lookup_title, "Avatar： Fire and Ash");
+        let provider = TitleDetectionProvider {
+            enabled: true,
+            movie_title: "Avatar: Fire and Ash".to_string(),
+        };
+
+        let decision =
+            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0].presentation)
+                .await;
+
+        assert_eq!(decision.lookup_type, Some("movie"));
+        assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
+        assert_eq!(decision.metadata_status, METADATA_STATUS_UNMATCHED);
     }
 
     #[tokio::test]

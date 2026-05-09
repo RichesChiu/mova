@@ -54,7 +54,7 @@
 | `src/media_cast.rs` | 演员成员表与演员同步记录表读写；详情页按需补全后会直接持久化到这里。 |
 | `src/media_items.rs` | 媒体条目相关父模块。 |
 | `src/media_items/query.rs` | 媒体列表、详情、文件、音轨、季集、outline cache 等读侧查询，也负责按 `file_path` 读取既有 metadata 摘要、`metadata_status` 复核状态、`scan_hash` 和 `local_analysis_version`，供重扫时判断是否需要重探测或只重试 TMDB。 |
-| `src/media_items/sync.rs` | 按路径 upsert / delete 媒体项、媒体文件、音轨和字幕轨道，并在文件删除或重归属时清理孤立条目；同一部电影的多个本地版本也会在这里复用同一个 `movie media_item`。扫描主链路使用变化集同步：缺失路径逐条删除，新增或变更路径逐条 upsert，同时写入 metadata 复核状态、新的 `scan_hash` 和本地分析版本。 |
+| `src/media_items/sync.rs` | 按路径 upsert / delete 媒体项、媒体文件、音轨和字幕轨道，并在文件删除或重归属时清理孤立条目；同一 TMDB `provider_item_id` 的电影本地版本会在这里复用同一个 `movie media_item`。扫描主链路使用变化集同步：缺失路径逐条删除，新增或变更路径逐条 upsert，同时写入 metadata 复核状态、新的 `scan_hash` 和本地分析版本。 |
 | `src/media_items/series.rs` | 剧集聚合写入与 `series / seasons / episodes` 相关持久化；同一季同一集的多个文件版本会复用同一个 episode 记录，并把剧集级 metadata 复核状态写在 series media item 上。 |
 
 ## 5. 主要导出能力

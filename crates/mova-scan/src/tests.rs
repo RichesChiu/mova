@@ -145,6 +145,36 @@ fn parse_media_metadata_keeps_noisy_movie_file_title_without_folder_guessing() {
 }
 
 #[test]
+fn parse_media_metadata_extracts_movie_title_and_year_before_release_suffix() {
+    let path = Path::new(
+        "/media/movies/过家家/Unexpected Family (2026) - 2160p WEB-DL DV HQ H265 DTS 5.1.mkv",
+    );
+
+    assert_eq!(
+        parse_media_metadata(path),
+        ParsedMediaMetadata {
+            title: "Unexpected Family".to_string(),
+            source_title: "Unexpected Family".to_string(),
+            original_title: None,
+            sort_title: None,
+            year: Some(2026),
+            season_number: None,
+            season_title: None,
+            season_overview: None,
+            season_poster_path: None,
+            season_backdrop_path: None,
+            episode_number: None,
+            episode_title: None,
+            overview: None,
+            series_poster_path: None,
+            series_backdrop_path: None,
+            poster_path: None,
+            backdrop_path: None,
+        }
+    );
+}
+
+#[test]
 fn parse_media_metadata_does_not_collapse_collection_folder_into_one_movie_title() {
     let path = Path::new(
         "哈利波特系列八部合集/1.Harry.Potter.and.the.Sorcerer's.Stone.2001.UHD.BluRay.2160p.10bit.DoVi.4Audio.DTS-X.MA.7.1.x265-beAst.mkv",
@@ -746,7 +776,7 @@ fn parse_ffprobe_output_extracts_media_probe_fields() {
             video_bit_depth: Some(10),
             video_pixel_format: Some("yuv420p10le".to_string()),
             video_reference_frames: Some(4),
-            technical_tags: vec!["HDR10".to_string()],
+            technical_tags: vec!["1080p".to_string(), "HDR10".to_string()],
             audio_streams: Vec::new(),
             subtitle_streams: Vec::new(),
         }
@@ -762,6 +792,8 @@ fn parse_ffprobe_output_extracts_technical_tags() {
                     "codec_type": "video",
                     "codec_name": "hevc",
                     "codec_tag_string": "dvh1",
+                    "width": 3840,
+                    "height": 1600,
                     "color_transfer": "smpte2084",
                     "color_primaries": "bt2020",
                     "side_data_list": [
@@ -791,11 +823,32 @@ fn parse_ffprobe_output_extracts_technical_tags() {
     assert_eq!(
         probe.technical_tags,
         vec![
+            "4K".to_string(),
             "Dolby Vision".to_string(),
             "Atmos".to_string(),
             "DTS-HD".to_string()
         ]
     );
+}
+
+#[test]
+fn parse_ffprobe_output_extracts_resolution_technical_tags() {
+    let probe = parse_ffprobe_output(
+        br#"{
+            "streams": [
+                {
+                    "codec_type": "video",
+                    "codec_name": "h264",
+                    "width": 1920,
+                    "height": 800
+                }
+            ],
+            "format": {}
+        }"#,
+    )
+    .unwrap();
+
+    assert_eq!(probe.technical_tags, vec!["1080p".to_string()]);
 }
 
 #[test]

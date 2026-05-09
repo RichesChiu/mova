@@ -38,7 +38,7 @@
 | `src/discover.rs` | 递归发现媒体文件、轻量文件清单扫描、按需完整探测、路径级扫描、支持进度回调和取消信号。 |
 | `src/parse.rs` | 从文件名中识别电影或剧集信号，例如 `剧名.S01E02.mkv`、`剧名 S01E02 - 第 2 集.mkv`、`剧名 - S01E02.mkv`、`剧名_S01E02.mkv`、`剧名-S01E02.mkv`、`剧名.1x02.mkv`、`剧名S01E02.mkv`。文件名必须同时提供剧名和季集号才会按剧集归组；`S01E02.mkv`、`01.mkv`、`EP02.mkv`、`第03集.mkv` 这类缺少剧名的文件不会回退目录名。 |
 | `src/sidecar.rs` | 读取 `.nfo`、海报、背景图等 sidecar 资产。 |
-| `src/probe.rs` | 调用 `ffprobe`，补时长、编码、分辨率、码率，并归一化 `HDR10`、`HDR10+`、`Dolby Vision`、`HLG`、`DTS`、`DTS-HD`、`Atmos` 等资源技术标签。 |
+| `src/probe.rs` | 调用 `ffprobe`，补时长、编码、分辨率、码率，并归一化 `4K`、`1080p`、`HDR10`、`HDR10+`、`Dolby Vision`、`HLG`、`DTS`、`DTS-HD`、`Atmos` 等资源技术标签。 |
 | `src/subtitle.rs` | 字幕轨道相关发现与归一化。 |
 | `src/tests.rs` | crate 级扫描测试。 |
 

@@ -307,6 +307,10 @@ fn detect_technical_tags(
     let mut tags = Vec::new();
 
     if let Some(video_stream) = video_stream {
+        if let Some(resolution_tag) = video_resolution_tag(video_stream) {
+            push_unique_tag(&mut tags, resolution_tag);
+        }
+
         if is_dolby_vision_stream(video_stream) {
             push_unique_tag(&mut tags, "Dolby Vision");
         } else if is_hdr10_plus_stream(video_stream) {
@@ -334,6 +338,39 @@ fn detect_technical_tags(
     }
 
     tags
+}
+
+fn video_resolution_tag(stream: &FfprobeStream) -> Option<&'static str> {
+    let width = stream.width?;
+    let height = stream.height?;
+    let long_edge = width.max(height);
+    let short_edge = width.min(height);
+
+    if long_edge >= 7680 || short_edge >= 4320 {
+        return Some("8K");
+    }
+
+    if long_edge >= 3840 || short_edge >= 2160 {
+        return Some("4K");
+    }
+
+    if long_edge >= 2560 || short_edge >= 1440 {
+        return Some("1440p");
+    }
+
+    if long_edge >= 1920 || short_edge >= 1080 {
+        return Some("1080p");
+    }
+
+    if long_edge >= 1280 || short_edge >= 720 {
+        return Some("720p");
+    }
+
+    if long_edge >= 720 || short_edge >= 480 {
+        return Some("480p");
+    }
+
+    None
 }
 
 fn push_unique_tag(tags: &mut Vec<String>, tag: &str) {

@@ -821,6 +821,17 @@ fn metadata_lookup_candidates(
 
     // 元数据匹配应优先使用文件名解析出的原始标题，而不是已经被远端覆盖过的展示标题。
     let mut candidates = Vec::new();
+    if let Some(provider_item_id) = file.metadata_provider_item_id {
+        push_metadata_lookup_candidate_with_provider_item_id(
+            &mut candidates,
+            lookup_type,
+            metadata_language,
+            file.source_title.clone(),
+            primary_year,
+            provider_item_id,
+        );
+    }
+
     push_metadata_lookup_candidate(
         &mut candidates,
         lookup_type,
@@ -828,6 +839,16 @@ fn metadata_lookup_candidates(
         file.source_title.clone(),
         primary_year,
     );
+    let normalized_source_title = normalize_lookup_punctuation_candidate(&file.source_title);
+    if normalized_source_title != file.source_title {
+        push_metadata_lookup_candidate(
+            &mut candidates,
+            lookup_type,
+            metadata_language,
+            normalized_source_title,
+            primary_year,
+        );
+    }
 
     if let Some(container_metadata) = series_container_metadata {
         if !same_lookup_title(&file.source_title, &container_metadata.title) {
@@ -838,6 +859,20 @@ fn metadata_lookup_candidates(
                 container_metadata.title,
                 container_metadata.year.or(file.year),
             );
+        }
+    }
+
+    if lookup_type.eq_ignore_ascii_case("movie") {
+        if let Some(container_metadata) = movie_container_metadata_for_file_path(file) {
+            if !same_lookup_title(&file.source_title, &container_metadata.title) {
+                push_metadata_lookup_candidate(
+                    &mut candidates,
+                    lookup_type,
+                    metadata_language,
+                    container_metadata.title,
+                    container_metadata.year.or(file.year),
+                );
+            }
         }
     }
 
@@ -856,10 +891,11 @@ fn push_metadata_lookup_candidate(
         return;
     }
 
-    if candidates
-        .iter()
-        .any(|candidate| same_lookup_title(&candidate.title, title) && candidate.year == year)
-    {
+    if candidates.iter().any(|candidate| {
+        candidate.provider_item_id.is_none()
+            && same_lookup_title(&candidate.title, title)
+            && candidate.year == year
+    }) {
         return;
     }
 
@@ -870,6 +906,55 @@ fn push_metadata_lookup_candidate(
         language: Some(metadata_language.to_string()),
         provider_item_id: None,
     });
+}
+
+fn push_metadata_lookup_candidate_with_provider_item_id(
+    candidates: &mut Vec<MetadataLookup>,
+    lookup_type: &str,
+    metadata_language: &str,
+    title: String,
+    year: Option<i32>,
+    provider_item_id: i64,
+) {
+    let title = title.trim();
+    if title.is_empty() {
+        return;
+    }
+
+    if candidates.iter().any(|candidate| {
+        candidate.provider_item_id == Some(provider_item_id)
+            && candidate.library_type == lookup_type
+            && candidate.language.as_deref() == Some(metadata_language)
+    }) {
+        return;
+    }
+
+    candidates.push(MetadataLookup {
+        title: title.to_string(),
+        year,
+        library_type: lookup_type.to_string(),
+        language: Some(metadata_language.to_string()),
+        provider_item_id: Some(provider_item_id),
+    });
+}
+
+pub(crate) fn normalize_lookup_punctuation_candidate(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| match ch {
+            '：' => ':',
+            '（' => '(',
+            '）' => ')',
+            '【' => '[',
+            '】' => ']',
+            '《' => '<',
+            '》' => '>',
+            _ => ch,
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -920,6 +1005,20 @@ fn parse_direct_series_container_directory_metadata(
     let metadata = parse_series_container_directory_metadata(value)?;
 
     contains_cjk_character(&metadata.title).then_some(metadata)
+}
+
+fn movie_container_metadata_for_file_path(
+    file: &DiscoveredMediaFile,
+) -> Option<SeriesContainerMetadata> {
+    let parent = file.file_path.parent()?;
+    let directory = parent.file_name()?.to_str()?;
+    let metadata = parse_series_container_directory_metadata(directory)?;
+
+    if !contains_cjk_character(&metadata.title) || is_generic_container_title(&metadata.title) {
+        return None;
+    }
+
+    Some(metadata)
 }
 
 fn parse_series_container_directory_metadata(value: &str) -> Option<SeriesContainerMetadata> {
@@ -987,6 +1086,23 @@ fn humanize_directory_title(value: &str) -> Option<String> {
         .join(" ");
 
     (!title.trim().is_empty()).then_some(title)
+}
+
+fn is_generic_container_title(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "movie"
+            | "movies"
+            | "film"
+            | "films"
+            | "media"
+            | "video"
+            | "videos"
+            | "series"
+            | "shows"
+            | "tv"
+            | "tv shows"
+    ) || matches!(value.trim(), "电影" | "剧集" | "电视剧" | "动画" | "动漫")
 }
 
 fn split_lookup_trailing_year_suffix(token: &str) -> Option<(String, i32)> {
@@ -1308,6 +1424,69 @@ mod tests {
         assert_eq!(lookups[0].title, "The Art of Sarah");
         assert_eq!(lookups[0].year, Some(2026));
         assert_eq!(lookups[1].title, "莎拉的真伪人生");
+        assert_eq!(lookups[1].year, Some(2026));
+    }
+
+    #[test]
+    fn metadata_lookup_candidates_add_ascii_punctuation_variant() {
+        let mut file = build_discovered_episode();
+        file.file_path = PathBuf::from(
+            "/media/movies/阿凡达.2025/Avatar： Fire and Ash (2025) - 1080p WEB-DL.mkv",
+        );
+        file.source_title = "Avatar： Fire and Ash".to_string();
+        file.year = Some(2025);
+        file.season_number = None;
+        file.episode_number = None;
+
+        let lookups = metadata_lookup_candidates("movie", &file, "zh-CN");
+
+        assert_eq!(lookups.len(), 3);
+        assert_eq!(lookups[0].title, "Avatar： Fire and Ash");
+        assert_eq!(lookups[0].year, Some(2025));
+        assert_eq!(lookups[1].title, "Avatar: Fire and Ash");
+        assert_eq!(lookups[1].year, Some(2025));
+        assert_eq!(lookups[2].title, "阿凡达");
+        assert_eq!(lookups[2].year, Some(2025));
+    }
+
+    #[test]
+    fn metadata_lookup_candidates_prefer_existing_provider_item_id() {
+        let mut file = build_discovered_episode();
+        file.file_path = PathBuf::from("/media/movies/狂野时代 (2025)/狂野时代.2025.mp4");
+        file.source_title = "狂野时代".to_string();
+        file.year = Some(2025);
+        file.season_number = None;
+        file.episode_number = None;
+        file.metadata_provider_item_id = Some(123_456);
+
+        let lookups = metadata_lookup_candidates("movie", &file, "zh-CN");
+
+        assert_eq!(lookups[0].title, "狂野时代");
+        assert_eq!(lookups[0].year, Some(2025));
+        assert_eq!(lookups[0].provider_item_id, Some(123_456));
+        assert_eq!(lookups[1].title, "狂野时代");
+        assert_eq!(lookups[1].year, Some(2025));
+        assert_eq!(lookups[1].provider_item_id, None);
+        assert_eq!(lookups.len(), 2);
+    }
+
+    #[test]
+    fn metadata_lookup_candidates_add_cjk_movie_parent_directory_fallback() {
+        let mut file = build_discovered_episode();
+        file.file_path = PathBuf::from(
+            "/media/movies/过家家/Unexpected Family (2026) - 2160p WEB-DL DV HQ H265 DTS 5.1.mkv",
+        );
+        file.source_title = "Unexpected Family".to_string();
+        file.year = Some(2026);
+        file.season_number = None;
+        file.episode_number = None;
+
+        let lookups = metadata_lookup_candidates("movie", &file, "zh-CN");
+
+        assert_eq!(lookups.len(), 2);
+        assert_eq!(lookups[0].title, "Unexpected Family");
+        assert_eq!(lookups[0].year, Some(2026));
+        assert_eq!(lookups[1].title, "过家家");
         assert_eq!(lookups[1].year, Some(2026));
     }
 
