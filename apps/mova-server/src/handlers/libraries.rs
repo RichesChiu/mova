@@ -494,6 +494,193 @@ mod tests {
             .id
     }
 
+    async fn seed_library_media_graph(
+        pool: &sqlx::postgres::PgPool,
+        library_id: i64,
+        user_id: i64,
+    ) {
+        let series_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_items (library_id, media_type, title, source_title, metadata_status)
+            values ($1, 'series', 'Series title', 'Series title', 'matched')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        let episode_media_item_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_items (library_id, media_type, title, source_title, metadata_status)
+            values ($1, 'episode', 'Episode title', 'Episode title', 'matched')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        let season_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into seasons (series_id, season_number, title)
+            values ($1, 1, 'Season 1')
+            returning id
+            "#,
+        )
+        .bind(series_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
+            insert into episodes (media_item_id, series_id, season_id, episode_number, title)
+            values ($1, $2, $3, 1, 'Pilot')
+            "#,
+        )
+        .bind(episode_media_item_id)
+        .bind(series_id)
+        .bind(season_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
+            insert into series_episode_outline_cache (series_media_item_id, outline_json, expires_at)
+            values ($1, '{}', now() + interval '1 day')
+            "#,
+        )
+        .bind(series_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
+            insert into media_item_cast_cache (media_item_id, expires_at)
+            values ($1, now() + interval '1 day')
+            "#,
+        )
+        .bind(series_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
+            insert into media_item_cast_members (media_item_id, sort_order, name)
+            values ($1, 1, 'Cast Member')
+            "#,
+        )
+        .bind(series_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        let media_file_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_files (library_id, media_item_id, file_path, file_size)
+            values ($1, $2, '/media/movies/series.s01e01.mkv', 1024)
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(episode_media_item_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
+            insert into subtitle_files (media_file_id, source_kind)
+            values ($1, 'embedded')
+            "#,
+        )
+        .bind(media_file_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
+            insert into audio_tracks (media_file_id, stream_index)
+            values ($1, 0)
+            "#,
+        )
+        .bind(media_file_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
+            insert into playback_progress (user_id, media_item_id, media_file_id, position_seconds)
+            values ($1, $2, $3, 60)
+            "#,
+        )
+        .bind(user_id)
+        .bind(episode_media_item_id)
+        .bind(media_file_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
+            insert into watch_history (user_id, media_item_id, media_file_id, position_seconds)
+            values ($1, $2, $3, 60)
+            "#,
+        )
+        .bind(user_id)
+        .bind(episode_media_item_id)
+        .bind(media_file_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn assert_library_media_graph_removed(pool: &sqlx::postgres::PgPool) {
+        for (table_name, statement) in [
+            ("scan_jobs", "select count(*) from scan_jobs"),
+            (
+                "user_library_access",
+                "select count(*) from user_library_access",
+            ),
+            (
+                "playback_progress",
+                "select count(*) from playback_progress",
+            ),
+            ("watch_history", "select count(*) from watch_history"),
+            ("subtitle_files", "select count(*) from subtitle_files"),
+            ("audio_tracks", "select count(*) from audio_tracks"),
+            (
+                "series_episode_outline_cache",
+                "select count(*) from series_episode_outline_cache",
+            ),
+            (
+                "media_item_cast_members",
+                "select count(*) from media_item_cast_members",
+            ),
+            (
+                "media_item_cast_cache",
+                "select count(*) from media_item_cast_cache",
+            ),
+            ("episodes", "select count(*) from episodes"),
+            ("seasons", "select count(*) from seasons"),
+            ("media_files", "select count(*) from media_files"),
+            ("media_items", "select count(*) from media_items"),
+        ] {
+            let row_count = sqlx::query_scalar::<_, i64>(statement)
+                .fetch_one(pool)
+                .await
+                .unwrap();
+
+            assert_eq!(row_count, 0, "{table_name} rows should be removed");
+        }
+    }
+
     #[sqlx::test(migrations = "../../migrations")]
     #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
     async fn update_library_rejects_changes_while_delete_is_in_progress(
@@ -591,12 +778,15 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn delete_library_cancels_the_active_scan_clears_runtime_state_and_removes_the_row(
+    async fn delete_library_cancels_the_active_scan_and_removes_owned_data(
         pool: sqlx::postgres::PgPool,
     ) {
         let state = build_test_state(pool.clone());
-        let (_admin_id, admin_jar) = seed_admin_session(&pool).await;
+        let (admin_id, admin_jar) = seed_admin_session(&pool).await;
         let library_id = seed_library(&pool, "Movies", true).await;
+        let (_viewer_id, _viewer_jar) = seed_viewer_session(&pool, vec![library_id]).await;
+        seed_scan_job(&pool, library_id).await;
+        seed_library_media_graph(&pool, library_id, admin_id).await;
         let mut realtime_rx = state.realtime_hub.subscribe();
         let active_scan = state.scan_registry.register_scan(library_id, 42).unwrap();
         let cancellation_flag = active_scan.cancellation_flag();
@@ -623,6 +813,7 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+        assert_library_media_graph_removed(&pool).await;
         assert!(state.scan_registry.active_scan(library_id).is_none());
 
         let event = timeout(Duration::from_secs(1), realtime_rx.recv())
