@@ -64,6 +64,62 @@ impl MetadataEnrichmentContext {
             .await;
     }
 
+    pub(crate) async fn enrich_group_with_progress<F>(
+        &mut self,
+        lookup_type: &str,
+        files: &mut [DiscoveredMediaFile],
+        mut on_progress: F,
+    ) where
+        F: FnMut(MetadataEnrichmentStage, &DiscoveredMediaFile),
+    {
+        if files.is_empty() {
+            return;
+        }
+
+        let primary_lookup =
+            metadata_group_primary_lookup(lookup_type, &files[0], &self.metadata_language);
+        let mut episode_outline_lookup = primary_lookup.clone();
+
+        on_progress(MetadataEnrichmentStage::Metadata, &files[0]);
+
+        let resolved_remote_metadata =
+            if self.metadata_provider.is_enabled() && group_needs_remote_metadata(files) {
+                let metadata = self
+                    .lookup_group_remote_metadata(lookup_type, &files[0])
+                    .await;
+
+                if let Some(remote_metadata) = metadata.as_ref() {
+                    episode_outline_lookup.provider_item_id = remote_metadata.provider_item_id;
+
+                    for file in files.iter_mut() {
+                        apply_remote_metadata_to_file(remote_metadata, file);
+                    }
+                }
+
+                metadata
+            } else {
+                None
+            };
+
+        on_progress(MetadataEnrichmentStage::Artwork, &files[0]);
+
+        let allow_remote_outline = resolved_remote_metadata.is_some();
+        for file in files.iter_mut() {
+            if lookup_type.eq_ignore_ascii_case("series") {
+                self.enrich_episode_like_artwork(
+                    &episode_outline_lookup,
+                    file,
+                    allow_remote_outline,
+                )
+                .await;
+            }
+
+            self.cache_file_artwork(file).await;
+        }
+
+        on_progress(MetadataEnrichmentStage::Completed, &files[0]);
+    }
+
     pub async fn enrich_file_with_progress<F>(
         &mut self,
         lookup_type: &str,
@@ -133,6 +189,23 @@ impl MetadataEnrichmentContext {
         self.cache_file_artwork(file).await;
 
         on_progress(MetadataEnrichmentStage::Completed, file);
+    }
+
+    async fn lookup_group_remote_metadata(
+        &mut self,
+        lookup_type: &str,
+        file: &DiscoveredMediaFile,
+    ) -> Option<RemoteMetadata> {
+        let lookups = metadata_lookup_candidates(lookup_type, file, &self.metadata_language);
+
+        for lookup in &lookups {
+            let candidate = self.lookup_remote_metadata_cached(lookup).await;
+            if candidate.is_some() {
+                return candidate;
+            }
+        }
+
+        None
     }
 
     async fn lookup_remote_metadata_cached(
@@ -555,6 +628,87 @@ fn needs_remote_metadata(file: &DiscoveredMediaFile) -> bool {
         || needs_episode_container_artwork_metadata(file)
 }
 
+fn group_needs_remote_metadata(files: &[DiscoveredMediaFile]) -> bool {
+    files
+        .iter()
+        .any(|file| needs_remote_metadata(file) || needs_remote_title_refresh(file))
+}
+
+fn needs_remote_title_refresh(file: &DiscoveredMediaFile) -> bool {
+    if file.metadata_provider_item_id.is_none() {
+        return false;
+    }
+
+    let source_title = file.source_title.trim();
+    let title = file.title.trim();
+    if source_title.is_empty() || title.is_empty() {
+        return false;
+    }
+
+    let Some(year) = file.year else {
+        return false;
+    };
+
+    normalize_local_title_for_refresh(title)
+        == format!(
+            "{} {}",
+            normalize_local_title_for_refresh(source_title),
+            year
+        )
+}
+
+fn normalize_local_title_for_refresh(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_alphanumeric() {
+                ch.to_lowercase().collect::<String>()
+            } else {
+                " ".to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn metadata_group_primary_lookup(
+    lookup_type: &str,
+    file: &DiscoveredMediaFile,
+    metadata_language: &str,
+) -> MetadataLookup {
+    metadata_lookup_candidates(lookup_type, file, metadata_language)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| MetadataLookup {
+            title: file.source_title.clone(),
+            year: file.year,
+            library_type: lookup_type.to_string(),
+            language: Some(metadata_language.to_string()),
+            provider_item_id: None,
+        })
+}
+
+fn apply_remote_metadata_to_file(metadata: &RemoteMetadata, file: &mut DiscoveredMediaFile) {
+    apply_remote_metadata(
+        Some(metadata.clone()),
+        &mut file.metadata_provider,
+        &mut file.metadata_provider_item_id,
+        &mut file.title,
+        &mut file.original_title,
+        &mut file.year,
+        &mut file.imdb_rating,
+        &mut file.country,
+        &mut file.genres,
+        &mut file.studio,
+        &mut file.overview,
+        &mut file.poster_path,
+        &mut file.backdrop_path,
+    );
+}
+
 fn needs_episode_container_artwork_metadata(file: &DiscoveredMediaFile) -> bool {
     if file.season_number.is_none() || file.episode_number.is_none() {
         return false;
@@ -921,13 +1075,20 @@ mod tests {
     use super::{
         artwork_file_extension, build_artwork_cache_path, is_generated_episode_still_path,
         is_generic_backdrop_artwork_path, is_generic_poster_artwork_path,
-        metadata_lookup_candidates, needs_remote_metadata,
+        metadata_lookup_candidates, needs_remote_metadata, needs_remote_title_refresh,
         series_container_metadata_for_episode_path, should_replace_episode_artwork,
-        stable_artwork_cache_key,
+        stable_artwork_cache_key, MetadataEnrichmentContext,
     };
+    use crate::metadata::{MetadataLookup, MetadataProvider, RemoteMetadata};
+    use async_trait::async_trait;
     use mova_scan::DiscoveredMediaFile;
-    use std::path::Path;
-    use std::path::PathBuf;
+    use std::{
+        path::{Path, PathBuf},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+    };
 
     #[test]
     fn artwork_file_extension_uses_tmdb_url_suffix() {
@@ -1109,6 +1270,91 @@ mod tests {
         file.series_poster_path =
             Some("https://image.tmdb.org/t/p/original/series-poster.jpg".to_string());
         assert!(needs_remote_metadata(&file));
+    }
+
+    #[test]
+    fn needs_remote_title_refresh_detects_local_year_display_title() {
+        let mut file = build_discovered_episode();
+        file.metadata_provider_item_id = Some(259909);
+        file.source_title = "Alls Fair".to_string();
+        file.title = "Alls Fair (2025)".to_string();
+        file.year = Some(2025);
+
+        assert!(needs_remote_title_refresh(&file));
+
+        file.title = "诉讼女王".to_string();
+        assert!(!needs_remote_title_refresh(&file));
+    }
+
+    #[tokio::test]
+    async fn enrich_group_fetches_remote_metadata_once_and_applies_to_all_files() {
+        let provider = Arc::new(CountingMetadataProvider {
+            lookup_count: AtomicUsize::new(0),
+        });
+        let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
+        let mut context = MetadataEnrichmentContext::new(
+            std::env::temp_dir().join("mova-test-artwork-cache"),
+            provider_for_context,
+            "zh-CN".to_string(),
+        );
+        let mut first = build_discovered_episode();
+        first.file_path = PathBuf::from(
+            "/media/overseas_tv/All's Fair (2025)/Season 01/Alls Fair (2025) - S01E01.mkv",
+        );
+        first.title = "Alls Fair (2025)".to_string();
+        first.source_title = "Alls Fair".to_string();
+        first.year = Some(2025);
+        first.episode_number = Some(1);
+
+        let mut second = first.clone();
+        second.file_path = PathBuf::from(
+            "/media/overseas_tv/All's Fair (2025)/Season 01/Alls Fair (2025) - S01E02.mkv",
+        );
+        second.episode_number = Some(2);
+
+        let mut files = vec![first, second];
+
+        context
+            .enrich_group_with_progress("series", &mut files, |_, _| {})
+            .await;
+
+        assert_eq!(provider.lookup_count.load(Ordering::SeqCst), 1);
+        assert!(files.iter().all(|file| file.title == "诉讼女王"));
+        assert!(files
+            .iter()
+            .all(|file| file.original_title.as_deref() == Some("All's Fair")));
+        assert!(files
+            .iter()
+            .all(|file| file.metadata_provider_item_id == Some(259909)));
+        assert!(files
+            .iter()
+            .all(|file| file.poster_path.as_deref() == Some("/cache/series-poster.jpg")));
+        assert!(files
+            .iter()
+            .all(|file| file.backdrop_path.as_deref() == Some("/cache/series-backdrop.jpg")));
+    }
+
+    #[derive(Debug)]
+    struct CountingMetadataProvider {
+        lookup_count: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl MetadataProvider for CountingMetadataProvider {
+        async fn lookup(&self, _lookup: &MetadataLookup) -> anyhow::Result<Option<RemoteMetadata>> {
+            self.lookup_count.fetch_add(1, Ordering::SeqCst);
+
+            Ok(Some(RemoteMetadata {
+                provider_item_id: Some(259909),
+                title: Some("诉讼女王".to_string()),
+                original_title: Some("All's Fair".to_string()),
+                year: Some(2025),
+                overview: Some("Remote overview".to_string()),
+                poster_path: Some("/cache/series-poster.jpg".to_string()),
+                backdrop_path: Some("/cache/series-backdrop.jpg".to_string()),
+                ..RemoteMetadata::default()
+            }))
+        }
     }
 
     fn build_discovered_episode() -> DiscoveredMediaFile {

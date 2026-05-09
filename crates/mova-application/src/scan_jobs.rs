@@ -685,20 +685,14 @@ async fn enrich_discovered_groups(
         )
         .await;
         let item_index = i32::try_from(index + 1).unwrap_or(i32::MAX);
-        let Some((primary_file, remaining_files)) = group.files.split_first_mut() else {
+        if group.files.is_empty() {
             continue;
-        };
+        }
         let progress_listener = event_listener.clone();
         let mut presentation = group.presentation.clone();
 
         let Some(lookup_type) = metadata_decision.lookup_type else {
-            clear_remote_metadata_for_review(
-                primary_file,
-                metadata_decision.metadata_status,
-                metadata_decision.metadata_failure_reason,
-                metadata_decision.remote_media_type,
-            );
-            for file in remaining_files.iter_mut() {
+            for file in &mut group.files {
                 clear_remote_metadata_for_review(
                     file,
                     metadata_decision.metadata_status,
@@ -722,7 +716,7 @@ async fn enrich_discovered_groups(
 
         let enrichment_progress_listener = progress_listener.clone();
         enrichment
-            .enrich_file_with_progress(lookup_type, primary_file, move |stage, file| {
+            .enrich_group_with_progress(lookup_type, &mut group.files, move |stage, file| {
                 if stage != MetadataEnrichmentStage::Metadata {
                     if !file.title.trim().is_empty() {
                         presentation.title = file.title.clone();
@@ -747,27 +741,17 @@ async fn enrich_discovered_groups(
             })
             .await;
 
-        finalize_file_metadata_status(
-            primary_file,
-            metadata_provider.is_enabled(),
-            metadata_decision
-                .remote_media_type
-                .or_else(|| remote_media_type_for_lookup_type(lookup_type)),
-        );
-
-        if !primary_file.title.trim().is_empty() {
-            group.presentation.title = primary_file.title.clone();
+        let remote_media_type = metadata_decision
+            .remote_media_type
+            .or_else(|| remote_media_type_for_lookup_type(lookup_type));
+        for file in &mut group.files {
+            finalize_file_metadata_status(file, metadata_provider.is_enabled(), remote_media_type);
         }
 
-        for file in remaining_files.iter_mut() {
-            enrichment.enrich_file(lookup_type, file).await;
-            finalize_file_metadata_status(
-                file,
-                metadata_provider.is_enabled(),
-                metadata_decision
-                    .remote_media_type
-                    .or_else(|| remote_media_type_for_lookup_type(lookup_type)),
-            );
+        if let Some(primary_file) = group.files.first() {
+            if !primary_file.title.trim().is_empty() {
+                group.presentation.title = primary_file.title.clone();
+            }
         }
 
         let group_outcome = sync_scan_group_media_entries(pool, library, group).await?;
@@ -1197,6 +1181,10 @@ fn can_skip_existing_media_summary(
         return false;
     }
 
+    if metadata_provider_enabled && should_retry_local_series_title_override(summary, file_path) {
+        return false;
+    }
+
     if metadata_provider_enabled && should_retry_unfetched_remote_metadata(summary) {
         return false;
     }
@@ -1329,6 +1317,42 @@ fn should_retry_localized_series_metadata(
     localized_series_container_title_for_path(file_path)
         .as_deref()
         .is_some_and(contains_cjk_character)
+}
+
+fn should_retry_local_series_title_override(
+    summary: &mova_db::ExistingMediaMetadataSummary,
+    file_path: &std::path::Path,
+) -> bool {
+    if summary.metadata_status != METADATA_STATUS_MATCHED {
+        return false;
+    }
+
+    if !summary.media_type.eq_ignore_ascii_case("episode")
+        && !summary
+            .remote_media_type
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case(REMOTE_MEDIA_TYPE_SERIES))
+    {
+        return false;
+    }
+
+    if effective_existing_metadata_provider_item_id(summary).is_none() {
+        return false;
+    }
+
+    let Some(file_metadata) = infer_series_file_metadata(file_path) else {
+        return false;
+    };
+    let current_title = summary
+        .series_title
+        .as_deref()
+        .unwrap_or(summary.title.as_str())
+        .trim();
+    let local_display_title = file_metadata.display_title.trim();
+    let local_lookup_title = file_metadata.title.trim();
+
+    !local_display_title.eq_ignore_ascii_case(local_lookup_title)
+        && current_title.eq_ignore_ascii_case(local_display_title)
 }
 
 async fn inspect_incremental_scan_files(
@@ -2080,9 +2104,12 @@ fn assign_local_series_structure(
     for index in &group.file_indexes {
         let file = &mut discovered_files[*index];
         file.source_title = group.lookup_title.clone();
-        file.title = group.display_title.clone();
-
-        file.year = group.year;
+        if should_use_local_series_display_metadata(file) {
+            file.title = group.display_title.clone();
+            file.year = group.year;
+        } else if file.year.is_none() {
+            file.year = group.year;
+        }
 
         let season_number = file.season_number.unwrap_or(1);
         file.season_number = Some(season_number);
@@ -2135,6 +2162,10 @@ fn assign_local_series_structure(
             }
         }
     }
+}
+
+fn should_use_local_series_display_metadata(file: &DiscoveredMediaFile) -> bool {
+    file.metadata_provider_item_id.is_none()
 }
 
 fn effective_media_type(library_type: &str, file: &DiscoveredMediaFile) -> &'static str {
@@ -3060,7 +3091,7 @@ mod tests {
             ),
         ));
 
-        summary.series_title = Some("All Her Fault 2025".to_string());
+        summary.series_title = Some("All Her Fault".to_string());
         assert!(super::can_skip_existing_media_summary(
             &summary,
             "same-hash",
@@ -3068,6 +3099,38 @@ mod tests {
             "en-US",
             Path::new(
                 "/media/overseas_tv/都是她的错.2025/Season 01/All.Her.Fault.2025.S01E01.2160p.PCOK.WEB-DL.DDP5.1.H.265-KRATOS.mkv",
+            ),
+        ));
+    }
+
+    #[test]
+    fn can_skip_existing_media_summary_retries_local_display_title_override() {
+        let mut summary = build_existing_episode_metadata();
+        summary.scan_hash = Some("same-hash".to_string());
+        summary.series_title = Some("Alls Fair (2025)".to_string());
+        summary.series_source_title = Some("Alls Fair".to_string());
+        summary.series_metadata_provider_item_id = Some(259909);
+        summary.series_poster_path = Some("/cache/series-poster.jpg".to_string());
+        summary.series_backdrop_path = Some("/cache/series-backdrop.jpg".to_string());
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new(
+                "/media/overseas_tv/All's Fair (2025)/Season 01/Alls Fair (2025) - S01E01.mkv",
+            ),
+        ));
+
+        summary.series_title = Some("诉讼女王".to_string());
+        assert!(super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new(
+                "/media/overseas_tv/All's Fair (2025)/Season 01/Alls Fair (2025) - S01E01.mkv",
             ),
         ));
     }
@@ -3380,6 +3443,34 @@ mod tests {
         assert!(entries.iter().all(|entry| entry.media_type == "episode"));
         assert!(entries.iter().all(|entry| entry.source_title == "The Boys"));
         assert!(entries.iter().all(|entry| entry.year == Some(2019)));
+    }
+
+    #[test]
+    fn build_media_entries_preserves_tmdb_series_title_after_local_grouping() {
+        let mut file = build_discovered_file();
+        file.file_path = PathBuf::from(
+            "/media/overseas_tv/All's Fair (2025)/Season 01/Alls Fair (2025) - S01E01.mkv",
+        );
+        file.metadata_provider = Some("tmdb".to_string());
+        file.metadata_provider_item_id = Some(259909);
+        file.metadata_status = Some(METADATA_STATUS_MATCHED.to_string());
+        file.remote_media_type = Some(REMOTE_MEDIA_TYPE_SERIES.to_string());
+        file.title = "诉讼女王".to_string();
+        file.source_title = "Alls Fair".to_string();
+        file.original_title = Some("All's Fair".to_string());
+        file.year = Some(2025);
+        file.season_number = Some(1);
+        file.episode_number = Some(1);
+
+        let entries =
+            super::build_media_entries(&build_library(LIBRARY_TYPE_MIXED), vec![file]).unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].media_type, "episode");
+        assert_eq!(entries[0].title, "诉讼女王");
+        assert_eq!(entries[0].source_title, "Alls Fair");
+        assert_eq!(entries[0].original_title.as_deref(), Some("All's Fair"));
+        assert_eq!(entries[0].year, Some(2025));
     }
 
     #[test]

@@ -1344,19 +1344,26 @@ fn title_match_score(query: &str, candidate: &str) -> i32 {
 fn normalize_title(value: &str) -> String {
     value
         .chars()
-        .flat_map(|ch| {
-            if ch.is_alphanumeric() {
-                ch.to_lowercase().collect::<Vec<_>>()
-            } else if ch.is_whitespace() {
-                vec![' ']
-            } else {
-                vec![' ']
+        .filter_map(|ch| {
+            if is_ignorable_title_punctuation(ch) {
+                return None;
             }
+
+            if ch.is_alphanumeric() {
+                return Some(ch.to_lowercase().collect::<String>());
+            }
+
+            Some(" ".to_string())
         })
-        .collect::<String>()
+        .collect::<Vec<_>>()
+        .join("")
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn is_ignorable_title_punctuation(ch: char) -> bool {
+    matches!(ch, '\'' | '’' | '‘' | '`' | 'ʼ')
 }
 
 fn parse_year(value: Option<&str>) -> Option<i32> {
@@ -1742,6 +1749,8 @@ mod tests {
     #[test]
     fn normalize_title_drops_punctuation_and_lowercases() {
         assert_eq!(normalize_title("My.Movie: Part-1"), "my movie part 1");
+        assert_eq!(normalize_title("All's Fair"), "alls fair");
+        assert_eq!(normalize_title("Alls Fair"), "alls fair");
     }
 
     #[test]
