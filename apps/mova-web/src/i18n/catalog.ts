@@ -383,6 +383,7 @@ const zhCN: Record<string, string> = {
   'Discovered {{title}}': '已发现 {{title}}',
   'Scanning files {{scanned}}/{{total}}': '正在扫描文件 {{scanned}}/{{total}}',
   'Discovered {{count}} files': '发现 {{count}} 个文件',
+  'Analyzing local media': '正在分析本地媒体',
   'Waiting for metadata': '等待获取元数据',
   'Fetching artwork & overview': '正在获取海报与简介',
   'Saved to library': '已写入媒体库',

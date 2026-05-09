@@ -627,11 +627,12 @@ pub(super) async fn insert_media_file(
             video_pixel_format,
             video_reference_frames,
             technical_tags,
+            local_analysis_version,
             scan_hash
         )
         values (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
+            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27
         )
         returning id
         "#,
@@ -661,6 +662,7 @@ pub(super) async fn insert_media_file(
     .bind(&entry.video_pixel_format)
     .bind(entry.video_reference_frames)
     .bind(&entry.technical_tags)
+    .bind(entry.local_analysis_version)
     .bind(&entry.scan_hash)
     .fetch_one(&mut **tx)
     .await
@@ -705,7 +707,8 @@ pub(super) async fn update_media_file_from_entry(
             video_pixel_format = $22,
             video_reference_frames = $23,
             technical_tags = $24,
-            scan_hash = $25,
+            local_analysis_version = $25,
+            scan_hash = $26,
             updated_at = now()
         where id = $1
         "#,
@@ -734,6 +737,7 @@ pub(super) async fn update_media_file_from_entry(
     .bind(&entry.video_pixel_format)
     .bind(entry.video_reference_frames)
     .bind(&entry.technical_tags)
+    .bind(entry.local_analysis_version)
     .bind(&entry.scan_hash)
     .execute(&mut **tx)
     .await
@@ -883,6 +887,8 @@ pub(super) async fn reassign_media_file_to_media_item(
             video_pixel_format = $23,
             video_reference_frames = $24,
             technical_tags = $25,
+            local_analysis_version = $26,
+            scan_hash = $27,
             updated_at = now()
         where id = $1
         "#,
@@ -912,6 +918,8 @@ pub(super) async fn reassign_media_file_to_media_item(
     .bind(&entry.video_pixel_format)
     .bind(entry.video_reference_frames)
     .bind(&entry.technical_tags)
+    .bind(entry.local_analysis_version)
+    .bind(&entry.scan_hash)
     .execute(&mut **tx)
     .await
     .context("failed to reassign media file during library sync")?;
@@ -1045,6 +1053,7 @@ mod tests {
             technical_tags: vec!["HDR10".to_string(), "Atmos".to_string()],
             audio_tracks: Vec::new(),
             subtitle_tracks: Vec::new(),
+            local_analysis_version: 1,
             scan_hash: Some(format!("movie-{file_path}")),
         }
     }
@@ -1104,6 +1113,7 @@ mod tests {
             technical_tags: Vec::new(),
             audio_tracks: Vec::new(),
             subtitle_tracks: Vec::new(),
+            local_analysis_version: 1,
             scan_hash: Some(format!("episode-{file_path}")),
         }
     }

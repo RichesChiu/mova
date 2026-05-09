@@ -99,6 +99,8 @@ export const formatScanJobStatusCopy = (
         : translateCurrent('Discovered {{count}} files', {
             count: effectiveScanJob.scanned_files,
           })
+    case 'analyzing':
+      return translateCurrent('Analyzing local media')
     case 'enriching':
       if (primaryItem) {
         if (primaryItem.stage === 'discovered') {
@@ -159,6 +161,10 @@ export const getScanJobProgressPercent = (
         Math.round((effectiveScanJob.scanned_files / effectiveScanJob.total_files) * 45),
       ),
     )
+  }
+
+  if (effectiveScanJob.phase === 'analyzing') {
+    return 46
   }
 
   if (effectiveScanJob.phase === 'enriching') {

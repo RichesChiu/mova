@@ -156,15 +156,17 @@
 
 - 先在数据库里创建/复用扫描任务
 - 调用 `mova-scan` 做轻量文件清单发现，只读取路径、大小和修改时间
-- 用 `media_files.scan_hash` 跳过已经成功匹配且文件指纹未变化的路径；这些路径不会重新跑 `ffprobe`、TMDB / OMDb、图片缓存或数据库 upsert
-- 对新增、变化、`unmatched` 或 `failed` 的路径再调用 `mova-scan` 做完整文件名解析、sidecar 读取和 `ffprobe` 探测；如果数据库里已有同路径记录，会先复用 metadata 摘要
-- 先把电影文件或显式剧名的剧集文件归成更接近用户理解的扫描展示单位
+- 用同路径 `media_files.scan_hash` 和 `media_files.local_analysis_version` 判断是否能跳过本地分析；已经成功匹配、文件指纹未变化、本地分析版本未变化、已有 TMDB 绑定且已有本地可见海报的路径，不会重新跑拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存或数据库 upsert
+- 对新增、变化、本地分析版本过期的路径再调用 `mova-scan` 做完整文件名解析、sidecar 读取和 `ffprobe` 探测；如果数据库里已有同路径记录，会只复用可保留的远端 metadata 摘要
+- 对文件指纹和本地分析版本都未变化，但 `unmatched`、`failed`、从未成功绑定 TMDB、缺少可见海报或仍保留远端图片 URL 的路径，直接从数据库恢复上次本地分析结果，跳过拆名、sidecar、`ffprobe` 和重新聚合，只进入后续 TMDB 补全
+- 本地分析阶段完成后，会先把聚合出的电影文件或剧集组写入数据库并推给前端；这个阶段不访问 TMDB，目的是让本地结构和占位卡片先稳定出现
+- 远端补全阶段才逐条访问 TMDB 做类型确认、metadata、海报和本地图片缓存；成功后标记 `metadata_status = matched` 并立即覆盖写库，失败或从未成功访问过 TMDB 的条目会在后续手动扫描中重试
 - 对剧集会从文件名里的 `SxxExx` 先拆出剧名和年份做组级元数据匹配；文件名里的年份只作为匹配提示，不作为剧集身份键，所以 `The Boys (2019) - S01E01` 和 `The Boys (2020) - S02E01` 会聚合到同一剧集；`The.BeautyS01E01` 这类标题后直接跟 `SxxExx` 的文件名也会拆出剧名和季集号
 - 如果文件位于明确的季目录树下，会用共同的剧集容器目录做扫描展示聚合；这能把同一剧集文件夹内不同季、不同语言文件名的资源先合成一个剧集单位
 - 当媒体库元数据语言是中文时，如果季目录上一级能提供中文剧名，会优先把这个中文剧名作为 TMDB 查询候选，再回退到英文文件名，避免中文库里大量卡片标题被英文文件名抢先命中；已经入库但标题仍是英文、且路径里能识别中文剧名的 matched 剧集条目，也会在后续扫描中重新进入 metadata 流程
 - 没有本地季集号的文件会先做 TMDB movie / tv 类型确认；只有远端明确匹配电影时才绑定电影 metadata，远端更像剧集但本地没有季集号、或远端匹配失败时，会写入 `metadata_status = unmatched/failed` 和明确失败原因，进入前端 Other 复核区
 - TMDB 未启用时写入 `metadata_status = skipped`，不把它当作刮削失败，前端仍按本地 `media_type` 展示
-- 每个扫描展示组完成 metadata / 海报后会立刻调用 `mova-db` upsert 该组文件，并发出带 `poster_path` / `overview` / `metadata_status` 的 `ScanJobEvent::ItemUpdated`
+- 每个扫描展示组会先以本地分析结果 upsert 一次；完成 metadata / 海报后会再次调用 `mova-db` 覆盖该组文件，并发出带 `poster_path` / `overview` / `metadata_status` 的 `ScanJobEvent::ItemUpdated`
 - 最后只对缺失路径做删除 reconcile；未变化路径完全保留，不参与重探测和 upsert
 
 ### 片头检测

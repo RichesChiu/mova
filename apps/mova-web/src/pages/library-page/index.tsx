@@ -6,12 +6,10 @@ import type { AppShellOutletContext } from '../../components/app-shell'
 import type { ScanRuntimeItem } from '../../components/app-shell/scan-runtime'
 import {
   formatFailedScanCopy,
-  formatPendingScanPlaceholderCopy,
   formatScanItemCardSummary,
   formatScanItemMeta,
   getEffectiveScanJob,
   getLibraryScanRuntime,
-  getScanJobProgressPercent,
   getScanRuntimeItems,
   hasFailedLibraryScan,
   isLibraryScanActive,
@@ -47,21 +45,14 @@ const formatLibraryScanItemSubtitle = (item: ScanRuntimeItem) => {
 
 const MediaSection = ({
   items,
-  pendingScanPlaceholder,
   scanItems,
   title,
 }: {
   items: MediaItem[]
-  pendingScanPlaceholder?: {
-    placeholderLabel: string
-    progressPercent: number
-    progressText: string
-    title: string
-  } | null
   scanItems: ScanRuntimeItem[]
   title: string
 }) => {
-  if (items.length === 0 && scanItems.length === 0 && !pendingScanPlaceholder) {
+  if (items.length === 0 && scanItems.length === 0) {
     return null
   }
 
@@ -72,14 +63,6 @@ const MediaSection = ({
       </div>
 
       <div className="media-grid">
-        {pendingScanPlaceholder ? (
-          <MediaCardScanPlaceholder
-            placeholderLabel={pendingScanPlaceholder.placeholderLabel}
-            progressPercent={pendingScanPlaceholder.progressPercent}
-            progressText={pendingScanPlaceholder.progressText}
-            title={pendingScanPlaceholder.title}
-          />
-        ) : null}
         {scanItems.map((item) => (
           <MediaCardScanPlaceholder
             key={`scan-${item.item_key}`}
@@ -168,26 +151,13 @@ export const LibraryPage = () => {
   const movieItems = mediaItems.filter((item) => getLibraryMediaSection(item) === 'movies')
   const seriesItems = mediaItems.filter((item) => getLibraryMediaSection(item) === 'series')
   const otherItems = mediaItems.filter((item) => getLibraryMediaSection(item) === 'other')
-  const movieScanItems = scanItems.filter((item) => getLibraryScanSection(item) === 'movies')
-  const seriesScanItems = scanItems.filter((item) => getLibraryScanSection(item) === 'series')
-  const otherScanItems = scanItems.filter((item) => getLibraryScanSection(item) === 'other')
+  const visibleScanItems = scanItems.filter((item) => getLibraryScanSection(item) !== null)
+  const movieScanItems = visibleScanItems.filter((item) => getLibraryScanSection(item) === 'movies')
+  const seriesScanItems = visibleScanItems.filter((item) => getLibraryScanSection(item) === 'series')
+  const otherScanItems = visibleScanItems.filter((item) => getLibraryScanSection(item) === 'other')
   const shouldShowMediaSkeleton =
-    mediaItemsQuery.isLoading && mediaItems.length === 0 && scanItems.length === 0
-  const scanProgressPercent = getScanJobProgressPercent(currentScan, currentScanRuntime)
+    mediaItemsQuery.isLoading && mediaItems.length === 0 && visibleScanItems.length === 0
   const isScanning = isLibraryScanActive(currentScan, currentScanRuntime)
-  const pendingScanPlaceholder =
-    isScanning && scanItems.length === 0
-      ? {
-          placeholderLabel: l('Media'),
-          progressPercent: scanProgressPercent,
-          progressText: formatPendingScanPlaceholderCopy(
-            currentScan,
-            currentScanRuntime,
-            currentLibrary?.name ?? l('Current library'),
-          ),
-          title: currentLibrary?.name ?? l('Scanning library'),
-        }
-      : null
   const detectedMovieCount = mediaItemsQuery.data ? movieItems.length : (currentLibrary?.movie_count ?? 0)
   const detectedSeriesCount = mediaItemsQuery.data
     ? seriesItems.length
@@ -278,7 +248,8 @@ export const LibraryPage = () => {
         {!shouldShowMediaSkeleton &&
         mediaItemsQuery.data &&
         mediaItems.length === 0 &&
-        scanItems.length === 0 ? (
+        visibleScanItems.length === 0 &&
+        !isScanning ? (
           <section className="empty-panel">
             <h3>{l('No items available yet')}</h3>
             <p className="muted">{l('This library does not have any visible items yet.')}</p>
@@ -293,26 +264,19 @@ export const LibraryPage = () => {
           </div>
         ) : null}
 
-        {!shouldShowMediaSkeleton && (mediaItems.length > 0 || scanItems.length > 0) ? (
+        {!shouldShowMediaSkeleton && (mediaItems.length > 0 || visibleScanItems.length > 0) ? (
           <div className="catalog-stack">
             <MediaSection
               items={movieItems}
-              pendingScanPlaceholder={null}
               scanItems={movieScanItems}
               title={l('Movies')}
             />
             <MediaSection
               items={seriesItems}
-              pendingScanPlaceholder={null}
               scanItems={seriesScanItems}
               title={l('Series')}
             />
-            <MediaSection
-              items={otherItems}
-              pendingScanPlaceholder={otherScanItems.length === 0 ? pendingScanPlaceholder : null}
-              scanItems={otherScanItems}
-              title={l('Other')}
-            />
+            <MediaSection items={otherItems} scanItems={otherScanItems} title={l('Other')} />
           </div>
         ) : null}
       </section>

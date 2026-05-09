@@ -66,6 +66,15 @@ describe('library-media-sections', () => {
     expect(getLibraryScanSection({ media_type: 'movie' })).toBe('movies')
     expect(getLibraryScanSection({ media_type: 'series' })).toBe('series')
     expect(getLibraryScanSection({ media_type: 'episode' })).toBe('series')
-    expect(getLibraryScanSection({ media_type: 'unknown' })).toBe('other')
+    expect(getLibraryScanSection({ media_type: 'unknown' })).toBeNull()
+  })
+
+  it('keeps failed scan runtime items in other for review', () => {
+    expect(getLibraryScanSection({ media_type: 'movie', metadata_status: 'unmatched' })).toBe(
+      'other',
+    )
+    expect(getLibraryScanSection({ media_type: 'series', metadata_status: 'failed' })).toBe(
+      'other',
+    )
   })
 })

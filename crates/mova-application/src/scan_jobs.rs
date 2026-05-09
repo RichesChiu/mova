@@ -4,7 +4,7 @@ use crate::{
     media_classification::classify_media_type,
     media_enrichment::MetadataEnrichmentContext,
     media_enrichment::MetadataEnrichmentStage,
-    metadata::{MetadataLookup, MetadataProvider, RemoteMediaKind},
+    metadata::{MetadataLookup, MetadataProvider, RemoteMediaKind, TMDB_PROVIDER_NAME},
 };
 use mova_domain::{Library, ScanJob};
 use mova_domain::{
@@ -16,7 +16,8 @@ use mova_domain::{
 };
 use mova_scan::{
     discovered_media_file_inventory_scan_hash, discovered_media_file_scan_hash,
-    infer_series_file_metadata, DiscoveredMediaFile, DiscoveredMediaFileInventory,
+    infer_series_file_metadata, DiscoveredAudioTrack, DiscoveredMediaFile,
+    DiscoveredMediaFileInventory, DiscoveredSubtitleTrack,
 };
 use sqlx::postgres::PgPool;
 use std::{
@@ -136,6 +137,7 @@ struct GroupMetadataLookupDecision {
 }
 
 const SCAN_PHASE_DISCOVERING: &str = "discovering";
+const SCAN_PHASE_ANALYZING: &str = "analyzing";
 const SCAN_PHASE_ENRICHING: &str = "enriching";
 const SCAN_PHASE_SYNCING: &str = "syncing";
 const SCAN_PHASE_FINISHED: &str = "finished";
@@ -148,6 +150,7 @@ const SCAN_ITEM_STAGE_COMPLETED: &str = "completed";
 const SCAN_PHASE_INITIALIZING: &str = "initializing";
 const SCAN_DISCOVERY_PROGRESS_MIN_FILE_DELTA: i32 = 25;
 const SCAN_DISCOVERY_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(500);
+pub(crate) const LOCAL_ANALYSIS_VERSION: i32 = 1;
 
 fn should_flush_discovery_progress(
     persisted_progress: i32,
@@ -457,7 +460,7 @@ pub async fn execute_scan_job_with_cancellation(
     emit_scan_job_phase(
         pool,
         scan_job_id,
-        SCAN_PHASE_ENRICHING,
+        SCAN_PHASE_ANALYZING,
         event_listener.clone(),
     )
     .await;
@@ -474,8 +477,8 @@ pub async fn execute_scan_job_with_cancellation(
     )
     .await;
 
-    let changed_files = match inspect_incremental_scan_files(changed_files).await {
-        Ok(files) => files,
+    let discovered_groups = match analyze_incremental_scan_files(&library, changed_files).await {
+        Ok(groups) => groups,
         Err(error) => {
             if let Some(scan_job) = finalize_failed_scan(
                 pool,
@@ -483,8 +486,8 @@ pub async fn execute_scan_job_with_cancellation(
                 total_files,
                 0,
                 &format_scan_phase_error(
-                    SCAN_PHASE_ENRICHING,
-                    format!("Failed to inspect changed media files: {}", error),
+                    SCAN_PHASE_ANALYZING,
+                    format!("Failed to analyze changed media files: {}", error),
                 ),
             )
             .await
@@ -499,11 +502,19 @@ pub async fn execute_scan_job_with_cancellation(
         }
     };
 
-    let mut sync_outcome = match enrich_discovered_files(
+    emit_scan_job_phase(
+        pool,
+        scan_job_id,
+        SCAN_PHASE_ENRICHING,
+        event_listener.clone(),
+    )
+    .await;
+
+    let mut sync_outcome = match enrich_discovered_groups(
         pool,
         &library,
         scan_job_id,
-        changed_files,
+        discovered_groups,
         cancellation_flag.clone(),
         artwork_cache_dir,
         metadata_provider.clone(),
@@ -605,11 +616,39 @@ pub async fn execute_scan_job_with_cancellation(
     }
 }
 
-async fn enrich_discovered_files(
+async fn analyze_incremental_scan_files(
+    library: &Library,
+    changed_files: Vec<IncrementalScanFile>,
+) -> ApplicationResult<Vec<ScanDiscoveredGroup>> {
+    let discovered_files = inspect_incremental_scan_files(changed_files).await?;
+    let mut groups = group_discovered_files_for_scan(library, discovered_files);
+
+    prepare_scan_groups_for_metadata_lookup(&mut groups);
+
+    Ok(groups)
+}
+
+fn prepare_scan_groups_for_metadata_lookup(groups: &mut [ScanDiscoveredGroup]) {
+    for group in groups {
+        if !group.presentation.media_type.eq_ignore_ascii_case("series") {
+            continue;
+        }
+
+        for file in &mut group.files {
+            file.source_title = group.presentation.lookup_title.clone();
+
+            if file.year.is_none() {
+                file.year = group.presentation.year;
+            }
+        }
+    }
+}
+
+async fn enrich_discovered_groups(
     pool: &PgPool,
     library: &Library,
     scan_job_id: i64,
-    discovered_files: Vec<DiscoveredMediaFile>,
+    mut groups: Vec<ScanDiscoveredGroup>,
     cancellation_flag: Arc<AtomicBool>,
     artwork_cache_dir: PathBuf,
     metadata_provider: Arc<dyn MetadataProvider>,
@@ -620,23 +659,23 @@ async fn enrich_discovered_files(
         metadata_provider.clone(),
         library.metadata_language.clone(),
     );
-    let mut groups = group_discovered_files_for_scan(library, discovered_files);
     let total_items = i32::try_from(groups.len()).unwrap_or(i32::MAX);
     let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
+
+    emit_analyzed_scan_groups(
+        scan_job_id,
+        library.id,
+        &groups,
+        cancellation_flag.clone(),
+        event_listener.clone(),
+    );
+
+    let analyzed_sync_outcome = sync_analyzed_scan_groups(pool, library, &groups).await?;
+    merge_sync_outcome(&mut sync_outcome, analyzed_sync_outcome);
 
     for (index, group) in groups.iter_mut().enumerate() {
         if is_cancelled(&cancellation_flag) {
             break;
-        }
-
-        if group.presentation.media_type.eq_ignore_ascii_case("series") {
-            for file in &mut group.files {
-                file.source_title = group.presentation.lookup_title.clone();
-
-                if file.year.is_none() {
-                    file.year = group.presentation.year;
-                }
-            }
         }
 
         let metadata_decision = resolve_group_metadata_lookup_type(
@@ -651,16 +690,6 @@ async fn enrich_discovered_files(
         };
         let progress_listener = event_listener.clone();
         let mut presentation = group.presentation.clone();
-
-        progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
-            scan_job_id,
-            library.id,
-            &presentation,
-            None,
-            item_index,
-            total_items,
-            ScanItemStage::Discovered,
-        )));
 
         let Some(lookup_type) = metadata_decision.lookup_type else {
             clear_remote_metadata_for_review(
@@ -755,6 +784,49 @@ async fn enrich_discovered_files(
     }
 
     Ok(sync_outcome)
+}
+
+async fn sync_analyzed_scan_groups(
+    pool: &PgPool,
+    library: &Library,
+    groups: &[ScanDiscoveredGroup],
+) -> ApplicationResult<mova_db::SyncLibraryMediaBestEffortOutcome> {
+    let mut outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
+
+    for group in groups {
+        let group_outcome = sync_scan_group_media_entries(pool, library, group).await?;
+        merge_sync_outcome(&mut outcome, group_outcome);
+    }
+
+    Ok(outcome)
+}
+
+fn emit_analyzed_scan_groups(
+    scan_job_id: i64,
+    library_id: i64,
+    groups: &[ScanDiscoveredGroup],
+    cancellation_flag: Arc<AtomicBool>,
+    event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
+) {
+    let total_items = i32::try_from(groups.len()).unwrap_or(i32::MAX);
+
+    for (index, group) in groups.iter().enumerate() {
+        if is_cancelled(&cancellation_flag) {
+            break;
+        }
+
+        let item_index = i32::try_from(index + 1).unwrap_or(i32::MAX);
+
+        event_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
+            scan_job_id,
+            library_id,
+            &group.presentation,
+            None,
+            item_index,
+            total_items,
+            ScanItemStage::Discovered,
+        )));
+    }
 }
 
 async fn sync_scan_group_media_entries(
@@ -1012,9 +1084,95 @@ async fn build_incremental_scan_plan(
         }
     }
 
+    hydrate_incremental_scan_file_cached_tracks(pool, &mut changed_files).await;
+
     IncrementalScanPlan {
         discovered_paths: file_paths,
         changed_files,
+    }
+}
+
+async fn hydrate_incremental_scan_file_cached_tracks(
+    pool: &PgPool,
+    changed_files: &mut [IncrementalScanFile],
+) {
+    for changed_file in changed_files {
+        let Some(existing_metadata) = changed_file.existing_metadata.as_ref() else {
+            continue;
+        };
+
+        let scan_hash = discovered_media_file_inventory_scan_hash(&changed_file.inventory);
+        if !can_reuse_cached_local_analysis(existing_metadata, scan_hash.as_str()) {
+            continue;
+        }
+
+        let media_file_id = existing_metadata.media_file_id;
+        let file_path = existing_metadata.file_path.clone();
+
+        let audio_tracks =
+            match mova_db::list_audio_tracks_for_media_file(pool, media_file_id).await {
+                Ok(audio_tracks) => audio_tracks,
+                Err(error) => {
+                    tracing::warn!(
+                        media_file_id,
+                        file_path = %file_path,
+                        error = ?error,
+                        "failed to load cached audio tracks; falling back to fresh local analysis"
+                    );
+                    changed_file.existing_metadata = None;
+                    continue;
+                }
+            };
+
+        let subtitle_tracks = match mova_db::list_subtitle_files_for_media_file(pool, media_file_id)
+            .await
+        {
+            Ok(subtitle_tracks) => subtitle_tracks,
+            Err(error) => {
+                tracing::warn!(
+                    media_file_id,
+                    file_path = %file_path,
+                    error = ?error,
+                    "failed to load cached subtitle tracks; falling back to fresh local analysis"
+                );
+                changed_file.existing_metadata = None;
+                continue;
+            }
+        };
+
+        let Some(existing_metadata) = changed_file.existing_metadata.as_mut() else {
+            continue;
+        };
+
+        existing_metadata.audio_tracks = audio_tracks
+            .into_iter()
+            .map(|track| mova_db::CreateAudioTrackParams {
+                stream_index: track.stream_index,
+                language: track.language,
+                audio_codec: track.audio_codec,
+                label: track.label,
+                channel_layout: track.channel_layout,
+                channels: track.channels,
+                bitrate: track.bitrate,
+                sample_rate: track.sample_rate,
+                is_default: track.is_default,
+            })
+            .collect();
+
+        existing_metadata.subtitle_tracks = subtitle_tracks
+            .into_iter()
+            .map(|subtitle| mova_db::CreateSubtitleTrackParams {
+                source_kind: subtitle.source_kind,
+                file_path: subtitle.file_path,
+                stream_index: subtitle.stream_index,
+                language: subtitle.language,
+                subtitle_format: subtitle.subtitle_format,
+                label: subtitle.label,
+                is_default: subtitle.is_default,
+                is_forced: subtitle.is_forced,
+                is_hearing_impaired: subtitle.is_hearing_impaired,
+            })
+            .collect();
     }
 }
 
@@ -1029,14 +1187,117 @@ fn can_skip_existing_media_summary(
         return false;
     }
 
+    if summary.local_analysis_version != LOCAL_ANALYSIS_VERSION {
+        return false;
+    }
+
     if metadata_provider_enabled
         && should_retry_localized_series_metadata(summary, metadata_language, file_path)
     {
         return false;
     }
 
+    if metadata_provider_enabled && should_retry_unfetched_remote_metadata(summary) {
+        return false;
+    }
+
+    if metadata_provider_enabled && should_retry_incomplete_cached_artwork(summary) {
+        return false;
+    }
+
     summary.metadata_status == METADATA_STATUS_MATCHED
         || (!metadata_provider_enabled && summary.metadata_status == METADATA_STATUS_SKIPPED)
+}
+
+fn can_reuse_cached_local_analysis(
+    summary: &mova_db::ExistingMediaMetadataSummary,
+    scan_hash: &str,
+) -> bool {
+    summary.scan_hash.as_deref() == Some(scan_hash)
+        && summary.local_analysis_version == LOCAL_ANALYSIS_VERSION
+}
+
+fn should_retry_unfetched_remote_metadata(summary: &mova_db::ExistingMediaMetadataSummary) -> bool {
+    if summary.metadata_status != METADATA_STATUS_MATCHED {
+        return false;
+    }
+
+    effective_existing_metadata_provider_item_id(summary).is_none()
+        || !effective_existing_metadata_provider(summary)
+            .is_some_and(|value| value.eq_ignore_ascii_case(TMDB_PROVIDER_NAME))
+}
+
+fn effective_existing_metadata_provider(
+    summary: &mova_db::ExistingMediaMetadataSummary,
+) -> Option<&str> {
+    if summary.media_type.eq_ignore_ascii_case("episode") {
+        return summary
+            .series_metadata_provider
+            .as_deref()
+            .or(summary.metadata_provider.as_deref());
+    }
+
+    summary.metadata_provider.as_deref()
+}
+
+fn effective_existing_metadata_provider_item_id(
+    summary: &mova_db::ExistingMediaMetadataSummary,
+) -> Option<i64> {
+    if summary.media_type.eq_ignore_ascii_case("episode") {
+        return summary
+            .series_metadata_provider_item_id
+            .or(summary.metadata_provider_item_id);
+    }
+
+    summary.metadata_provider_item_id
+}
+
+fn should_retry_incomplete_cached_artwork(summary: &mova_db::ExistingMediaMetadataSummary) -> bool {
+    if summary.metadata_status != METADATA_STATUS_MATCHED {
+        return false;
+    }
+
+    if primary_visible_poster_path(summary)
+        .map(is_missing_or_external_artwork_path)
+        .unwrap_or(true)
+    {
+        return true;
+    }
+
+    existing_artwork_paths(summary).any(is_external_artwork_path)
+}
+
+fn primary_visible_poster_path(summary: &mova_db::ExistingMediaMetadataSummary) -> Option<&str> {
+    if summary.media_type.eq_ignore_ascii_case("episode") {
+        return summary.series_poster_path.as_deref();
+    }
+
+    summary.poster_path.as_deref()
+}
+
+fn existing_artwork_paths(
+    summary: &mova_db::ExistingMediaMetadataSummary,
+) -> impl Iterator<Item = &str> {
+    [
+        summary.poster_path.as_deref(),
+        summary.backdrop_path.as_deref(),
+        summary.series_poster_path.as_deref(),
+        summary.series_backdrop_path.as_deref(),
+        summary.season_poster_path.as_deref(),
+        summary.season_backdrop_path.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+}
+
+fn is_missing_or_external_artwork_path(path: &str) -> bool {
+    let path = path.trim();
+    path.is_empty() || is_external_artwork_path(path)
+}
+
+fn is_external_artwork_path(path: &str) -> bool {
+    let path = path.trim();
+    path.starts_with("http://") || path.starts_with("https://")
 }
 
 fn should_retry_localized_series_metadata(
@@ -1078,6 +1339,17 @@ async fn inspect_incremental_scan_files(
 
         for changed_file in changed_files {
             let file_path = changed_file.inventory.file_path.display().to_string();
+            if let Some(existing_metadata) = changed_file.existing_metadata.as_ref() {
+                let scan_hash = discovered_media_file_inventory_scan_hash(&changed_file.inventory);
+                if can_reuse_cached_local_analysis(existing_metadata, scan_hash.as_str()) {
+                    discovered_files.push(discovered_file_from_existing_local_analysis(
+                        &changed_file.inventory,
+                        existing_metadata,
+                    )?);
+                    continue;
+                }
+            }
+
             let mut discovered_file = mova_scan::inspect_media_file_inventory(
                 changed_file.inventory,
             )
@@ -1105,6 +1377,157 @@ async fn inspect_incremental_scan_files(
             error
         ))
     })?
+}
+
+fn discovered_file_from_existing_local_analysis(
+    inventory: &DiscoveredMediaFileInventory,
+    summary: &mova_db::ExistingMediaMetadataSummary,
+) -> ApplicationResult<DiscoveredMediaFile> {
+    let file_size = u64::try_from(summary.file_size).map_err(|_| {
+        ApplicationError::Unexpected(anyhow::anyhow!(
+            "stored media file size is invalid: {}",
+            summary.file_path
+        ))
+    })?;
+
+    let (
+        title,
+        source_title,
+        original_title,
+        sort_title,
+        year,
+        imdb_rating,
+        country,
+        genres,
+        studio,
+        overview,
+        poster_path,
+        backdrop_path,
+    ) = if summary.media_type.eq_ignore_ascii_case("episode") {
+        (
+            summary
+                .series_title
+                .as_ref()
+                .cloned()
+                .unwrap_or_else(|| summary.title.clone()),
+            summary
+                .series_source_title
+                .as_ref()
+                .cloned()
+                .unwrap_or_else(|| summary.source_title.clone()),
+            summary.series_original_title.clone(),
+            summary.series_sort_title.clone(),
+            summary.series_year,
+            summary.series_imdb_rating.clone(),
+            summary.series_country.clone(),
+            summary.series_genres.clone(),
+            summary.series_studio.clone(),
+            summary
+                .series_overview
+                .clone()
+                .or_else(|| summary.overview.clone()),
+            summary.poster_path.clone(),
+            summary.backdrop_path.clone(),
+        )
+    } else {
+        (
+            summary.title.clone(),
+            summary.source_title.clone(),
+            summary.original_title.clone(),
+            summary.sort_title.clone(),
+            summary.year,
+            summary.imdb_rating.clone(),
+            summary.country.clone(),
+            summary.genres.clone(),
+            summary.studio.clone(),
+            summary.overview.clone(),
+            summary.poster_path.clone(),
+            summary.backdrop_path.clone(),
+        )
+    };
+
+    Ok(DiscoveredMediaFile {
+        file_path: inventory.file_path.clone(),
+        file_modified_at_ms: inventory.file_modified_at_ms,
+        metadata_provider: effective_existing_metadata_provider(summary).map(str::to_string),
+        metadata_provider_item_id: effective_existing_metadata_provider_item_id(summary),
+        title,
+        source_title,
+        original_title,
+        sort_title,
+        year,
+        imdb_rating,
+        metadata_status: Some(summary.metadata_status.clone()),
+        metadata_failure_reason: summary.metadata_failure_reason.clone(),
+        remote_media_type: summary.remote_media_type.clone(),
+        country,
+        genres,
+        studio,
+        season_number: summary.season_number,
+        season_title: summary.season_title.clone(),
+        season_overview: summary.season_overview.clone(),
+        season_poster_path: summary.season_poster_path.clone(),
+        season_backdrop_path: summary.season_backdrop_path.clone(),
+        episode_number: summary.episode_number,
+        episode_title: summary.episode_title.clone(),
+        overview,
+        series_poster_path: summary.series_poster_path.clone(),
+        series_backdrop_path: summary.series_backdrop_path.clone(),
+        poster_path,
+        backdrop_path,
+        file_size: inventory.file_size.max(file_size),
+        container: summary.container.clone(),
+        duration_seconds: summary.duration_seconds,
+        video_title: summary.video_title.clone(),
+        video_codec: summary.video_codec.clone(),
+        video_profile: summary.video_profile.clone(),
+        video_level: summary.video_level.clone(),
+        audio_codec: summary.audio_codec.clone(),
+        width: summary.width,
+        height: summary.height,
+        bitrate: summary.bitrate,
+        video_bitrate: summary.video_bitrate,
+        video_frame_rate: summary.video_frame_rate,
+        video_aspect_ratio: summary.video_aspect_ratio.clone(),
+        video_scan_type: summary.video_scan_type.clone(),
+        video_color_primaries: summary.video_color_primaries.clone(),
+        video_color_space: summary.video_color_space.clone(),
+        video_color_transfer: summary.video_color_transfer.clone(),
+        video_bit_depth: summary.video_bit_depth,
+        video_pixel_format: summary.video_pixel_format.clone(),
+        video_reference_frames: summary.video_reference_frames,
+        technical_tags: summary.technical_tags.clone(),
+        audio_tracks: summary
+            .audio_tracks
+            .iter()
+            .map(|track| DiscoveredAudioTrack {
+                stream_index: track.stream_index,
+                language: track.language.clone(),
+                audio_codec: track.audio_codec.clone(),
+                label: track.label.clone(),
+                channel_layout: track.channel_layout.clone(),
+                channels: track.channels,
+                bitrate: track.bitrate,
+                sample_rate: track.sample_rate,
+                is_default: track.is_default,
+            })
+            .collect(),
+        subtitle_tracks: summary
+            .subtitle_tracks
+            .iter()
+            .map(|subtitle| DiscoveredSubtitleTrack {
+                source_kind: subtitle.source_kind.clone(),
+                file_path: subtitle.file_path.as_ref().map(PathBuf::from),
+                stream_index: subtitle.stream_index,
+                language: subtitle.language.clone(),
+                subtitle_format: subtitle.subtitle_format.clone(),
+                label: subtitle.label.clone(),
+                is_default: subtitle.is_default,
+                is_forced: subtitle.is_forced,
+                is_hearing_impaired: subtitle.is_hearing_impaired,
+            })
+            .collect(),
+    })
 }
 
 async fn discover_media_files(
@@ -1324,6 +1747,7 @@ fn build_media_entries(
                     is_hearing_impaired: subtitle.is_hearing_impaired,
                 })
                 .collect(),
+            local_analysis_version: LOCAL_ANALYSIS_VERSION,
             scan_hash: Some(scan_hash),
         });
     }
@@ -1882,6 +2306,7 @@ fn scan_phase_label(phase: &str) -> &'static str {
     match phase {
         SCAN_PHASE_INITIALIZING => "Initialization failed",
         SCAN_PHASE_DISCOVERING => "Directory scan failed",
+        SCAN_PHASE_ANALYZING => "Local media analysis failed",
         SCAN_PHASE_ENRICHING => "Metadata enrichment failed",
         SCAN_PHASE_SYNCING => "Library write failed",
         SCAN_PHASE_FINISHED => "Finalization failed",
@@ -2147,7 +2572,10 @@ mod tests {
         METADATA_STATUS_MATCHED, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
         REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
     };
-    use mova_scan::DiscoveredMediaFile;
+    use mova_scan::{
+        discovered_media_file_inventory_scan_hash, discovered_media_file_scan_hash,
+        DiscoveredMediaFile, DiscoveredMediaFileInventory,
+    };
     use std::{
         path::{Path, PathBuf},
         time::Instant,
@@ -2251,6 +2679,7 @@ mod tests {
 
     fn build_existing_movie_metadata() -> ExistingMediaMetadataSummary {
         ExistingMediaMetadataSummary {
+            media_file_id: 11,
             file_path: "/media/movies/Arcane.mkv".to_string(),
             media_type: "movie".to_string(),
             metadata_provider: Some("tmdb".to_string()),
@@ -2271,7 +2700,54 @@ mod tests {
             poster_path: Some("/cache/poster.jpg".to_string()),
             backdrop_path: Some("/cache/backdrop.jpg".to_string()),
             scan_hash: Some("movie-hash".to_string()),
+            container: Some("mkv".to_string()),
+            file_size: 1024,
+            duration_seconds: Some(600),
+            video_title: Some("Video stream".to_string()),
+            video_codec: Some("h264".to_string()),
+            video_profile: Some("main".to_string()),
+            video_level: Some("4.1".to_string()),
+            audio_codec: Some("aac".to_string()),
+            width: Some(1920),
+            height: Some(1080),
+            bitrate: Some(1_000_000),
+            video_bitrate: Some(800_000),
+            video_frame_rate: Some(24.0),
+            video_aspect_ratio: Some("16:9".to_string()),
+            video_scan_type: Some("Progressive".to_string()),
+            video_color_primaries: Some("bt709".to_string()),
+            video_color_space: Some("bt709".to_string()),
+            video_color_transfer: Some("bt709".to_string()),
+            video_bit_depth: Some(8),
+            video_pixel_format: Some("yuv420p".to_string()),
+            video_reference_frames: Some(4),
+            technical_tags: vec!["HDR10".to_string()],
+            local_analysis_version: super::LOCAL_ANALYSIS_VERSION,
+            audio_tracks: vec![mova_db::CreateAudioTrackParams {
+                stream_index: 1,
+                language: Some("eng".to_string()),
+                audio_codec: Some("aac".to_string()),
+                label: Some("English AAC".to_string()),
+                channel_layout: Some("stereo".to_string()),
+                channels: Some(2),
+                bitrate: Some(160_000),
+                sample_rate: Some(48_000),
+                is_default: true,
+            }],
+            subtitle_tracks: vec![mova_db::CreateSubtitleTrackParams {
+                source_kind: "embedded".to_string(),
+                file_path: None,
+                stream_index: Some(2),
+                language: Some("eng".to_string()),
+                subtitle_format: "subrip".to_string(),
+                label: Some("English".to_string()),
+                is_default: false,
+                is_forced: false,
+                is_hearing_impaired: false,
+            }],
             series_title: None,
+            series_metadata_provider: None,
+            series_metadata_provider_item_id: None,
             series_source_title: None,
             series_original_title: None,
             series_sort_title: None,
@@ -2284,15 +2760,18 @@ mod tests {
             series_poster_path: None,
             series_backdrop_path: None,
             season_title: None,
+            season_number: None,
             season_overview: None,
             season_poster_path: None,
             season_backdrop_path: None,
             episode_title: None,
+            episode_number: None,
         }
     }
 
     fn build_existing_episode_metadata() -> ExistingMediaMetadataSummary {
         ExistingMediaMetadataSummary {
+            media_file_id: 22,
             file_path: "/media/series/Arcane/Arcane.S01E01.mkv".to_string(),
             media_type: "episode".to_string(),
             metadata_provider: Some("tmdb".to_string()),
@@ -2313,7 +2792,44 @@ mod tests {
             poster_path: Some("/cache/episode-poster.jpg".to_string()),
             backdrop_path: Some("/cache/episode-backdrop.jpg".to_string()),
             scan_hash: Some("episode-hash".to_string()),
+            container: Some("mkv".to_string()),
+            file_size: 2048,
+            duration_seconds: Some(1200),
+            video_title: Some("Episode video".to_string()),
+            video_codec: Some("hevc".to_string()),
+            video_profile: Some("main10".to_string()),
+            video_level: Some("5.1".to_string()),
+            audio_codec: Some("eac3".to_string()),
+            width: Some(3840),
+            height: Some(2160),
+            bitrate: Some(8_000_000),
+            video_bitrate: Some(7_000_000),
+            video_frame_rate: Some(24.0),
+            video_aspect_ratio: Some("16:9".to_string()),
+            video_scan_type: Some("Progressive".to_string()),
+            video_color_primaries: Some("bt2020".to_string()),
+            video_color_space: Some("bt2020nc".to_string()),
+            video_color_transfer: Some("smpte2084".to_string()),
+            video_bit_depth: Some(10),
+            video_pixel_format: Some("yuv420p10le".to_string()),
+            video_reference_frames: Some(5),
+            technical_tags: vec!["Dolby Vision".to_string()],
+            local_analysis_version: super::LOCAL_ANALYSIS_VERSION,
+            audio_tracks: vec![mova_db::CreateAudioTrackParams {
+                stream_index: 1,
+                language: Some("eng".to_string()),
+                audio_codec: Some("eac3".to_string()),
+                label: Some("English EAC3".to_string()),
+                channel_layout: Some("5.1".to_string()),
+                channels: Some(6),
+                bitrate: Some(768_000),
+                sample_rate: Some(48_000),
+                is_default: true,
+            }],
+            subtitle_tracks: Vec::new(),
             series_title: Some("Arcane".to_string()),
+            series_metadata_provider: Some("tmdb".to_string()),
+            series_metadata_provider_item_id: Some(88),
             series_source_title: Some("Arcane".to_string()),
             series_original_title: Some("Arcane Original".to_string()),
             series_sort_title: Some("Arcane, The".to_string()),
@@ -2326,10 +2842,12 @@ mod tests {
             series_poster_path: Some("/cache/series-poster.jpg".to_string()),
             series_backdrop_path: Some("/cache/series-backdrop.jpg".to_string()),
             season_title: Some("Season 01".to_string()),
+            season_number: Some(1),
             season_overview: Some("Season overview".to_string()),
             season_poster_path: Some("/cache/season-poster.jpg".to_string()),
             season_backdrop_path: Some("/cache/season-backdrop.jpg".to_string()),
             episode_title: Some("Welcome to the Playground".to_string()),
+            episode_number: Some(1),
         }
     }
 
@@ -2386,6 +2904,131 @@ mod tests {
             false,
             "zh-CN",
             Path::new("/media/movies/Arcane.mkv"),
+        ));
+
+        summary.scan_hash = Some("same-hash".to_string());
+        summary.local_analysis_version = super::LOCAL_ANALYSIS_VERSION - 1;
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            false,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+    }
+
+    #[test]
+    fn can_skip_existing_media_summary_retries_matched_movies_without_cached_poster() {
+        let mut summary = build_existing_movie_metadata();
+        summary.scan_hash = Some("same-hash".to_string());
+        summary.poster_path = None;
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+
+        summary.poster_path = Some("https://image.tmdb.org/t/p/original/poster.jpg".to_string());
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+
+        summary.poster_path = Some("/cache/poster.jpg".to_string());
+        summary.backdrop_path =
+            Some("https://image.tmdb.org/t/p/original/backdrop.jpg".to_string());
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+    }
+
+    #[test]
+    fn can_skip_existing_media_summary_retries_matched_rows_without_tmdb_binding() {
+        let mut summary = build_existing_movie_metadata();
+        summary.scan_hash = Some("same-hash".to_string());
+        summary.metadata_provider_item_id = None;
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+
+        summary.metadata_provider_item_id = Some(77);
+        summary.metadata_provider = None;
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+    }
+
+    #[test]
+    fn discovered_file_from_existing_local_analysis_preserves_cached_probe_data() {
+        let summary = build_existing_episode_metadata();
+        let inventory = DiscoveredMediaFileInventory {
+            file_path: PathBuf::from("/media/series/Arcane/Arcane.S01E01.mkv"),
+            file_size: 2048,
+            file_modified_at_ms: Some(1_700_000_000_000),
+        };
+
+        let file = super::discovered_file_from_existing_local_analysis(&inventory, &summary)
+            .expect("cached local analysis should rebuild discovered file");
+
+        assert_eq!(file.title, "Arcane");
+        assert_eq!(file.source_title, "Arcane");
+        assert_eq!(file.season_number, Some(1));
+        assert_eq!(file.episode_number, Some(1));
+        assert_eq!(file.video_codec.as_deref(), Some("hevc"));
+        assert_eq!(file.technical_tags, vec!["Dolby Vision".to_string()]);
+        assert_eq!(file.audio_tracks.len(), 1);
+        assert_eq!(file.audio_tracks[0].channel_layout.as_deref(), Some("5.1"));
+        assert_eq!(
+            discovered_media_file_scan_hash(&file),
+            discovered_media_file_inventory_scan_hash(&inventory)
+        );
+    }
+
+    #[test]
+    fn can_skip_existing_media_summary_retries_matched_episodes_without_series_poster() {
+        let mut summary = build_existing_episode_metadata();
+        summary.scan_hash = Some("same-hash".to_string());
+        summary.series_poster_path = None;
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new("/media/series/Arcane/Arcane.S01E01.mkv"),
+        ));
+
+        summary.series_poster_path =
+            Some("https://image.tmdb.org/t/p/original/series-poster.jpg".to_string());
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new("/media/series/Arcane/Arcane.S01E01.mkv"),
         ));
     }
 
@@ -2461,6 +3104,10 @@ mod tests {
         assert_eq!(
             super::scan_phase_label(super::SCAN_PHASE_DISCOVERING),
             "Directory scan failed"
+        );
+        assert_eq!(
+            super::scan_phase_label(super::SCAN_PHASE_ANALYZING),
+            "Local media analysis failed"
         );
         assert_eq!(
             super::scan_phase_label(super::SCAN_PHASE_ENRICHING),

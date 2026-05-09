@@ -223,8 +223,9 @@
 }
 
 .chip--scan {
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 28px;
   height: 28px;
   padding: 0 11px;
@@ -233,6 +234,7 @@
   color: color-mix(in srgb, var(--accent-strong) 86%, white 14%);
   line-height: 1;
   text-align: center;
+  white-space: nowrap;
 }
 
 .media-card__pill {

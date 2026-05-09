@@ -100,8 +100,8 @@
 
 1. `mova-application` 调用 `discover_media_file_inventory_with_progress_and_cancel`
 2. `mova-scan` 递归发现媒体文件，只读取路径、文件大小和修改时间，返回 `DiscoveredMediaFileInventory`
-3. 应用层用稳定指纹判断哪些路径确实新增或变化
-4. 只有变化项才调用 `inspect_media_file_inventory` 做文件名解析、sidecar 读取、`ffprobe` 探测和技术标签归一化
+3. 应用层用稳定指纹和已入库的本地分析版本判断哪些路径确实新增、变化或需要重新分析
+4. 只有新增、变化或本地分析版本过期的项才调用 `inspect_media_file_inventory` 做文件名解析、sidecar 读取、`ffprobe` 探测和技术标签归一化
 5. 对剧集路径只从文件名里的 `剧名.S01E01`、`剧名 S01E01 - 第 1 集`、`剧名 - S01E01`、`剧名_S01E01`、`剧名S01E01` 这类显式标题推导“系列展示名 / 远端匹配标题 / 年份”，无显式标题时保留为本地文件条目；`第 1 集`、`Episode 1` 这类通用集数文案不会当作远端集标题；应用层会按剧名或明确季目录树聚合多季，避免每季不同年份、或同一剧集容器内不同语言文件名拆成多个剧集
 6. 返回 `DiscoveredMediaFile`
 7. 应用层再决定如何补元数据、如何写库

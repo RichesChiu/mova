@@ -552,6 +552,26 @@ fn needs_remote_metadata(file: &DiscoveredMediaFile) -> bool {
         || file.poster_path.is_none()
         || file.backdrop_path.is_none()
         || file.year.is_none()
+        || needs_episode_container_artwork_metadata(file)
+}
+
+fn needs_episode_container_artwork_metadata(file: &DiscoveredMediaFile) -> bool {
+    if file.season_number.is_none() || file.episode_number.is_none() {
+        return false;
+    }
+
+    is_missing_or_external_url(file.series_poster_path.as_deref())
+        || is_missing_or_external_url(file.series_backdrop_path.as_deref())
+        || is_missing_or_external_url(file.season_poster_path.as_deref())
+        || is_missing_or_external_url(file.season_backdrop_path.as_deref())
+}
+
+fn is_missing_or_external_url(value: Option<&str>) -> bool {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return true;
+    };
+
+    is_external_url(value)
 }
 
 fn build_artwork_cache_path(artwork_cache_dir: &Path, source_url: &str, kind: &str) -> PathBuf {
@@ -938,8 +958,9 @@ mod tests {
     use super::{
         artwork_file_extension, build_artwork_cache_path, is_generated_episode_still_path,
         is_generic_backdrop_artwork_path, is_generic_poster_artwork_path,
-        metadata_lookup_candidates, series_container_metadata_for_episode_path,
-        should_replace_episode_artwork, stable_artwork_cache_key,
+        metadata_lookup_candidates, needs_remote_metadata,
+        series_container_metadata_for_episode_path, should_replace_episode_artwork,
+        stable_artwork_cache_key,
     };
     use mova_scan::DiscoveredMediaFile;
     use std::path::Path;
@@ -1103,6 +1124,28 @@ mod tests {
         assert_eq!(lookups[0].year, Some(2025));
         assert_eq!(lookups[1].title, "Study Group");
         assert_eq!(lookups[1].year, Some(2025));
+    }
+
+    #[test]
+    fn needs_remote_metadata_retries_missing_or_external_episode_container_artwork() {
+        let mut file = build_discovered_episode();
+        file.original_title = Some("Show Original".to_string());
+        file.overview = Some("Overview".to_string());
+        file.poster_path = Some("/cache/episode-poster.jpg".to_string());
+        file.backdrop_path = Some("/cache/episode-backdrop.jpg".to_string());
+        file.series_poster_path = Some("/cache/series-poster.jpg".to_string());
+        file.series_backdrop_path = Some("/cache/series-backdrop.jpg".to_string());
+        file.season_poster_path = Some("/cache/season-poster.jpg".to_string());
+        file.season_backdrop_path = Some("/cache/season-backdrop.jpg".to_string());
+
+        assert!(!needs_remote_metadata(&file));
+
+        file.series_poster_path = None;
+        assert!(needs_remote_metadata(&file));
+
+        file.series_poster_path =
+            Some("https://image.tmdb.org/t/p/original/series-poster.jpg".to_string());
+        assert!(needs_remote_metadata(&file));
     }
 
     fn build_discovered_episode() -> DiscoveredMediaFile {

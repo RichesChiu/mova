@@ -4,6 +4,7 @@ use crate::{
     media_classification::{classify_media_type, metadata_lookup_type_for_media_type},
     media_enrichment::MetadataEnrichmentContext,
     metadata::MetadataProvider,
+    scan_jobs::LOCAL_ANALYSIS_VERSION,
 };
 use mova_domain::{
     METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED, METADATA_STATUS_MATCHED,
@@ -322,6 +323,7 @@ fn build_media_entry(
                 is_hearing_impaired: subtitle.is_hearing_impaired,
             })
             .collect(),
+        local_analysis_version: LOCAL_ANALYSIS_VERSION,
         scan_hash: Some(scan_hash),
     }))
 }

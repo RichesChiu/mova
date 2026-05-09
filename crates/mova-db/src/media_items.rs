@@ -104,6 +104,7 @@ pub struct CreateMediaEntryParams {
     pub technical_tags: Vec<String>,
     pub audio_tracks: Vec<CreateAudioTrackParams>,
     pub subtitle_tracks: Vec<CreateSubtitleTrackParams>,
+    pub local_analysis_version: i32,
     pub scan_hash: Option<String>,
 }
 
@@ -222,6 +223,7 @@ pub struct MediaItemPlaybackHeader {
 
 #[derive(Debug, Clone)]
 pub struct ExistingMediaMetadataSummary {
+    pub media_file_id: i64,
     pub file_path: String,
     pub media_type: String,
     pub metadata_provider: Option<String>,
@@ -242,7 +244,34 @@ pub struct ExistingMediaMetadataSummary {
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
     pub scan_hash: Option<String>,
+    pub container: Option<String>,
+    pub file_size: i64,
+    pub duration_seconds: Option<i32>,
+    pub video_title: Option<String>,
+    pub video_codec: Option<String>,
+    pub video_profile: Option<String>,
+    pub video_level: Option<String>,
+    pub audio_codec: Option<String>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+    pub bitrate: Option<i64>,
+    pub video_bitrate: Option<i64>,
+    pub video_frame_rate: Option<f64>,
+    pub video_aspect_ratio: Option<String>,
+    pub video_scan_type: Option<String>,
+    pub video_color_primaries: Option<String>,
+    pub video_color_space: Option<String>,
+    pub video_color_transfer: Option<String>,
+    pub video_bit_depth: Option<i32>,
+    pub video_pixel_format: Option<String>,
+    pub video_reference_frames: Option<i32>,
+    pub technical_tags: Vec<String>,
+    pub local_analysis_version: i32,
+    pub audio_tracks: Vec<CreateAudioTrackParams>,
+    pub subtitle_tracks: Vec<CreateSubtitleTrackParams>,
     pub series_title: Option<String>,
+    pub series_metadata_provider: Option<String>,
+    pub series_metadata_provider_item_id: Option<i64>,
     pub series_source_title: Option<String>,
     pub series_original_title: Option<String>,
     pub series_sort_title: Option<String>,
@@ -255,10 +284,12 @@ pub struct ExistingMediaMetadataSummary {
     pub series_poster_path: Option<String>,
     pub series_backdrop_path: Option<String>,
     pub season_title: Option<String>,
+    pub season_number: Option<i32>,
     pub season_overview: Option<String>,
     pub season_poster_path: Option<String>,
     pub season_backdrop_path: Option<String>,
     pub episode_title: Option<String>,
+    pub episode_number: Option<i32>,
 }
 
 #[derive(Debug, Clone)]

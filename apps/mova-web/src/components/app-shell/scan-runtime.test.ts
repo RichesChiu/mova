@@ -64,6 +64,20 @@ describe('scan runtime helpers', () => {
     ).toBe('Discovered 13 files')
   })
 
+  it('shows local analysis copy before metadata enrichment starts', () => {
+    const runtime: LibraryScanRuntime = {
+      items: [],
+      scanJob: buildScanJob({
+        phase: 'analyzing',
+        total_files: 20,
+        scanned_files: 20,
+      }),
+    }
+
+    expect(formatScanJobStatusCopy(null, runtime)).toBe('Analyzing local media')
+    expect(getScanJobProgressPercent(null, runtime)).toBe(46)
+  })
+
   it('falls back to item-level progress copy when only a temporary scan card exists', () => {
     const runtime: LibraryScanRuntime = {
       scanJob: null,
