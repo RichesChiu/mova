@@ -389,6 +389,7 @@
 .back-link {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 9px;
   width: fit-content;
   padding: 0;
@@ -399,9 +400,22 @@
   font-size: 0.94rem;
   font-weight: 700;
   letter-spacing: 0.01em;
+  line-height: 1;
+  text-decoration: none;
   transition:
     color 160ms ease,
     opacity 160ms ease;
+}
+
+.back-link span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1em;
+  line-height: 1;
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 34%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 5px;
 }
 
 .back-link:hover {
@@ -409,7 +423,12 @@
   opacity: 1;
 }
 
+.back-link:hover span {
+  text-decoration-color: currentColor;
+}
+
 .back-link__icon {
+  display: block;
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
