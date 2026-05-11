@@ -797,7 +797,7 @@ async fn enrich_discovered_groups(
         let metadata_decision = resolve_group_metadata_lookup_type(
             metadata_provider.as_ref(),
             &library.metadata_language,
-            &group.presentation,
+            group,
         )
         .await;
         let item_index = i32::try_from(index + 1).unwrap_or(i32::MAX);
@@ -928,8 +928,10 @@ fn merge_sync_outcome(
 async fn resolve_group_metadata_lookup_type(
     metadata_provider: &dyn MetadataProvider,
     metadata_language: &str,
-    presentation: &ScanPresentationGroup,
+    group: &ScanDiscoveredGroup,
 ) -> GroupMetadataLookupDecision {
+    let presentation = &group.presentation;
+
     if presentation.media_type.eq_ignore_ascii_case("series") {
         return GroupMetadataLookupDecision {
             lookup_type: Some("series"),
@@ -948,9 +950,13 @@ async fn resolve_group_metadata_lookup_type(
         };
     }
 
+    if let Some(decision) = existing_bound_group_lookup_decision(group) {
+        return decision;
+    }
+
     let mut remote_series_match = None;
     let mut last_detection_error = None;
-    for lookup in metadata_detection_lookups(presentation, metadata_language) {
+    for lookup in metadata_detection_lookups(group, metadata_language) {
         match metadata_provider.detect_media_type(&lookup).await {
             Ok(Some(remote_match)) if remote_match.media_kind == RemoteMediaKind::Movie => {
                 return GroupMetadataLookupDecision {
@@ -1014,10 +1020,47 @@ async fn resolve_group_metadata_lookup_type(
     }
 }
 
+fn existing_bound_group_lookup_decision(
+    group: &ScanDiscoveredGroup,
+) -> Option<GroupMetadataLookupDecision> {
+    let has_remote_binding = group
+        .files
+        .iter()
+        .any(|file| file.metadata_provider_item_id.is_some());
+    if !has_remote_binding {
+        return None;
+    }
+
+    let remote_media_type = group
+        .files
+        .iter()
+        .find_map(|file| file.remote_media_type.as_deref());
+    if remote_media_type.is_some_and(|value| value.eq_ignore_ascii_case(REMOTE_MEDIA_TYPE_SERIES)) {
+        return Some(GroupMetadataLookupDecision {
+            lookup_type: None,
+            metadata_status: METADATA_STATUS_UNMATCHED,
+            metadata_failure_reason: Some(METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY),
+            remote_media_type: Some(REMOTE_MEDIA_TYPE_SERIES),
+        });
+    }
+
+    if group.presentation.media_type.eq_ignore_ascii_case("movie") {
+        return Some(GroupMetadataLookupDecision {
+            lookup_type: Some("movie"),
+            metadata_status: METADATA_STATUS_UNMATCHED,
+            metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
+            remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE),
+        });
+    }
+
+    None
+}
+
 fn metadata_detection_lookups(
-    presentation: &ScanPresentationGroup,
+    group: &ScanDiscoveredGroup,
     metadata_language: &str,
 ) -> Vec<MetadataLookup> {
+    let presentation = &group.presentation;
     let mut lookups = Vec::new();
     push_metadata_detection_lookup(
         &mut lookups,
@@ -1035,6 +1078,17 @@ fn metadata_detection_lookups(
             presentation.year,
             metadata_language,
         );
+    }
+
+    for file in &group.files {
+        if let Some(container_title) = localized_movie_container_title_for_path(&file.file_path) {
+            push_metadata_detection_lookup(
+                &mut lookups,
+                container_title,
+                presentation.year.or(file.year),
+                metadata_language,
+            );
+        }
     }
 
     lookups
@@ -2111,6 +2165,18 @@ fn localized_series_container_title_for_path(file_path: &std::path::Path) -> Opt
     localized_title_from_container_directory(directory_title)
 }
 
+fn localized_movie_container_title_for_path(file_path: &std::path::Path) -> Option<String> {
+    let parent = file_path.parent()?;
+    let directory_title = parent.file_name()?.to_str()?;
+    let title = localized_title_from_container_directory(directory_title)?;
+
+    if !contains_cjk_character(&title) || is_generic_container_title(&title) {
+        return None;
+    }
+
+    Some(title)
+}
+
 fn localized_title_from_container_directory(directory_title: &str) -> Option<String> {
     let title = directory_title
         .replace(['.', '_', '-', '—', '–'], " ")
@@ -2120,6 +2186,23 @@ fn localized_title_from_container_directory(directory_title: &str) -> Option<Str
     let parsed_title = strip_year_from_localized_container_title(&title);
 
     (!parsed_title.trim().is_empty()).then_some(parsed_title)
+}
+
+fn is_generic_container_title(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "movie"
+            | "movies"
+            | "film"
+            | "films"
+            | "media"
+            | "video"
+            | "videos"
+            | "series"
+            | "shows"
+            | "tv"
+            | "tv shows"
+    ) || matches!(value.trim(), "电影" | "剧集" | "电视剧" | "动画" | "动漫")
 }
 
 fn strip_year_from_localized_container_title(value: &str) -> String {
@@ -3962,8 +4045,7 @@ mod tests {
         };
 
         let decision =
-            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0].presentation)
-                .await;
+            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
 
         assert_eq!(decision.lookup_type, Some("movie"));
         assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
@@ -3995,12 +4077,69 @@ mod tests {
         };
 
         let decision =
-            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0].presentation)
-                .await;
+            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
 
         assert_eq!(decision.lookup_type, Some("movie"));
         assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
         assert_eq!(decision.metadata_status, METADATA_STATUS_UNMATCHED);
+    }
+
+    #[tokio::test]
+    async fn resolve_group_metadata_lookup_type_tries_cjk_movie_parent_candidate() {
+        let mut file = build_discovered_file();
+        file.file_path = PathBuf::from(
+            "movies/过家家/Unexpected Family (2026) - 2160p WEB-DL DV HQ H265 DTS 5.1.mkv",
+        );
+        file.title = "Unexpected Family".to_string();
+        file.source_title = "Unexpected Family".to_string();
+        file.year = Some(2026);
+        file.season_number = None;
+        file.episode_number = None;
+        file.episode_title = None;
+
+        let groups =
+            super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
+        assert_eq!(groups[0].presentation.lookup_title, "Unexpected Family");
+        let provider = TitleDetectionProvider {
+            enabled: true,
+            movie_title: "过家家".to_string(),
+        };
+
+        let decision =
+            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
+
+        assert_eq!(decision.lookup_type, Some("movie"));
+        assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
+        assert_eq!(decision.metadata_status, METADATA_STATUS_UNMATCHED);
+    }
+
+    #[tokio::test]
+    async fn resolve_group_metadata_lookup_type_trusts_existing_movie_binding() {
+        let mut file = build_discovered_file();
+        file.file_path = PathBuf::from("movies/Unexpected Family (2026).mkv");
+        file.title = "过家家".to_string();
+        file.source_title = "Unexpected Family".to_string();
+        file.year = Some(2026);
+        file.season_number = None;
+        file.episode_number = None;
+        file.episode_title = None;
+        file.metadata_provider = Some(super::TMDB_PROVIDER_NAME.to_string());
+        file.metadata_provider_item_id = Some(1_234_567);
+        file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
+        file.remote_media_type = Some(REMOTE_MEDIA_TYPE_MOVIE.to_string());
+
+        let groups =
+            super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
+        let provider = FixedDetectionProvider {
+            enabled: true,
+            detected: None,
+        };
+
+        let decision =
+            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
+
+        assert_eq!(decision.lookup_type, Some("movie"));
+        assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
     }
 
     #[tokio::test]
@@ -4027,8 +4166,7 @@ mod tests {
         };
 
         let decision =
-            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0].presentation)
-                .await;
+            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
 
         assert_eq!(decision.lookup_type, None);
         assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_SERIES));

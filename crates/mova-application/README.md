@@ -164,7 +164,7 @@
 - 对剧集会从文件名里的 `SxxExx` 先拆出剧名和年份做组级元数据匹配；文件名里的年份只作为匹配提示，不作为剧集身份键，所以 `The Boys (2019) - S01E01` 和 `The Boys (2020) - S02E01` 会聚合到同一剧集；`The.BeautyS01E01` 这类标题后直接跟 `SxxExx` 的文件名也会拆出剧名和季集号
 - 如果文件位于明确的季目录树下，会用共同的剧集容器目录做扫描展示聚合；这能把同一剧集文件夹内不同季、不同语言文件名的资源先合成一个剧集单位
 - TMDB 补全成功前，扫描占位和本地入库条目使用本地分析出的电影或剧集名称；TMDB 补全成功后，展示标题必须使用 TMDB 返回的名称覆盖本地名称，后续本地剧集归组只更新 `source_title` / 季集结构，不要让目录名或本地解析名压住远端结果
-- 没有本地季集号的文件会先做 TMDB movie / tv 类型确认；只有远端明确匹配电影时才绑定电影 metadata，远端更像剧集但本地没有季集号、或远端匹配失败时，会写入 `metadata_status = unmatched/failed` 和明确失败原因，进入前端 Other 复核区
+- 没有本地季集号的文件会先做 TMDB movie / tv 类型确认；电影类型确认也会复用中文父目录候选，旧库里已有 TMDB 绑定的电影会优先按既有绑定继续补全并修正 `metadata_status`，避免重扫后仍停留在 Other；只有远端明确匹配电影时才绑定电影 metadata，远端更像剧集但本地没有季集号、或远端匹配失败时，会写入 `metadata_status = unmatched/failed` 和明确失败原因，进入前端 Other 复核区
 - TMDB 未启用时写入 `metadata_status = skipped`，不把它当作刮削失败，前端仍按本地 `media_type` 展示
 - 每个扫描展示组会先以本地分析结果 upsert 一次；完成 metadata / 海报后会再次调用 `mova-db` 覆盖该组文件，并发出带 `poster_path` / `overview` / `metadata_status` 的 `ScanJobEvent::ItemUpdated`
 - 最后只对缺失路径做删除 reconcile；未变化路径完全保留，不参与重探测和 upsert
