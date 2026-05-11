@@ -857,19 +857,26 @@ fn prepare_scan_groups_for_metadata_lookup(
                 }
             }
 
-            if file.metadata_status.is_none() {
-                if metadata_provider_enabled {
-                    file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
-                    file.metadata_failure_reason =
-                        Some(METADATA_FAILURE_NO_REMOTE_MATCH.to_string());
-                } else {
-                    file.metadata_status = Some(METADATA_STATUS_SKIPPED.to_string());
-                    file.metadata_failure_reason =
-                        Some(METADATA_FAILURE_PROVIDER_DISABLED.to_string());
-                }
+            if metadata_provider_enabled && should_mark_file_pending_remote_retry(file) {
+                file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
+                file.metadata_failure_reason = Some(METADATA_FAILURE_NO_REMOTE_MATCH.to_string());
+            } else if file.metadata_status.is_none() {
+                file.metadata_status = Some(METADATA_STATUS_SKIPPED.to_string());
+                file.metadata_failure_reason = Some(METADATA_FAILURE_PROVIDER_DISABLED.to_string());
             }
         }
     }
+}
+
+fn should_mark_file_pending_remote_retry(file: &DiscoveredMediaFile) -> bool {
+    if file.metadata_provider_item_id.is_some() {
+        return false;
+    }
+
+    !file
+        .metadata_status
+        .as_deref()
+        .is_some_and(|value| value.eq_ignore_ascii_case(METADATA_STATUS_MATCHED))
 }
 
 async fn enrich_discovered_groups(
@@ -3449,6 +3456,35 @@ mod tests {
             "zh-CN",
             Path::new("/media/movies/Arcane.mkv"),
         ));
+    }
+
+    #[test]
+    fn prepare_scan_groups_marks_stale_skipped_rows_as_pending_retry_when_provider_enabled() {
+        let mut file = build_discovered_file();
+        file.file_path = PathBuf::from("/media/movies/狂野时代 (2025)/狂野时代.2025.mp4");
+        file.season_number = None;
+        file.episode_number = None;
+        file.title = "狂野时代".to_string();
+        file.source_title = "狂野时代".to_string();
+        file.metadata_status = Some(METADATA_STATUS_SKIPPED.to_string());
+        file.metadata_failure_reason = None;
+
+        let presentation = super::build_scan_presentation_group(LIBRARY_TYPE_MIXED, &file);
+        let mut groups = vec![super::ScanDiscoveredGroup {
+            presentation,
+            files: vec![file],
+        }];
+
+        super::prepare_scan_groups_for_metadata_lookup(&mut groups, true);
+
+        assert_eq!(
+            groups[0].files[0].metadata_status.as_deref(),
+            Some(METADATA_STATUS_UNMATCHED)
+        );
+        assert_eq!(
+            groups[0].files[0].metadata_failure_reason.as_deref(),
+            Some(METADATA_FAILURE_NO_REMOTE_MATCH)
+        );
     }
 
     #[test]

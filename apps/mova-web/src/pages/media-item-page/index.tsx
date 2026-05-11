@@ -582,6 +582,24 @@ export const MediaItemPage = () => {
   return (
     <div className="page-stack media-item-page" style={pageArtworkStyle}>
       <section className="detail-hero">
+        <div className="detail-hero__navigation-row">
+          <Link
+            className="back-link detail-hero__back-link"
+            to={`/libraries/${mediaItemQuery.data.library_id}`}
+          >
+            <svg aria-hidden="true" className="back-link__icon" fill="none" viewBox="0 0 16 16">
+              <path
+                d="M9.5 3.5L5.5 8L9.5 12.5"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.8"
+              />
+            </svg>
+            <span>{l('Back to Library')}</span>
+          </Link>
+        </div>
+
         <div className="detail-hero__poster-column">
           <div className="detail-hero__poster">
             {heroPosterPath ? (
@@ -595,24 +613,6 @@ export const MediaItemPage = () => {
         </div>
 
         <div className="detail-hero__body">
-          <div className="detail-hero__navigation-row">
-            <Link
-              className="back-link detail-hero__back-link"
-              to={`/libraries/${mediaItemQuery.data.library_id}`}
-            >
-              <svg aria-hidden="true" className="back-link__icon" fill="none" viewBox="0 0 16 16">
-                <path
-                  d="M9.5 3.5L5.5 8L9.5 12.5"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="1.8"
-                />
-              </svg>
-              <span>{l('Back to Library')}</span>
-            </Link>
-          </div>
-
           <div className="detail-hero__title-row">
             <h2>{heroTitle}</h2>
             {heroYearText ? <span className="detail-hero__year">{heroYearText}</span> : null}

@@ -43,6 +43,9 @@
   position: relative;
   display: grid;
   grid-template-columns: minmax(176px, 230px) minmax(0, 1fr);
+  grid-template-areas:
+    'poster navigation'
+    'poster body';
   gap: 14px;
   padding: 18px;
   border: 1px solid var(--hero-border);
@@ -64,6 +67,7 @@
 }
 
 .detail-hero__poster-column {
+  grid-area: poster;
   display: grid;
   align-content: start;
   gap: 10px;
@@ -88,11 +92,15 @@
 .detail-hero__body {
   position: relative;
   z-index: 1;
+  grid-area: body;
   display: grid;
   gap: 16px;
 }
 
 .detail-hero__navigation-row {
+  position: relative;
+  z-index: 1;
+  grid-area: navigation;
   display: flex;
   align-items: center;
   justify-content: flex-start;
@@ -742,6 +750,10 @@
 
   .detail-hero {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'navigation'
+      'poster'
+      'body';
   }
 
   .detail-hero__poster-column {

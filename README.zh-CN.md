@@ -80,7 +80,7 @@ docker compose up -d
 - `data/postgres/`：PostgreSQL 数据库文件，用于保存媒体库、用户、元数据和播放进度。
 - `data/cache/`：缓存海报、背景图和生成的媒体资源。
 
-当前仍处于 pre-MVP 开发阶段，数据库 schema 变化时可能需要重建 `data/postgres/`。本次扫描链路 schema 在 `migrations/0001_init.sql` 中新增了本地分析版本字段，已有开发数据库拉取后应重建。
+当前仍处于 pre-MVP 开发阶段，数据库 schema 变化时可能需要重建 `data/postgres/`。当前 `migrations/0001_init.sql` 会保存本地分析版本，并把 TMDB / provider 返回的文本字段作为不固定长度的文本存储，已有开发数据库拉取后应重建。
 
 媒体目录只读挂载，Mova 不会修改你的原始媒体文件。
 
@@ -89,6 +89,8 @@ docker compose up -d
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
+
+应用服务名是 `app`，运行时容器固定为 `mova-app`；查看服务日志时使用 `docker compose logs -f app`。
 
 ### 首次使用
 

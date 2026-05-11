@@ -258,7 +258,7 @@ MOVA_API_PROXY_TARGET=http://127.0.0.1:36080 pnpm dev
 docker compose up -d
 ```
 
-默认部署直接运行已发布的 `richeschiu/mova:latest` 镜像；本地没有镜像时 `docker compose up -d` 会自动拉取，是否升级到最新镜像由用户自己通过 `docker compose pull` 决定。前端静态文件已经包含在镜像内，由后端直接托管，运行时继续走同域 `/api/*`。
+默认部署直接运行已发布的 `richeschiu/mova:latest` 镜像；本地没有镜像时 `docker compose up -d` 会自动拉取，是否升级到最新镜像由用户自己通过 `docker compose pull` 决定。应用服务名是 `app`，容器名固定为 `mova-app`。前端静态文件已经包含在镜像内，由后端直接托管，运行时继续走同域 `/api/*`。
 
 如果要在本机从源码重新构建镜像，执行：
 

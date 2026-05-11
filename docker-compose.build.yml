@@ -20,7 +20,7 @@ services:
     profiles: ["tooling"]
     command: ["cargo", "--version"]
 
-  mova-server:
+  app:
     build:
       context: .
       dockerfile: apps/mova-server/Dockerfile

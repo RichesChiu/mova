@@ -1,6 +1,7 @@
 services:
-  mova-server:
+  app:
     image: richeschiu/mova:latest
+    container_name: mova-app
     depends_on:
       database:
         condition: service_healthy
