@@ -11,6 +11,7 @@ pub const METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY: &str =
     "remote_series_without_episode_identity";
 pub const METADATA_FAILURE_REMOTE_DETECTION_FAILED: &str = "remote_detection_failed";
 pub const METADATA_FAILURE_PROVIDER_DISABLED: &str = "metadata_provider_disabled";
+pub const METADATA_FAILURE_PROVIDER_ERROR: &str = "metadata_provider_error";
 
 pub const REMOTE_MEDIA_TYPE_MOVIE: &str = "movie";
 pub const REMOTE_MEDIA_TYPE_SERIES: &str = "series";

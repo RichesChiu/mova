@@ -334,7 +334,7 @@ describe('useServerEvents', () => {
     const queryClient = createTestQueryClient()
     const invalidateResolvers: Array<() => void> = []
 
-    vi.spyOn(queryClient, 'invalidateQueries').mockImplementation(
+    const invalidateQueriesSpy = vi.spyOn(queryClient, 'invalidateQueries').mockImplementation(
       () =>
         new Promise<void>((resolve) => {
           invalidateResolvers.push(resolve)
@@ -418,6 +418,10 @@ describe('useServerEvents', () => {
 
     expect(screen.getByTestId('scan-runtime')).toHaveTextContent('Interstellar')
     expect(screen.getByTestId('scan-runtime')).toHaveTextContent('Arcane')
+    expect(invalidateResolvers).toHaveLength(4)
+    expect(
+      invalidateQueriesSpy.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey ?? null)),
+    ).not.toContain(JSON.stringify(['libraries']))
 
     invalidateResolvers.forEach((resolve) => {
       resolve()

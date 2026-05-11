@@ -7,18 +7,9 @@ use reqwest::{header::CONTENT_TYPE, Client, Url};
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
-    io::ErrorKind,
     path::{Path, PathBuf},
-    process::Command,
     sync::Arc,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FrameCaptureAvailability {
-    Unknown,
-    Available,
-    Unavailable,
-}
 
 /// 复用扫描和手动刷新共用的 metadata 补全与图片缓存逻辑。
 pub struct MetadataEnrichmentContext {
@@ -29,7 +20,6 @@ pub struct MetadataEnrichmentContext {
     series_outline_cache: HashMap<MetadataLookup, Option<RemoteSeriesEpisodeOutline>>,
     artwork_cache: HashMap<String, Option<String>>,
     artwork_client: Client,
-    frame_capture_availability: FrameCaptureAvailability,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,13 +45,16 @@ impl MetadataEnrichmentContext {
             series_outline_cache: HashMap::new(),
             artwork_cache: HashMap::new(),
             artwork_client: Client::new(),
-            frame_capture_availability: FrameCaptureAvailability::Unknown,
         }
     }
 
-    pub async fn enrich_file(&mut self, lookup_type: &str, file: &mut DiscoveredMediaFile) {
+    pub async fn enrich_file(
+        &mut self,
+        lookup_type: &str,
+        file: &mut DiscoveredMediaFile,
+    ) -> anyhow::Result<()> {
         self.enrich_file_with_progress(lookup_type, file, |_, _| {})
-            .await;
+            .await
     }
 
     pub(crate) async fn enrich_group_with_progress<F>(
@@ -69,11 +62,12 @@ impl MetadataEnrichmentContext {
         lookup_type: &str,
         files: &mut [DiscoveredMediaFile],
         mut on_progress: F,
-    ) where
+    ) -> anyhow::Result<()>
+    where
         F: FnMut(MetadataEnrichmentStage, &DiscoveredMediaFile),
     {
         if files.is_empty() {
-            return;
+            return Ok(());
         }
 
         let primary_lookup =
@@ -86,7 +80,7 @@ impl MetadataEnrichmentContext {
             if self.metadata_provider.is_enabled() && group_needs_remote_metadata(files) {
                 let metadata = self
                     .lookup_group_remote_metadata(lookup_type, &files[0])
-                    .await;
+                    .await?;
 
                 if let Some(remote_metadata) = metadata.as_ref() {
                     episode_outline_lookup.provider_item_id = remote_metadata.provider_item_id;
@@ -111,13 +105,14 @@ impl MetadataEnrichmentContext {
                     file,
                     allow_remote_outline,
                 )
-                .await;
+                .await?;
             }
 
             self.cache_file_artwork(file).await;
         }
 
         on_progress(MetadataEnrichmentStage::Completed, &files[0]);
+        Ok(())
     }
 
     pub async fn enrich_file_with_progress<F>(
@@ -125,7 +120,8 @@ impl MetadataEnrichmentContext {
         lookup_type: &str,
         file: &mut DiscoveredMediaFile,
         mut on_progress: F,
-    ) where
+    ) -> anyhow::Result<()>
+    where
         F: FnMut(MetadataEnrichmentStage, &DiscoveredMediaFile),
     {
         let lookups = metadata_lookup_candidates(lookup_type, file, &self.metadata_language);
@@ -145,7 +141,7 @@ impl MetadataEnrichmentContext {
             let mut metadata = None;
 
             for lookup in &lookups {
-                let candidate = self.lookup_remote_metadata_cached(lookup).await;
+                let candidate = self.lookup_remote_metadata_cached(lookup).await?;
                 if candidate.is_some() {
                     episode_outline_lookup = lookup.clone();
                     metadata = candidate;
@@ -183,37 +179,38 @@ impl MetadataEnrichmentContext {
                 file,
                 resolved_remote_metadata.is_some(),
             )
-            .await;
+            .await?;
         }
 
         self.cache_file_artwork(file).await;
 
         on_progress(MetadataEnrichmentStage::Completed, file);
+        Ok(())
     }
 
     async fn lookup_group_remote_metadata(
         &mut self,
         lookup_type: &str,
         file: &DiscoveredMediaFile,
-    ) -> Option<RemoteMetadata> {
+    ) -> anyhow::Result<Option<RemoteMetadata>> {
         let lookups = metadata_lookup_candidates(lookup_type, file, &self.metadata_language);
 
         for lookup in &lookups {
-            let candidate = self.lookup_remote_metadata_cached(lookup).await;
+            let candidate = self.lookup_remote_metadata_cached(lookup).await?;
             if candidate.is_some() {
-                return candidate;
+                return Ok(candidate);
             }
         }
 
-        None
+        Ok(None)
     }
 
     async fn lookup_remote_metadata_cached(
         &mut self,
         lookup: &MetadataLookup,
-    ) -> Option<RemoteMetadata> {
+    ) -> anyhow::Result<Option<RemoteMetadata>> {
         if let Some(metadata) = self.metadata_cache.get(lookup) {
-            return metadata.clone();
+            return Ok(metadata.clone());
         }
 
         let metadata = match self.metadata_provider.lookup(lookup).await {
@@ -224,22 +221,22 @@ impl MetadataEnrichmentContext {
                     year = lookup.year,
                     library_type = %lookup.library_type,
                     error = ?error,
-                    "metadata enrichment stage failed to fetch remote metadata, falling back to local data"
+                    "metadata enrichment stage failed to fetch remote metadata"
                 );
-                None
+                return Err(error);
             }
         };
 
         self.metadata_cache.insert(lookup.clone(), metadata.clone());
-        metadata
+        Ok(metadata)
     }
 
     async fn lookup_series_outline_cached(
         &mut self,
         lookup: &MetadataLookup,
-    ) -> Option<RemoteSeriesEpisodeOutline> {
+    ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
         if let Some(outline) = self.series_outline_cache.get(lookup) {
-            return outline.clone();
+            return Ok(outline.clone());
         }
 
         let outline = match self
@@ -254,15 +251,15 @@ impl MetadataEnrichmentContext {
                     year = lookup.year,
                     library_type = %lookup.library_type,
                     error = ?error,
-                    "metadata enrichment stage failed to fetch remote episode outline metadata, falling back to local data"
+                    "metadata enrichment stage failed to fetch remote episode outline metadata"
                 );
-                None
+                return Err(error);
             }
         };
 
         self.series_outline_cache
             .insert(lookup.clone(), outline.clone());
-        outline
+        Ok(outline)
     }
 
     async fn enrich_episode_like_artwork(
@@ -270,12 +267,12 @@ impl MetadataEnrichmentContext {
         lookup: &MetadataLookup,
         file: &mut DiscoveredMediaFile,
         allow_remote_outline: bool,
-    ) {
+    ) -> anyhow::Result<()> {
         let Some(season_number) = file.season_number else {
-            return;
+            return Ok(());
         };
         let Some(episode_number) = file.episode_number else {
-            return;
+            return Ok(());
         };
 
         if file.series_poster_path.is_none() {
@@ -286,7 +283,7 @@ impl MetadataEnrichmentContext {
         }
 
         if allow_remote_outline && self.metadata_provider.is_enabled() {
-            if let Some(outline) = self.lookup_series_outline_cached(lookup).await {
+            if let Some(outline) = self.lookup_series_outline_cached(lookup).await? {
                 if let Some(remote_season) = outline
                     .seasons
                     .iter()
@@ -337,95 +334,13 @@ impl MetadataEnrichmentContext {
             }
         }
 
-        if file.poster_path.is_none() || file.backdrop_path.is_none() {
-            if let Some(local_still_path) = self.capture_first_frame_for_file(file).await {
-                if file.poster_path.is_none() {
-                    file.poster_path = Some(local_still_path.clone());
-                }
-                if file.backdrop_path.is_none() {
-                    file.backdrop_path = Some(local_still_path.clone());
-                }
-            }
-        }
-
         if file.season_poster_path.is_none() {
             file.season_poster_path = file.poster_path.clone();
         }
         if file.season_backdrop_path.is_none() {
             file.season_backdrop_path = file.backdrop_path.clone();
         }
-    }
-
-    async fn capture_first_frame_for_file(&mut self, file: &DiscoveredMediaFile) -> Option<String> {
-        if matches!(
-            self.frame_capture_availability,
-            FrameCaptureAvailability::Unavailable
-        ) {
-            return None;
-        }
-
-        let input_path = file.file_path.clone();
-        let output_path = build_generated_episode_still_cache_path(&self.artwork_cache_dir, file);
-        if tokio::fs::metadata(&output_path)
-            .await
-            .map(|metadata| metadata.is_file())
-            .unwrap_or(false)
-        {
-            return Some(output_path.to_string_lossy().to_string());
-        }
-
-        if let Some(parent) = output_path.parent() {
-            if let Err(error) = tokio::fs::create_dir_all(parent).await {
-                tracing::warn!(
-                    file_path = %input_path.display(),
-                    cache_path = %output_path.display(),
-                    error = ?error,
-                    "failed to create generated artwork directory"
-                );
-                return None;
-            }
-        }
-
-        let join_input = input_path.clone();
-        let join_output = output_path.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            run_ffmpeg_frame_capture(&join_input, &join_output)
-        })
-        .await;
-
-        match result {
-            Ok(Ok(())) => {
-                self.frame_capture_availability = FrameCaptureAvailability::Available;
-                Some(output_path.to_string_lossy().to_string())
-            }
-            Ok(Err(error)) if error.kind() == ErrorKind::NotFound => {
-                self.frame_capture_availability = FrameCaptureAvailability::Unavailable;
-                tracing::warn!(
-                    error = %error,
-                    "ffmpeg is not available; first-frame artwork fallback disabled"
-                );
-                None
-            }
-            Ok(Err(error)) => {
-                self.frame_capture_availability = FrameCaptureAvailability::Available;
-                tracing::warn!(
-                    file_path = %input_path.display(),
-                    cache_path = %output_path.display(),
-                    error = %error,
-                    "failed to capture first frame for episode artwork"
-                );
-                None
-            }
-            Err(error) => {
-                tracing::warn!(
-                    file_path = %input_path.display(),
-                    cache_path = %output_path.display(),
-                    error = ?error,
-                    "first-frame artwork worker failed to join"
-                );
-                None
-            }
-        }
+        Ok(())
     }
     async fn cache_file_artwork(&mut self, file: &mut DiscoveredMediaFile) {
         if let Some(series_poster_path) = file.series_poster_path.clone() {
@@ -577,55 +492,21 @@ impl MetadataEnrichmentContext {
     }
 }
 
-fn build_generated_episode_still_cache_path(
-    artwork_cache_dir: &Path,
-    file: &DiscoveredMediaFile,
-) -> PathBuf {
-    let mut hasher = DefaultHasher::new();
-    file.file_path.to_string_lossy().hash(&mut hasher);
-    file.file_size.hash(&mut hasher);
-    let cache_key = format!("{:016x}", hasher.finish());
-
-    artwork_cache_dir
-        .join("generated")
-        .join("episode-stills")
-        .join(format!("{}.jpg", cache_key))
-}
-
-fn run_ffmpeg_frame_capture(input: &Path, output: &Path) -> std::io::Result<()> {
-    let status = Command::new("ffmpeg")
-        .arg("-hide_banner")
-        .arg("-loglevel")
-        .arg("error")
-        .arg("-y")
-        .arg("-ss")
-        .arg("00:00:01")
-        .arg("-i")
-        .arg(input)
-        .arg("-frames:v")
-        .arg("1")
-        .arg("-q:v")
-        .arg("2")
-        .arg(output)
-        .status()?;
-
-    if status.success() {
-        return Ok(());
-    }
-
-    Err(std::io::Error::other(format!(
-        "ffmpeg exited with status {}",
-        status
-    )))
-}
-
 fn needs_remote_metadata(file: &DiscoveredMediaFile) -> bool {
-    file.original_title.is_none()
+    !has_remote_provider_binding(file)
+        || file.original_title.is_none()
         || file.overview.is_none()
         || file.poster_path.is_none()
         || file.backdrop_path.is_none()
         || file.year.is_none()
         || needs_episode_container_artwork_metadata(file)
+}
+
+fn has_remote_provider_binding(file: &DiscoveredMediaFile) -> bool {
+    file.metadata_provider
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+        && file.metadata_provider_item_id.is_some()
 }
 
 fn group_needs_remote_metadata(files: &[DiscoveredMediaFile]) -> bool {
@@ -1493,6 +1374,8 @@ mod tests {
     #[test]
     fn needs_remote_metadata_retries_missing_or_external_episode_container_artwork() {
         let mut file = build_discovered_episode();
+        file.metadata_provider = Some("tmdb".to_string());
+        file.metadata_provider_item_id = Some(77);
         file.original_title = Some("Show Original".to_string());
         file.overview = Some("Overview".to_string());
         file.poster_path = Some("/cache/episode-poster.jpg".to_string());
@@ -1509,6 +1392,29 @@ mod tests {
 
         file.series_poster_path =
             Some("https://image.tmdb.org/t/p/original/series-poster.jpg".to_string());
+        assert!(needs_remote_metadata(&file));
+    }
+
+    #[test]
+    fn needs_remote_metadata_retries_visible_items_without_remote_binding() {
+        let mut file = build_discovered_episode();
+        file.original_title = Some("Avatar: Fire and Ash".to_string());
+        file.overview = Some("Overview".to_string());
+        file.poster_path = Some("/api/media-items/915/poster?v=1".to_string());
+        file.backdrop_path = Some("/api/media-items/915/backdrop?v=1".to_string());
+        file.year = Some(2025);
+        file.series_poster_path = Some("/api/media-items/915/poster?v=1".to_string());
+        file.series_backdrop_path = Some("/api/media-items/915/backdrop?v=1".to_string());
+        file.season_poster_path = Some("/api/media-items/915/poster?v=1".to_string());
+        file.season_backdrop_path = Some("/api/media-items/915/backdrop?v=1".to_string());
+
+        assert!(needs_remote_metadata(&file));
+
+        file.metadata_provider = Some("tmdb".to_string());
+        file.metadata_provider_item_id = Some(83533);
+        assert!(!needs_remote_metadata(&file));
+
+        file.metadata_provider = None;
         assert!(needs_remote_metadata(&file));
     }
 
@@ -1556,7 +1462,8 @@ mod tests {
 
         context
             .enrich_group_with_progress("series", &mut files, |_, _| {})
-            .await;
+            .await
+            .expect("group metadata enrichment should succeed");
 
         assert_eq!(provider.lookup_count.load(Ordering::SeqCst), 1);
         assert!(files.iter().all(|file| file.title == "诉讼女王"));

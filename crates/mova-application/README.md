@@ -68,7 +68,7 @@
 | `src/file_sync.rs` | 手动扫库或显式路径同步时的库存对齐与增量写入。 |
 | `src/intro_detection.rs` | 剧集片头按需检测；只在播放某一集且当前季/当前集还没有片头数据时调用 Python 脚本做分析。 |
 | `src/media_items.rs` | 媒体条目详情、列表、文件、音轨、剧集 outline、季集查询、元数据刷新。 |
-| `src/media_enrichment.rs` | 扫描过程中按本地聚合组做 TMDB / sidecar / 图片补全，并在远端失败时保留本地解析结果。 |
+| `src/media_enrichment.rs` | 扫描过程中按本地聚合组做 TMDB / sidecar / 图片补全；远端请求错误会显式标记为 `failed`，等待后续手动扫描重试。 |
 | `src/metadata.rs` | 元数据 provider 抽象、TMDB client、可选 OMDb IMDb 评分补齐、国家/地区/题材类型/工作室补齐、语言归一化、远端请求超时，以及“年份先过滤、失败再去年份”的软匹配策略。 |
 | `src/metadata_match.rs` | 管理员手动搜索候选元数据并应用匹配。 |
 | `src/media_cast.rs` | 演员列表查询与按需持久化同步；详情页首次需要演员信息时才会拉远端并写库。 |
@@ -155,18 +155,21 @@
 `enqueue_library_scan` -> `execute_scan_job_with_cancellation`
 
 - 先在数据库里创建/复用扫描任务
-- 调用 `mova-scan` 做轻量文件清单发现，只读取路径、大小和修改时间
-- 用同路径 `media_files.scan_hash` 和 `media_files.local_analysis_version` 判断是否能跳过本地分析；已经成功匹配、文件指纹未变化、本地分析版本未变化、已有 TMDB 绑定且已有本地可见海报的路径，不会重新跑拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存或数据库 upsert
+- 重新扫描会先读取数据库里已经入库的 `media_files.file_path`，逐条核对真实文件是否仍存在且仍是文件；路径失效的条目会立即删除并清理关联条目
+- 然后调用 `mova-scan` 做轻量文件清单发现，只读取路径、大小和修改时间，用来发现新增文件和文件指纹变化
+- 用同路径 `media_files.scan_hash` 和 `media_files.local_analysis_version` 判断是否能跳过本地分析；后续只让新增/变化、本地分析版本过期、未完整匹配、或按前端 Other 规则需要复核的路径进入浅层解析、完整分析和 TMDB 补全
+- 已经完整匹配、文件指纹未变化、本地分析版本未变化、且已有 TMDB 绑定的路径，不会重新跑拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存或数据库 upsert；即使 TMDB 没有可用海报，也保持稳定跳过
 - 对新增、变化、本地分析版本过期的路径先调用 `mova-scan::inspect_media_file_inventory_shallow` 做浅层文件名 / 路径解析，不读取 sidecar、不调用 `ffprobe`，只用来建立稳定的电影或剧集扫描组，避免前端先看到 `A.S01E01` 这类临时错误卡片
-- 对文件指纹和本地分析版本都未变化，但 `unmatched`、`failed`、从未成功绑定 TMDB、缺少可见海报、仍保留远端图片 URL，或已绑定 TMDB 但展示名仍等于本地带年份占位名的路径，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时可直接从数据库恢复上次本地分析结果，跳过拆名、sidecar、`ffprobe`，只进入后续 TMDB 补全
+- 对文件指纹和本地分析版本都未变化，但 `unmatched`、`failed`、缺少 TMDB provider 绑定、按前端 Other 规则缺少可用远端信息、仍保留远端图片 URL，或已绑定 TMDB 但展示名仍等于本地带年份占位名的路径，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时可直接从数据库恢复上次本地分析结果，跳过拆名、sidecar、`ffprobe`，只进入后续 TMDB 补全
 - 浅层聚合完成后，服务端按扫描组逐个调用完整本地分析：读取 sidecar、调用 `ffprobe`、补音轨字幕和技术标签；每个组完成后立即写入数据库并推送 `scan.item.updated stage=discovered`，然后才继续处理下一组
-- 远端补全阶段才按本地聚合组串行访问 TMDB 做类型确认、metadata、海报和本地图片缓存；同一剧集组只做一次剧集 metadata 查询，再把 TMDB 标题和剧集级海报应用到组内所有集；电影会优先按 TMDB `provider_item_id` 聚合成本地多版本，避免 `Avatar: Fire and Ash` / `Avatar： Fire and Ash` 这类本地标点差异生成两个影片；已匹配但缺图的条目会优先按既有 TMDB id 精确刷新，电影详情缺本地化图片时再使用搜索结果或英文详情图片兜底；中文元数据库里，如果季目录上一级或无季目录时的直接父级目录提供中文剧名，会把该中文剧名作为补充候选，覆盖 `莎拉的真伪人生(2026)/The.Art.of.Sarah.S01E01.mkv` 这类平铺剧集目录；电影仍以文件名解析出的标题和年份为主，如果直接父级目录是明确中文片名，会作为后备 TMDB 查询候选，覆盖 `过家家/Unexpected Family (2026) - 2160p ...` 这类中英文不一致的电影目录；成功后标记 `metadata_status = matched` 并立即覆盖写库，失败或从未成功访问过 TMDB 的条目会在后续手动扫描中重试
+- 远端补全阶段才按本地聚合组串行访问 TMDB 做类型确认、metadata、海报和本地图片缓存；同一剧集组只做一次剧集 metadata 查询，再把 TMDB 标题和剧集级海报应用到组内所有集；电影会优先按 TMDB `provider_item_id` 聚合成本地多版本，避免 `Avatar: Fire and Ash` / `Avatar： Fire and Ash` 这类本地标点差异生成两个影片；如果旧条目已有海报和简介但缺少 `metadata_provider_item_id`，仍必须重新请求 TMDB 拿到 provider id 后再合并为多版本；进入补全链路的已绑定条目会优先按既有 TMDB id 精确刷新，电影详情缺本地化图片时再使用搜索结果或英文详情图片兜底；中文元数据库里，如果季目录上一级或无季目录时的直接父级目录提供中文剧名，会把该中文剧名作为补充候选，覆盖 `莎拉的真伪人生(2026)/The.Art.of.Sarah.S01E01.mkv` 这类平铺剧集目录；电影仍以文件名解析出的标题和年份为主，如果直接父级目录是明确中文片名，会作为后备 TMDB 查询候选，覆盖 `过家家/Unexpected Family (2026) - 2160p ...` 这类中英文不一致的电影目录；成功后标记 `metadata_status = matched` 并立即覆盖写库；TMDB 请求错误会标记 `metadata_status = failed` / `metadata_failure_reason = metadata_provider_error`，失败或从未成功访问过 TMDB 的条目会在后续手动扫描中重试
 - 对剧集会从文件名里的 `SxxExx` 先拆出剧名和年份做组级元数据匹配；文件名里的年份只作为匹配提示，不作为剧集身份键，所以 `The Boys (2019) - S01E01` 和 `The Boys (2020) - S02E01` 会聚合到同一剧集；`The.BeautyS01E01` 这类标题后直接跟 `SxxExx` 的文件名也会拆出剧名和季集号
 - 如果文件位于明确的季目录树下，会用共同的剧集容器目录做扫描展示聚合；这能把同一剧集文件夹内不同季、不同语言文件名的资源先合成一个剧集单位
 - TMDB 补全成功前，扫描占位和本地入库条目使用本地分析出的电影或剧集名称；TMDB 补全成功后，展示标题必须使用 TMDB 返回的名称覆盖本地名称，后续本地剧集归组只更新 `source_title` / 季集结构，不要让目录名或本地解析名压住远端结果
 - 没有本地季集号的文件会先做 TMDB movie / tv 类型确认；电影类型确认也会复用中文父目录候选，旧库里已有 TMDB 绑定的电影会优先按既有绑定继续补全并修正 `metadata_status`，避免重扫后仍停留在 Other；只有远端明确匹配电影时才绑定电影 metadata，远端更像剧集但本地没有季集号、或远端匹配失败时，会写入 `metadata_status = unmatched/failed` 和明确失败原因，进入前端 Other 复核区
 - TMDB 未启用时写入 `metadata_status = skipped`，不把它当作刮削失败，前端仍按本地 `media_type` 展示
 - 每个扫描展示组会先以本地分析结果 upsert 一次；完成 metadata / 海报后会再次调用 `mova-db` 覆盖该组文件，并发出带 `poster_path` / `overview` / `metadata_status` 的 `ScanJobEvent::ItemUpdated`
+- 剧集没有远端集剧照时不再生成视频首帧图写入海报字段；缺图保持为空，避免本地首帧覆盖后续 TMDB 海报语义
 - 最后只对缺失路径做删除 reconcile；未变化路径完全保留，不参与重探测和 upsert
 
 ### 片头检测

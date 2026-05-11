@@ -800,7 +800,8 @@ pub async fn refresh_media_item_metadata(
     );
     enrichment
         .enrich_file(lookup_type, &mut discovered_file)
-        .await;
+        .await
+        .map_err(ApplicationError::Unexpected)?;
     finalize_refreshed_file_metadata_status(
         &mut discovered_file,
         metadata_provider_enabled,

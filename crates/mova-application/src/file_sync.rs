@@ -74,7 +74,8 @@ pub async fn sync_library_filesystem_changes(
         let mut discovered_file = inspect_media_file(&path).await?;
         enrichment
             .enrich_file(lookup_type, &mut discovered_file)
-            .await;
+            .await
+            .map_err(ApplicationError::Unexpected)?;
         finalize_file_metadata_status(
             &mut discovered_file,
             metadata_provider_enabled,
@@ -235,15 +236,19 @@ fn build_media_entry(
             file_path
         ))
     })?;
+    let metadata_status = file.metadata_status.ok_or_else(|| {
+        ApplicationError::Unexpected(anyhow::anyhow!(
+            "metadata status was not finalized before sync: {}",
+            file_path
+        ))
+    })?;
 
     Ok(Some(mova_db::CreateMediaEntryParams {
         library_id: library.id,
         media_type: media_type.to_string(),
         metadata_provider: file.metadata_provider,
         metadata_provider_item_id: file.metadata_provider_item_id,
-        metadata_status: file
-            .metadata_status
-            .unwrap_or_else(|| METADATA_STATUS_SKIPPED.to_string()),
+        metadata_status,
         metadata_failure_reason: file.metadata_failure_reason,
         remote_media_type: file.remote_media_type,
         title: file.title,

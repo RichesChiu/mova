@@ -109,7 +109,7 @@
 
 .detail-hero__title-row {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   flex-wrap: wrap;
   gap: 12px;
 }
@@ -123,6 +123,16 @@
 
 .detail-hero__title-row h2 {
   margin: 0;
+}
+
+.detail-hero__year {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  color: var(--text-soft);
+  font-size: clamp(0.98rem, 1.2vw, 1.14rem);
+  font-weight: 800;
+  letter-spacing: 0.04em;
 }
 
 .detail-hero__technical-badges {
@@ -168,18 +178,25 @@
 }
 
 .detail-hero__version-picker {
-  display: grid;
-  gap: 8px;
-  max-width: 360px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
 }
 
 .detail-hero__version-label {
+  flex: 0 0 auto;
   margin: 0;
   color: var(--text-soft);
   font-size: 0.76rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.detail-hero__version-picker .glass-select {
+  width: clamp(180px, 24vw, 280px);
+  min-width: 0;
 }
 
 .detail-hero__overview {
@@ -439,6 +456,7 @@
   justify-content: center;
 }
 
+.media-file-card__meta-block,
 .media-file-card__path-block {
   gap: 8px;
   padding: 14px;
@@ -455,6 +473,18 @@
     var(--panel-inset),
     var(--floating-shadow),
     0 14px 30px color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.media-file-card__meta-block {
+  display: grid;
+}
+
+.media-file-card__meta-value {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1.45;
 }
 
 .media-file-card__path {

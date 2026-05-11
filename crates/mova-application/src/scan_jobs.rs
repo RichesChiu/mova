@@ -10,7 +10,7 @@ use crate::{
 use mova_domain::{Library, ScanJob};
 use mova_domain::{
     METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED,
-    METADATA_FAILURE_REMOTE_DETECTION_FAILED,
+    METADATA_FAILURE_PROVIDER_ERROR, METADATA_FAILURE_REMOTE_DETECTION_FAILED,
     METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY, METADATA_STATUS_FAILED,
     METADATA_STATUS_MATCHED, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
     REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
@@ -23,7 +23,7 @@ use mova_scan::{
 use sqlx::postgres::PgPool;
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
         Arc,
@@ -406,6 +406,30 @@ pub async fn execute_scan_job_with_cancellation(
         return Ok(ExecuteScanJobOutcome::Cancelled);
     }
 
+    let mut sync_outcome = match reconcile_existing_media_paths(pool, library.id).await {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            if let Some(scan_job) = finalize_failed_scan(
+                pool,
+                scan_job_id,
+                0,
+                0,
+                &format_scan_phase_error(
+                    SCAN_PHASE_DISCOVERING,
+                    format!("Failed to reconcile existing media files: {}", error),
+                ),
+            )
+            .await
+            {
+                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                    scan_job,
+                    SCAN_PHASE_FINISHED,
+                )));
+            }
+            return Err(error);
+        }
+    };
+
     let discovered_files = match discover_media_files(
         pool,
         scan_job_id,
@@ -480,14 +504,38 @@ pub async fn execute_scan_job_with_cancellation(
     let IncrementalScanPlan {
         discovered_paths,
         changed_files,
-    } = build_incremental_scan_plan(
+    } = match build_incremental_scan_plan(
         pool,
         library.id,
         discovered_files,
         metadata_provider.is_enabled(),
         &library.metadata_language,
     )
-    .await;
+    .await
+    {
+        Ok(plan) => plan,
+        Err(error) => {
+            if let Some(scan_job) = finalize_failed_scan(
+                pool,
+                scan_job_id,
+                total_files,
+                0,
+                &format_scan_phase_error(
+                    SCAN_PHASE_ANALYZING,
+                    format!("Failed to load existing media metadata: {}", error),
+                ),
+            )
+            .await
+            {
+                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
+                    scan_job,
+                    SCAN_PHASE_FINISHED,
+                )));
+            }
+
+            return Err(error);
+        }
+    };
 
     let pending_groups = match build_pending_scan_groups(&library, changed_files).await {
         Ok(groups) => groups,
@@ -514,11 +562,12 @@ pub async fn execute_scan_job_with_cancellation(
         }
     };
 
-    let (discovered_groups, mut sync_outcome) = match analyze_pending_scan_groups(
+    let (discovered_groups, analyzed_sync_outcome) = match analyze_pending_scan_groups(
         pool,
         &library,
         scan_job_id,
         pending_groups,
+        metadata_provider.is_enabled(),
         cancellation_flag.clone(),
         event_listener.clone(),
     )
@@ -547,6 +596,7 @@ pub async fn execute_scan_job_with_cancellation(
             return Err(error);
         }
     };
+    merge_sync_outcome(&mut sync_outcome, analyzed_sync_outcome);
 
     emit_scan_job_phase(
         pool,
@@ -672,6 +722,43 @@ async fn build_pending_scan_groups(
     Ok(build_pending_scan_groups_from_files(library, pending_files))
 }
 
+async fn reconcile_existing_media_paths(
+    pool: &PgPool,
+    library_id: i64,
+) -> ApplicationResult<mova_db::SyncLibraryMediaBestEffortOutcome> {
+    let existing_paths = mova_db::list_library_media_file_paths(pool, library_id)
+        .await
+        .map_err(ApplicationError::Unexpected)?;
+
+    if existing_paths.is_empty() {
+        return Ok(mova_db::SyncLibraryMediaBestEffortOutcome::default());
+    }
+
+    let present_paths = tokio::task::spawn_blocking(move || {
+        existing_paths
+            .into_iter()
+            .filter(|path| is_present_media_file_path(Path::new(path)))
+            .collect::<Vec<_>>()
+    })
+    .await
+    .map_err(|error| {
+        ApplicationError::Unexpected(anyhow::anyhow!(
+            "The existing media path reconcile worker exited unexpectedly: {}",
+            error
+        ))
+    })?;
+
+    mova_db::sync_library_media_changes(pool, library_id, &present_paths, &[])
+        .await
+        .map_err(ApplicationError::Unexpected)
+}
+
+fn is_present_media_file_path(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|metadata| metadata.is_file())
+        .unwrap_or(false)
+}
+
 fn build_pending_scan_groups_from_files(
     library: &Library,
     pending_files: Vec<PendingScanFile>,
@@ -713,6 +800,7 @@ async fn analyze_pending_scan_groups(
     library: &Library,
     scan_job_id: i64,
     pending_groups: Vec<PendingScanGroup>,
+    metadata_provider_enabled: bool,
     cancellation_flag: Arc<AtomicBool>,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> ApplicationResult<(
@@ -731,7 +819,7 @@ async fn analyze_pending_scan_groups(
         let discovered_files = inspect_incremental_scan_files(pending_group.files).await?;
         let mut groups = group_discovered_files_for_scan(library, discovered_files);
 
-        prepare_scan_groups_for_metadata_lookup(&mut groups);
+        prepare_scan_groups_for_metadata_lookup(&mut groups, metadata_provider_enabled);
 
         for group in groups {
             let item_index = i32::try_from(discovered_groups.len() + 1).unwrap_or(i32::MAX);
@@ -755,17 +843,30 @@ async fn analyze_pending_scan_groups(
     Ok((discovered_groups, sync_outcome))
 }
 
-fn prepare_scan_groups_for_metadata_lookup(groups: &mut [ScanDiscoveredGroup]) {
+fn prepare_scan_groups_for_metadata_lookup(
+    groups: &mut [ScanDiscoveredGroup],
+    metadata_provider_enabled: bool,
+) {
     for group in groups {
-        if !group.presentation.media_type.eq_ignore_ascii_case("series") {
-            continue;
-        }
-
         for file in &mut group.files {
-            file.source_title = group.presentation.lookup_title.clone();
+            if group.presentation.media_type.eq_ignore_ascii_case("series") {
+                file.source_title = group.presentation.lookup_title.clone();
 
-            if file.year.is_none() {
-                file.year = group.presentation.year;
+                if file.year.is_none() {
+                    file.year = group.presentation.year;
+                }
+            }
+
+            if file.metadata_status.is_none() {
+                if metadata_provider_enabled {
+                    file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
+                    file.metadata_failure_reason =
+                        Some(METADATA_FAILURE_NO_REMOTE_MATCH.to_string());
+                } else {
+                    file.metadata_status = Some(METADATA_STATUS_SKIPPED.to_string());
+                    file.metadata_failure_reason =
+                        Some(METADATA_FAILURE_PROVIDER_DISABLED.to_string());
+                }
             }
         }
     }
@@ -831,7 +932,7 @@ async fn enrich_discovered_groups(
         };
 
         let enrichment_progress_listener = progress_listener.clone();
-        enrichment
+        let enrichment_result = enrichment
             .enrich_group_with_progress(lookup_type, &mut group.files, move |stage, file| {
                 if stage != MetadataEnrichmentStage::Metadata {
                     if !file.title.trim().is_empty() {
@@ -860,6 +961,40 @@ async fn enrich_discovered_groups(
         let remote_media_type = metadata_decision
             .remote_media_type
             .or_else(|| remote_media_type_for_lookup_type(lookup_type));
+        if let Err(error) = enrichment_result {
+            tracing::warn!(
+                library_id = library.id,
+                scan_job_id,
+                title = %group.presentation.lookup_title,
+                year = group.presentation.year,
+                media_type = %group.presentation.media_type,
+                error = ?error,
+                "metadata enrichment failed for scan group"
+            );
+
+            for file in &mut group.files {
+                clear_remote_metadata_for_review(
+                    file,
+                    METADATA_STATUS_FAILED,
+                    Some(METADATA_FAILURE_PROVIDER_ERROR),
+                    remote_media_type,
+                );
+            }
+
+            let group_outcome = sync_scan_group_media_entries(pool, library, group).await?;
+            merge_sync_outcome(&mut sync_outcome, group_outcome);
+            progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
+                scan_job_id,
+                library.id,
+                &group.presentation,
+                group.files.first(),
+                item_index,
+                total_items,
+                ScanItemStage::Completed,
+            )));
+            continue;
+        }
+
         for file in &mut group.files {
             finalize_file_metadata_status(file, metadata_provider.is_enabled(), remote_media_type);
         }
@@ -1187,38 +1322,16 @@ async fn build_incremental_scan_plan(
     discovered_files: Vec<DiscoveredMediaFileInventory>,
     metadata_provider_enabled: bool,
     metadata_language: &str,
-) -> IncrementalScanPlan {
+) -> ApplicationResult<IncrementalScanPlan> {
     let file_paths = discovered_files
         .iter()
         .map(|file| file.file_path.to_string_lossy().to_string())
         .collect::<Vec<_>>();
 
-    let existing_metadata = match mova_db::list_existing_media_metadata_for_file_paths(
-        pool,
-        library_id,
-        &file_paths,
-    )
-    .await
-    {
-        Ok(existing_metadata) => existing_metadata,
-        Err(error) => {
-            tracing::warn!(
-                library_id,
-                error = ?error,
-                "failed to load existing media metadata before enrichment; continuing with full enrichment"
-            );
-            return IncrementalScanPlan {
-                discovered_paths: file_paths,
-                changed_files: discovered_files
-                    .into_iter()
-                    .map(|inventory| IncrementalScanFile {
-                        inventory,
-                        existing_metadata: None,
-                    })
-                    .collect(),
-            };
-        }
-    };
+    let existing_metadata =
+        mova_db::list_existing_media_metadata_for_file_paths(pool, library_id, &file_paths)
+            .await
+            .map_err(ApplicationError::Unexpected)?;
 
     let existing_by_path = existing_metadata
         .into_iter()
@@ -1252,10 +1365,10 @@ async fn build_incremental_scan_plan(
 
     hydrate_incremental_scan_file_cached_tracks(pool, &mut changed_files).await;
 
-    IncrementalScanPlan {
+    Ok(IncrementalScanPlan {
         discovered_paths: file_paths,
         changed_files,
-    }
+    })
 }
 
 async fn hydrate_incremental_scan_file_cached_tracks(
@@ -1357,26 +1470,47 @@ fn can_skip_existing_media_summary(
         return false;
     }
 
+    !should_rescan_unchanged_existing_media_summary(
+        summary,
+        metadata_provider_enabled,
+        metadata_language,
+        file_path,
+    )
+}
+
+fn should_rescan_unchanged_existing_media_summary(
+    summary: &mova_db::ExistingMediaMetadataSummary,
+    metadata_provider_enabled: bool,
+    metadata_language: &str,
+    file_path: &std::path::Path,
+) -> bool {
+    if is_existing_summary_in_other_review_section(summary) {
+        return true;
+    }
+
+    if should_retry_review_metadata_status(summary) {
+        return true;
+    }
+
+    if metadata_provider_enabled && should_retry_incomplete_remote_match(summary) {
+        return true;
+    }
+
     if metadata_provider_enabled
         && should_retry_localized_series_metadata(summary, metadata_language, file_path)
     {
-        return false;
+        return true;
     }
 
     if metadata_provider_enabled && should_retry_local_series_title_override(summary, file_path) {
-        return false;
+        return true;
     }
 
-    if metadata_provider_enabled && should_retry_unfetched_remote_metadata(summary) {
-        return false;
+    if metadata_provider_enabled && should_retry_external_cached_artwork(summary) {
+        return true;
     }
 
-    if metadata_provider_enabled && should_retry_incomplete_cached_artwork(summary) {
-        return false;
-    }
-
-    summary.metadata_status == METADATA_STATUS_MATCHED
-        || (!metadata_provider_enabled && summary.metadata_status == METADATA_STATUS_SKIPPED)
+    false
 }
 
 fn can_reuse_cached_local_analysis(
@@ -1387,14 +1521,53 @@ fn can_reuse_cached_local_analysis(
         && summary.local_analysis_version == LOCAL_ANALYSIS_VERSION
 }
 
-fn should_retry_unfetched_remote_metadata(summary: &mova_db::ExistingMediaMetadataSummary) -> bool {
+fn should_retry_incomplete_remote_match(summary: &mova_db::ExistingMediaMetadataSummary) -> bool {
     if summary.metadata_status != METADATA_STATUS_MATCHED {
-        return false;
+        return true;
     }
 
     effective_existing_metadata_provider_item_id(summary).is_none()
         || !effective_existing_metadata_provider(summary)
             .is_some_and(|value| value.eq_ignore_ascii_case(TMDB_PROVIDER_NAME))
+}
+
+fn should_retry_review_metadata_status(summary: &mova_db::ExistingMediaMetadataSummary) -> bool {
+    matches!(
+        summary.metadata_status.as_str(),
+        METADATA_STATUS_UNMATCHED | METADATA_STATUS_FAILED
+    )
+}
+
+fn is_existing_summary_in_other_review_section(
+    summary: &mova_db::ExistingMediaMetadataSummary,
+) -> bool {
+    matches!(
+        summary.metadata_status.as_str(),
+        METADATA_STATUS_SKIPPED | METADATA_STATUS_UNMATCHED | METADATA_STATUS_FAILED
+    ) && !has_existing_remote_enrichment(summary)
+}
+
+fn has_existing_remote_enrichment(summary: &mova_db::ExistingMediaMetadataSummary) -> bool {
+    effective_existing_metadata_provider_item_id(summary).is_some()
+        || existing_text_values(summary).any(has_text)
+        || existing_artwork_paths(summary).any(has_text)
+}
+
+fn existing_text_values(
+    summary: &mova_db::ExistingMediaMetadataSummary,
+) -> impl Iterator<Item = &str> {
+    [
+        summary.original_title.as_deref(),
+        summary.overview.as_deref(),
+        summary.series_original_title.as_deref(),
+        summary.series_overview.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+}
+
+fn has_text(value: &str) -> bool {
+    !value.trim().is_empty()
 }
 
 fn effective_existing_metadata_provider(
@@ -1422,27 +1595,12 @@ fn effective_existing_metadata_provider_item_id(
     summary.metadata_provider_item_id
 }
 
-fn should_retry_incomplete_cached_artwork(summary: &mova_db::ExistingMediaMetadataSummary) -> bool {
+fn should_retry_external_cached_artwork(summary: &mova_db::ExistingMediaMetadataSummary) -> bool {
     if summary.metadata_status != METADATA_STATUS_MATCHED {
         return false;
     }
 
-    if primary_visible_poster_path(summary)
-        .map(is_missing_or_external_artwork_path)
-        .unwrap_or(true)
-    {
-        return true;
-    }
-
     existing_artwork_paths(summary).any(is_external_artwork_path)
-}
-
-fn primary_visible_poster_path(summary: &mova_db::ExistingMediaMetadataSummary) -> Option<&str> {
-    if summary.media_type.eq_ignore_ascii_case("episode") {
-        return summary.series_poster_path.as_deref();
-    }
-
-    summary.poster_path.as_deref()
 }
 
 fn existing_artwork_paths(
@@ -1458,11 +1616,6 @@ fn existing_artwork_paths(
     ]
     .into_iter()
     .flatten()
-}
-
-fn is_missing_or_external_artwork_path(path: &str) -> bool {
-    let path = path.trim();
-    path.is_empty() || is_external_artwork_path(path)
 }
 
 fn is_external_artwork_path(path: &str) -> bool {
@@ -1897,15 +2050,19 @@ fn build_media_entries(
             ))
         })?;
         let scan_hash = discovered_media_file_scan_hash(&file);
+        let metadata_status = file.metadata_status.ok_or_else(|| {
+            ApplicationError::Unexpected(anyhow::anyhow!(
+                "metadata status was not finalized before sync: {}",
+                file_path
+            ))
+        })?;
 
         entries.push(mova_db::CreateMediaEntryParams {
             library_id: library.id,
             media_type,
             metadata_provider: file.metadata_provider,
             metadata_provider_item_id: file.metadata_provider_item_id,
-            metadata_status: file
-                .metadata_status
-                .unwrap_or_else(|| METADATA_STATUS_SKIPPED.to_string()),
+            metadata_status,
             metadata_failure_reason: file.metadata_failure_reason,
             remote_media_type: file.remote_media_type,
             title: file.title,
@@ -2885,6 +3042,7 @@ mod tests {
         DiscoveredMediaFile, DiscoveredMediaFileInventory,
     };
     use std::{
+        fs,
         path::{Path, PathBuf},
         time::Instant,
     };
@@ -3273,12 +3431,53 @@ mod tests {
     }
 
     #[test]
-    fn can_skip_existing_media_summary_retries_matched_movies_without_cached_poster() {
+    fn can_skip_existing_media_summary_rescans_other_review_rows_even_without_provider() {
+        let mut summary = build_existing_movie_metadata();
+        summary.scan_hash = Some("same-hash".to_string());
+        summary.metadata_status = METADATA_STATUS_SKIPPED.to_string();
+        summary.metadata_provider = None;
+        summary.metadata_provider_item_id = None;
+        summary.original_title = None;
+        summary.overview = None;
+        summary.poster_path = None;
+        summary.backdrop_path = None;
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            false,
+            "zh-CN",
+            Path::new("/media/movies/Arcane.mkv"),
+        ));
+    }
+
+    #[test]
+    fn can_skip_existing_media_summary_rescans_review_rows_with_visible_metadata() {
+        let mut summary = build_existing_movie_metadata();
+        summary.scan_hash = Some("same-hash".to_string());
+        summary.metadata_status = METADATA_STATUS_UNMATCHED.to_string();
+        summary.metadata_provider = None;
+        summary.metadata_provider_item_id = None;
+
+        assert!(!super::can_skip_existing_media_summary(
+            &summary,
+            "same-hash",
+            true,
+            "zh-CN",
+            Path::new("/media/movies/Avatar.Fire.and.Ash.2025.mkv"),
+        ));
+        assert!(!super::is_existing_summary_in_other_review_section(
+            &summary
+        ));
+    }
+
+    #[test]
+    fn can_skip_existing_media_summary_keeps_matched_movies_without_poster_stable() {
         let mut summary = build_existing_movie_metadata();
         summary.scan_hash = Some("same-hash".to_string());
         summary.poster_path = None;
 
-        assert!(!super::can_skip_existing_media_summary(
+        assert!(super::can_skip_existing_media_summary(
             &summary,
             "same-hash",
             true,
@@ -3362,12 +3561,12 @@ mod tests {
     }
 
     #[test]
-    fn can_skip_existing_media_summary_retries_matched_episodes_without_series_poster() {
+    fn can_skip_existing_media_summary_keeps_matched_episodes_without_series_poster_stable() {
         let mut summary = build_existing_episode_metadata();
         summary.scan_hash = Some("same-hash".to_string());
         summary.series_poster_path = None;
 
-        assert!(!super::can_skip_existing_media_summary(
+        assert!(super::can_skip_existing_media_summary(
             &summary,
             "same-hash",
             true,
@@ -3559,6 +3758,27 @@ mod tests {
             Some(last_flush_at),
             now
         ));
+    }
+
+    #[test]
+    fn is_present_media_file_path_requires_existing_file() {
+        let root = std::env::temp_dir().join(format!(
+            "mova-scan-path-{}-{}",
+            std::process::id(),
+            OffsetDateTime::now_utc().unix_timestamp_nanos()
+        ));
+        let file = root.join("video.mkv");
+        let missing = root.join("missing.mkv");
+
+        fs::create_dir(&root).expect("test temp directory should be created");
+        fs::write(&file, b"video").expect("test media file should be created");
+
+        assert!(super::is_present_media_file_path(&file));
+        assert!(!super::is_present_media_file_path(&root));
+        assert!(!super::is_present_media_file_path(&missing));
+
+        let _ = fs::remove_file(file);
+        let _ = fs::remove_dir(root);
     }
 
     #[test]

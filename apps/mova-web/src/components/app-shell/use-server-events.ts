@@ -332,7 +332,6 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         queryClient.invalidateQueries({
           queryKey: ['home-library-detail', payload.scan_job.library_id],
         }),
-        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
         queryClient.invalidateQueries({
           queryKey: ['home-library-shelf', payload.scan_job.library_id],
         }),

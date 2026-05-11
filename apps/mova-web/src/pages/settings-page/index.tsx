@@ -183,7 +183,6 @@ export const SettingsPage = () => {
       }
 
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
         queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
@@ -572,6 +571,8 @@ export const SettingsPage = () => {
                   const lastScan = libraryDetail?.last_scan ?? null
                   const lastScanStatusLabel = getScanStatusLabel(lastScan)
                   const lastScanStatusTone = getScanStatusTone(lastScan)
+                  const isTriggeringScan =
+                    scanMutation.isPending && scanMutation.variables === library.id
 
                   return (
                     <article className="settings-library-card" key={library.id}>
@@ -643,15 +644,15 @@ export const SettingsPage = () => {
                       <div className="settings-library-card__actions">
                         <button
                           className="button"
-                          disabled={scanMutation.isPending}
+                          disabled={isTriggeringScan}
                           onClick={() => scanMutation.mutate(library.id)}
                           type="button"
                         >
-                          {scanMutation.isPending ? l('Triggering…') : l('Scan Library')}
+                          {isTriggeringScan ? l('Triggering…') : l('Scan Library')}
                         </button>
                         <button
                           className="button button--danger settings-library-card__delete"
-                          disabled={deleteLibraryMutation.isPending || scanMutation.isPending}
+                          disabled={deleteLibraryMutation.isPending || isTriggeringScan}
                           onClick={() => {
                             deleteLibraryMutation.reset()
                             setPendingConfirmation({

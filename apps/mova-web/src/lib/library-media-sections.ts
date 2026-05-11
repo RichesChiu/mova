@@ -3,15 +3,40 @@ import type { MediaItem } from '../api/types'
 export type LibraryMediaSection = 'movies' | 'series' | 'other'
 export type LibraryScanSection = LibraryMediaSection | null
 
-type MediaSectionInput = Pick<MediaItem, 'media_type' | 'metadata_status'>
+type EnrichmentSignalInput = {
+  backdrop_path?: string | null
+  metadata_provider_item_id?: number | null
+  original_title?: string | null
+  overview?: string | null
+  poster_path?: string | null
+}
+type MediaSectionInput = Pick<MediaItem, 'media_type' | 'metadata_status'> & EnrichmentSignalInput
 
 type ScanSectionInput = {
+  backdrop_path?: string | null
   media_type: string
   metadata_status?: string | null
+  overview?: string | null
+  poster_path?: string | null
 }
 
+const hasText = (value: string | null | undefined) => Boolean(value?.trim())
+
+const hasRemoteEnrichment = (item: EnrichmentSignalInput) =>
+  item.metadata_provider_item_id !== null && item.metadata_provider_item_id !== undefined
+    ? true
+    : hasText(item.original_title) ||
+      hasText(item.overview) ||
+      hasText(item.poster_path) ||
+      hasText(item.backdrop_path)
+
+const hasReviewStatus = (item: { metadata_status?: string | null }) =>
+  item.metadata_status === 'skipped' ||
+  item.metadata_status === 'unmatched' ||
+  item.metadata_status === 'failed'
+
 const needsReview = (item: MediaSectionInput) =>
-  item.metadata_status === 'unmatched' || item.metadata_status === 'failed'
+  hasReviewStatus(item) && !hasRemoteEnrichment(item)
 
 export const getLibraryMediaSection = (item: MediaSectionInput): LibraryMediaSection => {
   if (needsReview(item)) {
@@ -30,7 +55,7 @@ export const getLibraryMediaSection = (item: MediaSectionInput): LibraryMediaSec
 }
 
 export const getLibraryScanSection = (item: ScanSectionInput): LibraryScanSection => {
-  if (item.metadata_status === 'unmatched' || item.metadata_status === 'failed') {
+  if (hasReviewStatus(item) && !hasRemoteEnrichment(item)) {
     return 'other'
   }
 

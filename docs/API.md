@@ -274,7 +274,7 @@
 - 事件本身更适合作为“资源已变化”的通知；客户端收到后，应按事件类型重新拉对应 HTTP 接口，而不是把 SSE 负载直接当成最终页面数据
 - 当前服务端只推送连接建立之后的新事件；客户端断线后应自动重连，并在重连成功后主动补一轮关键查询，避免断开期间漏掉一次刷新
 - 扫描文件发现阶段的 `scan.job.updated` 进度会做服务端节流与合并，客户端应把它当成近实时进度，不要依赖每个文件都会对应一条 SSE
-- 已经成功匹配、同路径文件指纹未变化、本地分析版本未变化、已有 TMDB 绑定且已有本地可见海报的条目不会再次发出 `scan.item.updated`；该事件只覆盖本轮新增、删除后重建、移动改名后新增、大小 / 修改时间变化、本地分析版本过期、仍需重试匹配、从未成功绑定 TMDB、缺少可见海报或仍需把远端图片 URL 缓存成本地文件的资源
+- 已经成功匹配、同路径文件指纹未变化、本地分析版本未变化、且已有 TMDB 绑定的条目不会再次发出 `scan.item.updated`；该事件只覆盖本轮新增、删除后重建、移动改名后新增、大小 / 修改时间变化、本地分析版本过期、仍需重试匹配、缺少 TMDB provider 绑定、仍需把远端图片 URL 缓存成本地文件、或按前端 Other 规则需要复核的资源
 - 当前已实现事件：
   - `scan.job.updated`
   - `scan.job.finished`
@@ -323,7 +323,7 @@
 - `progress_percent`：当前条目自身的粗粒度进度百分比，便于前端直接驱动占位卡进度条
 - 前端可以把同一个 `item_key` 当成一张临时扫描卡：发现文件或目录组时先渲染出来，后续收到新事件后只更新这张卡；图片需要等 `load` 成功后再从占位切换，避免缓存完成前出现 broken image
 - `stage = discovered` 表示该扫描组已经完成完整本地分析并写入媒体库；扫描组会逐个触发这个阶段，而不是等待整库本地分析全部完成。`stage = completed` 表示该条目已经完成 metadata / 海报覆盖写库。客户端应在这些事件后重拉该库的媒体列表、首页 shelf 和库详情计数，让真实媒体卡先出现、再按聚合组逐个更新海报
-- 当某个远端元数据步骤失败但扫描继续时，当前仍以服务端日志为主；日志会明确标出是 metadata enrichment 阶段失败，并说明会回退到本地数据
+- 当某个远端元数据请求出错但扫描继续时，服务端会把该扫描组写成 `metadata_status = failed`、`metadata_failure_reason = metadata_provider_error`，并在后续手动扫描中重试；不会再静默回退成“看似成功”的本地数据
 
 ### `PUT /api/auth/password`
 
@@ -732,7 +732,7 @@
 - 当前库如果已经有 `pending` 或 `running` 任务，不会重复启动第二个扫描
 - 扫描在后台执行，前端应拿返回的 `scan_job.id` 去轮询 `/api/libraries/{id}/scan-jobs/{scan_job_id}`
 - 当前扫描会按 `(library_id, file_path)` 做增量同步：同路径文件原地更新，缺失路径删除，改名或移动会表现成旧路径删除加新路径新增
-- 已经成功匹配的路径会先按文件大小和修改时间生成稳定指纹；同路径指纹一致、本地分析版本一致、已有 TMDB 绑定且已有本地可见海报时会跳过拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存和数据库 upsert，只保留现有数据。新增、变化或本地分析版本过期的路径会先做浅层文件名聚合，再按扫描组逐个完整探测、写库并推送。`unmatched` / `failed`、从未成功绑定 TMDB、缺少可见海报、或仍保存远端图片 URL 的条目仍会在后续手动扫描中重试；如果这些条目的文件指纹和本地分析版本未变化，服务端仍用当前文件名 / 路径做浅层聚合，再复用已入库的本地分析结果，仅重试 TMDB 和图片缓存。如果当前没有启用 metadata provider，`skipped` 条目也可按指纹和本地分析版本跳过
+- 已经成功匹配的路径会先按文件大小和修改时间生成稳定指纹；同路径指纹一致、本地分析版本一致、且已有 TMDB 绑定时会跳过拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存和数据库 upsert，只保留现有数据。新增、变化或本地分析版本过期的路径会先做浅层文件名聚合，再按扫描组逐个完整探测、写库并推送。`unmatched` / `failed`、缺少 TMDB provider 绑定、按前端 Other 规则需要复核、或仍保存远端图片 URL 的条目仍会在后续手动扫描中重试；如果这些条目的文件指纹和本地分析版本未变化，服务端仍用当前文件名 / 路径做浅层聚合，再复用已入库的本地分析结果，仅重试 TMDB 和图片缓存。电影补全拿到相同 TMDB `provider_item_id` 后会合并为同一个 `media_item`，详情页通过资源版本切换展示多个本地文件。如果当前没有启用 metadata provider，`skipped` 条目也可按指纹和本地分析版本跳过
 - 现在只有手动扫描会驱动这套库存对齐与元数据补全链路；新增、删除、改名和移动都会在手动扫描时收敛出来
 
 ## 4. 媒体条目
@@ -762,7 +762,7 @@
 - `source_title`：文件名解析出的原始资源名，主要用于后续元数据匹配和问题排查，不建议直接作为前端展示名
 - `metadata_provider` / `metadata_provider_item_id`：远端 metadata 绑定信息，只表达当前条目是否绑定到具体 TMDB 条目，不再用于判断 `Other`
 - `metadata_status`：元数据处理状态，当前会使用 `matched` / `unmatched` / `failed` / `skipped`
-- `metadata_failure_reason`：当 `metadata_status` 为 `unmatched` 或 `failed` 时解释原因，例如 `no_remote_match`、`remote_series_without_episode_identity`、`remote_detection_failed`
+- `metadata_failure_reason`：当 `metadata_status` 为 `unmatched` 或 `failed` 时解释原因，例如 `no_remote_match`、`remote_series_without_episode_identity`、`remote_detection_failed`、`metadata_provider_error`
 - `remote_media_type`：远端识别到的媒体类型，当前会使用 `movie` / `series`；没有远端判断或 TMDB 未启用时可为 `null`
 - `imdb_rating`：可选的 IMDb 评分字符串；只有在配置了 `MOVA_OMDB_API_KEY` 且当前条目能解析到 `imdb_id` 时才会有值
 - `country`：可选的国家/地区信息；电影会优先使用 TMDB 的 production countries，剧集会优先使用 TMDB 的 origin country

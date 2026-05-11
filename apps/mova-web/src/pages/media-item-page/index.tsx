@@ -478,31 +478,20 @@ export const MediaItemPage = () => {
         mediaItemQuery.data?.overview ??
         l('No overview available yet.'))
       : (mediaItemQuery.data?.overview ?? l('No overview available yet.'))
-  const heroOriginalTitleFact =
+  const originalTitle =
     mediaItemQuery.data?.original_title &&
     mediaItemQuery.data.original_title !== mediaItemQuery.data.title
-      ? {
-          label: l('Original title'),
-          value: mediaItemQuery.data.original_title,
-        }
+      ? mediaItemQuery.data.original_title
       : null
-  const heroYearFact = isSeriesView
+  const heroYearText = isSeriesView
     ? selectedSeasonYear
-      ? {
-          label: l('Season air year'),
-          value: String(selectedSeasonYear),
-        }
+      ? String(selectedSeasonYear)
       : mediaItemQuery.data?.year
-        ? {
-            label: l('Series first air year'),
-            value: String(mediaItemQuery.data.year),
-          }
+        ? String(mediaItemQuery.data.year)
         : null
-    : {
-        label: l('Release year'),
-        value: mediaItemQuery.data?.year ? String(mediaItemQuery.data.year) : l('Unknown'),
-      }
-  const heroPrimaryFacts = [heroOriginalTitleFact, heroYearFact].filter(isHeroFact)
+    : mediaItemQuery.data?.year
+      ? String(mediaItemQuery.data.year)
+      : null
   const heroSecondaryFacts = [
     heroGenres
       ? {
@@ -626,6 +615,7 @@ export const MediaItemPage = () => {
 
           <div className="detail-hero__title-row">
             <h2>{heroTitle}</h2>
+            {heroYearText ? <span className="detail-hero__year">{heroYearText}</span> : null}
             {heroImdbRating ? (
               <span className="detail-hero__rating-badge" title={`IMDb rating ${heroImdbRating}`}>
                 <span className="detail-hero__rating-label">IMDb</span>
@@ -658,16 +648,6 @@ export const MediaItemPage = () => {
                   )
                 })}
               </div>
-            </div>
-          ) : null}
-          {heroPrimaryFacts.length > 0 ? (
-            <div className="detail-hero__facts detail-hero__facts--primary">
-              {heroPrimaryFacts.map((item) => (
-                <article className="detail-hero__fact" key={item.label}>
-                  <p className="detail-hero__fact-label">{item.label}</p>
-                  <p className="detail-hero__fact-value">{item.value}</p>
-                </article>
-              ))}
             </div>
           ) : null}
           {heroAvailabilityText || selectedTechnicalBadges.length > 0 ? (
@@ -706,6 +686,7 @@ export const MediaItemPage = () => {
               <p className="detail-hero__version-label">{l('Version')}</p>
               <GlassSelect
                 ariaLabel={l('Select playback version for {{title}}', { title: heroTitle })}
+                compact
                 onChange={(value) => setSelectedMediaVersionId(Number(value))}
                 options={mediaVersionOptions}
                 value={selectedMediaVersionValue}
@@ -890,6 +871,12 @@ export const MediaItemPage = () => {
                   </div>
 
                   <div className="media-file-card__details">
+                    {originalTitle ? (
+                      <div className="media-file-card__meta-block">
+                        <p className="media-file-card__label">{l('Original title')}</p>
+                        <p className="media-file-card__meta-value">{originalTitle}</p>
+                      </div>
+                    ) : null}
                     <div className="media-file-card__path-block">
                       <p className="media-file-card__label">{l('Path')}</p>
                       <p className="media-file-card__path">{selectedMediaFile.file_path}</p>
