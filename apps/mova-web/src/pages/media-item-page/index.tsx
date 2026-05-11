@@ -613,111 +613,119 @@ export const MediaItemPage = () => {
         </div>
 
         <div className="detail-hero__body">
-          <div className="detail-hero__title-row">
-            <h2>{heroTitle}</h2>
-            {heroYearText ? <span className="detail-hero__year">{heroYearText}</span> : null}
-            {heroImdbRating ? (
-              <span className="detail-hero__rating-badge" title={`IMDb rating ${heroImdbRating}`}>
-                <span className="detail-hero__rating-label">IMDb</span>
-                <strong>{heroImdbRating}</strong>
-              </span>
+          <div className="detail-hero__info">
+            <div className="detail-hero__title-row">
+              <h2>{heroTitle}</h2>
+              {heroYearText ? <span className="detail-hero__year">{heroYearText}</span> : null}
+              {heroImdbRating ? (
+                <span
+                  className="detail-hero__rating-badge"
+                  title={`IMDb rating ${heroImdbRating}`}
+                >
+                  <span className="detail-hero__rating-label">IMDb</span>
+                  <strong>{heroImdbRating}</strong>
+                </span>
+              ) : null}
+            </div>
+            {isSeriesView && availableSeasons.length > 0 ? (
+              <div className="detail-hero__season-picker">
+                <div className="season-picker" role="tablist">
+                  {availableSeasons.map((season) => {
+                    const isActive = season.season_number === selectedSeasonNumber
+                    const label = `S${String(season.season_number).padStart(2, '0')}`
+
+                    return (
+                      <button
+                        aria-selected={isActive}
+                        className={
+                          isActive
+                            ? 'season-picker__button season-picker__button--active'
+                            : 'season-picker__button'
+                        }
+                        key={season.season_number}
+                        onClick={() => setSelectedSeasonNumber(season.season_number)}
+                        role="tab"
+                        type="button"
+                      >
+                        <span>{label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
+            {heroAvailabilityText || selectedTechnicalBadges.length > 0 ? (
+              <div className="detail-hero__resource-row">
+                {heroAvailabilityText ? (
+                  <p className="detail-hero__availability">{heroAvailabilityText}</p>
+                ) : null}
+                {selectedTechnicalBadges.length > 0 ? (
+                  <ul
+                    className="detail-hero__technical-badges media-technical-badges media-technical-badges--hero"
+                    aria-label={l('Resource Tags')}
+                  >
+                    {selectedTechnicalBadges.map((badge) =>
+                      renderMediaTechnicalBadge(
+                        badge,
+                        `hero-${selectedMediaFile?.id}-${badge.label}`,
+                      ),
+                    )}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+            {heroSecondaryFacts.length > 0 ? (
+              <div className="detail-hero__facts detail-hero__facts--secondary">
+                {heroSecondaryFacts.map((item) => (
+                  <article className="detail-hero__fact" key={item.label}>
+                    <p className="detail-hero__fact-label">{item.label}</p>
+                    <p className="detail-hero__fact-value">{item.value}</p>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+            <p className="detail-hero__overview">{heroOverview}</p>
+          </div>
+
+          <div className="detail-hero__controls">
+            {!isSeriesView && mediaVersionOptions.length > 1 ? (
+              <div className="detail-hero__version-picker">
+                <p className="detail-hero__version-label">{l('Version')}</p>
+                <GlassSelect
+                  ariaLabel={l('Select playback version for {{title}}', { title: heroTitle })}
+                  compact
+                  onChange={(value) => setSelectedMediaVersionId(Number(value))}
+                  options={mediaVersionOptions}
+                  value={selectedMediaVersionValue}
+                />
+              </div>
+            ) : null}
+            {playbackTargetMediaItemId || canMatchMetadata ? (
+              <div className="detail-hero__actions">
+                {playbackTargetMediaItemId ? (
+                  <Link
+                    className="button button--primary"
+                    to={
+                      playbackPrimaryPath ??
+                      playbackActionLinks?.primaryPath ??
+                      mediaItemPlayPath(playbackTargetMediaItemId)
+                    }
+                  >
+                    <span>{playbackActionLinks?.primaryLabel ?? l('Play')}</span>
+                  </Link>
+                ) : null}
+                {canMatchMetadata ? (
+                  <MetadataMatchPanel
+                    canOpen={canMatchMetadata}
+                    initialQuery={mediaItemQuery.data.source_title}
+                    initialYear={mediaItemQuery.data.year}
+                    mediaItemId={mediaItemQuery.data.id}
+                    mediaType={mediaItemQuery.data.media_type}
+                  />
+                ) : null}
+              </div>
             ) : null}
           </div>
-          {isSeriesView && availableSeasons.length > 0 ? (
-            <div className="detail-hero__season-picker">
-              <div className="season-picker" role="tablist">
-                {availableSeasons.map((season) => {
-                  const isActive = season.season_number === selectedSeasonNumber
-                  const label = `S${String(season.season_number).padStart(2, '0')}`
-
-                  return (
-                    <button
-                      aria-selected={isActive}
-                      className={
-                        isActive
-                          ? 'season-picker__button season-picker__button--active'
-                          : 'season-picker__button'
-                      }
-                      key={season.season_number}
-                      onClick={() => setSelectedSeasonNumber(season.season_number)}
-                      role="tab"
-                      type="button"
-                    >
-                      <span>{label}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ) : null}
-          {heroAvailabilityText || selectedTechnicalBadges.length > 0 ? (
-            <div className="detail-hero__resource-row">
-              {heroAvailabilityText ? (
-                <p className="detail-hero__availability">{heroAvailabilityText}</p>
-              ) : null}
-              {selectedTechnicalBadges.length > 0 ? (
-                <ul
-                  className="detail-hero__technical-badges media-technical-badges media-technical-badges--hero"
-                  aria-label={l('Resource Tags')}
-                >
-                  {selectedTechnicalBadges.map((badge) =>
-                    renderMediaTechnicalBadge(
-                      badge,
-                      `hero-${selectedMediaFile?.id}-${badge.label}`,
-                    ),
-                  )}
-                </ul>
-              ) : null}
-            </div>
-          ) : null}
-          {heroSecondaryFacts.length > 0 ? (
-            <div className="detail-hero__facts detail-hero__facts--secondary">
-              {heroSecondaryFacts.map((item) => (
-                <article className="detail-hero__fact" key={item.label}>
-                  <p className="detail-hero__fact-label">{item.label}</p>
-                  <p className="detail-hero__fact-value">{item.value}</p>
-                </article>
-              ))}
-            </div>
-          ) : null}
-          <p className="detail-hero__overview">{heroOverview}</p>
-          {!isSeriesView && mediaVersionOptions.length > 1 ? (
-            <div className="detail-hero__version-picker">
-              <p className="detail-hero__version-label">{l('Version')}</p>
-              <GlassSelect
-                ariaLabel={l('Select playback version for {{title}}', { title: heroTitle })}
-                compact
-                onChange={(value) => setSelectedMediaVersionId(Number(value))}
-                options={mediaVersionOptions}
-                value={selectedMediaVersionValue}
-              />
-            </div>
-          ) : null}
-          {playbackTargetMediaItemId || canMatchMetadata ? (
-            <div className="detail-hero__actions">
-              {playbackTargetMediaItemId ? (
-                <Link
-                  className="button button--primary"
-                  to={
-                    playbackPrimaryPath ??
-                    playbackActionLinks?.primaryPath ??
-                    mediaItemPlayPath(playbackTargetMediaItemId)
-                  }
-                >
-                  <span>{playbackActionLinks?.primaryLabel ?? l('Play')}</span>
-                </Link>
-              ) : null}
-              {canMatchMetadata ? (
-                <MetadataMatchPanel
-                  canOpen={canMatchMetadata}
-                  initialQuery={mediaItemQuery.data.source_title}
-                  initialYear={mediaItemQuery.data.year}
-                  mediaItemId={mediaItemQuery.data.id}
-                  mediaType={mediaItemQuery.data.media_type}
-                />
-              ) : null}
-            </div>
-          ) : null}
         </div>
       </section>
 

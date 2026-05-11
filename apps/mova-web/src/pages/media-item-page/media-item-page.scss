@@ -40,9 +40,13 @@
 }
 
 .detail-hero {
+  --detail-hero-poster-height: clamp(320px, 34vw, 390px);
   position: relative;
   display: grid;
-  grid-template-columns: minmax(176px, 230px) minmax(0, 1fr);
+  grid-template-columns:
+    minmax(176px, calc(var(--detail-hero-poster-height) * 0.665))
+    minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas:
     'poster navigation'
     'poster body';
@@ -71,6 +75,7 @@
   display: grid;
   align-content: start;
   gap: 10px;
+  height: var(--detail-hero-poster-height);
 }
 
 .detail-hero__poster {
@@ -79,7 +84,8 @@
   border-radius: 24px;
   background: var(--floating-surface);
   box-shadow: var(--panel-inset), var(--floating-shadow-strong);
-  min-height: 260px;
+  height: 100%;
+  min-height: 0;
   transform: translateY(2px);
 }
 
@@ -93,8 +99,12 @@
   position: relative;
   z-index: 1;
   grid-area: body;
-  display: grid;
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 0;
+  gap: 18px;
 }
 
 .detail-hero__navigation-row {
@@ -120,6 +130,28 @@
   align-items: baseline;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.detail-hero__info,
+.detail-hero__controls {
+  display: flex;
+  min-width: 0;
+}
+
+.detail-hero__info {
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: clamp(10px, 1.15vw, 15px);
+}
+
+.detail-hero__controls {
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.detail-hero__controls:empty {
+  display: none;
 }
 
 .detail-hero__eyebrow-row {
@@ -186,9 +218,10 @@
 }
 
 .detail-hero__version-picker {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 10px;
+  width: min(100%, 560px);
   max-width: 100%;
 }
 
@@ -203,13 +236,24 @@
 }
 
 .detail-hero__version-picker .glass-select {
-  width: clamp(180px, 24vw, 280px);
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.detail-hero__version-picker .glass-select__trigger {
   min-width: 0;
 }
 
 .detail-hero__overview {
   max-width: 74ch;
+  margin: 0;
   color: var(--text-muted);
+  line-height: 1.62;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
 }
 
 .detail-hero__facts {
@@ -749,6 +793,7 @@
   }
 
   .detail-hero {
+    --detail-hero-poster-height: 320px;
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       'navigation'
