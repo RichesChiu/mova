@@ -1,0 +1,609 @@
+use super::{
+    sync::{
+        cleanup_media_item_if_no_files, delete_media_item, display_title_for_entry,
+        insert_media_file, reassign_media_file_to_media_item, update_media_file_from_entry,
+        ExistingLibraryMediaFileRecord,
+    },
+    CreateMediaEntryParams,
+};
+use anyhow::{Context, Result};
+use mova_domain::METADATA_STATUS_MATCHED;
+use sqlx::{Postgres, Row, Transaction};
+
+pub(super) async fn upsert_episode_media_entry(
+    tx: &mut Transaction<'_, Postgres>,
+    entry: &CreateMediaEntryParams,
+    existing: Option<ExistingLibraryMediaFileRecord>,
+) -> Result<()> {
+    let season_number = entry
+        .season_number
+        .context("episode entry missing season number")?;
+    let episode_number = entry
+        .episode_number
+        .context("episode entry missing episode number")?;
+    let series_id = upsert_series_item_from_entry(tx, entry).await?;
+    let season_id = upsert_season(tx, series_id, season_number, entry).await?;
+    let existing_episode_media_item_id =
+        find_existing_episode_media_item(tx, season_id, episode_number).await?;
+
+    if let Some(existing) = existing {
+        if !existing.media_type.eq_ignore_ascii_case("episode") {
+            delete_media_item(tx, existing.media_item_id).await?;
+            if let Some(existing_episode_media_item_id) = existing_episode_media_item_id {
+                update_episode_media_item_from_entry(tx, existing_episode_media_item_id, entry)
+                    .await?;
+                insert_media_file(tx, existing_episode_media_item_id, entry).await?;
+            } else {
+                insert_episode_media_tree(tx, entry, series_id, season_id, episode_number).await?;
+            }
+            return Ok(());
+        }
+
+        if let Some(existing_episode_media_item_id) = existing_episode_media_item_id {
+            if existing_episode_media_item_id != existing.media_item_id {
+                update_episode_media_item_from_entry(tx, existing_episode_media_item_id, entry)
+                    .await?;
+                reassign_media_file_to_media_item(
+                    tx,
+                    existing.media_file_id,
+                    existing_episode_media_item_id,
+                    entry,
+                )
+                .await?;
+                cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
+                return Ok(());
+            }
+        }
+
+        update_episode_media_item_from_entry(tx, existing.media_item_id, entry).await?;
+        update_episode_record(
+            tx,
+            existing.media_item_id,
+            series_id,
+            season_id,
+            episode_number,
+            episode_title_for_entry(entry, episode_number),
+        )
+        .await?;
+        update_media_file_from_entry(tx, existing.media_file_id, entry).await?;
+        return Ok(());
+    }
+
+    if let Some(existing_episode_media_item_id) = existing_episode_media_item_id {
+        update_episode_media_item_from_entry(tx, existing_episode_media_item_id, entry).await?;
+        insert_media_file(tx, existing_episode_media_item_id, entry).await?;
+        return Ok(());
+    }
+
+    insert_episode_media_tree(tx, entry, series_id, season_id, episode_number).await?;
+    Ok(())
+}
+
+fn episode_title_for_entry(entry: &CreateMediaEntryParams, episode_number: i32) -> String {
+    entry
+        .episode_title
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| format!("Episode {:02}", episode_number))
+}
+
+async fn insert_episode_media_tree(
+    tx: &mut Transaction<'_, Postgres>,
+    entry: &CreateMediaEntryParams,
+    series_id: i64,
+    season_id: i64,
+    episode_number: i32,
+) -> Result<()> {
+    let media_item_id = insert_episode_media_item(tx, entry, episode_number).await?;
+    insert_episode_record(
+        tx,
+        media_item_id,
+        series_id,
+        season_id,
+        episode_number,
+        episode_title_for_entry(entry, episode_number),
+    )
+    .await?;
+    insert_media_file(tx, media_item_id, entry).await?;
+    Ok(())
+}
+
+async fn upsert_series_item_from_entry(
+    tx: &mut Transaction<'_, Postgres>,
+    entry: &CreateMediaEntryParams,
+) -> Result<i64> {
+    if let Some(series_id) =
+        find_existing_series_item(tx, entry.library_id, &entry.source_title, entry.year).await?
+    {
+        update_series_item_from_entry(tx, series_id, entry).await?;
+        Ok(series_id)
+    } else {
+        insert_series_item_from_entry(tx, entry).await
+    }
+}
+
+async fn find_existing_series_item(
+    tx: &mut Transaction<'_, Postgres>,
+    library_id: i64,
+    title: &str,
+    year: Option<i32>,
+) -> Result<Option<i64>> {
+    let row = sqlx::query(
+        r#"
+        select id
+        from media_items
+        where library_id = $1
+          and media_type = 'series'
+          and source_title = $2
+          and (
+                ($3::int is null and year is null)
+                or year = $3
+              )
+        limit 1
+        "#,
+    )
+    .bind(library_id)
+    .bind(title)
+    .bind(year)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to find existing series item")?;
+
+    Ok(row.map(|row| row.get("id")))
+}
+
+async fn insert_series_item_from_entry(
+    tx: &mut Transaction<'_, Postgres>,
+    entry: &CreateMediaEntryParams,
+) -> Result<i64> {
+    let title = display_title_for_entry(entry);
+    let poster_path = entry.series_poster_path.as_ref();
+    let backdrop_path = entry.series_backdrop_path.as_ref();
+    let row = sqlx::query(
+        r#"
+        insert into media_items (
+            library_id,
+            media_type,
+            title,
+            source_title,
+            original_title,
+            sort_title,
+            metadata_provider,
+            metadata_provider_item_id,
+            metadata_status,
+            metadata_failure_reason,
+            remote_media_type,
+            year,
+            country,
+            genres,
+            studio,
+            overview,
+            poster_path,
+            backdrop_path
+        )
+        values (
+            $1, 'series', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+            $12, $13, $14, $15, $16, $17
+        )
+        returning id
+        "#,
+    )
+    .bind(entry.library_id)
+    .bind(title)
+    .bind(&entry.source_title)
+    .bind(&entry.original_title)
+    .bind(&entry.sort_title)
+    .bind(&entry.metadata_provider)
+    .bind(entry.metadata_provider_item_id)
+    .bind(&entry.metadata_status)
+    .bind(&entry.metadata_failure_reason)
+    .bind(&entry.remote_media_type)
+    .bind(entry.year)
+    .bind(&entry.country)
+    .bind(&entry.genres)
+    .bind(&entry.studio)
+    .bind(&entry.overview)
+    .bind(poster_path)
+    .bind(backdrop_path)
+    .fetch_one(&mut **tx)
+    .await
+    .context("failed to insert series item")?;
+
+    Ok(row.get("id"))
+}
+
+async fn update_series_item_from_entry(
+    tx: &mut Transaction<'_, Postgres>,
+    series_id: i64,
+    entry: &CreateMediaEntryParams,
+) -> Result<()> {
+    let title = display_title_for_entry(entry);
+    let poster_path = entry.series_poster_path.as_ref();
+    let backdrop_path = entry.series_backdrop_path.as_ref();
+    let allow_artwork_clear = allows_artwork_clear(entry);
+
+    sqlx::query(
+        r#"
+        update media_items
+        set
+            title = $2,
+            source_title = $3,
+            original_title = $4,
+            sort_title = $5,
+            metadata_provider = $6,
+            metadata_provider_item_id = $7,
+            metadata_status = $8,
+            metadata_failure_reason = $9,
+            remote_media_type = $10,
+            year = $11,
+            country = $12,
+            genres = $13,
+            studio = $14,
+            overview = $15,
+            poster_path = case
+                when $18 then $16
+                else coalesce($16, poster_path)
+            end,
+            backdrop_path = case
+                when $18 then $17
+                else coalesce($17, backdrop_path)
+            end,
+            updated_at = now()
+        where id = $1
+        "#,
+    )
+    .bind(series_id)
+    .bind(title)
+    .bind(&entry.source_title)
+    .bind(&entry.original_title)
+    .bind(&entry.sort_title)
+    .bind(&entry.metadata_provider)
+    .bind(entry.metadata_provider_item_id)
+    .bind(&entry.metadata_status)
+    .bind(&entry.metadata_failure_reason)
+    .bind(&entry.remote_media_type)
+    .bind(entry.year)
+    .bind(&entry.country)
+    .bind(&entry.genres)
+    .bind(&entry.studio)
+    .bind(&entry.overview)
+    .bind(poster_path)
+    .bind(backdrop_path)
+    .bind(allow_artwork_clear)
+    .execute(&mut **tx)
+    .await
+    .context("failed to update series item during library sync")?;
+
+    Ok(())
+}
+
+async fn upsert_season(
+    tx: &mut Transaction<'_, Postgres>,
+    series_id: i64,
+    season_number: i32,
+    entry: &CreateMediaEntryParams,
+) -> Result<i64> {
+    let title = entry
+        .season_title
+        .as_ref()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("Season {:02}", season_number));
+    let poster_path = entry.season_poster_path.as_ref();
+    let backdrop_path = entry.season_backdrop_path.as_ref();
+    let allow_artwork_clear = allows_artwork_clear(entry);
+    let row = sqlx::query(
+        r#"
+        insert into seasons (
+            series_id,
+            season_number,
+            title,
+            overview,
+            poster_path,
+            backdrop_path
+        )
+        values ($1, $2, $3, $4, $5, $6)
+        on conflict (series_id, season_number)
+        do update set
+            title = excluded.title,
+            overview = coalesce(excluded.overview, seasons.overview),
+            poster_path = case
+                when $7 then excluded.poster_path
+                else coalesce(excluded.poster_path, seasons.poster_path)
+            end,
+            backdrop_path = case
+                when $7 then excluded.backdrop_path
+                else coalesce(excluded.backdrop_path, seasons.backdrop_path)
+            end,
+            updated_at = now()
+        returning id
+        "#,
+    )
+    .bind(series_id)
+    .bind(season_number)
+    .bind(title)
+    .bind(&entry.season_overview)
+    .bind(poster_path)
+    .bind(backdrop_path)
+    .bind(allow_artwork_clear)
+    .fetch_one(&mut **tx)
+    .await
+    .context("failed to upsert season")?;
+
+    Ok(row.get("id"))
+}
+
+async fn insert_episode_media_item(
+    tx: &mut Transaction<'_, Postgres>,
+    entry: &CreateMediaEntryParams,
+    episode_number: i32,
+) -> Result<i64> {
+    let row = sqlx::query(
+        r#"
+        insert into media_items (
+            library_id,
+            media_type,
+            title,
+            source_title,
+            original_title,
+            sort_title,
+            metadata_status,
+            metadata_failure_reason,
+            remote_media_type,
+            year,
+            country,
+            genres,
+            studio,
+            overview,
+            poster_path,
+            backdrop_path
+        )
+        values (
+            $1, 'episode', $2, $3, null, null, $4, $5, $6,
+            null, null, null, null, $7, $8, $9
+        )
+        returning id
+        "#,
+    )
+    .bind(entry.library_id)
+    .bind(episode_title_for_entry(entry, episode_number))
+    .bind(
+        entry
+            .episode_title
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| entry.source_title.clone()),
+    )
+    .bind(&entry.metadata_status)
+    .bind(&entry.metadata_failure_reason)
+    .bind(&entry.remote_media_type)
+    .bind(&entry.overview)
+    .bind(&entry.poster_path)
+    .bind(&entry.backdrop_path)
+    .fetch_one(&mut **tx)
+    .await
+    .context("failed to insert episode media item")?;
+
+    Ok(row.get("id"))
+}
+
+async fn update_episode_media_item_from_entry(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+    entry: &CreateMediaEntryParams,
+) -> Result<()> {
+    let episode_number = entry
+        .episode_number
+        .context("episode entry missing episode number")?;
+    let allow_artwork_clear = allows_artwork_clear(entry);
+
+    sqlx::query(
+        r#"
+        update media_items
+        set
+            title = $2,
+            source_title = $3,
+            original_title = null,
+            sort_title = null,
+            metadata_status = $4,
+            metadata_failure_reason = $5,
+            remote_media_type = $6,
+            year = null,
+            country = null,
+            genres = null,
+            studio = null,
+            overview = $7,
+            poster_path = case
+                when $10 then $8
+                else coalesce($8, poster_path)
+            end,
+            backdrop_path = case
+                when $10 then $9
+                else coalesce($9, backdrop_path)
+            end,
+            updated_at = now()
+        where id = $1
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(episode_title_for_entry(entry, episode_number))
+    .bind(
+        entry
+            .episode_title
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| entry.source_title.clone()),
+    )
+    .bind(&entry.metadata_status)
+    .bind(&entry.metadata_failure_reason)
+    .bind(&entry.remote_media_type)
+    .bind(&entry.overview)
+    .bind(&entry.poster_path)
+    .bind(&entry.backdrop_path)
+    .bind(allow_artwork_clear)
+    .execute(&mut **tx)
+    .await
+    .context("failed to update episode media item during library sync")?;
+
+    Ok(())
+}
+
+fn allows_artwork_clear(entry: &CreateMediaEntryParams) -> bool {
+    entry.allow_artwork_clear && metadata_status_allows_artwork_clear(&entry.metadata_status)
+}
+
+fn metadata_status_allows_artwork_clear(metadata_status: &str) -> bool {
+    metadata_status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::metadata_status_allows_artwork_clear;
+
+    #[test]
+    fn only_matched_metadata_status_clears_artwork() {
+        assert!(metadata_status_allows_artwork_clear("matched"));
+        assert!(metadata_status_allows_artwork_clear("MATCHED"));
+        assert!(!metadata_status_allows_artwork_clear("unmatched"));
+        assert!(!metadata_status_allows_artwork_clear("skipped"));
+        assert!(!metadata_status_allows_artwork_clear("failed"));
+    }
+}
+
+async fn insert_episode_record(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+    series_id: i64,
+    season_id: i64,
+    episode_number: i32,
+    title: String,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        insert into episodes (media_item_id, series_id, season_id, episode_number, title)
+        values ($1, $2, $3, $4, $5)
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(series_id)
+    .bind(season_id)
+    .bind(episode_number)
+    .bind(title)
+    .execute(&mut **tx)
+    .await
+    .context("failed to insert episode record")?;
+
+    Ok(())
+}
+
+async fn find_existing_episode_media_item(
+    tx: &mut Transaction<'_, Postgres>,
+    season_id: i64,
+    episode_number: i32,
+) -> Result<Option<i64>> {
+    let row = sqlx::query(
+        r#"
+        select media_item_id
+        from episodes
+        where season_id = $1
+          and episode_number = $2
+        limit 1
+        "#,
+    )
+    .bind(season_id)
+    .bind(episode_number)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to find existing episode record")?;
+
+    Ok(row.map(|row| row.get("media_item_id")))
+}
+
+async fn update_episode_record(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+    series_id: i64,
+    season_id: i64,
+    episode_number: i32,
+    title: String,
+) -> Result<()> {
+    let updated = sqlx::query(
+        r#"
+        update episodes
+        set
+            series_id = $2,
+            season_id = $3,
+            episode_number = $4,
+            title = $5,
+            updated_at = now()
+        where media_item_id = $1
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(series_id)
+    .bind(season_id)
+    .bind(episode_number)
+    .bind(title.clone())
+    .execute(&mut **tx)
+    .await
+    .context("failed to update episode record")?;
+
+    if updated.rows_affected() == 0 {
+        insert_episode_record(
+            tx,
+            media_item_id,
+            series_id,
+            season_id,
+            episode_number,
+            title,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+pub(super) async fn cleanup_orphan_series_structure(
+    tx: &mut Transaction<'_, Postgres>,
+    library_id: i64,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        delete from seasons s
+        where s.series_id in (
+            select id
+            from media_items
+            where library_id = $1
+              and media_type = 'series'
+        )
+          and not exists (
+            select 1
+            from episodes e
+            where e.season_id = s.id
+          )
+        "#,
+    )
+    .bind(library_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to delete orphan seasons")?;
+
+    sqlx::query(
+        r#"
+        delete from media_items mi
+        where mi.library_id = $1
+          and mi.media_type = 'series'
+          and not exists (
+            select 1
+            from seasons s
+            where s.series_id = mi.id
+          )
+        "#,
+    )
+    .bind(library_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to delete orphan series items")?;
+
+    Ok(())
+}

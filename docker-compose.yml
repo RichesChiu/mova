@@ -1,0 +1,47 @@
+services:
+  app:
+    image: richeschiu/mova:latest
+    container_name: mova-app
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "36080:36080"
+    environment:
+      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
+      MOVA_WEB_DIST_DIR: /app/web
+      MOVA_TMDB_ACCESS_TOKEN: ${MOVA_TMDB_ACCESS_TOKEN:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,database}
+      ALL_PROXY: ${ALL_PROXY:-}
+      http_proxy: ${HTTP_PROXY:-}
+      https_proxy: ${HTTPS_PROXY:-}
+      no_proxy: ${NO_PROXY:-localhost,127.0.0.1,::1,database}
+      all_proxy: ${ALL_PROXY:-}
+    volumes:
+      - ./data/cache:/app/data/cache
+      - type: bind
+        source: ${MOVA_MEDIA_ROOT:?MOVA_MEDIA_ROOT must be set to an existing host media directory}
+        target: /media
+        read_only: true
+    restart: unless-stopped
+
+  database:
+    image: postgres:18
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: mova
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mova
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - ./data/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mova -d mova"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    shm_size: 256mb
+    restart: unless-stopped

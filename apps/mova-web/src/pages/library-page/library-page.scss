@@ -1,0 +1,115 @@
+.library-page {
+  padding-top: clamp(10px, 1.5vw, 20px);
+}
+
+.library-hero {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--hero-border);
+  border-radius: 30px;
+  background: var(--hero-background);
+  background-size: cover;
+  background-position: center;
+  backdrop-filter: blur(28px) saturate(160%);
+  box-shadow: var(--panel-shadow);
+  overflow: hidden;
+}
+
+.library-hero--compact {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.library-hero__content,
+.library-hero__copy,
+.library-hero__meta {
+  position: relative;
+  z-index: 1;
+  display: grid;
+}
+
+.library-hero__content {
+  gap: 14px;
+}
+
+.library-hero__navigation-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.library-hero__back-link {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+
+.library-hero__back-link:hover {
+  color: var(--accent-strong);
+}
+
+.library-hero__copy {
+  gap: 8px;
+}
+
+.library-hero__description {
+  margin: 0;
+  max-width: 72ch;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.library-hero__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  padding-top: 2px;
+}
+
+.hero-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hero-stat + .hero-stat {
+  padding-left: 24px;
+  border-left: 1px solid color-mix(in srgb, var(--floating-border) 72%, transparent);
+}
+
+.hero-stat__label {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hero-stat strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 0.98rem;
+  font-weight: 760;
+  line-height: 1.15;
+}
+
+.media-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .library-hero__meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .hero-stat + .hero-stat {
+    padding-left: 0;
+    border-left: 0;
+  }
+}

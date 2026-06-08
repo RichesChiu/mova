@@ -1,0 +1,217 @@
+.library-content-sections__block {
+  overflow: visible;
+}
+
+.recently-added-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 540px), 760px));
+  align-items: start;
+  gap: 14px;
+  justify-items: start;
+}
+
+.recently-added-row {
+  display: grid;
+  grid-template-areas:
+    'summary action'
+    'posters posters';
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: start;
+  gap: 14px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--floating-surface) 82%, transparent);
+  box-shadow: var(--panel-inset);
+}
+
+.recently-added-row__summary,
+.recently-added-row__posters,
+.recently-added-row__copy,
+.recently-added-poster,
+.recently-added-poster__meta {
+  min-width: 0;
+}
+
+.recently-added-row__summary {
+  grid-area: summary;
+  display: grid;
+  grid-template-columns: clamp(58px, 5.2vw, 66px) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.recently-added-row__cover {
+  overflow: hidden;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 80%, transparent);
+  border-radius: 7px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 48%),
+    color-mix(in srgb, var(--card-poster-background) 84%, transparent);
+  box-shadow: var(--panel-inset);
+}
+
+.recently-added-row__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.recently-added-row__copy {
+  display: grid;
+  gap: 3px;
+}
+
+.recently-added-row__copy strong,
+.recently-added-poster__meta strong {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 760;
+  font-size: 1.02rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recently-added-row__copy span,
+.recently-added-poster__meta span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recently-added-row__posters {
+  grid-area: posters;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: center;
+  gap: clamp(8px, 0.8vw, 11px);
+  width: 100%;
+  max-width: none;
+  overflow: visible;
+}
+
+.recently-added-poster {
+  display: block;
+  min-width: 0;
+  border-radius: 7px;
+  transition:
+    filter 160ms ease,
+    transform 160ms ease;
+}
+
+.recently-added-poster:hover {
+  filter: brightness(1.06);
+  transform: translateY(-2px);
+}
+
+.recently-added-poster__artwork {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 2 / 3;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 82%, transparent);
+  border-radius: 6px;
+  background: var(--card-poster-background);
+  box-shadow:
+    var(--panel-inset),
+    0 8px 18px color-mix(in srgb, #000 18%, transparent);
+}
+
+.recently-added-poster__artwork img {
+  width: 100%;
+  height: 100%;
+  filter: brightness(1.18) saturate(1.08);
+  object-fit: cover;
+}
+
+.recently-added-poster__placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-soft);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.recently-added-poster__meta {
+  display: none;
+  gap: 1px;
+}
+
+.recently-added-poster__meta strong {
+  font-size: 0.86rem;
+  line-height: 1.18;
+}
+
+.recently-added-poster__meta span {
+  font-size: 0.76rem;
+}
+
+.recently-added-row__action {
+  grid-area: action;
+  min-width: 108px;
+  min-height: 36px;
+  border-radius: 8px;
+  font-size: 0.76rem;
+}
+
+.recently-added-row__line {
+  display: block;
+  border-radius: 999px;
+}
+
+.recently-added-row__line--title {
+  width: 78%;
+  height: 0.88rem;
+}
+
+.recently-added-row__line--meta {
+  width: 56%;
+  height: 0.7rem;
+}
+
+.recently-added-poster--loading {
+  display: block;
+}
+
+@media (max-width: 1180px) {
+  .recently-added-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .recently-added-row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'summary'
+      'posters'
+      'action';
+    align-items: stretch;
+    justify-self: stretch;
+    width: 100%;
+    min-height: 0;
+  }
+
+  .recently-added-row__posters {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(72px, 84px);
+    grid-template-columns: none;
+    width: auto;
+    overflow-x: auto;
+    padding: 2px 2px 12px;
+  }
+
+  .recently-added-row__action {
+    width: 100%;
+  }
+}

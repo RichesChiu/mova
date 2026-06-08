@@ -1,0 +1,202 @@
+.user-editor-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.user-editor-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+}
+
+.user-editor-modal__surface {
+  position: relative;
+  z-index: 1;
+  width: min(760px, 100%);
+  max-height: min(82vh, 920px);
+  display: grid;
+  gap: 18px;
+  overflow: auto;
+  padding: 22px;
+  border-radius: 28px;
+}
+
+.user-editor-modal__header,
+.user-editor-modal__identity,
+.user-editor-modal__footer {
+  display: flex;
+  gap: 16px;
+}
+
+.user-editor-modal__header {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.user-editor-modal__identity {
+  align-items: center;
+}
+
+.user-editor-modal__identity h3 {
+  margin: 6px 0 8px;
+}
+
+.user-editor-modal__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.user-editor-modal__close:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.user-editor-modal__close-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.user-editor-modal__avatar {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 30% 24%, rgba(162, 197, 255, 0.3), transparent 42%),
+    linear-gradient(135deg, rgba(23, 31, 43, 0.92), rgba(12, 16, 24, 0.86));
+  box-shadow: var(--panel-inset), var(--floating-shadow-strong);
+  color: #e8eeff;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.user-editor-modal__grid,
+.user-editor-modal__access-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.user-editor-modal__grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.user-editor-modal__grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.user-editor-modal__access-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.user-editor-modal__access-chip {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  background: var(--panel-background-soft);
+  box-shadow: var(--panel-shadow);
+}
+
+.user-editor-modal__access-chip-title {
+  min-width: 0;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.user-editor-modal__access-checkbox {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 19px;
+  min-width: 19px;
+  height: 19px;
+  min-height: 19px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 20px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.field .user-editor-modal__access-checkbox {
+  min-height: 19px;
+  padding: 0;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 20px rgba(0, 0, 0, 0.18);
+}
+
+.user-editor-modal__access-checkbox:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+}
+
+.user-editor-modal__access-checkbox:checked {
+  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+  background:
+    linear-gradient(135deg, rgba(120, 195, 143, 0.96), rgba(74, 164, 102, 0.94));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 12px 24px rgba(48, 116, 70, 0.26);
+}
+
+.user-editor-modal__access-checkbox:checked::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 5px;
+  height: 10px;
+  border: solid rgba(255, 255, 255, 0.96);
+  border-width: 0 2px 2px 0;
+  transform: translate(-50%, -58%) rotate(45deg);
+}
+
+.user-editor-modal__access-checkbox:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 54%, transparent);
+  outline-offset: 2px;
+}
+
+.user-editor-modal__footer {
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.toggle--disabled {
+  opacity: 0.72;
+}

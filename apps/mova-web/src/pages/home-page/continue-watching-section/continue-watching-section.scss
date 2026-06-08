@@ -1,0 +1,188 @@
+.continue-watching-section {
+  display: grid;
+  gap: 10px;
+  overflow: visible;
+}
+
+.continue-watching-section__viewport {
+  scroll-padding-inline: 2px;
+}
+
+.continue-watching-section__viewport .scrollable-rail__track {
+  grid-auto-columns: clamp(136px, 13.5vw, 158px);
+  gap: clamp(10px, 1vw, 13px);
+  padding: 1px 1px 4px;
+}
+
+.home-continue-card {
+  position: relative;
+  display: block;
+  min-width: 0;
+  height: clamp(174px, 16.8vw, 198px);
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 82%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--floating-surface) 74%, transparent);
+  box-shadow:
+    var(--panel-inset),
+    0 10px 24px color-mix(in srgb, #000 24%, transparent);
+  scroll-snap-align: start;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.home-continue-card:hover {
+  border-color: color-mix(in srgb, var(--button-primary-border) 82%, transparent);
+  background: color-mix(in srgb, var(--floating-surface-strong) 84%, transparent);
+  transform: translateY(-2px);
+}
+
+.home-continue-card__artwork {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: inherit;
+  background: var(--card-poster-background);
+}
+
+.home-continue-card__artwork img {
+  width: 100%;
+  height: 100%;
+  filter: brightness(1.22) saturate(1.08);
+  object-fit: cover;
+}
+
+.home-continue-card__artwork::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 45%, rgba(4, 7, 12, 0.22) 58%, rgba(4, 7, 12, 0.86));
+}
+
+.home-continue-card__placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.home-continue-card__play {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid color-mix(in srgb, #fff 22%, transparent);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.64);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+  color: #fff;
+  transform: translate(-50%, -50%);
+}
+
+.home-continue-card__play svg {
+  width: 18px;
+  height: 18px;
+  transform: translateX(1px);
+}
+
+.home-continue-card__copy {
+  position: absolute;
+  right: 9px;
+  bottom: 13px;
+  left: 9px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 6px;
+  min-width: 0;
+  padding: 0 1px;
+}
+
+.home-continue-card__copy strong,
+.home-continue-card__copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-continue-card__copy strong {
+  grid-column: 1 / -1;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 780;
+  line-height: 1.15;
+}
+
+.home-continue-card__copy span,
+.home-continue-card__copy em {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 760;
+  line-height: 1.1;
+}
+
+.home-continue-card__copy em {
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.home-continue-card__progress {
+  position: absolute;
+  right: 9px;
+  bottom: 7px;
+  left: 9px;
+  z-index: 2;
+  overflow: hidden;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.home-continue-card__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 62%, #fff 12%);
+}
+
+.home-continue-card__line {
+  display: block;
+  border-radius: 999px;
+}
+
+.home-continue-card__line--title {
+  width: 82%;
+  height: 0.72rem;
+}
+
+.home-continue-card__line--meta {
+  width: 48%;
+  height: 0.56rem;
+}
+
+.continue-watching-section__overflow {
+  display: grid;
+  place-items: center;
+  width: clamp(40px, 3.2vw, 58px);
+  min-height: clamp(174px, 16.8vw, 198px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: 1.05rem;
+  font-weight: 800;
+  scroll-snap-align: start;
+}
