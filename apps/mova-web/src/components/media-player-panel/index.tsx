@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react'
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import {
   flushMediaItemPlaybackProgress,
   getMediaItemPlaybackProgress,
@@ -444,6 +444,18 @@ export const buildPlaybackSourceErrorMessage = (video: HTMLVideoElement | null) 
       )
   }
 }
+
+const PlayerPanelCenteredStatus = ({ children }: { children: ReactNode }) => (
+  <div
+    aria-live="assertive"
+    className="player-panel__center-status player-panel__center-status--interactive"
+    role="alert"
+  >
+    <div className="player-panel__status-stack player-panel__status-stack--centered">
+      {children}
+    </div>
+  </div>
+)
 
 export const MediaPlayerPanel = ({
   episodeSwitchOptions = [],
@@ -1279,7 +1291,6 @@ export const MediaPlayerPanel = ({
   const bufferingStatusMessage = audioTrackNotice ?? translateCurrent('Buffering playback…')
   const shouldShowTopOverlay =
     canSkipIntro ||
-    playerError !== null ||
     playbackSyncError !== null ||
     interactionWarning !== null ||
     subtitleWarning !== null ||
@@ -1290,6 +1301,24 @@ export const MediaPlayerPanel = ({
     '--player-range-buffered': `${Math.max(playedProgressPercent, bufferedProgressPercent)}%`,
     '--player-range-played': `${playedProgressPercent}%`,
   } as CSSProperties
+  const playbackLoadErrorMessages = [
+    mediaFilesQuery.isError
+      ? mediaFilesQuery.error instanceof Error
+        ? mediaFilesQuery.error.message
+        : translateCurrent('Failed to load media files')
+      : null,
+    playbackProgressQuery.isError
+      ? playbackProgressQuery.error instanceof Error
+        ? playbackProgressQuery.error.message
+        : translateCurrent('Failed to load playback progress')
+      : null,
+  ].filter((message): message is string => message !== null)
+  const centeredPlaybackErrorMessages = selectedMediaFile
+    ? [...playbackLoadErrorMessages, playerError].filter(
+        (message): message is string => message !== null,
+      )
+    : []
+  const statePlaybackErrorMessages = selectedMediaFile ? [] : playbackLoadErrorMessages
 
   const togglePlay = useCallback(async () => {
     const video = videoRef.current
@@ -1423,20 +1452,20 @@ export const MediaPlayerPanel = ({
         <p className="muted">{translateCurrent('Loading player…')}</p>
       ) : null}
 
-      {mediaFilesQuery.isError ? (
-        <p className="callout callout--danger">
-          {mediaFilesQuery.error instanceof Error
-            ? mediaFilesQuery.error.message
-            : translateCurrent('Failed to load media files')}
-        </p>
-      ) : null}
-
-      {playbackProgressQuery.isError ? (
-        <p className="callout callout--danger">
-          {playbackProgressQuery.error instanceof Error
-            ? playbackProgressQuery.error.message
-            : translateCurrent('Failed to load playback progress')}
-        </p>
+      {statePlaybackErrorMessages.length > 0 ? (
+        <div
+          aria-live="assertive"
+          className="player-panel__state-center"
+          role="alert"
+        >
+          <div className="player-panel__status-stack player-panel__status-stack--centered">
+            {statePlaybackErrorMessages.map((message, index) => (
+              <p className="callout callout--danger" key={`${message}-${index}`}>
+                {message}
+              </p>
+            ))}
+          </div>
+        </div>
       ) : null}
 
       {mediaFiles.length === 0 && !mediaFilesQuery.isLoading ? (
@@ -1469,14 +1498,6 @@ export const MediaPlayerPanel = ({
                         {translateCurrent('Skip Intro')}
                       </button>
                     ) : null}
-                    {playerError ? (
-                      <div className="player-panel__status-stack">
-                        <p className="callout callout--danger">{playerError}</p>
-                        <button className="button" onClick={retryCurrentSource} type="button">
-                          {translateCurrent('Retry current source')}
-                        </button>
-                      </div>
-                    ) : null}
                     {!playerError && playbackSyncError ? (
                       <p className="callout">{playbackSyncError}</p>
                     ) : null}
@@ -1502,6 +1523,21 @@ export const MediaPlayerPanel = ({
                 <div aria-live="polite" className="player-panel__center-status" role="status">
                   <p className="player-panel__status-badge">{bufferingStatusMessage}</p>
                 </div>
+              ) : null}
+
+              {centeredPlaybackErrorMessages.length > 0 ? (
+                <PlayerPanelCenteredStatus>
+                  {centeredPlaybackErrorMessages.map((message, index) => (
+                    <p className="callout callout--danger" key={`${message}-${index}`}>
+                      {message}
+                    </p>
+                  ))}
+                  {playerError ? (
+                    <button className="button" onClick={retryCurrentSource} type="button">
+                      {translateCurrent('Retry current source')}
+                    </button>
+                  ) : null}
+                </PlayerPanelCenteredStatus>
               ) : null}
 
               {/* biome-ignore lint/a11y/useMediaCaption: 当前播放器允许“关闭字幕”，未选中时不会挂载活动字幕轨道。 */}
@@ -1927,15 +1963,6 @@ export const MediaPlayerPanel = ({
                 <span className="muted">{translateCurrent('Duration')}</span>
                 <strong>{formatDuration(durationSeconds)}</strong>
               </div>
-            </div>
-          ) : null}
-
-          {playerError && !isImmersive ? (
-            <div className="player-panel__status-stack">
-              <p className="callout callout--danger">{playerError}</p>
-              <button className="button" onClick={retryCurrentSource} type="button">
-                {translateCurrent('Retry current source')}
-              </button>
             </div>
           ) : null}
 

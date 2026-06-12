@@ -7,14 +7,16 @@
 .libraries-section__viewport .library-spotlight {
   box-shadow:
     var(--panel-inset),
-    0 12px 26px color-mix(in srgb, #000 22%, transparent);
+    0 18px 42px color-mix(in srgb, #000 32%, transparent),
+    0 5px 14px color-mix(in srgb, #082033 38%, transparent);
 }
 
 .libraries-section__viewport .library-spotlight:hover {
   transform: translateY(-2px);
   box-shadow:
     var(--panel-inset),
-    0 16px 30px color-mix(in srgb, #000 26%, transparent);
+    0 22px 52px color-mix(in srgb, #000 38%, transparent),
+    0 8px 18px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .library-spotlight {
@@ -24,13 +26,25 @@
   min-height: clamp(190px, 18.8vw, 204px);
   border: 1px solid var(--floating-border);
   border-radius: 8px;
-  background: var(--library-spotlight-surface);
-  box-shadow: var(--panel-inset), var(--floating-shadow);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 6%, transparent), transparent 34%),
+    var(--library-spotlight-surface);
+  box-shadow:
+    var(--panel-inset),
+    inset 0 -1px 0 color-mix(in srgb, #fff 3%, transparent),
+    var(--floating-shadow);
   transition:
     transform 180ms ease,
     border-color 180ms ease,
     box-shadow 180ms ease,
-    background 180ms ease;
+  background 180ms ease;
+}
+
+.library-spotlight__link {
+  position: relative;
+  display: grid;
+  min-height: inherit;
+  color: inherit;
 }
 
 .library-spotlight:hover {
@@ -72,8 +86,9 @@
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(5, 8, 12, 0.06), rgba(5, 8, 12, 0.48) 54%, rgba(5, 8, 12, 0.86)),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 16%, transparent), transparent 44%);
+    linear-gradient(180deg, rgba(7, 12, 19, 0.04), rgba(5, 10, 16, 0.5) 54%, rgba(4, 8, 14, 0.9)),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 18%, transparent), transparent 44%),
+    radial-gradient(circle at 18% 8%, rgba(255, 255, 255, 0.08), transparent 34%);
 }
 
 .library-spotlight--scanning .library-spotlight__backdrop::after {
@@ -99,20 +114,46 @@
   background: var(--library-spotlight-fallback-loading);
 }
 
-.library-spotlight__menu {
+.library-spotlight__actions {
   position: absolute;
   top: 13px;
   right: 13px;
-  z-index: 2;
+  z-index: 4;
+}
+
+.library-spotlight__menu {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 3px;
   width: 28px;
   height: 22px;
+  padding: 0;
+  border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, #000 22%, transparent);
   color: rgba(255, 255, 255, 0.82);
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.library-spotlight__menu:hover,
+.library-spotlight__menu[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--floating-surface-strong) 88%, rgba(0, 0, 0, 0.28));
+  box-shadow:
+    var(--panel-inset),
+    0 8px 18px color-mix(in srgb, #000 28%, transparent);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.library-spotlight__menu:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, transparent);
+  outline-offset: 3px;
 }
 
 .library-spotlight__menu span {
@@ -122,6 +163,64 @@
   border-radius: 999px;
   background: currentColor;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.42);
+}
+
+.library-spotlight__action-menu {
+  --floating-transition-origin: top right;
+
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  display: grid;
+  gap: 6px;
+  width: max-content;
+  min-width: 176px;
+  padding: 8px;
+  border-radius: 14px;
+}
+
+.library-spotlight__action-menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 760;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.library-spotlight__action-menu-item svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.library-spotlight__action-menu-item:hover:enabled {
+  border-color: var(--menu-option-hover-border);
+  background: var(--menu-option-hover-background);
+  box-shadow: var(--menu-option-hover-shadow);
+}
+
+.library-spotlight__action-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
+.library-spotlight__action-menu-item--danger {
+  color: var(--danger);
 }
 
 .library-spotlight__content {

@@ -1,21 +1,32 @@
-import { useQueries, useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
-import { Link, NavLink, useOutletContext } from 'react-router-dom'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import {
+  deleteLibrary,
   getLibrary,
   getMediaItemEpisodeOutline,
   listContinueWatching,
   listRecentlyAddedByLibrary,
+  scanLibrary,
+  updateLibrary,
 } from '../../api/client'
+import type { Library, LibraryDetail } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import { getLibraryScanRuntime } from '../../components/app-shell/scan-runtime'
+import { ConfirmActionModal } from '../../components/confirm-action-modal'
+import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { useI18n } from '../../i18n'
 import { mediaItemDetailPath, mediaItemPrimaryPath } from '../../lib/media-routes'
 import { MEDIA_QUERY_GC_TIME_MS, SERIES_OUTLINE_QUERY_STALE_TIME_MS } from '../../lib/query-options'
-import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
+import {
+  buildDeletedLibraryCacheState,
+  buildDeleteLibraryConfirmationCopy,
+  buildTriggeredScanCacheState,
+  buildUpdatedLibraryCacheState,
+} from '../../lib/settings-admin'
 import { canManageServer } from '../../lib/viewer'
 import { ContinueWatchingSection } from './continue-watching-section'
-import { HomeIcon, type HomeIconName } from './home-icons'
+import { HomeDashboardShell } from './home-dashboard-shell'
 import { LibrariesSection } from './libraries-section'
 import { LibraryContentSections } from './library-content-sections'
 import type { ContinueWatchingCardData, HomeLibraryModuleData } from './types'
@@ -46,40 +57,107 @@ const isEpisodeContextEntry = (entry: {
   episode_number: number | null
 }) => typeof entry.season_number === 'number' && typeof entry.episode_number === 'number'
 
-const homeNavItems = [
-  { icon: 'home', label: 'Home', to: '/' },
-  { icon: 'libraries', label: 'Libraries', to: '/libraries' },
-  { icon: 'clock', label: 'Continue', to: '/' },
-  { icon: 'search', label: 'Search', to: '/' },
-  { icon: 'settings', label: 'Settings', to: '/settings' },
-] as const satisfies ReadonlyArray<{
-  icon: HomeIconName
-  label: string
-  to: string
-}>
-
-const HOME_SIDEBAR_COLLAPSED_STORAGE_KEY = 'mova.home.sidebarCollapsed'
-
-const readStoredSidebarCollapsed = () => {
-  if (typeof window === 'undefined') {
-    return false
-  }
-
-  return window.localStorage.getItem(HOME_SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true'
-}
-
 export const HomePage = () => {
   const { l } = useI18n()
   const { currentUser, libraries, librariesLoading, scanRuntimeByLibrary } =
     useOutletContext<AppShellOutletContext>()
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(readStoredSidebarCollapsed)
-  const displayName = getUserDisplayName(currentUser)
-  const userInitial = getUserInitial(currentUser)
+  const queryClient = useQueryClient()
+  const [editingLibrary, setEditingLibrary] = useState<Library | null>(null)
+  const [pendingDeleteLibrary, setPendingDeleteLibrary] = useState<Library | null>(null)
   const isAdmin = canManageServer(currentUser)
 
-  useEffect(() => {
-    window.localStorage.setItem(HOME_SIDEBAR_COLLAPSED_STORAGE_KEY, String(isSidebarCollapsed))
-  }, [isSidebarCollapsed])
+  const scanMutation = useMutation({
+    mutationFn: (libraryId: number) => scanLibrary(libraryId),
+    onSuccess: async (scanJob, libraryId) => {
+      const fallbackLibrary = libraries.find((library) => library.id === libraryId)
+
+      if (fallbackLibrary) {
+        const nextScanCache = buildTriggeredScanCacheState({
+          fallbackLibrary,
+          currentLibraryDetail: queryClient.getQueryData<LibraryDetail>(['library', libraryId]),
+          currentHomeLibraryDetail: queryClient.getQueryData<LibraryDetail>([
+            'home-library-detail',
+            libraryId,
+          ]),
+          scanJob,
+        })
+
+        queryClient.setQueryData<LibraryDetail>(['library', libraryId], nextScanCache.libraryDetail)
+        queryClient.setQueryData<LibraryDetail>(
+          ['home-library-detail', libraryId],
+          nextScanCache.homeLibraryDetail,
+        )
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
+      ])
+    },
+  })
+
+  const updateLibraryMutation = useMutation({
+    mutationFn: ({
+      libraryId,
+      input,
+    }: {
+      libraryId: number
+      input: Parameters<typeof updateLibrary>[1]
+    }) => updateLibrary(libraryId, input),
+    onSuccess: async (updatedLibrary, { libraryId }) => {
+      const nextLibraryCache = buildUpdatedLibraryCacheState({
+        currentLibraries: queryClient.getQueryData<Library[]>(['libraries']),
+        updatedLibrary,
+        currentLibraryDetail: queryClient.getQueryData<LibraryDetail>(['library', libraryId]),
+        currentHomeLibraryDetail: queryClient.getQueryData<LibraryDetail>([
+          'home-library-detail',
+          libraryId,
+        ]),
+      })
+
+      queryClient.setQueryData<Library[]>(['libraries'], nextLibraryCache.libraries)
+      queryClient.setQueryData<LibraryDetail>(
+        ['library', libraryId],
+        nextLibraryCache.libraryDetail,
+      )
+      queryClient.setQueryData<LibraryDetail>(
+        ['home-library-detail', libraryId],
+        nextLibraryCache.homeLibraryDetail,
+      )
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
+        queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
+      ])
+    },
+  })
+
+  const deleteLibraryMutation = useMutation({
+    mutationFn: (libraryId: number) => deleteLibrary(libraryId),
+    onSuccess: async (_result, libraryId) => {
+      const nextLibraryCache = buildDeletedLibraryCacheState(
+        queryClient.getQueryData<Library[]>(['libraries']),
+        libraryId,
+      )
+
+      queryClient.setQueryData<Library[]>(['libraries'], nextLibraryCache.libraries)
+      queryClient.removeQueries({ queryKey: ['library', libraryId] })
+      queryClient.removeQueries({ queryKey: ['library-media', libraryId] })
+      queryClient.removeQueries({ queryKey: ['home-library-detail', libraryId] })
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
+        queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
+      ])
+    },
+  })
 
   const continueWatchingQuery = useQuery({
     queryKey: ['continue-watching', 20],
@@ -191,95 +269,26 @@ export const HomePage = () => {
       ? recentlyAddedQuery.error.message
       : l('Failed to load recently added media')
     : null
+  const libraryActionErrorMessage = scanMutation.isError
+    ? scanMutation.error instanceof Error
+      ? scanMutation.error.message
+      : l('Failed to scan library')
+    : null
+  const activeLibraryModalError =
+    editingLibrary && updateLibraryMutation.error instanceof Error
+      ? updateLibraryMutation.error.message
+      : null
+  const deleteLibraryConfirmationCopy = pendingDeleteLibrary
+    ? buildDeleteLibraryConfirmationCopy(pendingDeleteLibrary)
+    : null
+  const deleteLibraryConfirmationError =
+    pendingDeleteLibrary && deleteLibraryMutation.error instanceof Error
+      ? deleteLibraryMutation.error.message
+      : null
 
   return (
-    <div className={isSidebarCollapsed ? 'home-shell home-shell--sidebar-collapsed' : 'home-shell'}>
-      <aside className="home-sidebar" aria-label={l('Home navigation')}>
-        <div className="home-sidebar__top">
-          <Link className="home-sidebar__brand" to="/" aria-label={l('Mova home')}>
-            <img alt="" src="/mova-logo-web-64.png" />
-            <span>MOVA</span>
-          </Link>
-          <button
-            aria-expanded={!isSidebarCollapsed}
-            aria-label={isSidebarCollapsed ? l('Expand sidebar') : l('Collapse sidebar')}
-            className="home-sidebar__toggle"
-            onClick={() => setIsSidebarCollapsed((current) => !current)}
-            type="button"
-          >
-            <HomeIcon name="chevronRight" />
-          </button>
-        </div>
-
-        <nav className="home-sidebar__nav">
-          {homeNavItems.map((item) => {
-            const isDisabledLocalAction =
-              (item.label === 'Continue' || item.label === 'Search') && item.to === '/'
-
-            if (item.label === 'Settings' && !isAdmin) {
-              return null
-            }
-
-            return (
-              <NavLink
-                aria-disabled={isDisabledLocalAction}
-                className={({ isActive }) =>
-                  isActive && item.label === 'Home'
-                    ? 'home-sidebar__nav-item home-sidebar__nav-item--active'
-                    : 'home-sidebar__nav-item'
-                }
-                key={item.label}
-                to={item.to}
-                title={isSidebarCollapsed ? l(item.label) : undefined}
-              >
-                <span aria-hidden="true">
-                  <HomeIcon name={item.icon} />
-                </span>
-                <strong>{l(item.label)}</strong>
-              </NavLink>
-            )
-          })}
-        </nav>
-
-        <Link
-          className="home-sidebar__user"
-          title={isSidebarCollapsed ? displayName : undefined}
-          to="/profile"
-        >
-          <span className="home-sidebar__avatar" aria-hidden="true">
-            {userInitial}
-          </span>
-          <span className="home-sidebar__user-copy">
-            <strong>{displayName}</strong>
-            <em>{currentUser.role === 'admin' ? l('Administrator') : l('Member')}</em>
-          </span>
-          <span aria-hidden="true" className="home-sidebar__user-arrow">
-            <HomeIcon name="chevronRight" />
-          </span>
-        </Link>
-      </aside>
-
-      <section className="home-dashboard" aria-label={l('Home')}>
-        <header className="home-dashboard__topbar">
-          <label className="home-search">
-            <span aria-hidden="true">
-              <HomeIcon name="search" />
-            </span>
-            <input readOnly placeholder={l('Search media in your libraries…')} />
-            <kbd>⌘K</kbd>
-          </label>
-
-          <div className="home-dashboard__actions">
-            <button className="home-icon-button" type="button" aria-label={l('Notifications')}>
-              <HomeIcon name="bell" />
-            </button>
-            <Link className="home-avatar-button" to="/profile" aria-label={l('Profile')}>
-              <span>{userInitial}</span>
-            </Link>
-            {isAdmin ? <span className="home-admin-pill">{l('Admin')}</span> : null}
-          </div>
-        </header>
-
+    <>
+      <HomeDashboardShell ariaLabel={l('Home')} currentUser={currentUser}>
         <div className="home-dashboard__content">
           <ContinueWatchingSection
             errorMessage={continueWatchingErrorMessage}
@@ -287,7 +296,25 @@ export const HomePage = () => {
             items={continueWatchingCards}
           />
 
-          <LibrariesSection isLoading={librariesLoading} libraryModules={libraryModules} />
+          <LibrariesSection
+            actionErrorMessage={libraryActionErrorMessage}
+            canManageLibraries={isAdmin}
+            isLoading={librariesLoading}
+            libraryModules={libraryModules}
+            pendingScanLibraryId={scanMutation.isPending ? (scanMutation.variables ?? null) : null}
+            onDeleteLibrary={(library) => {
+              deleteLibraryMutation.reset()
+              setPendingDeleteLibrary(library)
+            }}
+            onEditLibrary={(library) => {
+              updateLibraryMutation.reset()
+              setEditingLibrary(library)
+            }}
+            onScanLibrary={(library) => {
+              scanMutation.reset()
+              scanMutation.mutate(library.id)
+            }}
+          />
 
           <LibraryContentSections
             errorMessage={recentlyAddedErrorMessage}
@@ -295,7 +322,41 @@ export const HomePage = () => {
             isLoading={recentlyAddedQuery.isLoading}
           />
         </div>
-      </section>
-    </div>
+      </HomeDashboardShell>
+
+      <LibraryEditorModal
+        error={activeLibraryModalError}
+        isOpen={editingLibrary !== null}
+        isSubmitting={updateLibraryMutation.isPending}
+        library={editingLibrary}
+        onClose={() => {
+          setEditingLibrary(null)
+          updateLibraryMutation.reset()
+        }}
+        onUpdate={(libraryId, input) => updateLibraryMutation.mutateAsync({ libraryId, input })}
+      />
+
+      <ConfirmActionModal
+        confirmLabel={deleteLibraryConfirmationCopy?.confirmLabel ?? l('Confirm')}
+        description={deleteLibraryConfirmationCopy?.description ?? ''}
+        error={deleteLibraryConfirmationError}
+        isOpen={pendingDeleteLibrary !== null}
+        isSubmitting={deleteLibraryMutation.isPending}
+        onClose={() => {
+          setPendingDeleteLibrary(null)
+          deleteLibraryMutation.reset()
+        }}
+        onConfirm={() => {
+          if (!pendingDeleteLibrary) {
+            return
+          }
+
+          deleteLibraryMutation.mutate(pendingDeleteLibrary.id, {
+            onSuccess: () => setPendingDeleteLibrary(null),
+          })
+        }}
+        title={deleteLibraryConfirmationCopy?.title ?? l('Confirm action')}
+      />
+    </>
   )
 }

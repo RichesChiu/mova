@@ -4,29 +4,30 @@
 
 .recently-added-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 540px), 760px));
-  align-items: start;
-  gap: 14px;
-  justify-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
 }
 
 .recently-added-row {
   display: grid;
-  grid-template-areas:
-    'summary action'
-    'posters posters';
-  grid-template-columns: minmax(0, 1fr) max-content;
-  align-items: start;
-  gap: 14px;
+  grid-template-areas: 'summary posters action';
+  grid-template-columns: minmax(180px, 250px) minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: clamp(14px, 1.3vw, 20px);
   width: 100%;
   max-width: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 14px;
+  padding: 10px 16px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 78%, transparent);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--floating-surface) 82%, transparent);
-  box-shadow: var(--panel-inset);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 5%, transparent), transparent 42%),
+    color-mix(in srgb, var(--floating-surface) 86%, rgba(19, 34, 50, 0.44));
+  box-shadow:
+    var(--panel-inset),
+    0 14px 34px color-mix(in srgb, #000 22%, transparent),
+    0 3px 12px color-mix(in srgb, #0a2033 24%, transparent);
 }
 
 .recently-added-row__summary,
@@ -91,12 +92,21 @@
 .recently-added-row__posters {
   grid-area: posters;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: clamp(56px, 4.5vw, 76px);
+  grid-template-columns: none;
   align-items: center;
   gap: clamp(8px, 0.8vw, 11px);
   width: 100%;
   max-width: none;
-  overflow: visible;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 2px 4px;
+  scrollbar-width: none;
+}
+
+.recently-added-row__posters::-webkit-scrollbar {
+  display: none;
 }
 
 .recently-added-poster {
@@ -160,10 +170,12 @@
 
 .recently-added-row__action {
   grid-area: action;
+  justify-self: end;
   min-width: 108px;
   min-height: 36px;
   border-radius: 8px;
   font-size: 0.76rem;
+  white-space: nowrap;
 }
 
 .recently-added-row__line {
@@ -186,10 +198,24 @@
 }
 
 @media (max-width: 1180px) {
-  .recently-added-list {
-    grid-template-columns: minmax(0, 1fr);
+  .recently-added-row {
+    grid-template-columns: minmax(170px, 230px) minmax(0, 1fr);
+    grid-template-areas:
+      'summary action'
+      'posters posters';
   }
 
+  .recently-added-row__posters {
+    grid-auto-columns: minmax(72px, 84px);
+    padding: 2px 2px 12px;
+  }
+
+  .recently-added-row__action {
+    justify-self: end;
+  }
+}
+
+@media (max-width: 680px) {
   .recently-added-row {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
@@ -197,21 +223,10 @@
       'posters'
       'action';
     align-items: stretch;
-    justify-self: stretch;
-    width: 100%;
-    min-height: 0;
-  }
-
-  .recently-added-row__posters {
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(72px, 84px);
-    grid-template-columns: none;
-    width: auto;
-    overflow-x: auto;
-    padding: 2px 2px 12px;
   }
 
   .recently-added-row__action {
+    justify-self: stretch;
     width: 100%;
   }
 }

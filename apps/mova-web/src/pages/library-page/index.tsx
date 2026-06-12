@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Link, useOutletContext, useParams } from 'react-router-dom'
 import { getLibrary, listLibraryMediaItems } from '../../api/client'
 import type { MediaItem } from '../../api/types'
@@ -6,25 +7,28 @@ import type { AppShellOutletContext } from '../../components/app-shell'
 import type { ScanRuntimeItem } from '../../components/app-shell/scan-runtime'
 import {
   formatFailedScanCopy,
+  formatScanJobStatusCopy,
   formatScanItemCardProgressLabel,
   formatScanItemCardSummary,
   formatScanItemMeta,
   getEffectiveScanJob,
   getLibraryScanRuntime,
+  getScanJobProgressPercent,
   getScanItemCardProgressPercent,
   getScanRuntimeItems,
   hasFailedLibraryScan,
   isLibraryScanActive,
   shouldShowScanPlaceholder,
 } from '../../components/app-shell/scan-runtime'
-import { MediaCard, MediaCardScanPlaceholder, MediaCardSkeleton } from '../../components/media-card'
 import { useI18n } from '../../i18n'
 import {
   filterLibraryMediaItemsForScanRuntime,
   getLibraryMediaSection,
   getLibraryScanSection,
 } from '../../lib/library-media-sections'
+import { mediaItemPrimaryPath } from '../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
+import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 
 const PAGE_SIZE = 500
 const MEDIA_SECTION_SKELETON_COUNT = 6
@@ -50,6 +54,121 @@ const formatLibraryScanItemSubtitle = (item: ScanRuntimeItem) => {
   return null
 }
 
+const LibraryDetailTileArtwork = ({
+  alt,
+  children,
+  placeholderLabel,
+  src,
+}: {
+  alt: string
+  children?: ReactNode
+  placeholderLabel: string
+  src: string | null
+}) => {
+  const [imageState, setImageState] = useState<'idle' | 'loading' | 'loaded' | 'failed'>(
+    src ? 'loading' : 'idle',
+  )
+  const shouldRenderImage = Boolean(src) && imageState !== 'failed'
+  const shouldShowPlaceholder = !src || imageState !== 'loaded'
+
+  useEffect(() => {
+    setImageState(src ? 'loading' : 'idle')
+  }, [src])
+
+  return (
+    <div className="library-detail-tile__poster">
+      {shouldShowPlaceholder ? (
+        <div className="library-detail-tile__placeholder">
+          <span>{placeholderLabel}</span>
+        </div>
+      ) : null}
+      {shouldRenderImage ? (
+        <img
+          alt={alt}
+          className={
+            imageState === 'loaded'
+              ? 'library-detail-tile__image library-detail-tile__image--loaded'
+              : 'library-detail-tile__image'
+          }
+          loading="lazy"
+          onError={() => setImageState('failed')}
+          onLoad={() => setImageState('loaded')}
+          src={src ?? undefined}
+        />
+      ) : null}
+      {children}
+    </div>
+  )
+}
+
+const LibraryDetailMediaTile = ({ item }: { item: MediaItem }) => {
+  const { l } = useI18n()
+  const title = item.title.trim() || item.source_title.trim() || l('Untitled')
+  const mediaTypeLabel = formatLibraryMediaTypeLabel(item.media_type, l)
+  const metaLabel = item.year ? `${mediaTypeLabel} · ${item.year}` : mediaTypeLabel
+
+  return (
+    <Link className="library-detail-tile" to={mediaItemPrimaryPath(item)}>
+      <LibraryDetailTileArtwork
+        alt={`${title} poster`}
+        placeholderLabel={mediaTypeLabel}
+        src={item.poster_path}
+      />
+      <div className="library-detail-tile__copy">
+        <strong title={title}>{title}</strong>
+        <span>{metaLabel}</span>
+      </div>
+    </Link>
+  )
+}
+
+const LibraryDetailScanTile = ({ item }: { item: ScanRuntimeItem }) => {
+  const { l } = useI18n()
+  const placeholderLabel = formatLibraryMediaTypeLabel(item.media_type, l)
+  const progressLabel = formatScanItemCardProgressLabel(item)
+  const progressText = formatScanItemCardSummary(item)
+  const progressPercent = Math.max(0, Math.min(100, getScanItemCardProgressPercent(item)))
+  const subtitle = formatLibraryScanItemSubtitle(item)
+
+  return (
+    <div aria-live="polite" className="library-detail-tile library-detail-tile--scanning">
+      <LibraryDetailTileArtwork
+        alt={`${item.title} poster`}
+        placeholderLabel={placeholderLabel}
+        src={item.poster_path}
+      >
+        <div className="library-detail-tile__sync">
+          <div className="library-detail-tile__sync-row">
+            <span>{progressLabel}</span>
+            <strong>{progressPercent}%</strong>
+          </div>
+          <div aria-hidden="true" className="library-detail-tile__sync-track">
+            <span style={{ width: `${progressPercent}%` }} />
+          </div>
+        </div>
+      </LibraryDetailTileArtwork>
+      <div className="library-detail-tile__copy">
+        <strong title={item.title}>{item.title}</strong>
+        <span title={progressText}>{subtitle ?? progressText}</span>
+      </div>
+    </div>
+  )
+}
+
+const LibraryDetailTileSkeleton = ({ placeholderLabel }: { placeholderLabel: string }) => (
+  <div aria-hidden="true" className="library-detail-tile library-detail-tile--loading">
+    <div className="library-detail-tile__poster">
+      <div className="library-detail-tile__placeholder library-detail-tile__placeholder--loading skeleton-shimmer">
+        <span>{placeholderLabel}</span>
+      </div>
+    </div>
+    <div className="library-detail-tile__copy">
+      <span className="library-detail-tile__line library-detail-tile__line--title skeleton-shimmer" />
+      <span className="library-detail-tile__line library-detail-tile__line--meta skeleton-shimmer" />
+    </div>
+  </div>
+)
+
 const MediaSection = ({
   items,
   scanItems,
@@ -65,27 +184,25 @@ const MediaSection = ({
     return null
   }
 
+  const itemCount = items.length + scanItems.length
+
   return (
-    <section className="catalog-block">
-      <div className="catalog-block__header">
-        <h3>{title}</h3>
+    <section className="catalog-block library-detail-section">
+      <div className="catalog-block__header library-detail-section__header">
+        <div className="catalog-block__title-row">
+          <h3>{title}</h3>
+        </div>
+        <span className="library-detail-section__count">
+          {l('{{count}} items', { count: itemCount })}
+        </span>
       </div>
 
-      <div className="media-grid">
+      <div className="media-grid library-detail-section__grid">
         {scanItems.map((item) => (
-          <MediaCardScanPlaceholder
-            key={`scan-${item.item_key}`}
-            placeholderLabel={formatLibraryMediaTypeLabel(item.media_type, l)}
-            posterPath={item.poster_path}
-            progressLabel={formatScanItemCardProgressLabel(item)}
-            progressPercent={getScanItemCardProgressPercent(item)}
-            progressText={formatScanItemCardSummary(item)}
-            subtitle={formatLibraryScanItemSubtitle(item)}
-            title={item.title}
-          />
+          <LibraryDetailScanTile item={item} key={`scan-${item.item_key}`} />
         ))}
         {items.map((item) => (
-          <MediaCard item={item} key={item.id} showTypeTag={false} />
+          <LibraryDetailMediaTile item={item} key={item.id} />
         ))}
       </div>
     </section>
@@ -100,14 +217,16 @@ const MediaSectionSkeleton = ({
   title: string
 }) => {
   return (
-    <section aria-hidden="true" className="catalog-block">
-      <div className="catalog-block__header">
-        <h3>{title}</h3>
+    <section aria-hidden="true" className="catalog-block library-detail-section">
+      <div className="catalog-block__header library-detail-section__header">
+        <div className="catalog-block__title-row">
+          <h3>{title}</h3>
+        </div>
       </div>
 
-      <div className="media-grid">
+      <div className="media-grid library-detail-section__grid">
         {MEDIA_SECTION_SKELETON_KEYS.slice(0, MEDIA_SECTION_SKELETON_COUNT).map((key) => (
-          <MediaCardSkeleton key={`${title}-${key}`} placeholderLabel={placeholderLabel} />
+          <LibraryDetailTileSkeleton key={`${title}-${key}`} placeholderLabel={placeholderLabel} />
         ))}
       </div>
     </section>
@@ -117,7 +236,7 @@ const MediaSectionSkeleton = ({
 export const LibraryPage = () => {
   const { l } = useI18n()
   const params = useParams()
-  const { scanRuntimeByLibrary } = useOutletContext<AppShellOutletContext>()
+  const { currentUser, scanRuntimeByLibrary } = useOutletContext<AppShellOutletContext>()
   const libraryId = Number(params.libraryId)
 
   const libraryQuery = useQuery({
@@ -142,10 +261,6 @@ export const LibraryPage = () => {
       }),
     refetchInterval: scanStatus === 'pending' || scanStatus === 'running' ? 3_000 : false,
   })
-
-  if (!Number.isFinite(libraryId)) {
-    return <p className="callout callout--danger">{l('Invalid library id.')}</p>
-  }
 
   const currentLibrary = libraryQuery.data
   const currentScanRuntime = Number.isFinite(libraryId)
@@ -191,102 +306,143 @@ export const LibraryPage = () => {
             series: detectedSeriesCount,
           })
       : l('Automatic')
+  const totalItemCount = currentLibrary?.media_count ?? mediaItemsQuery.data?.total ?? 0
+  const scanStatusCopy = hasFailedScan
+    ? formatFailedScanCopy(currentLibrary?.last_scan, currentScanRuntime)
+    : isScanning
+      ? formatScanJobStatusCopy(currentLibrary?.last_scan, currentScanRuntime)
+      : null
+  const scanProgressPercent =
+    isScanning || hasFailedScan
+      ? getScanJobProgressPercent(currentLibrary?.last_scan, currentScanRuntime)
+      : 0
+
+  if (!Number.isFinite(libraryId)) {
+    return (
+      <HomeDashboardShell ariaLabel={l('Library')} currentUser={currentUser}>
+        <div className="home-dashboard__content home-dashboard__content--library-detail">
+          <p className="callout callout--danger">{l('Invalid library id.')}</p>
+        </div>
+      </HomeDashboardShell>
+    )
+  }
 
   return (
-    <div className="page-stack library-page">
-      <section className="library-hero library-hero--compact">
-        <div className="library-hero__content">
-          <div className="library-hero__navigation-row">
-            <Link className="back-link library-hero__back-link" to="/">
-              <svg aria-hidden="true" className="back-link__icon" fill="none" viewBox="0 0 16 16">
-                <path
-                  d="M9.5 3.5L5.5 8L9.5 12.5"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="1.8"
-                />
-              </svg>
-              <span>{l('Back Home')}</span>
+    <HomeDashboardShell ariaLabel={currentLibrary?.name ?? l('Library')} currentUser={currentUser}>
+      <div className="home-dashboard__content home-dashboard__content--library-detail">
+        <section className="library-detail-hero">
+          <div className="library-detail-hero__main">
+            <Link className="catalog-block__inline-action library-detail-hero__back" to="/libraries">
+              {l('All Libraries')}
             </Link>
+
+            <div className="library-detail-hero__copy">
+              <p className="eyebrow">{l('Current library')}</p>
+              <h2>{currentLibrary?.name ?? l('Loading…')}</h2>
+              {libraryDescription ? (
+                <p className="library-detail-hero__description">{libraryDescription}</p>
+              ) : null}
+            </div>
           </div>
 
-          <div className="library-hero__copy">
-            <h2>{currentLibrary?.name ?? l('Loading…')}</h2>
-            {libraryDescription ? (
-              <p className="library-hero__description">{libraryDescription}</p>
-            ) : null}
-          </div>
-
-          <div className="library-hero__meta">
-            <div className="hero-stat">
-              <span className="hero-stat__label">{l('Detected')}</span>
+          <div className="library-detail-hero__stats">
+            <div className="library-detail-metric">
+              <span>{l('Resources')}</span>
+              <strong>{totalItemCount}</strong>
+            </div>
+            <div className="library-detail-metric">
+              <span>{l('Detected')}</span>
               <strong>{detectedSummary}</strong>
             </div>
-            <div className="hero-stat">
-              <span className="hero-stat__label">{l('Items')}</span>
-              <strong>{currentLibrary?.media_count ?? mediaItemsQuery.data?.total ?? 0}</strong>
+            <div className="library-detail-metric">
+              <span>{l('Root Path')}</span>
+              <strong title={currentLibrary?.root_path ?? ''}>
+                {currentLibrary?.root_path ?? l('Loading…')}
+              </strong>
             </div>
           </div>
-        </div>
-      </section>
 
-      {libraryQuery.isError ? (
-        <p className="callout callout--danger">
-          {libraryQuery.error instanceof Error
-            ? libraryQuery.error.message
-            : l('Failed to load library')}
-        </p>
-      ) : null}
+          {scanStatusCopy ? (
+            <div
+              className={
+                hasFailedScan
+                  ? 'library-detail-scan library-detail-scan--failed'
+                  : 'library-detail-scan'
+              }
+              role="status"
+            >
+              <div className="library-detail-scan__row">
+                <span>{hasFailedScan ? l('Recent scan failed') : l('Scanning library')}</span>
+                <strong>{hasFailedScan ? l('failed') : `${scanProgressPercent}%`}</strong>
+              </div>
+              <p>{scanStatusCopy}</p>
+              {!hasFailedScan ? (
+                <div aria-hidden="true" className="library-detail-scan__track">
+                  <span
+                    className="library-detail-scan__fill"
+                    style={{ width: `${scanProgressPercent}%` }}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
 
-      {hasFailedScan ? (
-        <p className="callout callout--danger">
-          {l('The most recent scan failed.')}
-          {` ${formatFailedScanCopy(currentLibrary?.last_scan, currentScanRuntime)}`}. Existing
-          {` ${l(
-            'Existing items are still available, and an admin can trigger another scan later.',
-          )}`}
-        </p>
-      ) : null}
-
-      <section className="catalog-shell">
-        {shouldShowMediaSkeleton ? <p className="muted">{l('Loading media items…')}</p> : null}
-
-        {mediaItemsQuery.isError ? (
+        {libraryQuery.isError ? (
           <p className="callout callout--danger">
-            {mediaItemsQuery.error instanceof Error
-              ? mediaItemsQuery.error.message
-              : l('Failed to load media items')}
+            {libraryQuery.error instanceof Error
+              ? libraryQuery.error.message
+              : l('Failed to load library')}
           </p>
         ) : null}
 
-        {!shouldShowMediaSkeleton &&
-        mediaItemsQuery.data &&
-        mediaItems.length === 0 &&
-        visibleScanItems.length === 0 &&
-        !isScanning ? (
-          <section className="empty-panel">
-            <h3>{l('No items available yet')}</h3>
-            <p className="muted">{l('This library does not have any visible items yet.')}</p>
-          </section>
+        {hasFailedScan ? (
+          <p className="callout callout--danger">
+            {l('The most recent scan failed.')}{' '}
+            {formatFailedScanCopy(currentLibrary?.last_scan, currentScanRuntime)}.{' '}
+            {l('Existing items are still available, and an admin can trigger another scan later.')}
+          </p>
         ) : null}
 
-        {shouldShowMediaSkeleton ? (
-          <div className="catalog-stack">
-            <MediaSectionSkeleton placeholderLabel={l('Movies')} title={l('Movies')} />
-            <MediaSectionSkeleton placeholderLabel={l('Series')} title={l('Series')} />
-            <MediaSectionSkeleton placeholderLabel={l('Other')} title={l('Other')} />
-          </div>
-        ) : null}
+        <section className="catalog-shell library-detail-catalog">
+          {shouldShowMediaSkeleton ? <p className="muted">{l('Loading media items…')}</p> : null}
 
-        {!shouldShowMediaSkeleton && (mediaItems.length > 0 || visibleScanItems.length > 0) ? (
-          <div className="catalog-stack">
-            <MediaSection items={movieItems} scanItems={movieScanItems} title={l('Movies')} />
-            <MediaSection items={seriesItems} scanItems={seriesScanItems} title={l('Series')} />
-            <MediaSection items={otherItems} scanItems={otherScanItems} title={l('Other')} />
-          </div>
-        ) : null}
-      </section>
-    </div>
+          {mediaItemsQuery.isError ? (
+            <p className="callout callout--danger">
+              {mediaItemsQuery.error instanceof Error
+                ? mediaItemsQuery.error.message
+                : l('Failed to load media items')}
+            </p>
+          ) : null}
+
+          {!shouldShowMediaSkeleton &&
+          mediaItemsQuery.data &&
+          mediaItems.length === 0 &&
+          visibleScanItems.length === 0 &&
+          !isScanning ? (
+            <section className="empty-panel library-detail-empty">
+              <h3>{l('No items available yet')}</h3>
+              <p className="muted">{l('This library does not have any visible items yet.')}</p>
+            </section>
+          ) : null}
+
+          {shouldShowMediaSkeleton ? (
+            <div className="catalog-stack library-detail-stack">
+              <MediaSectionSkeleton placeholderLabel={l('Movies')} title={l('Movies')} />
+              <MediaSectionSkeleton placeholderLabel={l('Series')} title={l('Series')} />
+              <MediaSectionSkeleton placeholderLabel={l('Other')} title={l('Other')} />
+            </div>
+          ) : null}
+
+          {!shouldShowMediaSkeleton && (mediaItems.length > 0 || visibleScanItems.length > 0) ? (
+            <div className="catalog-stack library-detail-stack">
+              <MediaSection items={movieItems} scanItems={movieScanItems} title={l('Movies')} />
+              <MediaSection items={seriesItems} scanItems={seriesScanItems} title={l('Series')} />
+              <MediaSection items={otherItems} scanItems={otherScanItems} title={l('Other')} />
+            </div>
+          ) : null}
+        </section>
+      </div>
+    </HomeDashboardShell>
   )
 }

@@ -20,13 +20,20 @@ build_and_push() {
   local dockerfile="$1"
   local tag="$2"
 
-  docker buildx build \
-    --platform "$PLATFORMS" \
-    "${BUILD_ARGS[@]}" \
-    -f "$dockerfile" \
-    -t "$tag" \
-    --push \
-    .
+  local build_command=(
+    docker buildx build
+    --platform "$PLATFORMS"
+    -f "$dockerfile"
+    -t "$tag"
+    --push
+  )
+
+  if ((${#BUILD_ARGS[@]} > 0)); then
+    build_command+=("${BUILD_ARGS[@]}")
+  fi
+
+  build_command+=(.)
+  "${build_command[@]}"
 }
 
 base_images=(

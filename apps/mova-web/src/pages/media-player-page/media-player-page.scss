@@ -35,9 +35,16 @@
 }
 
 .player-screen--state {
+  align-items: center;
   justify-content: center;
   gap: 16px;
   padding: 24px;
+  text-align: left;
+}
+
+.player-screen--state .callout {
+  width: min(100%, 420px);
+  margin: 0;
 }
 
 .player-screen__chrome {

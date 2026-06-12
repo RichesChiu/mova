@@ -139,6 +139,15 @@
   text-align: center;
 }
 
+.player-panel__center-status--interactive {
+  z-index: 4;
+  pointer-events: none;
+}
+
+.player-panel__center-status--interactive > * {
+  pointer-events: auto;
+}
+
 .player-panel__center-status .player-panel__status-badge {
   max-width: min(82vw, 420px);
 }
@@ -147,6 +156,30 @@
   display: grid;
   justify-items: flex-start;
   gap: 10px;
+}
+
+.player-panel__status-stack--centered {
+  width: min(100%, 420px);
+}
+
+.player-panel__status-stack--centered .callout {
+  width: 100%;
+  margin: 0;
+}
+
+.player-panel__state-center {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: min(54vh, 420px);
+  padding: 24px;
+  text-align: left;
+}
+
+.player-panel--immersive .player-panel__state-center {
+  width: 100%;
+  min-height: 100%;
 }
 
 .player-stage {
