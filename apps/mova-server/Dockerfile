@@ -10,7 +10,11 @@ ENV HTTP_PROXY=$HTTP_PROXY \
     http_proxy=$HTTP_PROXY \
     https_proxy=$HTTPS_PROXY \
     no_proxy=$NO_PROXY \
-    all_proxy=$ALL_PROXY
+    all_proxy=$ALL_PROXY \
+    npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=10000 \
+    npm_config_fetch_retry_maxtimeout=120000 \
+    npm_config_network_concurrency=4
 WORKDIR /app
 
 COPY apps/mova-web/package.json ./apps/mova-web/package.json
@@ -35,7 +39,11 @@ ENV HTTP_PROXY=$HTTP_PROXY \
     http_proxy=$HTTP_PROXY \
     https_proxy=$HTTPS_PROXY \
     no_proxy=$NO_PROXY \
-    all_proxy=$ALL_PROXY
+    all_proxy=$ALL_PROXY \
+    CARGO_HTTP_LOW_SPEED_LIMIT=1 \
+    CARGO_HTTP_LOW_SPEED_TIME=600 \
+    CARGO_HTTP_TIMEOUT=600 \
+    CARGO_NET_RETRY=5
 WORKDIR /app
 
 COPY Cargo.toml ./
