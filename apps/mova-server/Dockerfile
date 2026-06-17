@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM richeschiu/mova-web-build-base:node24-pnpm11 AS web-builder
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
@@ -11,17 +13,18 @@ ENV HTTP_PROXY=$HTTP_PROXY \
     https_proxy=$HTTPS_PROXY \
     no_proxy=$NO_PROXY \
     all_proxy=$ALL_PROXY \
-    npm_config_fetch_retries=5 \
+    npm_config_fetch_retries=10 \
     npm_config_fetch_retry_mintimeout=10000 \
     npm_config_fetch_retry_maxtimeout=120000 \
-    npm_config_network_concurrency=4
+    npm_config_network_concurrency=1
 WORKDIR /app
 
 COPY apps/mova-web/package.json ./apps/mova-web/package.json
 COPY apps/mova-web/pnpm-lock.yaml ./apps/mova-web/pnpm-lock.yaml
 COPY apps/mova-web/pnpm-workspace.yaml ./apps/mova-web/pnpm-workspace.yaml
 
-RUN pnpm --dir apps/mova-web install --frozen-lockfile
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store,sharing=locked \
+    pnpm --dir apps/mova-web install --frozen-lockfile --fetch-retries=10 --fetch-retry-mintimeout=10000 --fetch-retry-maxtimeout=120000 --network-concurrency=1
 
 COPY apps/mova-web ./apps/mova-web
 
@@ -52,7 +55,9 @@ COPY apps/mova-server ./apps/mova-server
 COPY crates ./crates
 COPY migrations ./migrations
 
-RUN cargo build --locked --release -p mova-server
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    cargo build --locked --release -p mova-server
 
 FROM richeschiu/mova-runtime-base:bookworm-ffmpeg-python3 AS runtime
 ARG HTTP_PROXY
