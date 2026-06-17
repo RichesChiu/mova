@@ -2,7 +2,7 @@
 
 These screenshots are presentation assets for the Mova website and iPad app design reference.
 
-They were captured from the development-only mock API on 2026-06-17 so that small local libraries can still show complete states such as Continue Watching. The mock API is not available in production Docker builds and no mock data is committed outside the image assets in this folder.
+They were captured from the local Docker service on 2026-06-17 using the real PostgreSQL media library content. No mock library, item, or watch-history data is used in these images.
 
 ## Files
 
