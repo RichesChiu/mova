@@ -1,8 +1,8 @@
 use super::{
     CreateAudioTrackParams, CreateSubtitleTrackParams, ExistingMediaMetadataSummary,
-    LibraryMediaTypeCounts, ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult,
-    MediaItemPlaybackHeader, RecentlyAddedLibraryMediaItems, SeriesEpisodeOutlineCacheEntry,
-    UpdateMediaFileMetadataParams, UpdateMediaItemMetadataParams,
+    GlobalSearchParams, GlobalSearchResult, LibraryMediaTypeCounts, ListMediaItemsForLibraryParams,
+    ListMediaItemsForLibraryResult, MediaItemPlaybackHeader, RecentlyAddedLibraryMediaItems,
+    SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams, UpdateMediaItemMetadataParams,
     UpdateSeriesEpisodeMetadataParams, UpdateSeriesSeasonMetadataParams,
     UpsertSeriesEpisodeOutlineCacheParams,
 };
@@ -232,6 +232,118 @@ pub async fn list_recently_added_media_items_by_library(
     }
 
     Ok(groups)
+}
+
+/// 全局搜索用户可见库下的电影、剧集和本地集条目。
+pub async fn global_search(
+    pool: &PgPool,
+    params: GlobalSearchParams,
+) -> Result<Vec<GlobalSearchResult>> {
+    let visible_library_ids = params.visible_library_ids;
+    let rows = sqlx::query(
+        r#"
+        with search_results as (
+            select
+                'media_item'::text as kind,
+                mi.library_id,
+                l.name as library_name,
+                mi.id as media_item_id,
+                null::bigint as series_media_item_id,
+                mi.media_type,
+                mi.title,
+                null::text as subtitle,
+                mi.year,
+                mi.overview,
+                mi.poster_path,
+                mi.backdrop_path,
+                null::integer as season_number,
+                null::integer as episode_number,
+                mi.updated_at,
+                case
+                    when lower(mi.title) = lower($1) then 0
+                    when mi.title ilike $1 || '%' then 1
+                    when mi.source_title ilike $1 || '%' then 2
+                    else 3
+                end as result_rank
+            from media_items mi
+            join libraries l on l.id = mi.library_id
+            where mi.media_type in ('movie', 'series')
+              and ($2::bigint[] is null or mi.library_id = any($2))
+              and (
+                    mi.title ilike '%' || $1 || '%'
+                    or mi.source_title ilike '%' || $1 || '%'
+                    or coalesce(mi.original_title, '') ilike '%' || $1 || '%'
+                  )
+
+            union all
+
+            select
+                'episode'::text as kind,
+                episode_mi.library_id,
+                l.name as library_name,
+                episode_mi.id as media_item_id,
+                e.series_id as series_media_item_id,
+                episode_mi.media_type,
+                e.title,
+                series_mi.title as subtitle,
+                series_mi.year,
+                episode_mi.overview,
+                episode_mi.poster_path,
+                episode_mi.backdrop_path,
+                s.season_number,
+                e.episode_number,
+                greatest(episode_mi.updated_at, e.updated_at) as updated_at,
+                case
+                    when lower(e.title) = lower($1) then 0
+                    when e.title ilike $1 || '%' then 1
+                    when series_mi.title ilike $1 || '%' then 2
+                    else 3
+                end as result_rank
+            from episodes e
+            join media_items episode_mi on episode_mi.id = e.media_item_id
+            join media_items series_mi on series_mi.id = e.series_id
+            join seasons s on s.id = e.season_id
+            join libraries l on l.id = episode_mi.library_id
+            where ($2::bigint[] is null or episode_mi.library_id = any($2))
+              and (
+                    e.title ilike '%' || $1 || '%'
+                    or episode_mi.title ilike '%' || $1 || '%'
+                    or episode_mi.source_title ilike '%' || $1 || '%'
+                    or coalesce(episode_mi.original_title, '') ilike '%' || $1 || '%'
+                    or series_mi.title ilike '%' || $1 || '%'
+                    or series_mi.source_title ilike '%' || $1 || '%'
+                    or coalesce(series_mi.original_title, '') ilike '%' || $1 || '%'
+                  )
+        )
+        select
+            kind,
+            library_id,
+            library_name,
+            media_item_id,
+            series_media_item_id,
+            media_type,
+            title,
+            subtitle,
+            year,
+            overview,
+            poster_path,
+            backdrop_path,
+            season_number,
+            episode_number,
+            updated_at
+        from search_results
+        order by result_rank asc, updated_at desc, media_item_id asc
+        limit $3
+        "#,
+    )
+    .bind(&params.query)
+    .bind(visible_library_ids.as_deref())
+    .bind(params.limit)
+    .fetch_all(pool)
+    .await
+    .context("failed to search media library")?;
+
+    Ok(rows.into_iter().map(map_global_search_result_row).collect())
 }
 
 /// 按主键读取单个媒体条目。
@@ -1492,6 +1604,26 @@ fn map_episode_row(row: PgRow) -> Episode {
         intro_start_seconds: row.get("intro_start_seconds"),
         intro_end_seconds: row.get("intro_end_seconds"),
         created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
+fn map_global_search_result_row(row: PgRow) -> GlobalSearchResult {
+    GlobalSearchResult {
+        kind: row.get("kind"),
+        library_id: row.get("library_id"),
+        library_name: row.get("library_name"),
+        media_item_id: row.get("media_item_id"),
+        series_media_item_id: row.get("series_media_item_id"),
+        media_type: row.get("media_type"),
+        title: row.get("title"),
+        subtitle: row.get("subtitle"),
+        year: row.get("year"),
+        overview: row.get("overview"),
+        poster_path: row.get("poster_path"),
+        backdrop_path: row.get("backdrop_path"),
+        season_number: row.get("season_number"),
+        episode_number: row.get("episode_number"),
         updated_at: row.get("updated_at"),
     }
 }

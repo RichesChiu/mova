@@ -5,6 +5,7 @@ pub mod media_files;
 pub mod media_items;
 pub mod playback_progress;
 pub mod realtime;
+pub mod search;
 pub mod seasons;
 pub mod server;
 pub mod subtitle_files;

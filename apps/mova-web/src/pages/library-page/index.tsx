@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useState } from 'react'
-import { Link, useOutletContext, useParams } from 'react-router-dom'
+import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { getLibrary, listLibraryMediaItems } from '../../api/client'
 import type { MediaItem } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
@@ -28,7 +28,9 @@ import {
 } from '../../lib/library-media-sections'
 import { mediaItemPrimaryPath } from '../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
+import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
+import { HomeIcon } from '../home-page/home-icons'
 
 const PAGE_SIZE = 500
 const MEDIA_SECTION_SKELETON_COUNT = 6
@@ -178,13 +180,9 @@ const MediaSection = ({
   scanItems: ScanRuntimeItem[]
   title: string
 }) => {
-  const { l } = useI18n()
-
   if (items.length === 0 && scanItems.length === 0) {
     return null
   }
-
-  const itemCount = items.length + scanItems.length
 
   return (
     <section className="catalog-block library-detail-section">
@@ -192,9 +190,6 @@ const MediaSection = ({
         <div className="catalog-block__title-row">
           <h3>{title}</h3>
         </div>
-        <span className="library-detail-section__count">
-          {l('{{count}} items', { count: itemCount })}
-        </span>
       </div>
 
       <div className="media-grid library-detail-section__grid">
@@ -235,6 +230,7 @@ const MediaSectionSkeleton = ({
 
 export const LibraryPage = () => {
   const { l } = useI18n()
+  const navigate = useNavigate()
   const params = useParams()
   const { currentUser, scanRuntimeByLibrary } = useOutletContext<AppShellOutletContext>()
   const libraryId = Number(params.libraryId)
@@ -267,7 +263,6 @@ export const LibraryPage = () => {
     ? getLibraryScanRuntime(scanRuntimeByLibrary, libraryId)
     : null
   const mediaItems = mediaItemsQuery.data?.items ?? []
-  const libraryDescription = currentLibrary?.description?.trim() || null
   const currentScan = getEffectiveScanJob(currentLibrary?.last_scan, currentScanRuntime)
   const hasFailedScan = hasFailedLibraryScan(currentLibrary?.last_scan, currentScanRuntime)
   const scanItems = shouldShowScanPlaceholder(currentLibrary?.last_scan, currentScanRuntime)
@@ -286,27 +281,6 @@ export const LibraryPage = () => {
   const shouldShowMediaSkeleton =
     mediaItemsQuery.isLoading && mediaItems.length === 0 && visibleScanItems.length === 0
   const isScanning = isLibraryScanActive(currentScan, currentScanRuntime)
-  const detectedMovieCount = mediaItemsQuery.data
-    ? movieItems.length
-    : (currentLibrary?.movie_count ?? 0)
-  const detectedSeriesCount = mediaItemsQuery.data
-    ? seriesItems.length
-    : (currentLibrary?.series_count ?? 0)
-  const detectedOtherCount = mediaItemsQuery.data ? otherItems.length : 0
-  const detectedSummary =
-    detectedMovieCount + detectedSeriesCount + detectedOtherCount > 0
-      ? detectedOtherCount > 0
-        ? l('{{movies}} movies / {{series}} series / {{other}} other', {
-            movies: detectedMovieCount,
-            other: detectedOtherCount,
-            series: detectedSeriesCount,
-          })
-        : l('{{movies}} movies / {{series}} series', {
-            movies: detectedMovieCount,
-            series: detectedSeriesCount,
-          })
-      : l('Automatic')
-  const totalItemCount = currentLibrary?.media_count ?? mediaItemsQuery.data?.total ?? 0
   const scanStatusCopy = hasFailedScan
     ? formatFailedScanCopy(currentLibrary?.last_scan, currentScanRuntime)
     : isScanning
@@ -316,6 +290,22 @@ export const LibraryPage = () => {
     isScanning || hasFailedScan
       ? getScanJobProgressPercent(currentLibrary?.last_scan, currentScanRuntime)
       : 0
+  const headerItemCount = mediaItemsQuery.data
+    ? visibleMediaItems.length + visibleScanItems.length
+    : (currentLibrary?.media_count ?? null)
+  const handleBack = () => {
+    const historyIndex =
+      typeof window !== 'undefined' && typeof window.history.state?.idx === 'number'
+        ? window.history.state.idx
+        : 0
+
+    if (historyIndex > 0) {
+      navigate(-1)
+      return
+    }
+
+    navigate('/libraries')
+  }
 
   if (!Number.isFinite(libraryId)) {
     return (
@@ -328,65 +318,53 @@ export const LibraryPage = () => {
   }
 
   return (
-    <HomeDashboardShell ariaLabel={currentLibrary?.name ?? l('Library')} currentUser={currentUser}>
+    <HomeDashboardShell
+      ariaLabel={currentLibrary?.name ?? l('Library')}
+      currentUser={currentUser}
+      shellClassName="home-shell--dense-content"
+    >
       <div className="home-dashboard__content home-dashboard__content--library-detail">
-        <section className="library-detail-hero">
-          <div className="library-detail-hero__main">
-            <Link className="catalog-block__inline-action library-detail-hero__back" to="/libraries">
-              {l('All Libraries')}
-            </Link>
-
-            <div className="library-detail-hero__copy">
-              <p className="eyebrow">{l('Current library')}</p>
-              <h2>{currentLibrary?.name ?? l('Loading…')}</h2>
-              {libraryDescription ? (
-                <p className="library-detail-hero__description">{libraryDescription}</p>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="library-detail-hero__stats">
-            <div className="library-detail-metric">
-              <span>{l('Resources')}</span>
-              <strong>{totalItemCount}</strong>
-            </div>
-            <div className="library-detail-metric">
-              <span>{l('Detected')}</span>
-              <strong>{detectedSummary}</strong>
-            </div>
-            <div className="library-detail-metric">
-              <span>{l('Root Path')}</span>
-              <strong title={currentLibrary?.root_path ?? ''}>
-                {currentLibrary?.root_path ?? l('Loading…')}
-              </strong>
-            </div>
-          </div>
-
-          {scanStatusCopy ? (
-            <div
-              className={
-                hasFailedScan
-                  ? 'library-detail-scan library-detail-scan--failed'
-                  : 'library-detail-scan'
-              }
-              role="status"
-            >
-              <div className="library-detail-scan__row">
-                <span>{hasFailedScan ? l('Recent scan failed') : l('Scanning library')}</span>
-                <strong>{hasFailedScan ? l('failed') : `${scanProgressPercent}%`}</strong>
-              </div>
-              <p>{scanStatusCopy}</p>
-              {!hasFailedScan ? (
-                <div aria-hidden="true" className="library-detail-scan__track">
-                  <span
-                    className="library-detail-scan__fill"
-                    style={{ width: `${scanProgressPercent}%` }}
-                  />
-                </div>
-              ) : null}
-            </div>
+        <DashboardPageHeader className="library-detail-header">
+          <button
+            aria-label={l('Back')}
+            className="home-dashboard-page-header__back"
+            onClick={handleBack}
+            type="button"
+          >
+            <HomeIcon name="arrowLeft" />
+          </button>
+          <h2>{currentLibrary?.name ?? l('Loading…')}</h2>
+          {headerItemCount !== null ? (
+            <span className="home-dashboard-page-header__meta">
+              {l('{{count}} items', { count: headerItemCount })}
+            </span>
           ) : null}
-        </section>
+        </DashboardPageHeader>
+
+        {scanStatusCopy ? (
+          <section
+            className={
+              hasFailedScan
+                ? 'library-detail-scan library-detail-scan--failed'
+                : 'library-detail-scan'
+            }
+            role="status"
+          >
+            <div className="library-detail-scan__row">
+              <span>{hasFailedScan ? l('Recent scan failed') : l('Scanning library')}</span>
+              <strong>{hasFailedScan ? l('failed') : `${scanProgressPercent}%`}</strong>
+            </div>
+            <p>{scanStatusCopy}</p>
+            {!hasFailedScan ? (
+              <div aria-hidden="true" className="library-detail-scan__track">
+                <span
+                  className="library-detail-scan__fill"
+                  style={{ width: `${scanProgressPercent}%` }}
+                />
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         {libraryQuery.isError ? (
           <p className="callout callout--danger">

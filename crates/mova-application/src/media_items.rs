@@ -29,6 +29,8 @@ const DEFAULT_RECENTLY_ADDED_LIBRARY_LIMIT: i64 = 3;
 const DEFAULT_RECENTLY_ADDED_ITEM_LIMIT: i64 = 8;
 const MAX_RECENTLY_ADDED_LIBRARY_LIMIT: i64 = 12;
 const MAX_RECENTLY_ADDED_ITEM_LIMIT: i64 = 12;
+const DEFAULT_GLOBAL_SEARCH_LIMIT: i64 = 12;
+const MAX_GLOBAL_SEARCH_LIMIT: i64 = 30;
 const SERIES_EPISODE_OUTLINE_CACHE_TTL_SECONDS: i64 = 24 * 60 * 60;
 
 #[derive(Debug, Clone, Default)]
@@ -59,6 +61,32 @@ pub struct RecentlyAddedLibraryMediaItems {
     pub library: Library,
     pub items: Vec<MediaItem>,
     pub total: i64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GlobalSearchInput {
+    pub query: Option<String>,
+    pub visible_library_ids: Option<Vec<i64>>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GlobalSearchResult {
+    pub kind: String,
+    pub library_id: i64,
+    pub library_name: String,
+    pub media_item_id: i64,
+    pub series_media_item_id: Option<i64>,
+    pub media_type: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub year: Option<i32>,
+    pub overview: Option<String>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+    pub season_number: Option<i32>,
+    pub episode_number: Option<i32>,
+    pub updated_at: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -201,6 +229,59 @@ pub async fn list_recently_added_media_items_by_library(
             library: group.library,
             items: group.items,
             total: group.total,
+        })
+        .collect())
+}
+
+/// 搜索当前用户可见库下的电影、剧集和本地集条目。
+pub async fn global_search(
+    pool: &PgPool,
+    input: GlobalSearchInput,
+) -> ApplicationResult<Vec<GlobalSearchResult>> {
+    let query = match normalize_query(input.query) {
+        Some(query) => query,
+        None => return Ok(Vec::new()),
+    };
+    let limit = normalize_global_search_limit(input.limit)?;
+    let visible_library_ids = input.visible_library_ids;
+
+    if visible_library_ids
+        .as_ref()
+        .map(|ids| ids.is_empty())
+        .unwrap_or(false)
+    {
+        return Ok(Vec::new());
+    }
+
+    let results = mova_db::global_search(
+        pool,
+        mova_db::GlobalSearchParams {
+            query,
+            visible_library_ids,
+            limit,
+        },
+    )
+    .await
+    .map_err(ApplicationError::from)?;
+
+    Ok(results
+        .into_iter()
+        .map(|result| GlobalSearchResult {
+            kind: result.kind,
+            library_id: result.library_id,
+            library_name: result.library_name,
+            media_item_id: result.media_item_id,
+            series_media_item_id: result.series_media_item_id,
+            media_type: result.media_type,
+            title: result.title,
+            subtitle: result.subtitle,
+            year: result.year,
+            overview: result.overview,
+            poster_path: result.poster_path,
+            backdrop_path: result.backdrop_path,
+            season_number: result.season_number,
+            episode_number: result.episode_number,
+            updated_at: result.updated_at,
         })
         .collect())
 }
@@ -1072,11 +1153,22 @@ fn normalize_recently_added_limit(
     }
 }
 
+fn normalize_global_search_limit(limit: Option<i64>) -> ApplicationResult<i64> {
+    match limit.unwrap_or(DEFAULT_GLOBAL_SEARCH_LIMIT) {
+        value if value <= 0 => Err(ApplicationError::Validation(
+            "limit must be a positive integer".to_string(),
+        )),
+        value if value > MAX_GLOBAL_SEARCH_LIMIT => Ok(MAX_GLOBAL_SEARCH_LIMIT),
+        value => Ok(value),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        merge_remote_outline_with_local, normalize_page, normalize_page_size, normalize_query,
-        normalize_recently_added_limit, normalize_year, LocalSeriesEpisode, LocalSeriesSeason,
+        merge_remote_outline_with_local, normalize_global_search_limit, normalize_page,
+        normalize_page_size, normalize_query, normalize_recently_added_limit, normalize_year,
+        LocalSeriesEpisode, LocalSeriesSeason,
     };
     use crate::ApplicationError;
     use crate::{RemoteSeriesEpisode, RemoteSeriesEpisodeOutline, RemoteSeriesSeason};
@@ -1129,6 +1221,20 @@ mod tests {
             normalize_recently_added_limit(Some(24), 3, 12, "item_limit").unwrap(),
             12
         );
+    }
+
+    #[test]
+    fn normalize_global_search_limit_rejects_non_positive_values() {
+        assert!(matches!(
+            normalize_global_search_limit(Some(0)),
+            Err(ApplicationError::Validation(message))
+                if message.contains("positive integer")
+        ));
+    }
+
+    #[test]
+    fn normalize_global_search_limit_caps_large_values() {
+        assert_eq!(normalize_global_search_limit(Some(100)).unwrap(), 30);
     }
 
     #[test]

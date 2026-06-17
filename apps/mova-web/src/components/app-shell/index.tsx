@@ -42,8 +42,12 @@ export const AppShell = () => {
   })
   const isDesktopDashboardRoute =
     location.pathname === '/' ||
+    location.pathname === '/search' ||
+    location.pathname === '/settings' ||
+    location.pathname === '/profile' ||
     location.pathname === '/libraries' ||
-    location.pathname.startsWith('/libraries/')
+    location.pathname.startsWith('/libraries/') ||
+    location.pathname.startsWith('/media-items/')
 
   useEffect(() => {
     let isActive = true
@@ -110,9 +114,7 @@ export const AppShell = () => {
       <main className="content" ref={contentRef}>
         <div className="content-shell">
           <div
-            className={
-              isDesktopDashboardRoute ? 'content-body content-body--home' : 'content-body'
-            }
+            className={isDesktopDashboardRoute ? 'content-body content-body--home' : 'content-body'}
           >
             {librariesQuery.isError ? (
               <p className="callout callout--danger">

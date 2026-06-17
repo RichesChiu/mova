@@ -1,3 +1,57 @@
+.libraries-section .catalog-block__title-row {
+  gap: 9px;
+}
+
+.libraries-section__title-action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 9px;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 820;
+  line-height: 1;
+  transition:
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.libraries-section__title-action::before {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-soft) 62%, transparent);
+}
+
+.libraries-section__title-action::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -5px;
+  width: calc(100% - 13px);
+  height: 1px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.46;
+  transform-origin: left center;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.libraries-section__title-action:hover {
+  color: var(--accent-strong);
+  transform: translateX(1px);
+}
+
+.libraries-section__title-action:hover::after {
+  opacity: 0.86;
+  transform: scaleX(1.04);
+}
+
 .libraries-section__viewport .scrollable-rail__track {
   grid-auto-columns: clamp(240px, 23vw, 260px);
   gap: clamp(10px, 1.1vw, 13px);

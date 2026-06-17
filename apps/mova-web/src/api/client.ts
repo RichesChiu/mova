@@ -8,6 +8,7 @@ import type {
   CreateUserInput,
   Episode,
   EpisodeOutline,
+  GlobalSearchResult,
   Library,
   LibraryDetail,
   LoginInput,
@@ -227,6 +228,15 @@ export const listRecentlyAddedByLibrary = (libraryLimit = 3, itemLimit = 8) => {
   return requestJson<RecentlyAddedLibraryMediaItems[]>(
     withApiPrefix(`/libraries/recently-added?${searchParams.toString()}`),
   )
+}
+
+export const globalSearch = (query: string, limit = 12) => {
+  const searchParams = new URLSearchParams({
+    q: query,
+    limit: String(limit),
+  })
+
+  return requestJson<GlobalSearchResult[]>(withApiPrefix(`/search?${searchParams.toString()}`))
 }
 
 export const listLibraryMediaItems = (libraryId: number, params: ListMediaItemsParams) => {

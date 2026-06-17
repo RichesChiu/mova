@@ -7,17 +7,6 @@
   gap: 14px;
 }
 
-.libraries-page__header {
-  align-items: center;
-}
-
-.libraries-page__count {
-  color: var(--text-soft);
-  font-size: 0.78rem;
-  font-weight: 800;
-  line-height: 1;
-}
-
 .libraries-page__grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(clamp(260px, 23vw, 330px), 1fr));

@@ -12,18 +12,11 @@ import {
   updateLibrary,
   updateUser,
 } from '../../api/client'
-import type {
-  CreateLibraryInput,
-  Library,
-  LibraryDetail,
-  UserAccount,
-} from '../../api/types'
+import type { CreateLibraryInput, Library, LibraryDetail, UserAccount } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import { ConfirmActionModal } from '../../components/confirm-action-modal'
 import { CreateLibraryModal } from '../../components/create-library-modal'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
-import { ScrollableRail } from '../../components/scrollable-rail'
-import { SettingsGearIcon } from '../../components/settings-gear-icon'
 import { StatusPill } from '../../components/status-pill'
 import { UserEditorModal } from '../../components/user-editor-modal'
 import { useI18n } from '../../i18n'
@@ -42,6 +35,8 @@ import {
   getScanStatusTone,
 } from '../../lib/settings-admin'
 import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
+import { DashboardPageHeader } from '../home-page/dashboard-page-header'
+import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 
 const USER_SKELETON_COUNT = 1
 const LIBRARY_SKELETON_COUNT = 3
@@ -299,7 +294,17 @@ export const SettingsPage = () => {
   })
 
   if (currentUser.role !== 'admin') {
-    return <p className="callout callout--danger">{l('Admin permission required.')}</p>
+    return (
+      <HomeDashboardShell ariaLabel={l('Server Settings')} currentUser={currentUser}>
+        <div className="home-dashboard__content home-dashboard__content--settings">
+          <DashboardPageHeader>
+            <h2>{l('Server Settings')}</h2>
+          </DashboardPageHeader>
+
+          <p className="callout callout--danger">{l('Admin permission required.')}</p>
+        </div>
+      </HomeDashboardShell>
+    )
   }
 
   const activeUserModalError = isCreateUserOpen
@@ -344,336 +349,338 @@ export const SettingsPage = () => {
   const canManageAdminAccounts = currentUser.is_primary_admin
 
   return (
-    <div className="settings-shell">
-      <section className="settings-hero">
-        <div className="settings-hero__badge">
-          <SettingsGearIcon className="settings-hero__icon" />
-        </div>
-        <div className="settings-hero__copy">
-          <p className="eyebrow">{l('Admin Settings')}</p>
-          <h2>{l('Server Settings')}</h2>
-        </div>
-      </section>
+    <>
+      <HomeDashboardShell ariaLabel={l('Server Settings')} currentUser={currentUser}>
+        <div className="home-dashboard__content home-dashboard__content--settings">
+          <DashboardPageHeader>
+            <h2>{l('Server Settings')}</h2>
+          </DashboardPageHeader>
 
-      <section className="settings-section settings-section--users">
-        <div className="section-heading">
-          <div>
-            <h3>{l('User Management')}</h3>
-          </div>
-          <button
-            className="button button--primary button--toolbar"
-            onClick={() => setIsCreateUserOpen(true)}
-            type="button"
-          >
-            <span>{l('Create User')}</span>
-          </button>
-        </div>
+          <section className="settings-section settings-section--users">
+            <div className="section-heading">
+              <div>
+                <h3>{l('User Management')}</h3>
+              </div>
+              <button
+                className="button button--primary button--toolbar"
+                onClick={() => setIsCreateUserOpen(true)}
+                type="button"
+              >
+                <span>{l('Create User')}</span>
+              </button>
+            </div>
 
-        {usersQuery.isError ? (
-          <p className="callout callout--danger">
-            {usersQuery.error instanceof Error
-              ? usersQuery.error.message
-              : l('Failed to load users')}
-          </p>
-        ) : null}
-        {updateUserMutation.isError && !editingUser ? (
-          <p className="callout callout--danger">
-            {updateUserMutation.error instanceof Error
-              ? updateUserMutation.error.message
-              : l('Failed to update user')}
-          </p>
-        ) : null}
-        {deleteUserMutation.isError ? (
-          <p className="callout callout--danger">
-            {deleteUserMutation.error instanceof Error
-              ? deleteUserMutation.error.message
-              : l('Failed to delete user')}
-          </p>
-        ) : null}
+            {usersQuery.isError ? (
+              <p className="callout callout--danger">
+                {usersQuery.error instanceof Error
+                  ? usersQuery.error.message
+                  : l('Failed to load users')}
+              </p>
+            ) : null}
+            {updateUserMutation.isError && !editingUser ? (
+              <p className="callout callout--danger">
+                {updateUserMutation.error instanceof Error
+                  ? updateUserMutation.error.message
+                  : l('Failed to update user')}
+              </p>
+            ) : null}
+            {deleteUserMutation.isError ? (
+              <p className="callout callout--danger">
+                {deleteUserMutation.error instanceof Error
+                  ? deleteUserMutation.error.message
+                  : l('Failed to delete user')}
+              </p>
+            ) : null}
 
-        <div className="settings-user-list">
-          {shouldShowUserSkeleton ? <p className="muted">{l('Loading users…')}</p> : null}
+            <div className="settings-user-list">
+              {shouldShowUserSkeleton ? <p className="muted">{l('Loading users…')}</p> : null}
 
-          {shouldShowUserSkeleton
-            ? USER_SKELETON_KEYS.slice(0, USER_SKELETON_COUNT).map((key) => (
-                <SettingsUserCardSkeleton key={key} />
-              ))
-            : null}
+              {shouldShowUserSkeleton
+                ? USER_SKELETON_KEYS.slice(0, USER_SKELETON_COUNT).map((key) => (
+                    <SettingsUserCardSkeleton key={key} />
+                  ))
+                : null}
 
-          {!shouldShowUserSkeleton
-            ? users.map((user) => {
-                const displayName = getUserDisplayName(user)
-                const showUsername = displayName !== user.username
-                const roleLabel = user.is_primary_admin
-                  ? l('Primary Admin')
-                  : user.role === 'admin'
-                    ? l('Administrator')
-                    : l('Member')
-                const canManageThisUser = user.role === 'viewer' || canManageAdminAccounts
-                const canEditUser =
-                  canManageThisUser && user.id !== currentUser.id && !user.is_primary_admin
-                const canDeleteUser = canEditUser
-                const canToggleUser = canEditUser
+              {!shouldShowUserSkeleton
+                ? users.map((user) => {
+                    const displayName = getUserDisplayName(user)
+                    const showUsername = displayName !== user.username
+                    const roleLabel = user.is_primary_admin
+                      ? l('Primary Admin')
+                      : user.role === 'admin'
+                        ? l('Administrator')
+                        : l('Member')
+                    const canManageThisUser = user.role === 'viewer' || canManageAdminAccounts
+                    const canEditUser =
+                      canManageThisUser && user.id !== currentUser.id && !user.is_primary_admin
+                    const canDeleteUser = canEditUser
+                    const canToggleUser = canEditUser
 
-                return (
-                  <article className="settings-user-card" key={user.id}>
-                    <div aria-hidden="true" className="settings-user-card__avatar">
-                      <span>{getUserInitial(user)}</span>
-                    </div>
-
-                    <div className="settings-user-card__body">
-                      <div className="settings-user-card__header">
-                        <div className="settings-user-card__identity">
-                          <strong>{displayName}</strong>
-                          {showUsername ? <p className="muted">@{user.username}</p> : null}
-                          <div className="settings-user-card__identity-meta">
-                            <StatusPill status={roleLabel} />
-                            {user.id === currentUser.id ? (
-                              <span className="settings-user-card__self-badge">{l('You')}</span>
-                            ) : null}
-                          </div>
+                    return (
+                      <article className="settings-user-card" key={user.id}>
+                        <div aria-hidden="true" className="settings-user-card__avatar">
+                          <span>{getUserInitial(user)}</span>
                         </div>
 
-                        <div className="settings-user-card__toolbar">
-                          {canToggleUser ? (
-                            <label className="settings-user-card__switch">
-                              <input
-                                checked={user.is_enabled}
-                                disabled={updateUserMutation.isPending}
-                                onChange={(event) =>
-                                  updateUserMutation.mutate({
-                                    userId: user.id,
-                                    input: { is_enabled: event.target.checked },
-                                  })
-                                }
-                                type="checkbox"
-                              />
-                              <span className="settings-user-card__switch-track">
-                                <span className="settings-user-card__switch-copy settings-user-card__switch-copy--off">
-                                  {l('Off')}
-                                </span>
-                                <span className="settings-user-card__switch-copy settings-user-card__switch-copy--on">
-                                  {l('On')}
-                                </span>
-                              </span>
-                            </label>
-                          ) : null}
+                        <div className="settings-user-card__body">
+                          <div className="settings-user-card__header">
+                            <div className="settings-user-card__identity">
+                              <strong>{displayName}</strong>
+                              {showUsername ? <p className="muted">@{user.username}</p> : null}
+                              <div className="settings-user-card__identity-meta">
+                                <StatusPill status={roleLabel} />
+                                {user.id === currentUser.id ? (
+                                  <span className="settings-user-card__self-badge">{l('You')}</span>
+                                ) : null}
+                              </div>
+                            </div>
 
-                          {canEditUser ? (
+                            <div className="settings-user-card__toolbar">
+                              {canToggleUser ? (
+                                <label className="settings-user-card__switch">
+                                  <input
+                                    checked={user.is_enabled}
+                                    disabled={updateUserMutation.isPending}
+                                    onChange={(event) =>
+                                      updateUserMutation.mutate({
+                                        userId: user.id,
+                                        input: { is_enabled: event.target.checked },
+                                      })
+                                    }
+                                    type="checkbox"
+                                  />
+                                  <span className="settings-user-card__switch-track">
+                                    <span className="settings-user-card__switch-copy settings-user-card__switch-copy--off">
+                                      {l('Off')}
+                                    </span>
+                                    <span className="settings-user-card__switch-copy settings-user-card__switch-copy--on">
+                                      {l('On')}
+                                    </span>
+                                  </span>
+                                </label>
+                              ) : null}
+
+                              {canEditUser ? (
+                                <button
+                                  aria-label={l('Edit {{name}}', { name: user.username })}
+                                  className="settings-user-card__edit-icon"
+                                  onClick={() => setEditingUser(user)}
+                                  type="button"
+                                >
+                                  <svg
+                                    aria-hidden="true"
+                                    fill="none"
+                                    focusable="false"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
+                                      stroke="currentColor"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="1.7"
+                                    />
+                                    <path
+                                      d="M12.75 7.05L16.95 11.25"
+                                      stroke="currentColor"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="1.7"
+                                    />
+                                  </svg>
+                                </button>
+                              ) : null}
+
+                              {canDeleteUser ? (
+                                <button
+                                  aria-label={l('Delete {{name}}', { name: user.username })}
+                                  className="settings-user-card__delete-icon"
+                                  disabled={deleteUserMutation.isPending}
+                                  onClick={() => {
+                                    deleteUserMutation.reset()
+                                    setPendingConfirmation({
+                                      kind: 'delete-user',
+                                      user,
+                                    })
+                                  }}
+                                  type="button"
+                                >
+                                  <svg
+                                    aria-hidden="true"
+                                    fill="none"
+                                    focusable="false"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      d="M9 4.5H15M5.5 7H18.5M8 7V18.5C8 19.05 8.45 19.5 9 19.5H15C15.55 19.5 16 19.05 16 18.5V7M10.5 10.5V16M13.5 10.5V16"
+                                      stroke="currentColor"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth="1.7"
+                                    />
+                                  </svg>
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      </article>
+                    )
+                  })
+                : null}
+            </div>
+          </section>
+
+          <section className="settings-section settings-section--libraries">
+            <div className="section-heading">
+              <div>
+                <h3>{l('Library Management')}</h3>
+              </div>
+              <button
+                className="button button--primary button--toolbar"
+                onClick={() => setIsCreateLibraryOpen(true)}
+                type="button"
+              >
+                <span>{l('Create Library')}</span>
+              </button>
+            </div>
+
+            {deleteLibraryMutation.isError ? (
+              <p className="callout callout--danger">
+                {deleteLibraryMutation.error instanceof Error
+                  ? deleteLibraryMutation.error.message
+                  : l('Failed to delete library')}
+              </p>
+            ) : null}
+
+            {shouldShowLibrarySkeleton || libraries.length > 0 ? (
+              <div className="settings-library-list">
+                {shouldShowLibrarySkeleton
+                  ? LIBRARY_SKELETON_KEYS.slice(0, LIBRARY_SKELETON_COUNT).map((key) => (
+                      <SettingsLibraryCardSkeleton key={key} rootPathLabel={l('Root path')} />
+                    ))
+                  : libraries.map((library) => {
+                      const libraryDetail = libraryDetailsById.get(library.id)
+                      const lastScan = libraryDetail?.last_scan ?? null
+                      const lastScanStatusLabel = getScanStatusLabel(lastScan)
+                      const lastScanStatusTone = getScanStatusTone(lastScan)
+                      const lastScanSummary = getScanStatusSummary(lastScan)
+                      const isTriggeringScan =
+                        scanMutation.isPending && scanMutation.variables === library.id
+
+                      return (
+                        <article className="settings-library-card" key={library.id}>
+                          <div aria-hidden="true" className="settings-library-card__backdrop">
+                            <span className="settings-library-card__backdrop-glow" />
+                          </div>
+
+                          <div className="settings-library-card__body">
+                            <div className="settings-library-card__header">
+                              <strong className="settings-library-card__title">
+                                {library.name}
+                              </strong>
+                              <button
+                                aria-label={l('Edit {{name}}', { name: library.name })}
+                                className="settings-library-card__edit-icon"
+                                onClick={() => setEditingLibrary(library)}
+                                type="button"
+                              >
+                                <svg
+                                  aria-hidden="true"
+                                  fill="none"
+                                  focusable="false"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
+                                    stroke="currentColor"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth="1.7"
+                                  />
+                                  <path
+                                    d="M12.75 7.05L16.95 11.25"
+                                    stroke="currentColor"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth="1.7"
+                                  />
+                                </svg>
+                              </button>
+                            </div>
+                            <p className="settings-library-card__description">
+                              {library.description ?? l('No description')}
+                            </p>
+                            <p className="settings-library-card__language-note">
+                              {l('Metadata language: {{language}}', {
+                                language: library.metadata_language,
+                              })}
+                            </p>
+
+                            <div className="settings-library-card__scan">
+                              <div className="settings-library-card__scan-header">
+                                <span className="settings-library-card__path-label">
+                                  {l('Latest Scan')}
+                                </span>
+                                <span
+                                  className={`settings-library-card__scan-badge settings-library-card__scan-badge--${lastScanStatusTone}`}
+                                >
+                                  {lastScanStatusLabel}
+                                </span>
+                              </div>
+                              <p
+                                className="settings-library-card__scan-copy"
+                                title={lastScanSummary}
+                              >
+                                {lastScanSummary}
+                              </p>
+                            </div>
+
+                            <div className="settings-library-card__path-block">
+                              <span className="settings-library-card__path-label">
+                                {l('Root path')}
+                              </span>
+                              <code className="settings-library-card__path">
+                                {library.root_path}
+                              </code>
+                            </div>
+                          </div>
+
+                          <div className="settings-library-card__actions">
                             <button
-                              aria-label={l('Edit {{name}}', { name: user.username })}
-                              className="settings-user-card__edit-icon"
-                              onClick={() => setEditingUser(user)}
+                              className="button"
+                              disabled={isTriggeringScan}
+                              onClick={() => scanMutation.mutate(library.id)}
                               type="button"
                             >
-                              <svg
-                                aria-hidden="true"
-                                fill="none"
-                                focusable="false"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
-                                  stroke="currentColor"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth="1.7"
-                                />
-                                <path
-                                  d="M12.75 7.05L16.95 11.25"
-                                  stroke="currentColor"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth="1.7"
-                                />
-                              </svg>
+                              {isTriggeringScan ? l('Triggering…') : l('Scan Library')}
                             </button>
-                          ) : null}
-
-                          {canDeleteUser ? (
                             <button
-                              aria-label={l('Delete {{name}}', { name: user.username })}
-                              className="settings-user-card__delete-icon"
-                              disabled={deleteUserMutation.isPending}
+                              className="button button--danger settings-library-card__delete"
+                              disabled={deleteLibraryMutation.isPending || isTriggeringScan}
                               onClick={() => {
-                                deleteUserMutation.reset()
+                                deleteLibraryMutation.reset()
                                 setPendingConfirmation({
-                                  kind: 'delete-user',
-                                  user,
+                                  kind: 'delete-library',
+                                  library,
                                 })
                               }}
                               type="button"
                             >
-                              <svg
-                                aria-hidden="true"
-                                fill="none"
-                                focusable="false"
-                                viewBox="0 0 24 24"
-                              >
-                                <path
-                                  d="M9 4.5H15M5.5 7H18.5M8 7V18.5C8 19.05 8.45 19.5 9 19.5H15C15.55 19.5 16 19.05 16 18.5V7M10.5 10.5V16M13.5 10.5V16"
-                                  stroke="currentColor"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth="1.7"
-                                />
-                              </svg>
+                              {deleteLibraryMutation.isPending &&
+                              deleteLibraryMutation.variables === library.id
+                                ? l('Deleting…')
+                                : l('Delete Library')}
                             </button>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  </article>
-                )
-              })
-            : null}
-        </div>
-      </section>
-
-      <section className="settings-section settings-section--libraries">
-        <div className="section-heading">
-          <div>
-            <h3>{l('Library Management')}</h3>
-          </div>
-          <button
-            className="button button--primary button--toolbar"
-            onClick={() => setIsCreateLibraryOpen(true)}
-            type="button"
-          >
-            <span>{l('Create Library')}</span>
-          </button>
-        </div>
-
-        {deleteLibraryMutation.isError ? (
-          <p className="callout callout--danger">
-            {deleteLibraryMutation.error instanceof Error
-              ? deleteLibraryMutation.error.message
-              : l('Failed to delete library')}
-          </p>
-        ) : null}
-
-        {shouldShowLibrarySkeleton || libraries.length > 0 ? (
-          <ScrollableRail
-            hint={l('Use horizontal scrolling or click arrows to move sideways.')}
-            resetKey={shouldShowLibrarySkeleton ? 'loading' : libraries.length}
-            viewportClassName="settings-library-list"
-          >
-            {shouldShowLibrarySkeleton
-              ? LIBRARY_SKELETON_KEYS.slice(0, LIBRARY_SKELETON_COUNT).map((key) => (
-                  <SettingsLibraryCardSkeleton key={key} rootPathLabel={l('Root path')} />
-                ))
-              : libraries.map((library) => {
-                  const libraryDetail = libraryDetailsById.get(library.id)
-                  const lastScan = libraryDetail?.last_scan ?? null
-                  const lastScanStatusLabel = getScanStatusLabel(lastScan)
-                  const lastScanStatusTone = getScanStatusTone(lastScan)
-                  const isTriggeringScan =
-                    scanMutation.isPending && scanMutation.variables === library.id
-
-                  return (
-                    <article className="settings-library-card" key={library.id}>
-                      <div aria-hidden="true" className="settings-library-card__backdrop">
-                        <span className="settings-library-card__backdrop-glow" />
-                      </div>
-
-                      <div className="settings-library-card__body">
-                        <div className="settings-library-card__header">
-                          <strong className="settings-library-card__title">{library.name}</strong>
-                          <button
-                            aria-label={l('Edit {{name}}', { name: library.name })}
-                            className="settings-library-card__edit-icon"
-                            onClick={() => setEditingLibrary(library)}
-                            type="button"
-                          >
-                            <svg
-                              aria-hidden="true"
-                              fill="none"
-                              focusable="false"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
-                                stroke="currentColor"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="1.7"
-                              />
-                              <path
-                                d="M12.75 7.05L16.95 11.25"
-                                stroke="currentColor"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="1.7"
-                              />
-                            </svg>
-                          </button>
-                        </div>
-                        <p className="settings-library-card__description">
-                          {library.description ?? l('No description')}
-                        </p>
-                        <p className="settings-library-card__language-note">
-                          {l('Metadata language: {{language}}', {
-                            language: library.metadata_language,
-                          })}
-                        </p>
-
-                        <div className="settings-library-card__scan">
-                          <div className="settings-library-card__scan-header">
-                            <span className="settings-library-card__path-label">
-                              {l('Latest Scan')}
-                            </span>
-                            <span
-                              className={`settings-library-card__scan-badge settings-library-card__scan-badge--${lastScanStatusTone}`}
-                            >
-                              {lastScanStatusLabel}
-                            </span>
                           </div>
-                          <p className="settings-library-card__scan-copy">
-                            {getScanStatusSummary(lastScan)}
-                          </p>
-                        </div>
-
-                        <div className="settings-library-card__path-block">
-                          <span className="settings-library-card__path-label">
-                            {l('Root path')}
-                          </span>
-                          <code className="settings-library-card__path">{library.root_path}</code>
-                        </div>
-                      </div>
-
-                      <div className="settings-library-card__actions">
-                        <button
-                          className="button"
-                          disabled={isTriggeringScan}
-                          onClick={() => scanMutation.mutate(library.id)}
-                          type="button"
-                        >
-                          {isTriggeringScan ? l('Triggering…') : l('Scan Library')}
-                        </button>
-                        <button
-                          className="button button--danger settings-library-card__delete"
-                          disabled={deleteLibraryMutation.isPending || isTriggeringScan}
-                          onClick={() => {
-                            deleteLibraryMutation.reset()
-                            setPendingConfirmation({
-                              kind: 'delete-library',
-                              library,
-                            })
-                          }}
-                          type="button"
-                        >
-                          {deleteLibraryMutation.isPending &&
-                          deleteLibraryMutation.variables === library.id
-                            ? l('Deleting…')
-                            : l('Delete Library')}
-                        </button>
-                      </div>
-                    </article>
-                  )
-                })}
-          </ScrollableRail>
-        ) : null}
-      </section>
+                        </article>
+                      )
+                    })}
+              </div>
+            ) : null}
+          </section>
+        </div>
+      </HomeDashboardShell>
 
       <UserEditorModal
         currentUserId={currentUser.id}
@@ -748,6 +755,6 @@ export const SettingsPage = () => {
         }}
         title={confirmationCopy?.title ?? l('Confirm action')}
       />
-    </div>
+    </>
   )
 }

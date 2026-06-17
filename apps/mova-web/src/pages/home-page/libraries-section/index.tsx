@@ -189,12 +189,12 @@ const LibrariesSectionBody = ({
       <div className="catalog-block__header">
         <div className="catalog-block__title-row">
           <h3>{l('Your Libraries')}</h3>
+          {libraryModules.length > 0 ? (
+            <Link className="libraries-section__title-action" to="/libraries">
+              {l('View all')}
+            </Link>
+          ) : null}
         </div>
-        {libraryModules.length > 0 ? (
-          <Link className="catalog-block__inline-action" to="/libraries">
-            {l('View all')}
-          </Link>
-        ) : null}
       </div>
 
       {isLoading ? (

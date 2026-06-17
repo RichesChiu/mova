@@ -12,6 +12,7 @@ import {
 } from '../../components/app-shell/scan-runtime'
 import { useI18n } from '../../i18n'
 import { cssBackgroundImage } from '../../lib/css'
+import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 import { getLibraryArtworkSrc } from '../home-page/library-artwork'
 
@@ -37,16 +38,14 @@ export const LibrariesPage = () => {
   return (
     <HomeDashboardShell ariaLabel={l('Libraries')} currentUser={currentUser}>
       <div className="home-dashboard__content home-dashboard__content--libraries">
-        <section className="catalog-block libraries-page">
-          <div className="catalog-block__header libraries-page__header">
-            <div className="catalog-block__title-row">
-              <h3>{l('All Libraries')}</h3>
-            </div>
-            <span className="libraries-page__count">
-              {formatNumber(libraries.length)} {l('Libraries')}
-            </span>
-          </div>
+        <DashboardPageHeader>
+          <h2>{l('All Libraries')}</h2>
+          <span className="home-dashboard-page-header__meta">
+            {formatNumber(libraries.length)} {l('Libraries')}
+          </span>
+        </DashboardPageHeader>
 
+        <section className="catalog-block libraries-page">
           {recentPreviewQuery.isError ? (
             <p className="callout callout--danger">
               {recentPreviewQuery.error instanceof Error
@@ -87,7 +86,10 @@ export const LibrariesPage = () => {
                     : null
                 const detailLoading = libraryDetailQueries[index]?.isLoading ?? false
                 const currentScanRuntime = getLibraryScanRuntime(scanRuntimeByLibrary, library.id)
-                const currentScan = getEffectiveScanJob(detail?.last_scan ?? null, currentScanRuntime)
+                const currentScan = getEffectiveScanJob(
+                  detail?.last_scan ?? null,
+                  currentScanRuntime,
+                )
                 const isScanning = isLibraryScanActive(currentScan, currentScanRuntime)
                 const hasFailedScan = hasFailedLibraryScan(currentScan, currentScanRuntime)
                 const scanCopy = isScanning

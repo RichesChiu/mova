@@ -12,7 +12,7 @@ const homeNavItems = [
   { icon: 'home', label: 'Home', to: '/' },
   { icon: 'libraries', label: 'Libraries', to: '/libraries' },
   { icon: 'clock', label: 'Continue', to: '/' },
-  { icon: 'search', label: 'Search', to: '/' },
+  { icon: 'search', label: 'Search', to: '/search' },
   { icon: 'settings', label: 'Settings', to: '/settings' },
 ] as const satisfies ReadonlyArray<{
   icon: HomeIconName
@@ -30,6 +30,14 @@ const readStoredSidebarCollapsed = () => {
   return window.localStorage.getItem(HOME_SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true'
 }
 
+const writeStoredSidebarCollapsed = (isCollapsed: boolean) => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.localStorage.setItem(HOME_SIDEBAR_COLLAPSED_STORAGE_KEY, String(isCollapsed))
+}
+
 const isNavItemActive = (label: string, pathname: string) => {
   if (label === 'Home') {
     return pathname === '/'
@@ -43,23 +51,33 @@ const isNavItemActive = (label: string, pathname: string) => {
     return pathname === '/settings'
   }
 
+  if (label === 'Search') {
+    return pathname === '/search'
+  }
+
   return false
 }
 
 interface HomeDashboardShellProps {
   ariaLabel: string
+  autoCollapseSidebar?: boolean
   children: ReactNode
   currentUser: UserAccount
+  shellClassName?: string
 }
 
 export const HomeDashboardShell = ({
   ariaLabel,
+  autoCollapseSidebar = false,
   children,
   currentUser,
+  shellClassName,
 }: HomeDashboardShellProps) => {
   const { l } = useI18n()
   const location = useLocation()
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(readStoredSidebarCollapsed)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
+    () => autoCollapseSidebar || readStoredSidebarCollapsed(),
+  )
   const displayName = getUserDisplayName(currentUser)
   const userInitial = getUserInitial(currentUser)
   const isAdmin = canManageServer(currentUser)
@@ -71,11 +89,30 @@ export const HomeDashboardShell = ({
     continueWatchingNavQuery.isLoading || Boolean(continueWatchingNavQuery.data?.length)
 
   useEffect(() => {
-    window.localStorage.setItem(HOME_SIDEBAR_COLLAPSED_STORAGE_KEY, String(isSidebarCollapsed))
-  }, [isSidebarCollapsed])
+    if (autoCollapseSidebar) {
+      setIsSidebarCollapsed(true)
+    }
+  }, [autoCollapseSidebar, location.pathname])
+
+  const handleSidebarToggle = () => {
+    setIsSidebarCollapsed((current) => {
+      const next = !current
+
+      writeStoredSidebarCollapsed(next)
+      return next
+    })
+  }
+
+  const shellClasses = [
+    'home-shell',
+    isSidebarCollapsed ? 'home-shell--sidebar-collapsed' : null,
+    shellClassName,
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   return (
-    <div className={isSidebarCollapsed ? 'home-shell home-shell--sidebar-collapsed' : 'home-shell'}>
+    <div className={shellClasses}>
       <aside className="home-sidebar" aria-label={l('Home navigation')}>
         <div className="home-sidebar__top">
           <Link className="home-sidebar__brand" to="/" aria-label={l('Mova home')}>
@@ -86,7 +123,7 @@ export const HomeDashboardShell = ({
             aria-expanded={!isSidebarCollapsed}
             aria-label={isSidebarCollapsed ? l('Expand sidebar') : l('Collapse sidebar')}
             className="home-sidebar__toggle"
-            onClick={() => setIsSidebarCollapsed((current) => !current)}
+            onClick={handleSidebarToggle}
             type="button"
           >
             <HomeIcon name="chevronRight" />
@@ -96,7 +133,7 @@ export const HomeDashboardShell = ({
         <nav className="home-sidebar__nav">
           {homeNavItems.map((item) => {
             const isDisabledLocalAction =
-              (item.label === 'Continue' || item.label === 'Search') && item.to === '/'
+              'to' in item && item.label === 'Continue' && item.to === '/'
 
             if (item.label === 'Settings' && !isAdmin) {
               return null
@@ -146,22 +183,6 @@ export const HomeDashboardShell = ({
       </aside>
 
       <section className="home-dashboard" aria-label={ariaLabel}>
-        <header className="home-dashboard__topbar">
-          <label className="home-search">
-            <span aria-hidden="true">
-              <HomeIcon name="search" />
-            </span>
-            <input readOnly placeholder={l('Search media in your libraries…')} />
-            <kbd>⌘K</kbd>
-          </label>
-
-          <div className="home-dashboard__actions">
-            <button className="home-icon-button" type="button" aria-label={l('Notifications')}>
-              <HomeIcon name="bell" />
-            </button>
-          </div>
-        </header>
-
         {children}
       </section>
     </div>

@@ -1,5 +1,39 @@
-.media-item-page {
+.home-dashboard__content--media-item {
   --media-item-page-artwork: none;
+
+  align-content: start;
+  position: relative;
+  isolation: isolate;
+}
+
+.home-dashboard__content--media-item::before,
+.home-dashboard__content--media-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.home-dashboard__content--media-item::before {
+  background-image: var(--media-item-page-artwork);
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  filter: saturate(118%) contrast(102%);
+  opacity: var(--detail-page-artwork-opacity);
+}
+
+.home-dashboard__content--media-item::after {
+  background: var(--detail-page-artwork-overlay);
+}
+
+.home-dashboard__content--media-item > * {
+  position: relative;
+  z-index: 1;
+}
+
+.media-item-page {
   --detail-surface-background:
     linear-gradient(
       145deg,
@@ -19,8 +53,10 @@
       color-mix(in srgb, var(--floating-surface) 36%, transparent)
     );
   position: relative;
+  display: grid;
+  gap: 14px;
   isolation: isolate;
-  padding-top: clamp(10px, 1.5vw, 20px);
+  min-width: 0;
 }
 
 :root[data-theme='glass-frost'] .media-item-page {
@@ -36,30 +72,6 @@
     linear-gradient(180deg, rgba(218, 226, 239, 0.5), rgba(196, 208, 226, 0.36));
 }
 
-.media-item-page::before,
-.media-item-page::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  width: 100vw;
-  height: 100dvh;
-  pointer-events: none;
-}
-
-.media-item-page::before {
-  background-image: var(--media-item-page-artwork);
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-size: cover;
-  filter: saturate(118%) contrast(102%);
-  opacity: var(--detail-page-artwork-opacity);
-}
-
-.media-item-page::after {
-  background: var(--detail-page-artwork-overlay);
-}
-
 .media-item-page > * {
   position: relative;
   z-index: 1;
@@ -72,10 +84,7 @@
   grid-template-columns:
     minmax(176px, calc(var(--detail-hero-poster-height) * 0.665))
     minmax(0, 1fr);
-  grid-template-rows: auto minmax(var(--detail-hero-poster-height), auto);
-  grid-template-areas:
-    'navigation navigation'
-    'poster body';
+  grid-template-areas: 'poster body';
   gap: 14px;
   padding: 18px;
   border: 1px solid var(--detail-surface-border);
@@ -130,24 +139,6 @@
   min-width: 0;
   min-height: 0;
   gap: 18px;
-}
-
-.detail-hero__navigation-row {
-  position: relative;
-  z-index: 1;
-  grid-area: navigation;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-}
-
-.detail-hero__back-link {
-  color: var(--text-muted);
-  font-size: 0.84rem;
-}
-
-.detail-hero__back-link:hover {
-  color: var(--accent-strong);
 }
 
 .detail-hero__title-row {
@@ -412,35 +403,24 @@
 
 .media-file-panel__list {
   display: grid;
-  gap: 16px;
-}
-
-.media-file-card {
-  display: grid;
   gap: 14px;
-  height: 100%;
-  padding: 18px;
-  border: 1px solid var(--detail-surface-border);
-  border-radius: 22px;
-  background: var(--detail-inner-surface);
-  box-shadow: var(--panel-inset), 0 12px 26px color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
-.media-file-card__path-block,
-.media-file-card__details {
+.media-file-detail,
+.media-file-detail__path-block {
   display: grid;
 }
 
-.media-file-card__details {
+.media-file-detail {
   gap: 12px;
 }
 
-.media-file-card__label,
-.media-file-card__path {
+.media-file-detail__label,
+.media-file-detail__path {
   margin: 0;
 }
 
-.media-file-card__label {
+.media-file-detail__label {
   color: var(--text-soft);
   font-size: 0.74rem;
   font-weight: 700;
@@ -516,8 +496,8 @@
   justify-content: center;
 }
 
-.media-file-card__meta-block,
-.media-file-card__path-block {
+.media-file-detail__meta-block,
+.media-file-detail__path-block {
   gap: 8px;
   padding: 14px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 88%, var(--accent) 10%);
@@ -528,11 +508,11 @@
     0 14px 30px color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
-.media-file-card__meta-block {
+.media-file-detail__meta-block {
   display: grid;
 }
 
-.media-file-card__meta-value {
+.media-file-detail__meta-value {
   margin: 0;
   color: var(--text);
   font-size: 0.92rem;
@@ -540,7 +520,7 @@
   line-height: 1.45;
 }
 
-.media-file-card__path {
+.media-file-detail__path {
   color: var(--text-muted);
   font-family: 'SFMono-Regular', 'JetBrains Mono', monospace;
   font-size: 0.82rem;
@@ -774,7 +754,6 @@
     --detail-hero-poster-height: 320px;
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
-      'navigation'
       'poster'
       'body';
   }

@@ -26,6 +26,7 @@ import {
 } from '../../lib/settings-admin'
 import { canManageServer } from '../../lib/viewer'
 import { ContinueWatchingSection } from './continue-watching-section'
+import { DashboardPageHeader } from './dashboard-page-header'
 import { HomeDashboardShell } from './home-dashboard-shell'
 import { LibrariesSection } from './libraries-section'
 import { LibraryContentSections } from './library-content-sections'
@@ -290,6 +291,10 @@ export const HomePage = () => {
     <>
       <HomeDashboardShell ariaLabel={l('Home')} currentUser={currentUser}>
         <div className="home-dashboard__content">
+          <DashboardPageHeader>
+            <h2>{l('Home')}</h2>
+          </DashboardPageHeader>
+
           <ContinueWatchingSection
             errorMessage={continueWatchingErrorMessage}
             isLoading={continueWatchingQuery.isLoading}

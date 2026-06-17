@@ -3,6 +3,7 @@ import type {
   ContinueWatchingItem,
   Episode,
   EpisodeOutline,
+  GlobalSearchResult,
   Library,
   LibraryDetail,
   MediaCastMember,
@@ -249,6 +250,67 @@ const recentlyAddedByLibrary = (url: URL): RecentlyAddedLibraryMediaItems[] => {
       return rightLatest - leftLatest
     })
     .slice(0, libraryLimit)
+}
+
+const globalSearch = (url: URL): GlobalSearchResult[] => {
+  const query = url.searchParams.get('q')?.trim().toLowerCase() ?? ''
+  const limit = Math.max(1, Number(url.searchParams.get('limit') ?? 12))
+
+  if (!query) {
+    return []
+  }
+
+  const mediaResults: GlobalSearchResult[] = mockMediaItems
+    .filter((item) =>
+      `${item.title} ${item.source_title} ${item.original_title ?? ''} ${item.overview ?? ''}`
+        .toLowerCase()
+        .includes(query),
+    )
+    .map((item) => ({
+      kind: 'media_item',
+      library_id: item.library_id,
+      library_name: libraryForMediaItem(item).name,
+      media_item_id: item.id,
+      series_media_item_id: null,
+      media_type: item.media_type,
+      title: item.title,
+      subtitle: null,
+      year: item.year,
+      overview: item.overview,
+      poster_path: item.poster_path,
+      backdrop_path: item.backdrop_path,
+      season_number: null,
+      episode_number: null,
+    }))
+
+  const episodeResults: GlobalSearchResult[] = mockMediaItems
+    .filter((item) => item.media_type === 'series')
+    .flatMap((series) =>
+      episodeOutline(series.id).seasons.flatMap((season) =>
+        season.episodes
+          .filter((episode) =>
+            `${episode.title} ${episode.overview ?? ''} ${series.title}`.toLowerCase().includes(query),
+          )
+          .map((episode) => ({
+            kind: 'episode',
+            library_id: series.library_id,
+            library_name: libraryForMediaItem(series).name,
+            media_item_id: episode.media_item_id ?? series.id,
+            series_media_item_id: series.id,
+            media_type: 'episode',
+            title: episode.title,
+            subtitle: series.title,
+            year: series.year,
+            overview: episode.overview,
+            poster_path: episode.poster_path,
+            backdrop_path: episode.backdrop_path,
+            season_number: season.season_number,
+            episode_number: episode.episode_number,
+          })),
+      ),
+    )
+
+  return [...mediaResults, ...episodeResults].slice(0, limit)
 }
 
 const playbackProgress = (mediaItemId: number, index = 0): PlaybackProgress => ({
@@ -519,6 +581,9 @@ export const requestMockJson = async <T>(
   }
   if (pathname === '/libraries/recently-added') {
     return mockResult(recentlyAddedByLibrary(url) as T)
+  }
+  if (pathname === '/search') {
+    return mockResult(globalSearch(url) as T)
   }
   if (pathname === '/playback-progress/continue-watching') {
     return mockResult(continueWatching(url) as T)

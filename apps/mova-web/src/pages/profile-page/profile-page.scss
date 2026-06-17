@@ -1,5 +1,13 @@
-.profile-page {
+.home-dashboard__content--profile {
   align-content: start;
+}
+
+.profile-page {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  width: 100%;
+  max-width: 900px;
 }
 
 .profile-page__panel {

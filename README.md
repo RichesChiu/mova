@@ -20,7 +20,7 @@ Mova is a self-hosted media server for organizing, browsing, and playing local m
 
 The project aims to keep the media-server experience simple and dependable: mount a media folder, scan the library, enrich metadata when needed, and browse or play from a clean Web interface. The current release is a usable MVP for local machines, home servers, and private media setups.
 
-The Web home page is library-first: it shows continue watching, a short `Your Libraries` summary, and recently added media grouped by library from the server-side recently-added query rather than a front-end merge of per-library title-sorted lists.
+The Web home page is library-first: it shows continue watching, a short `Your Libraries` summary, and recently added media grouped by library from the server-side recently-added query rather than a front-end merge of per-library title-sorted lists. Dashboard routes share a left navigation rail that stays anchored to the viewport, with the profile entry at the lower edge and a small lower-left expand handle when collapsed.
 
 For UI review on machines with very small local libraries, the Web app also has an explicit development-only mock API switch. It is documented in [apps/mova-web/README.md](apps/mova-web/README.md) and is off by default, so real API errors are not hidden by mock data.
 

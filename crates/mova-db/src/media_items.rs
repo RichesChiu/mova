@@ -5,7 +5,7 @@ mod sync;
 pub use query::{
     count_media_items_for_library, delete_series_episode_outline_cache, get_audio_track,
     get_library_media_type_counts, get_media_file, get_media_item, get_media_item_playback_header,
-    get_season, get_series_episode_outline_cache, get_subtitle_file,
+    get_season, get_series_episode_outline_cache, get_subtitle_file, global_search,
     list_audio_tracks_for_media_file, list_episodes_for_season,
     list_existing_media_metadata_for_file_paths, list_library_media_file_paths,
     list_media_files_for_media_item, list_media_items_for_library,
@@ -203,6 +203,32 @@ pub struct RecentlyAddedLibraryMediaItems {
     pub library: mova_domain::Library,
     pub items: Vec<mova_domain::MediaItem>,
     pub total: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct GlobalSearchParams {
+    pub query: String,
+    pub visible_library_ids: Option<Vec<i64>>,
+    pub limit: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct GlobalSearchResult {
+    pub kind: String,
+    pub library_id: i64,
+    pub library_name: String,
+    pub media_item_id: i64,
+    pub series_media_item_id: Option<i64>,
+    pub media_type: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub year: Option<i32>,
+    pub overview: Option<String>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+    pub season_number: Option<i32>,
+    pub episode_number: Option<i32>,
+    pub updated_at: OffsetDateTime,
 }
 
 #[derive(Debug, Clone)]

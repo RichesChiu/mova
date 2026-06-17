@@ -111,7 +111,7 @@ export const LibraryContentSections = ({
     <section className="catalog-block library-content-sections__block">
       <div className="catalog-block__header">
         <div className="catalog-block__title-row">
-          <h3>{l('Recently Added by Library')}</h3>
+          <h3>{l('Recently Added')}</h3>
         </div>
       </div>
 

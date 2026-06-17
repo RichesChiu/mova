@@ -1,6 +1,6 @@
 use axum::{http::StatusCode, Json};
 use mova_application::{
-    MediaItemPlaybackHeader, MetadataMatchCandidate, ScanJobItemProgressUpdate,
+    GlobalSearchResult, MediaItemPlaybackHeader, MetadataMatchCandidate, ScanJobItemProgressUpdate,
     SeriesEpisodeOutline, SeriesEpisodeOutlineEpisode, SeriesEpisodeOutlineSeason,
 };
 use mova_domain::{
@@ -200,6 +200,24 @@ pub struct MediaItemListResponse {
     pub total: i64,
     pub page: i64,
     pub page_size: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GlobalSearchResultResponse {
+    pub kind: String,
+    pub library_id: i64,
+    pub library_name: String,
+    pub media_item_id: i64,
+    pub series_media_item_id: Option<i64>,
+    pub media_type: String,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub year: Option<i32>,
+    pub overview: Option<String>,
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+    pub season_number: Option<i32>,
+    pub episode_number: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -630,6 +648,37 @@ impl MediaItemListResponse {
             total: result.total,
             page: result.page,
             page_size: result.page_size,
+        }
+    }
+}
+
+impl GlobalSearchResultResponse {
+    pub fn from_domain(result: GlobalSearchResult) -> Self {
+        Self {
+            kind: result.kind,
+            library_id: result.library_id,
+            library_name: result.library_name,
+            media_item_id: result.media_item_id,
+            series_media_item_id: result.series_media_item_id,
+            media_type: result.media_type,
+            title: result.title,
+            subtitle: result.subtitle,
+            year: result.year,
+            overview: result.overview,
+            poster_path: public_media_item_asset_path(
+                result.media_item_id,
+                result.poster_path.as_deref(),
+                "poster",
+                result.updated_at,
+            ),
+            backdrop_path: public_media_item_asset_path(
+                result.media_item_id,
+                result.backdrop_path.as_deref(),
+                "backdrop",
+                result.updated_at,
+            ),
+            season_number: result.season_number,
+            episode_number: result.episode_number,
         }
     }
 }

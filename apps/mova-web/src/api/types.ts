@@ -115,6 +115,25 @@ export interface RecentlyAddedLibraryMediaItems {
   total: number
 }
 
+export type GlobalSearchResultKind = 'media_item' | 'episode' | string
+
+export interface GlobalSearchResult {
+  kind: GlobalSearchResultKind
+  library_id: number
+  library_name: string
+  media_item_id: number
+  series_media_item_id: number | null
+  media_type: MediaType
+  title: string
+  subtitle: string | null
+  year: number | null
+  overview: string | null
+  poster_path: string | null
+  backdrop_path: string | null
+  season_number: number | null
+  episode_number: number | null
+}
+
 export interface Season {
   id: number
   series_id: number

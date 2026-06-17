@@ -1,6 +1,7 @@
 import type { ReactNode, SVGProps } from 'react'
 
 export type HomeIconName =
+  | 'arrowLeft'
   | 'bell'
   | 'chevronRight'
   | 'clock'
@@ -34,6 +35,7 @@ export const HomeIcon = ({ name, ...props }: HomeIconProps) => (
 )
 
 const iconPaths: Record<HomeIconName, ReactNode> = {
+  arrowLeft: <path d="m15 6-6 6 6 6" />,
   bell: (
     <>
       <path d="M18 9.8c0-3.5-2.2-5.8-6-5.8s-6 2.3-6 5.8c0 5-2 5.8-2 5.8h16s-2-.8-2-5.8Z" />

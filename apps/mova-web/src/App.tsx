@@ -9,6 +9,7 @@ import { LoginPage } from './pages/login-page'
 import { MediaItemPage } from './pages/media-item-page'
 import { MediaPlayerPage } from './pages/media-player-page'
 import { ProfilePage } from './pages/profile-page'
+import { SearchPage } from './pages/search-page'
 import { SettingsPage } from './pages/settings-page'
 
 const App = () => {
@@ -24,6 +25,7 @@ const App = () => {
             <Route path="/libraries/:libraryId" element={<LibraryPage />} />
             <Route path="/media-items/:mediaItemId" element={<MediaItemPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/search" element={<SearchPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
         </Routes>

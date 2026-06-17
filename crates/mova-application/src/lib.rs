@@ -25,12 +25,12 @@ pub use media_cast::{
 };
 pub use media_classification::{LIBRARY_TYPE_MIXED, LIBRARY_TYPE_MOVIE, LIBRARY_TYPE_SERIES};
 pub use media_items::{
-    get_audio_track, get_media_file, get_media_item, get_season, get_subtitle_file,
+    get_audio_track, get_media_file, get_media_item, get_season, get_subtitle_file, global_search,
     list_audio_tracks_for_media_file, list_episodes_for_season, list_media_files_for_media_item,
     list_media_items_for_library, list_recently_added_media_items_by_library,
     list_seasons_for_series, list_subtitle_files_for_media_file, refresh_media_item_metadata,
-    series_episode_outline_for_media_item, ListMediaItemsForLibraryInput,
-    ListMediaItemsForLibraryOutput, ListRecentlyAddedByLibraryInput,
+    series_episode_outline_for_media_item, GlobalSearchInput, GlobalSearchResult,
+    ListMediaItemsForLibraryInput, ListMediaItemsForLibraryOutput, ListRecentlyAddedByLibraryInput,
     RecentlyAddedLibraryMediaItems, SeriesEpisodeOutline, SeriesEpisodeOutlineEpisode,
     SeriesEpisodeOutlineSeason,
 };

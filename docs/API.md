@@ -85,6 +85,7 @@
 | `GET` | `/api/libraries/{id}/scan-jobs` | 查询媒体库扫描历史 |
 | `GET` | `/api/libraries/{id}/scan-jobs/{scan_job_id}` | 查询单个扫描任务状态 |
 | `POST` | `/api/libraries/{id}/scan` | 触发异步扫描 |
+| `GET` | `/api/search` | 搜索当前用户可见库下的电影、剧集和集条目 |
 | `GET` | `/api/media-items/{id}` | 查询单个媒体条目详情 |
 | `GET` | `/api/media-items/{id}/cast` | 查询单个媒体条目的演员列表 |
 | `GET` | `/api/media-items/{id}/playback-header` | 查询播放器页头部信息 |
@@ -807,6 +808,39 @@
 - 当前扫描会按 `(library_id, file_path)` 做增量同步：同路径文件原地更新，缺失路径删除，改名或移动会表现成旧路径删除加新路径新增
 - 已经成功匹配的路径会先按文件大小和修改时间生成稳定指纹；同路径指纹一致、本地分析版本一致、且已有 TMDB 绑定时会跳过拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存和数据库 upsert，只保留现有数据。新增、变化或本地分析版本过期的路径会先做浅层文件名聚合，再按扫描组逐个完整探测、写库并推送。`unmatched` / `failed`、缺少 TMDB provider 绑定、旧状态是 `skipped` 但当前已启用 TMDB、按前端 Other 规则需要复核、或仍保存远端图片 URL 的条目仍会在后续手动扫描中重试；如果这些条目的文件指纹和本地分析版本未变化，服务端仍用当前文件名 / 路径做浅层聚合，再复用已入库的本地分析结果，仅重试 TMDB 和图片缓存。电影补全拿到相同 TMDB `provider_item_id` 后会合并为同一个 `media_item`，详情页通过资源版本切换展示多个本地文件。自动候选选择保持保守；更宽松的候选复核交给手动搜索 / 替换元数据。如果当前没有启用 metadata provider，`skipped` 条目也可按指纹和本地分析版本跳过
 - 现在只有手动扫描会驱动这套库存对齐与元数据补全链路；新增、删除、改名和移动都会在手动扫描时收敛出来
+
+### `GET /api/search`
+
+作用：
+- 在当前用户可见的媒体库中做全局模糊搜索
+
+典型场景：
+- 搜索页面输入时，搜索电影、剧集条目和本地可用的集条目
+
+权限：
+- 需要登录态
+- `admin` 搜索全部媒体库
+- `viewer` 只搜索自己被授权的媒体库
+
+查询参数：
+- `q`：搜索关键字；空白时返回空数组
+- `limit`：可选，返回结果上限，默认 `12`，最大 `30`
+
+匹配范围：
+- 电影 / 剧集条目：匹配 `title`、`source_title`、`original_title`
+- 集条目：匹配集标题、本地集条目标题、本地集条目源标题、剧集标题、剧集源标题和原始标题
+
+返回：
+- `200 OK`
+- 返回 `GlobalSearchResultResponse[]`
+
+关键字段：
+- `kind`：`media_item` 或 `episode`
+- `media_item_id`：点击结果时应打开的本地媒体条目 ID；集条目返回对应本地集条目的 `media_item_id`
+- `series_media_item_id`：只有 `kind = episode` 时返回所属剧集 ID
+- `library_id` / `library_name`：结果所属媒体库
+- `poster_path` / `backdrop_path`：只来自该搜索结果自身记录；没有值时保持 `null`，不会使用其他层级图片兜底
+- `season_number` / `episode_number`：只有集条目有值
 
 ## 4. 媒体条目
 
