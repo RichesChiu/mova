@@ -1,7 +1,5 @@
 import { type ReactNode, useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import { listContinueWatching } from '../../api/client'
 import type { UserAccount } from '../../api/types'
 import { useI18n } from '../../i18n'
 import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
@@ -11,7 +9,7 @@ import { HomeIcon, type HomeIconName } from './home-icons'
 const homeNavItems = [
   { icon: 'home', label: 'Home', to: '/' },
   { icon: 'libraries', label: 'Libraries', to: '/libraries' },
-  { icon: 'clock', label: 'Continue', to: '/' },
+  { icon: 'clock', label: 'Recently Watched', to: '/watch-history' },
   { icon: 'search', label: 'Search', to: '/search' },
   { icon: 'settings', label: 'Settings', to: '/settings' },
 ] as const satisfies ReadonlyArray<{
@@ -55,6 +53,10 @@ const isNavItemActive = (label: string, pathname: string) => {
     return pathname === '/search'
   }
 
+  if (label === 'Recently Watched') {
+    return pathname === '/watch-history'
+  }
+
   return false
 }
 
@@ -81,12 +83,6 @@ export const HomeDashboardShell = ({
   const displayName = getUserDisplayName(currentUser)
   const userInitial = getUserInitial(currentUser)
   const isAdmin = canManageServer(currentUser)
-  const continueWatchingNavQuery = useQuery({
-    queryKey: ['continue-watching', 'nav', 1],
-    queryFn: () => listContinueWatching(1),
-  })
-  const shouldShowContinueNav =
-    continueWatchingNavQuery.isLoading || Boolean(continueWatchingNavQuery.data?.length)
 
   useEffect(() => {
     if (autoCollapseSidebar) {
@@ -132,20 +128,12 @@ export const HomeDashboardShell = ({
 
         <nav className="home-sidebar__nav">
           {homeNavItems.map((item) => {
-            const isDisabledLocalAction =
-              'to' in item && item.label === 'Continue' && item.to === '/'
-
             if (item.label === 'Settings' && !isAdmin) {
-              return null
-            }
-
-            if (item.label === 'Continue' && !shouldShowContinueNav) {
               return null
             }
 
             return (
               <NavLink
-                aria-disabled={isDisabledLocalAction}
                 className={() =>
                   isNavItemActive(item.label, location.pathname)
                     ? 'home-sidebar__nav-item home-sidebar__nav-item--active'

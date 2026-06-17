@@ -1,5 +1,6 @@
 .home-dashboard__content--media-item {
   --media-item-page-artwork: none;
+  --media-item-page-artwork-width: max(100vw, calc(100dvh * 16 / 9));
 
   align-content: start;
   position: relative;
@@ -9,7 +10,7 @@
 .home-dashboard__content--media-item::before,
 .home-dashboard__content--media-item::after {
   content: '';
-  position: absolute;
+  position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
@@ -19,7 +20,7 @@
   background-image: var(--media-item-page-artwork);
   background-position: center center;
   background-repeat: no-repeat;
-  background-size: cover;
+  background-size: var(--media-item-page-artwork-width) auto;
   filter: saturate(118%) contrast(102%);
   opacity: var(--detail-page-artwork-opacity);
 }

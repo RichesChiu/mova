@@ -11,6 +11,7 @@ import { MediaPlayerPage } from './pages/media-player-page'
 import { ProfilePage } from './pages/profile-page'
 import { SearchPage } from './pages/search-page'
 import { SettingsPage } from './pages/settings-page'
+import { WatchHistoryPage } from './pages/watch-history-page'
 
 const App = () => {
   return (
@@ -27,6 +28,7 @@ const App = () => {
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/watch-history" element={<WatchHistoryPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

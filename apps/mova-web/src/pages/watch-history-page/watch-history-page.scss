@@ -1,0 +1,196 @@
+.home-dashboard__content--watch-history {
+  gap: clamp(14px, 1.45vw, 18px);
+}
+
+.watch-history-page {
+  overflow: visible;
+}
+
+.watch-history-page__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 168px));
+  justify-content: start;
+  gap: clamp(14px, 1.25vw, 18px);
+}
+
+.watch-history-card {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: inherit;
+}
+
+.watch-history-card__poster {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: block;
+  aspect-ratio: 2 / 3;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 38%),
+    color-mix(in srgb, var(--floating-surface-strong) 70%, transparent);
+  box-shadow:
+    var(--panel-inset),
+    0 16px 34px color-mix(in srgb, #000 28%, transparent);
+  transition:
+    border-color 160ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.watch-history-card:hover .watch-history-card__poster {
+  border-color: color-mix(in srgb, var(--button-primary-border) 84%, transparent);
+  box-shadow:
+    var(--panel-inset),
+    0 20px 42px color-mix(in srgb, #000 34%, transparent),
+    0 7px 18px color-mix(in srgb, var(--accent) 13%, transparent);
+  transform: translateY(-2px);
+}
+
+.watch-history-card__poster::after {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(5, 10, 16, 0.02), transparent 48%, rgba(5, 10, 16, 0.42)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  content: '';
+  pointer-events: none;
+}
+
+.watch-history-card__poster img {
+  width: 100%;
+  height: 100%;
+  filter: brightness(1.14) saturate(1.06);
+  object-fit: cover;
+}
+
+.watch-history-card__placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 820;
+  letter-spacing: 0.08em;
+  line-height: 1.25;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.watch-history-card__badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, #fff 18%, transparent);
+  border-radius: 8px;
+  background: rgba(5, 9, 14, 0.72);
+  backdrop-filter: blur(12px) saturate(130%);
+  color: #f7f9ff;
+  font-size: 0.68rem;
+  font-weight: 820;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.watch-history-card__body {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.watch-history-card__body strong,
+.watch-history-card__body em,
+.watch-history-card__body small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.watch-history-card__body strong {
+  color: var(--text);
+  font-size: 0.84rem;
+  font-weight: 820;
+  line-height: 1.22;
+}
+
+.watch-history-card__body em,
+.watch-history-card__body small {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 720;
+  line-height: 1.2;
+}
+
+.watch-history-card__body small {
+  color: var(--text-muted);
+}
+
+.watch-history-card__progress {
+  position: absolute;
+  right: 8px;
+  bottom: 48px;
+  left: 8px;
+  z-index: 3;
+  overflow: hidden;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.watch-history-card__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 66%, #fff 12%);
+}
+
+.watch-history-card__line {
+  display: block;
+  border-radius: 999px;
+}
+
+.watch-history-card__line--title {
+  width: 82%;
+  height: 0.82rem;
+}
+
+.watch-history-card__line--meta {
+  width: 56%;
+  height: 0.68rem;
+}
+
+.watch-history-card__line--time {
+  width: 74%;
+  height: 0.68rem;
+}
+
+.watch-history-card--loading {
+  cursor: progress;
+}
+
+.watch-history-page__empty {
+  padding: 18px;
+}
+
+@media (max-width: 720px) {
+  .watch-history-page__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
