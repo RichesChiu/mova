@@ -8,7 +8,6 @@ import {
   hasFailedLibraryScan,
   isLibraryScanActive,
 } from '../../../components/app-shell/scan-runtime'
-import { ScrollableRail } from '../../../components/scrollable-rail'
 import { useI18n } from '../../../i18n'
 import { cssBackgroundImage } from '../../../lib/css'
 import { HomeIcon } from '../home-icons'
@@ -200,16 +199,13 @@ const LibrariesSectionBody = ({
       {isLoading ? (
         <>
           <p className="muted">{l('Loading libraries…')}</p>
-          <ScrollableRail
-            hint={l('Scroll horizontally.')}
-            viewportClassName="libraries-section__viewport"
-          >
+          <div className="libraries-section__grid">
             {LIBRARY_SPOTLIGHT_SKELETON_KEYS.slice(0, LIBRARY_SPOTLIGHT_SKELETON_COUNT).map(
               (key) => (
                 <LibrarySpotlightSkeleton key={key} />
               ),
             )}
-          </ScrollableRail>
+          </div>
         </>
       ) : libraryModules.length === 0 ? (
         <div className="catalog-block__empty">
@@ -220,10 +216,7 @@ const LibrariesSectionBody = ({
           {actionErrorMessage ? (
             <p className="callout callout--danger">{actionErrorMessage}</p>
           ) : null}
-          <ScrollableRail
-            hint={l('Scroll horizontally.')}
-            viewportClassName="libraries-section__viewport"
-          >
+          <div className="libraries-section__grid">
             {visibleLibraryModules.map(
               ({ detail, detailError, detailLoading, library, recentItems, scanRuntime }) => {
                 const mediaCount = detail?.media_count ?? 0
@@ -358,7 +351,7 @@ const LibrariesSectionBody = ({
                 )
               },
             )}
-          </ScrollableRail>
+          </div>
         </>
       )}
     </section>

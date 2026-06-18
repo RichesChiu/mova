@@ -70,16 +70,14 @@
   width: fit-content;
   min-height: 42px;
   padding: 0 18px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--player-floating-border);
   border-radius: 999px;
-  background: rgba(11, 16, 24, 0.82);
-  color: rgba(245, 247, 252, 0.96);
+  background: var(--player-floating-background);
+  color: var(--player-floating-text);
   font-size: 0.88rem;
   font-weight: 800;
   letter-spacing: 0.01em;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 14px 32px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--player-floating-shadow);
   backdrop-filter: blur(18px) saturate(120%);
   transition:
     transform 160ms ease,
@@ -89,20 +87,20 @@
 
 .player-panel__floating-action:hover {
   transform: translateY(-1px);
-  background: rgba(20, 29, 41, 0.9);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: var(--player-floating-hover-background);
+  border-color: var(--player-floating-hover-border);
 }
 
 .player-panel__floating-action--accent {
-  background: rgba(238, 242, 247, 0.92);
-  color: #030507;
-  border-color: rgba(255, 255, 255, 0.22);
+  background: var(--player-floating-accent-background);
+  color: var(--player-floating-accent-text);
+  border-color: var(--player-floating-accent-border);
 }
 
 .player-panel__floating-action--timeline {
   min-height: 38px;
   padding: 0 16px;
-  background: rgba(16, 22, 31, 0.88);
+  background: var(--player-floating-timeline-background);
 }
 
 .player-panel__status-badge {
@@ -113,17 +111,15 @@
   max-width: 100%;
   margin: 0;
   padding: 9px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--player-floating-border);
   border-radius: 999px;
-  background: rgba(11, 16, 24, 0.78);
-  color: rgba(240, 243, 249, 0.9);
+  background: var(--player-status-background);
+  color: var(--player-status-text);
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.01em;
   text-align: center;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 10px 24px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--player-status-shadow);
   backdrop-filter: blur(18px) saturate(120%);
 }
 
@@ -187,9 +183,7 @@
   overflow: hidden;
   border: 1px solid var(--floating-border);
   border-radius: 24px;
-  background:
-    linear-gradient(135deg, rgba(9, 13, 19, 0.9), rgba(20, 26, 37, 0.82)),
-    var(--floating-surface);
+  background: var(--player-stage-background);
   box-shadow: var(--panel-inset), var(--floating-shadow-strong);
 }
 
@@ -202,7 +196,7 @@
   min-height: 0;
   border: 0;
   border-radius: 0;
-  background: #000;
+  background: var(--player-stage-immersive-background);
   box-shadow: none;
 }
 
@@ -214,14 +208,14 @@
   justify-content: center;
   min-height: 0;
   overflow: hidden;
-  background: #000;
+  background: var(--player-stage-immersive-background);
 }
 
 .player-stage__video {
   display: block;
   width: 100%;
   max-height: min(70vh, 760px);
-  background: rgba(5, 8, 13, 0.92);
+  background: var(--player-video-background);
 }
 
 .player-panel--immersive .player-stage__video {
@@ -229,7 +223,7 @@
   height: auto;
   max-width: 100%;
   max-height: 100%;
-  background: #000;
+  background: var(--player-stage-immersive-background);
 }
 
 .player-stage__controls,
@@ -248,7 +242,7 @@
   align-items: stretch;
   gap: 6px;
   padding: 0 14px 10px;
-  background: linear-gradient(180deg, transparent, rgba(2, 4, 8, 0.22) 24%, rgba(2, 4, 8, 0.88));
+  background: var(--player-controls-background);
   opacity: 0;
   pointer-events: none;
   transform: translateY(10px);
@@ -290,12 +284,10 @@
   gap: 2px;
   min-height: 40px;
   padding: 3px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--player-toolbar-pill-border);
   border-radius: 999px;
-  background: rgba(17, 23, 34, 0.84);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 10px 24px rgba(0, 0, 0, 0.22);
+  background: var(--player-toolbar-pill-background);
+  box-shadow: var(--player-toolbar-pill-shadow);
   backdrop-filter: blur(18px) saturate(120%);
 }
 
@@ -310,9 +302,9 @@
   min-width: 72px;
   min-height: 38px;
   padding: 0 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--player-control-border);
   border-radius: 999px;
-  background: rgba(11, 16, 24, 0.72);
+  background: var(--player-control-background);
   color: var(--text);
   font-size: 0.86rem;
   font-weight: 700;
@@ -347,31 +339,31 @@
 
 .player-control-button:hover {
   transform: translateY(-1px);
-  border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(20, 29, 41, 0.88);
+  border-color: var(--player-control-hover-border);
+  background: var(--player-control-hover-background);
 }
 
 .player-control-button--toolbar:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--player-control-toolbar-hover-background);
 }
 
 .player-control-button--toolbar.player-control-button--active {
-  background: rgba(148, 180, 255, 0.14);
-  color: #dfe9ff;
+  background: var(--player-control-active-background);
+  color: var(--player-control-active-text);
 }
 
 .player-control-button--primary {
-  background: rgba(238, 242, 247, 0.92);
-  color: #020408;
+  background: var(--player-control-primary-background);
+  color: var(--player-control-primary-text);
 }
 
 .player-control-button--toolbar.player-control-button--primary {
-  background: rgba(238, 242, 247, 0.16);
+  background: var(--player-control-toolbar-primary-background);
   color: var(--accent-strong);
 }
 
 .player-control-button--toolbar.player-control-button--primary:hover {
-  background: rgba(238, 242, 247, 0.22);
+  background: var(--player-control-toolbar-primary-hover-background);
 }
 
 .player-volume-control {
@@ -502,7 +494,7 @@
 }
 
 .player-range {
-  accent-color: #eef2f7;
+  accent-color: var(--player-range-accent);
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -529,9 +521,9 @@
   border-radius: 999px;
   background: linear-gradient(
     90deg,
-    #eef2f7 0 var(--player-range-played),
-    rgba(232, 237, 246, 0.48) var(--player-range-played) var(--player-range-buffered),
-    rgba(255, 255, 255, 0.16) var(--player-range-buffered) 100%
+    var(--player-range-accent) 0 var(--player-range-played),
+    var(--player-range-buffered-color) var(--player-range-played) var(--player-range-buffered),
+    var(--player-range-empty-color) var(--player-range-buffered) 100%
   );
 }
 
@@ -539,13 +531,11 @@
   width: 14px;
   height: 14px;
   margin-top: -5px;
-  border: 1px solid rgba(255, 255, 255, 0.42);
+  border: 1px solid var(--player-range-thumb-border);
   border-radius: 999px;
   appearance: none;
-  background: #f7f9fc;
-  box-shadow:
-    0 0 0 3px rgba(238, 242, 247, 0.08),
-    0 6px 16px rgba(0, 0, 0, 0.28);
+  background: var(--player-range-thumb-background);
+  box-shadow: var(--player-range-thumb-shadow);
 }
 
 .player-range--timeline::-moz-range-track {
@@ -554,27 +544,25 @@
   border-radius: 999px;
   background: linear-gradient(
     90deg,
-    #eef2f7 0 var(--player-range-played),
-    rgba(232, 237, 246, 0.48) var(--player-range-played) var(--player-range-buffered),
-    rgba(255, 255, 255, 0.16) var(--player-range-buffered) 100%
+    var(--player-range-accent) 0 var(--player-range-played),
+    var(--player-range-buffered-color) var(--player-range-played) var(--player-range-buffered),
+    var(--player-range-empty-color) var(--player-range-buffered) 100%
   );
 }
 
 .player-range--timeline::-moz-range-progress {
   height: 4px;
   border-radius: 999px;
-  background: #eef2f7;
+  background: var(--player-range-accent);
 }
 
 .player-range--timeline::-moz-range-thumb {
   width: 14px;
   height: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.42);
+  border: 1px solid var(--player-range-thumb-border);
   border-radius: 999px;
-  background: #f7f9fc;
-  box-shadow:
-    0 0 0 3px rgba(238, 242, 247, 0.08),
-    0 6px 16px rgba(0, 0, 0, 0.28);
+  background: var(--player-range-thumb-background);
+  box-shadow: var(--player-range-thumb-shadow);
 }
 
 .player-range--volume-inline {
@@ -583,7 +571,7 @@
 }
 
 .player-stage__time {
-  color: rgba(240, 243, 249, 0.88);
+  color: var(--player-time-text);
   font-size: 0.8rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;

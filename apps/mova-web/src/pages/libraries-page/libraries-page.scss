@@ -32,18 +32,12 @@
 }
 
 .libraries-page__grid .library-spotlight {
-  box-shadow:
-    var(--panel-inset),
-    0 18px 42px color-mix(in srgb, #000 32%, transparent),
-    0 5px 14px color-mix(in srgb, #082033 38%, transparent);
+  box-shadow: var(--library-spotlight-card-shadow);
 }
 
 .libraries-page__grid .library-spotlight:hover {
   transform: translateY(-2px);
-  box-shadow:
-    var(--panel-inset),
-    0 22px 52px color-mix(in srgb, #000 38%, transparent),
-    0 8px 18px color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: var(--library-spotlight-card-hover-shadow);
 }
 
 .libraries-page__grid .library-spotlight__line--meta {

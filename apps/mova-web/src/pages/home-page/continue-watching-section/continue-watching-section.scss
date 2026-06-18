@@ -25,7 +25,7 @@
   background: color-mix(in srgb, var(--floating-surface) 74%, transparent);
   box-shadow:
     var(--panel-inset),
-    0 10px 24px color-mix(in srgb, #000 24%, transparent);
+    var(--home-continue-card-shadow);
   scroll-snap-align: start;
   transition:
     transform 160ms ease,
@@ -60,7 +60,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, transparent 45%, rgba(4, 7, 12, 0.22) 58%, rgba(4, 7, 12, 0.86));
+  background: var(--media-overlay-artwork);
 }
 
 .home-continue-card__placeholder {
@@ -82,11 +82,11 @@
   place-items: center;
   width: 40px;
   height: 40px;
-  border: 1px solid color-mix(in srgb, #fff 22%, transparent);
+  border: 1px solid var(--media-play-button-border);
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.64);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
-  color: #fff;
+  background: var(--media-play-button-background);
+  box-shadow: var(--media-play-button-shadow);
+  color: var(--media-play-button-text);
   transform: translate(-50%, -50%);
 }
 
@@ -147,14 +147,14 @@
   overflow: hidden;
   height: 3px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--media-progress-track);
 }
 
 .home-continue-card__progress span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: color-mix(in srgb, var(--accent) 62%, #fff 12%);
+  background: var(--media-progress-fill);
 }
 
 .home-continue-card__line {

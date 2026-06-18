@@ -17,7 +17,7 @@
   color: var(--text);
   box-shadow:
     var(--panel-inset),
-    0 10px 24px rgba(0, 0, 0, 0.12);
+    var(--control-field-shadow);
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease,
@@ -61,7 +61,7 @@
   gap: 10px;
   box-shadow:
     var(--panel-inset),
-    0 8px 18px rgba(0, 0, 0, 0.12);
+    var(--control-field-shadow-compact);
 }
 
 .glass-select--compact .glass-select__value {

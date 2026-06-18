@@ -21,9 +21,9 @@
   min-width: 96px;
   aspect-ratio: 2 / 3;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 80%, transparent);
+  border: 1px solid var(--episode-artwork-border);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--floating-surface) 75%, black);
+  background: var(--episode-artwork-background);
 }
 
 .episode-card__artwork img {
@@ -77,15 +77,13 @@
 }
 
 .episode-card--progress .episode-card__status-badge::before {
-  background: rgba(176, 190, 218, 0.82);
+  background: var(--episode-progress-fill-strong);
 }
 
 .episode-card--complete .episode-card__status-badge {
-  border-color: rgba(102, 201, 133, 0.52);
-  background: linear-gradient(135deg, rgba(78, 172, 106, 0.92), rgba(42, 116, 67, 0.92));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 8px 18px rgba(30, 83, 50, 0.22);
+  border-color: var(--episode-complete-border);
+  background: var(--episode-complete-background);
+  box-shadow: var(--episode-complete-shadow);
 }
 
 .episode-card--complete .episode-card__status-badge::before {
@@ -93,8 +91,8 @@
   height: 10px;
   background: none;
   border-radius: 0;
-  border-right: 2px solid rgba(248, 252, 248, 0.96);
-  border-bottom: 2px solid rgba(248, 252, 248, 0.96);
+  border-right: 2px solid var(--episode-complete-check);
+  border-bottom: 2px solid var(--episode-complete-check);
   transform: translateY(-1px) rotate(45deg);
 }
 
@@ -179,14 +177,14 @@
   height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--episode-progress-track);
 }
 
 .episode-card__progress span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: rgba(176, 190, 218, 0.62);
+  background: var(--episode-progress-fill);
 }
 
 .episode-card--available {
@@ -220,9 +218,9 @@
 .episode-card__status-badge--loading::before {
   width: 9px;
   height: 9px;
-  background: rgba(176, 190, 218, 0.36);
+  background: var(--episode-progress-fill-muted);
 }
 
 .episode-card__progress--loading {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-soft-hover);
 }

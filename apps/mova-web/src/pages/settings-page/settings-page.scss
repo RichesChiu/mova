@@ -13,13 +13,9 @@
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
   border-radius: 20px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 8%, transparent), transparent 36%),
-    color-mix(in srgb, var(--panel-background-soft) 92%, rgba(8, 21, 34, 0.9));
+  background: var(--settings-library-card-background);
   backdrop-filter: blur(22px) saturate(150%);
-  box-shadow:
-    var(--panel-inset),
-    0 22px 54px color-mix(in srgb, #000 24%, transparent);
+  box-shadow: var(--settings-library-card-shadow);
 }
 
 .home-dashboard__content--settings {
@@ -62,19 +58,7 @@
 .settings-library-card__backdrop {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(ellipse at 80% -12%, rgba(103, 151, 220, 0.28), transparent 43%),
-    radial-gradient(ellipse at 16% 84%, rgba(240, 158, 73, 0.08), transparent 36%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--panel-overlay-top) 72%, transparent),
-      color-mix(in srgb, var(--panel-background-strong) 94%, transparent) 72%
-    ),
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--floating-surface-strong) 74%, transparent),
-      color-mix(in srgb, var(--panel-background-strong) 96%, transparent)
-    );
+  background: var(--settings-library-card-backdrop);
 }
 
 .settings-library-card__backdrop-glow {
@@ -180,60 +164,33 @@
 }
 
 .settings-library-card__scan-badge--running {
-  background: rgba(120, 170, 255, 0.14);
-  color: #d6e4ff;
+  border-color: var(--settings-scan-running-border);
+  background: var(--settings-scan-running-background);
+  color: var(--settings-scan-running-text);
 }
 
 .settings-library-card__scan-badge--success {
-  background: rgba(115, 212, 160, 0.14);
-  color: #d0f7e2;
+  border-color: var(--settings-scan-success-border);
+  background: var(--settings-scan-success-background);
+  color: var(--settings-scan-success-text);
 }
 
 .settings-library-card__scan-badge--failed {
-  background: rgba(255, 126, 126, 0.14);
-  color: #ffd8d8;
+  border-color: var(--settings-scan-failed-border);
+  background: var(--settings-scan-failed-background);
+  color: var(--settings-scan-failed-text);
 }
 
 .settings-library-card__scan-badge--pending {
-  background: rgba(255, 214, 117, 0.14);
-  color: #ffe9b0;
+  border-color: var(--settings-scan-pending-border);
+  background: var(--settings-scan-pending-background);
+  color: var(--settings-scan-pending-text);
 }
 
 .settings-library-card__scan-badge--muted {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-soft);
-}
-
-:root[data-theme='glass-frost'] {
-  .settings-library-card__scan-badge--running {
-    border-color: rgba(37, 99, 235, 0.24);
-    background: rgba(37, 99, 235, 0.12);
-    color: #1d4ed8;
-  }
-
-  .settings-library-card__scan-badge--success {
-    border-color: rgba(5, 150, 105, 0.24);
-    background: rgba(16, 185, 129, 0.13);
-    color: #047857;
-  }
-
-  .settings-library-card__scan-badge--failed {
-    border-color: rgba(220, 38, 38, 0.24);
-    background: rgba(239, 68, 68, 0.12);
-    color: #b91c1c;
-  }
-
-  .settings-library-card__scan-badge--pending {
-    border-color: rgba(217, 119, 6, 0.26);
-    background: rgba(245, 158, 11, 0.16);
-    color: #92400e;
-  }
-
-  .settings-library-card__scan-badge--muted {
-    border-color: rgba(113, 128, 151, 0.2);
-    background: rgba(113, 128, 151, 0.12);
-    color: var(--text-muted);
-  }
+  border-color: var(--settings-scan-muted-border);
+  background: var(--settings-scan-muted-background);
+  color: var(--settings-scan-muted-text);
 }
 
 .settings-library-card__scan-copy {
@@ -317,15 +274,18 @@
   align-items: center;
   min-height: 124px;
   padding: 16px 18px;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
+  border: 1px solid var(--settings-user-card-border);
   border-radius: 20px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 7%, transparent), transparent 48%),
-    color-mix(in srgb, var(--panel-background-soft) 90%, rgba(8, 21, 34, 0.88));
-  box-shadow:
-    var(--panel-inset),
-    0 20px 46px color-mix(in srgb, #000 22%, transparent);
+  background: var(--settings-user-card-background);
+  box-shadow: var(--settings-user-card-shadow);
   overflow: visible;
+}
+
+.settings-user-card__identity-meta .status-pill--primary-admin {
+  border-color: var(--settings-primary-admin-border);
+  background: var(--settings-primary-admin-background);
+  box-shadow: var(--settings-primary-admin-shadow);
+  color: var(--settings-primary-admin-text);
 }
 
 .settings-user-card__avatar {
@@ -335,11 +295,9 @@
   height: 64px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
   border-radius: 999px;
-  background:
-    radial-gradient(circle at 30% 24%, rgba(162, 197, 255, 0.3), transparent 42%),
-    linear-gradient(135deg, rgba(23, 31, 43, 0.92), rgba(12, 16, 24, 0.86));
+  background: var(--settings-avatar-background);
   box-shadow: var(--panel-inset), var(--floating-shadow-strong);
-  color: #e8eeff;
+  color: var(--settings-avatar-text);
   font-size: 1.3rem;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -460,10 +418,8 @@
   height: 24px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 78%, transparent);
   border-radius: 999px;
-  background: linear-gradient(135deg, rgba(63, 33, 33, 0.42), rgba(28, 16, 16, 0.56));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05),
-    0 12px 24px rgba(0, 0, 0, 0.2);
+  background: var(--settings-switch-off-background);
+  box-shadow: var(--settings-switch-track-shadow);
   transition:
     border-color 160ms ease,
     background 160ms ease,
@@ -476,7 +432,7 @@
   font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: rgba(241, 245, 255, 0.92);
+  color: var(--settings-switch-copy);
   transition: color 160ms ease;
   pointer-events: none;
 }
@@ -497,28 +453,26 @@
   width: 32px;
   height: 18px;
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(252, 253, 255, 0.98), rgba(224, 230, 243, 0.88));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.65),
-    0 8px 18px rgba(0, 0, 0, 0.28);
+  background: var(--settings-switch-knob-background);
+  box-shadow: var(--settings-switch-knob-shadow);
   transition:
     transform 160ms ease,
     background 160ms ease;
 }
 
 .settings-user-card__switch input:checked + .settings-user-card__switch-track {
-  border-color: color-mix(in srgb, rgba(91, 196, 120, 0.86) 52%, transparent);
-  background: linear-gradient(135deg, rgba(72, 172, 102, 0.9), rgba(36, 105, 58, 0.88));
+  border-color: var(--settings-switch-on-border);
+  background: var(--settings-switch-on-background);
 }
 
 .settings-user-card__switch input:not(:checked) + .settings-user-card__switch-track .settings-user-card__switch-copy--off,
 .settings-user-card__switch input:checked + .settings-user-card__switch-track .settings-user-card__switch-copy--on {
-  color: rgba(21, 27, 38, 0.9);
+  color: var(--settings-switch-copy-active);
 }
 
 .settings-user-card__switch input:not(:checked) + .settings-user-card__switch-track .settings-user-card__switch-copy--on,
 .settings-user-card__switch input:checked + .settings-user-card__switch-track .settings-user-card__switch-copy--off {
-  color: rgba(241, 245, 255, 0.72);
+  color: var(--settings-switch-copy-muted);
 }
 
 .settings-user-card__switch input:checked + .settings-user-card__switch-track::after {
@@ -551,7 +505,7 @@
 .settings-user-card__edit-icon:hover,
 .settings-user-card__delete-icon:hover {
   transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--settings-icon-hover-background);
   color: var(--text);
 }
 

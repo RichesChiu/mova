@@ -15,7 +15,7 @@
 }
 
 .media-type-tag--movie {
-  color: color-mix(in srgb, var(--accent-strong) 88%, white 12%);
+  color: color-mix(in srgb, var(--accent-strong) 88%, var(--color-white) 12%);
 }
 
 .media-type-tag--series,

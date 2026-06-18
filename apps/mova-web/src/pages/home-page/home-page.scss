@@ -3,7 +3,6 @@
 @use './library-content-sections/library-content-sections';
 
 .home-shell {
-  --home-active-icon: #78b7ff;
   --home-dashboard-padding: clamp(20px, 2.1vw, 24px);
   --home-section-gap: clamp(15px, 1.55vw, 20px);
   --home-sidebar-width: clamp(224px, 14.8vw, 244px);
@@ -16,11 +15,7 @@
   overflow: visible;
   border: 0;
   border-radius: 0;
-  background:
-    radial-gradient(ellipse at 72% -10%, rgba(89, 122, 178, 0.34), transparent 43%),
-    radial-gradient(ellipse at 22% 14%, rgba(29, 78, 111, 0.2), transparent 34%),
-    radial-gradient(ellipse at 86% 42%, rgba(148, 93, 45, 0.08), transparent 32%),
-    linear-gradient(180deg, #0d1b2b 0%, #071625 46%, #04101a 100%);
+  background: var(--home-shell-background);
   box-shadow: none;
   transition: grid-template-columns 150ms cubic-bezier(0.2, 0.82, 0.2, 1);
 }
@@ -36,10 +31,6 @@
 }
 
 :root[data-theme='glass-frost'] .home-shell {
-  background:
-    radial-gradient(circle at 76% 0%, rgba(151, 180, 222, 0.22), transparent 34%),
-    linear-gradient(180deg, rgba(243, 248, 255, 0.86), rgba(224, 235, 250, 0.9) 44%, #dae6f4),
-    #dfe9f6;
   box-shadow: none;
 }
 
@@ -58,23 +49,11 @@
   overflow: visible;
   padding: 22px 18px;
   border-right: 1px solid color-mix(in srgb, var(--floating-border) 76%, transparent);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.075), transparent 36%),
-    rgba(7, 17, 28, 0.66);
+  background: var(--home-sidebar-background);
   box-shadow:
-    inset -1px 0 0 color-mix(in srgb, #fff 4%, transparent),
-    12px 0 44px color-mix(in srgb, #000 18%, transparent);
+    var(--home-sidebar-edge-shadow),
+    var(--home-sidebar-shadow);
   transition: background 160ms ease;
-}
-
-:root[data-theme='glass-frost'] .home-sidebar {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.46), transparent 42%),
-    rgba(238, 246, 255, 0.42);
-}
-
-:root[data-theme='glass-frost'] .home-shell {
-  --home-active-icon: #4f7dd8;
 }
 
 .home-sidebar__brand,
@@ -140,21 +119,15 @@
   display: block;
   max-width: 86px;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(222, 235, 255, 0.96) 38%, rgba(116, 168, 255, 0.92) 100%),
-    linear-gradient(90deg, #7aa7ff, #eef6ff 44%, #8fd7ff);
+  background: var(--home-brand-text-background);
   background-clip: text;
-  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.08)) drop-shadow(0 8px 18px rgba(73, 143, 255, 0.18));
+  filter: var(--home-brand-text-filter);
   -webkit-text-fill-color: transparent;
   white-space: nowrap;
 }
 
 :root[data-theme='glass-frost'] .home-sidebar__brand span {
-  background:
-    linear-gradient(180deg, #1f3358 0%, #426fbf 54%, #5aa5dd 100%),
-    linear-gradient(90deg, #315ca8, #233853 48%, #4c86c8);
   background-clip: text;
-  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.42));
   -webkit-text-fill-color: transparent;
 }
 
@@ -168,12 +141,8 @@
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--floating-border) 72%, transparent);
   border-radius: 10px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 9%, transparent), transparent),
-    color-mix(in srgb, var(--floating-surface) 52%, transparent);
-  box-shadow:
-    var(--panel-inset),
-    0 10px 18px color-mix(in srgb, #000 14%, transparent);
+  background: var(--home-sidebar-toggle-background);
+  box-shadow: var(--home-sidebar-toggle-shadow);
   color: var(--text-muted);
   transition:
     border-color 160ms ease,
@@ -204,9 +173,7 @@
   border-color: color-mix(in srgb, var(--button-primary-border) 84%, transparent);
   background: color-mix(in srgb, var(--floating-surface-strong) 96%, transparent);
   color: var(--accent-strong);
-  box-shadow:
-    var(--panel-inset),
-    0 12px 26px color-mix(in srgb, var(--accent) 12%, rgba(0, 0, 0, 0.2));
+  box-shadow: var(--home-sidebar-toggle-hover-shadow);
   transform: translateY(-1px);
 }
 
@@ -267,9 +234,7 @@
 .home-sidebar__nav-item--active,
 .home-sidebar__nav-item:hover {
   border-color: color-mix(in srgb, var(--floating-border) 92%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 14%, transparent), color-mix(in srgb, #fff 4%, transparent)),
-    color-mix(in srgb, var(--floating-surface-strong) 82%, transparent);
+  background: var(--home-nav-active-background);
   box-shadow: var(--panel-inset);
   color: var(--text);
 }
@@ -469,12 +434,8 @@
   height: 34px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 72%, transparent);
   border-radius: 999px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 10%, transparent), transparent),
-    color-mix(in srgb, var(--floating-surface) 76%, transparent);
-  box-shadow:
-    var(--panel-inset),
-    0 10px 24px color-mix(in srgb, #000 18%, transparent);
+  background: var(--home-icon-button-background);
+  box-shadow: var(--home-icon-button-shadow);
   color: var(--text-muted);
   transition:
     border-color 160ms ease,
@@ -539,9 +500,7 @@
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--floating-border) 72%, transparent);
   border-radius: 999px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 9%, transparent), transparent),
-    color-mix(in srgb, var(--floating-surface) 58%, transparent);
+  background: var(--home-back-button-background);
   box-shadow: var(--panel-inset);
   color: var(--text-muted);
   cursor: pointer;
@@ -563,6 +522,20 @@
   background: color-mix(in srgb, var(--floating-surface-strong) 88%, transparent);
   color: var(--accent-strong);
   transform: translateY(-1px);
+}
+
+:root[data-theme='glass-frost'] .home-dashboard-page-header__back {
+  border-color: color-mix(in srgb, var(--button-primary-border) 72%, transparent);
+  background: color-mix(in srgb, var(--floating-surface-strong) 88%, transparent);
+  box-shadow: var(--home-back-button-shadow);
+  color: var(--accent-strong);
+}
+
+:root[data-theme='glass-frost'] .home-dashboard-page-header__back:hover {
+  border-color: var(--home-back-hover-border);
+  background: var(--home-back-hover-background);
+  box-shadow: var(--home-back-hover-shadow);
+  color: var(--home-back-hover-color);
 }
 
 .home-dashboard-page-header__notification {

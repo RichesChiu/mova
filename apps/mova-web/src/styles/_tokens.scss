@@ -1,87 +1,401 @@
 :root,
 :root[data-theme='glass-noir'] {
   color-scheme: dark;
-  --text: #eef2f7;
-  --text-muted: #98a2b2;
-  --text-soft: #6e7989;
-  --text-dim: #56606f;
-  --accent: #c9d7ff;
-  --accent-strong: #f4f7ff;
-  --accent-soft: rgba(198, 214, 255, 0.16);
-  --danger: #ff9aa5;
-  --danger-soft: rgba(255, 130, 142, 0.16);
+  --color-black: var(--mova-color-black);
+  --color-white: var(--mova-color-white);
+  --text: var(--mova-color-noir-text);
+  --text-muted: var(--mova-color-noir-text-muted);
+  --text-soft: var(--mova-color-noir-text-soft);
+  --text-dim: var(--mova-color-noir-text-dim);
+  --accent: var(--mova-color-noir-accent);
+  --accent-strong: var(--mova-color-noir-accent-strong);
+  --accent-soft: var(--mova-color-noir-accent-soft);
+  --danger: var(--mova-color-noir-danger);
+  --danger-soft: var(--mova-color-noir-danger-soft);
 
-  --body-background: #040608;
-  --body-glow-primary: rgba(18, 24, 36, 0.12);
-  --body-glow-secondary: rgba(10, 16, 25, 0.1);
+  --body-background: var(--mova-color-noir-canvas);
+  --body-glow-primary: var(--mova-color-rgba-18-24-36-a12);
+  --body-glow-secondary: var(--mova-color-rgba-10-16-25-a1);
 
-  --shell-border: rgba(255, 255, 255, 0.1);
-  --shell-background: rgba(10, 15, 22, 0.78);
-  --shell-shadow: 0 24px 62px rgba(0, 0, 0, 0.48);
-  --shell-specular: rgba(244, 248, 255, 0.2);
-  --shell-specular-soft: rgba(166, 195, 245, 0.2);
+  --shell-border: var(--mova-color-rgba-255-255-255-a1);
+  --shell-background: var(--mova-color-rgba-10-15-22-a78);
+  --shell-shadow: 0 24px 62px var(--mova-color-rgba-0-0-0-a48);
+  --shell-specular: var(--mova-color-rgba-244-248-255-a2);
+  --shell-specular-soft: var(--mova-color-rgba-166-195-245-a2);
 
-  --panel-border: rgba(255, 255, 255, 0.11);
-  --panel-background: rgba(12, 18, 27, 0.56);
-  --panel-background-strong: rgba(12, 18, 27, 0.62);
-  --panel-background-soft: rgba(12, 18, 27, 0.48);
-  --panel-overlay-top: rgba(255, 255, 255, 0.045);
-  --panel-overlay-angle: rgba(198, 222, 255, 0);
-  --panel-separator: rgba(255, 255, 255, 0.12);
-  --panel-shadow: 0 18px 34px rgba(0, 0, 0, 0.34);
+  --panel-border: var(--mova-color-noir-border);
+  --panel-background: var(--mova-color-noir-surface);
+  --panel-background-strong: var(--mova-color-noir-surface-strong);
+  --panel-background-soft: var(--mova-color-rgba-12-18-27-a48);
+  --panel-overlay-top: var(--mova-color-rgba-255-255-255-a045);
+  --panel-overlay-angle: var(--mova-color-rgba-198-222-255-a0);
+  --panel-separator: var(--mova-color-rgba-255-255-255-a12);
+  --panel-shadow: 0 18px 34px var(--mova-color-rgba-0-0-0-a34);
   --panel-inset:
-    inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(255, 255, 255, 0.03);
-  --panel-reflection: rgba(243, 248, 255, 0.08);
-  --panel-reflection-soft: rgba(177, 206, 255, 0.04);
-  --panel-edge-light: rgba(248, 251, 255, 0.08);
-  --panel-edge-accent: rgba(184, 211, 255, 0.04);
-  --panel-rim-highlight: rgba(255, 255, 255, 0.05);
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a1), inset 0 -1px 0 var(--mova-color-rgba-255-255-255-a03);
+  --panel-reflection: var(--mova-color-rgba-243-248-255-a08);
+  --panel-reflection-soft: var(--mova-color-rgba-177-206-255-a04);
+  --panel-edge-light: var(--mova-color-rgba-248-251-255-a08);
+  --panel-edge-accent: var(--mova-color-rgba-184-211-255-a04);
+  --panel-rim-highlight: var(--mova-color-rgba-255-255-255-a05);
 
-  --floating-border: rgba(255, 255, 255, 0.11);
-  --floating-surface: rgba(14, 21, 31, 0.58);
-  --floating-surface-strong: rgba(15, 24, 35, 0.66);
-  --tooltip-background: #121924;
-  --floating-shadow: 0 12px 24px rgba(0, 0, 0, 0.28);
-  --floating-shadow-strong: 0 16px 34px rgba(0, 0, 0, 0.34);
+  --floating-border: var(--mova-color-rgba-255-255-255-a11);
+  --floating-surface: var(--mova-color-rgba-14-21-31-a58);
+  --floating-surface-strong: var(--mova-color-rgba-15-24-35-a66);
+  --tooltip-background: var(--mova-color-hex-121924);
+  --floating-shadow: 0 12px 24px var(--mova-color-rgba-0-0-0-a28);
+  --floating-shadow-strong: 0 16px 34px var(--mova-color-rgba-0-0-0-a34);
 
-  --input-background: rgba(10, 12, 15, 0.72);
-  --input-placeholder: #5e6675;
-  --input-border: rgba(255, 255, 255, 0.08);
-  --input-focus-border: rgba(205, 218, 248, 0.22);
-  --input-focus-ring: rgba(157, 171, 204, 0.1);
+  --input-background: var(--mova-color-rgba-10-12-15-a72);
+  --input-placeholder: var(--mova-color-hex-5e6675);
+  --input-border: var(--mova-color-rgba-255-255-255-a08);
+  --input-focus-border: var(--mova-color-rgba-205-218-248-a22);
+  --input-focus-ring: var(--mova-color-rgba-157-171-204-a1);
   --menu-option-hover-background:
-    linear-gradient(180deg, rgba(201, 215, 255, 0.15), rgba(201, 215, 255, 0.07)),
-    rgba(18, 27, 40, 0.7);
-  --menu-option-hover-border: rgba(205, 218, 248, 0.22);
-  --menu-option-hover-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    linear-gradient(180deg, var(--mova-color-rgba-201-215-255-a15), var(--mova-color-rgba-201-215-255-a07)),
+    var(--mova-color-rgba-18-27-40-a7);
+  --menu-option-hover-border: var(--mova-color-rgba-205-218-248-a22);
+  --menu-option-hover-shadow: inset 0 1px 0 var(--mova-color-rgba-255-255-255-a08);
   --menu-option-selected-background:
-    linear-gradient(180deg, rgba(201, 215, 255, 0.2), rgba(201, 215, 255, 0.08)),
-    rgba(20, 30, 44, 0.78);
-  --menu-option-selected-border: rgba(205, 218, 248, 0.3);
-  --menu-option-selected-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    linear-gradient(180deg, var(--mova-color-rgba-201-215-255-a2), var(--mova-color-rgba-201-215-255-a08)),
+    var(--mova-color-rgba-20-30-44-a78);
+  --menu-option-selected-border: var(--mova-color-rgba-205-218-248-a3);
+  --menu-option-selected-shadow: inset 0 1px 0 var(--mova-color-rgba-255-255-255-a1);
 
   --control-height: 46px;
   --control-height-compact: 36px;
-  --button-background: rgba(14, 21, 31, 0.62);
-  --button-border: rgba(255, 255, 255, 0.08);
+  --button-background: var(--mova-color-rgba-14-21-31-a62);
+  --button-border: var(--mova-color-rgba-255-255-255-a08);
   --button-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 24px rgba(0, 0, 0, 0.24);
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a05), 0 10px 24px var(--mova-color-rgba-0-0-0-a24);
   --button-shadow-hover:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 14px 28px rgba(0, 0, 0, 0.3);
-  --button-primary-background: rgba(18, 26, 38, 0.74);
-  --button-primary-border: rgba(208, 220, 247, 0.18);
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a08), 0 14px 28px var(--mova-color-rgba-0-0-0-a3);
+  --button-primary-background: var(--mova-color-rgba-18-26-38-a74);
+  --button-primary-border: var(--mova-color-rgba-208-220-247-a18);
+  --button-primary-text: var(--accent-strong);
+  --button-primary-glow: var(--mova-color-rgba-201-215-255-a18);
 
-  --pill-background: rgba(16, 18, 22, 0.52);
-  --pill-border: rgba(255, 255, 255, 0.08);
-  --pill-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.055);
-  --status-success-background: rgba(44, 54, 76, 0.34);
-  --status-danger-background: rgba(107, 42, 54, 0.34);
+  --pill-background: var(--mova-color-rgba-16-18-22-a52);
+  --pill-border: var(--mova-color-rgba-255-255-255-a08);
+  --pill-shadow: inset 0 1px 0 var(--mova-color-rgba-255-255-255-a055);
+  --status-success-background: var(--mova-color-rgba-44-54-76-a34);
+  --status-danger-background: var(--mova-color-rgba-107-42-54-a34);
 
-  --card-poster-background: rgba(14, 19, 27, 0.78);
-  --card-poster-overlay: rgba(8, 9, 11, 0.24);
+  --card-poster-background: var(--mova-color-rgba-14-19-27-a78);
+  --card-poster-overlay: var(--mova-color-rgba-8-9-11-a24);
+
+  --surface-soft-hover: var(--mova-color-rgba-255-255-255-a05);
+  --surface-soft-hover-strong: var(--mova-color-rgba-255-255-255-a06);
+  --control-field-shadow: 0 10px 24px var(--mova-color-rgba-0-0-0-a12);
+  --control-field-shadow-compact: 0 8px 18px var(--mova-color-rgba-0-0-0-a12);
+  --callout-danger-border: var(--mova-color-rgba-255-154-165-a18);
+  --overlay-backdrop-background: var(--mova-color-rgba-4-7-14-a72);
+  --modal-surface-shadow:
+    0 40px 120px color-mix(in srgb, var(--accent) 8%, var(--mova-color-rgba-0-0-0-a24)),
+    var(--panel-inset);
+  --popover-surface-shadow:
+    0 28px 70px color-mix(in srgb, var(--accent) 8%, var(--mova-color-rgba-0-0-0-a18)),
+    var(--panel-inset);
+  --tooltip-shadow:
+    var(--panel-inset),
+    0 18px 36px var(--mova-color-rgba-0-0-0-a26);
+  --status-primary-admin-border: color-mix(in srgb, var(--mova-color-hex-ffd15a) 48%, transparent);
+  --status-primary-admin-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-209-90-a2), var(--mova-color-rgba-255-209-90-a1)),
+    color-mix(in srgb, var(--panel-background-soft) 82%, transparent);
+  --status-primary-admin-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a14),
+    0 10px 24px var(--mova-color-rgba-255-191-64-a14);
+  --status-primary-admin-text: var(--mova-color-hex-ffdb82);
+  --status-admin-border: color-mix(in srgb, var(--mova-color-hex-d8e0ef) 44%, transparent);
+  --status-admin-background:
+    linear-gradient(180deg, var(--mova-color-rgba-216-224-239-a16), var(--mova-color-rgba-216-224-239-a08)),
+    color-mix(in srgb, var(--panel-background-soft) 82%, transparent);
+  --status-admin-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a12),
+    0 10px 22px var(--mova-color-rgba-160-176-204-a12);
+  --status-admin-text: var(--mova-color-hex-dde6f7);
+  --identity-badge-border: color-mix(in srgb, var(--floating-border) 90%, transparent);
+  --identity-badge-background:
+    radial-gradient(circle at 30% 24%, var(--mova-color-rgba-162-197-255-a3), transparent 42%),
+    linear-gradient(135deg, var(--mova-color-rgba-23-31-43-a92), var(--mova-color-rgba-12-16-24-a86));
+  --identity-badge-text: var(--mova-color-hex-e8eeff);
+  --checkbox-background: var(--mova-color-rgba-255-255-255-a04);
+  --checkbox-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a05),
+    0 10px 20px var(--mova-color-rgba-0-0-0-a18);
+  --checkbox-checked-background:
+    linear-gradient(135deg, var(--mova-color-rgba-120-195-143-a96), var(--mova-color-rgba-74-164-102-a94));
+  --checkbox-checked-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a18),
+    0 12px 24px var(--mova-color-rgba-48-116-70-a26);
+  --checkbox-check-color: var(--mova-color-rgba-255-255-255-a96);
+  --feedback-marker-text: var(--mova-color-white);
+  --feedback-marker-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a34),
+    0 10px 20px var(--mova-color-rgba-0-0-0-a18);
+  --feedback-success-marker-background: linear-gradient(180deg, var(--mova-color-hex-64c98a), var(--mova-color-hex-2f9258));
+  --feedback-error-marker-background: linear-gradient(180deg, var(--mova-color-hex-ff9aa5), var(--mova-color-hex-c95361));
+  --feedback-warning-marker-background: linear-gradient(180deg, var(--mova-color-hex-ffd676), var(--mova-color-hex-c98822));
+  --scan-panel-border: color-mix(in srgb, var(--mova-color-rgba-255-214-145-a62) 70%, var(--floating-border));
+  --scan-panel-background: color-mix(in srgb, var(--mova-color-rgba-255-225-177-a14) 68%, transparent);
+  --scan-panel-failed-border: color-mix(in srgb, var(--mova-color-rgba-255-108-108-a58) 82%, transparent);
+  --scan-panel-failed-background: color-mix(in srgb, var(--mova-color-rgba-95-22-22-a72) 76%, transparent);
+  --scan-panel-failed-text: var(--mova-color-hex-ffd2d2);
+  --scan-progress-track-background:
+    color-mix(in srgb, var(--floating-surface) 78%, var(--mova-color-rgba-255-255-255-a08));
+  --scan-progress-track-shadow: inset 0 1px 2px var(--mova-color-rgba-0-0-0-a28);
+  --scan-progress-fill:
+    linear-gradient(90deg, var(--mova-color-rgba-255-205-135-a92), var(--mova-color-rgba-255-240-208-a95)),
+    linear-gradient(90deg, var(--mova-color-rgba-216-166-74-a42), var(--mova-color-rgba-255-221-156-a9));
+  --scan-progress-fill-shadow: 0 0 18px var(--mova-color-rgba-255-214-145-a28);
+  --scan-chip-border: color-mix(in srgb, var(--mova-color-rgba-255-213-142-a92) 58%, transparent);
+  --scan-chip-background: color-mix(in srgb, var(--mova-color-rgba-255-235-196-a2) 72%, var(--pill-background));
+  --media-tile-poster-border: color-mix(in srgb, var(--floating-border) 84%, transparent);
+  --media-tile-poster-background:
+    radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 38%),
+    color-mix(in srgb, var(--floating-surface-strong) 70%, transparent);
+  --media-tile-poster-shadow:
+    var(--panel-inset),
+    0 16px 34px color-mix(in srgb, var(--color-black) 28%, transparent);
+  --media-tile-poster-hover-shadow:
+    var(--panel-inset),
+    0 20px 42px color-mix(in srgb, var(--color-black) 34%, transparent),
+    0 7px 18px color-mix(in srgb, var(--accent) 13%, transparent);
+  --media-tile-poster-overlay:
+    linear-gradient(180deg, var(--mova-color-rgba-5-10-16-a02), transparent 54%, var(--mova-color-rgba-5-10-16-a32)),
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a08);
+  --media-tile-poster-overlay-strong:
+    linear-gradient(180deg, var(--mova-color-rgba-5-10-16-a02), transparent 48%, var(--mova-color-rgba-5-10-16-a42)),
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a08);
+  --media-tile-badge-border: color-mix(in srgb, var(--color-white) 18%, transparent);
+  --media-tile-badge-background: var(--mova-color-rgba-5-9-14-a72);
+  --media-tile-badge-text: var(--mova-color-hex-f7f9ff);
+  --media-tile-sync-border: color-mix(in srgb, var(--mova-color-rgba-255-214-145-a4) 70%, transparent);
+  --media-tile-sync-background: var(--mova-color-rgba-6-11-17-a72);
+  --media-overlay-artwork: linear-gradient(180deg, transparent 45%, var(--mova-color-rgba-4-7-12-a22) 58%, var(--mova-color-rgba-4-7-12-a86));
+  --home-continue-card-shadow: 0 10px 24px color-mix(in srgb, var(--color-black) 24%, transparent);
+  --media-play-button-border: color-mix(in srgb, var(--color-white) 22%, transparent);
+  --media-play-button-background: var(--mova-color-rgba-0-0-0-a64);
+  --media-play-button-shadow: 0 12px 28px var(--mova-color-rgba-0-0-0-a34);
+  --media-play-button-text: var(--color-white);
+  --media-progress-track: var(--mova-color-rgba-255-255-255-a08);
+  --media-progress-track-strong: var(--mova-color-rgba-255-255-255-a12);
+  --media-progress-fill: color-mix(in srgb, var(--accent) 62%, var(--color-white) 12%);
+  --media-progress-fill-strong: color-mix(in srgb, var(--accent) 66%, var(--color-white) 12%);
+  --player-screen-background: radial-gradient(circle at top, var(--mova-color-rgba-25-39-64-a22), transparent 42%), var(--mova-color-hex-020407);
+  --player-chrome-background: linear-gradient(180deg, var(--mova-color-rgba-1-3-7-a9), var(--mova-color-rgba-1-3-7-a42), transparent);
+  --player-chrome-button-background: var(--mova-color-rgba-255-255-255-a06);
+  --player-chrome-button-hover-background: var(--mova-color-rgba-255-255-255-a1);
+  --player-title-text: var(--mova-color-hex-f6f7fb);
+  --player-title-meta: var(--mova-color-rgba-223-229-239-a7);
+  --player-floating-border: var(--mova-color-rgba-255-255-255-a14);
+  --player-floating-background: var(--mova-color-rgba-11-16-24-a82);
+  --player-floating-text: var(--mova-color-rgba-245-247-252-a96);
+  --player-floating-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a06),
+    0 14px 32px var(--mova-color-rgba-0-0-0-a28);
+  --player-floating-hover-background: var(--mova-color-rgba-20-29-41-a9);
+  --player-floating-hover-border: var(--mova-color-rgba-255-255-255-a2);
+  --player-floating-accent-background: var(--mova-color-rgba-238-242-247-a92);
+  --player-floating-accent-text: var(--mova-color-hex-030507);
+  --player-floating-accent-border: var(--mova-color-rgba-255-255-255-a22);
+  --player-floating-timeline-background: var(--mova-color-rgba-16-22-31-a88);
+  --player-status-background: var(--mova-color-rgba-11-16-24-a78);
+  --player-status-text: var(--mova-color-rgba-240-243-249-a9);
+  --player-status-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a06),
+    0 10px 24px var(--mova-color-rgba-0-0-0-a22);
+  --player-stage-background:
+    linear-gradient(135deg, var(--mova-color-rgba-9-13-19-a9), var(--mova-color-rgba-20-26-37-a82)),
+    var(--floating-surface);
+  --player-stage-immersive-background: var(--mova-color-black);
+  --player-video-background: var(--mova-color-rgba-5-8-13-a92);
+  --player-controls-background: linear-gradient(180deg, transparent, var(--mova-color-rgba-2-4-8-a22) 24%, var(--mova-color-rgba-2-4-8-a88));
+  --player-toolbar-pill-border: var(--mova-color-rgba-255-255-255-a08);
+  --player-toolbar-pill-background: var(--mova-color-rgba-17-23-34-a84);
+  --player-toolbar-pill-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a06),
+    0 10px 24px var(--mova-color-rgba-0-0-0-a22);
+  --player-control-border: var(--mova-color-rgba-255-255-255-a08);
+  --player-control-background: var(--mova-color-rgba-11-16-24-a72);
+  --player-control-hover-border: var(--mova-color-rgba-255-255-255-a18);
+  --player-control-hover-background: var(--mova-color-rgba-20-29-41-a88);
+  --player-control-toolbar-hover-background: var(--mova-color-rgba-255-255-255-a08);
+  --player-control-active-background: var(--mova-color-rgba-148-180-255-a14);
+  --player-control-active-text: var(--mova-color-hex-dfe9ff);
+  --player-control-primary-background: var(--mova-color-rgba-238-242-247-a92);
+  --player-control-primary-text: var(--mova-color-hex-020408);
+  --player-control-toolbar-primary-background: var(--mova-color-rgba-238-242-247-a16);
+  --player-control-toolbar-primary-hover-background: var(--mova-color-rgba-238-242-247-a22);
+  --player-range-accent: var(--mova-color-hex-eef2f7);
+  --player-range-buffered-color: var(--mova-color-rgba-232-237-246-a48);
+  --player-range-empty-color: var(--mova-color-rgba-255-255-255-a16);
+  --player-range-thumb-border: var(--mova-color-rgba-255-255-255-a42);
+  --player-range-thumb-background: var(--mova-color-hex-f7f9fc);
+  --player-range-thumb-shadow:
+    0 0 0 3px var(--mova-color-rgba-238-242-247-a08),
+    0 6px 16px var(--mova-color-rgba-0-0-0-a28);
+  --player-time-text: var(--mova-color-rgba-240-243-249-a88);
+  --search-form-border: color-mix(in srgb, var(--floating-border) 118%, var(--mova-color-rgba-218-232-255-a18));
+  --search-form-background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-white) 9%, transparent),
+      color-mix(in srgb, var(--color-white) 2%, transparent)
+    ),
+    color-mix(in srgb, var(--floating-surface-strong) 92%, var(--mova-color-rgba-34-55-78-a78));
+  --search-form-shadow:
+    var(--panel-inset),
+    0 12px 30px color-mix(in srgb, var(--color-black) 22%, transparent);
+  --search-empty-background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 5%, transparent), transparent),
+    color-mix(in srgb, var(--floating-surface) 46%, transparent);
+  --search-card-background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 7%, transparent), transparent),
+    color-mix(in srgb, var(--floating-surface) 68%, transparent);
+  --search-card-shadow:
+    var(--panel-inset),
+    0 14px 32px color-mix(in srgb, var(--color-black) 22%, transparent);
+  --search-card-hover-shadow:
+    var(--panel-inset),
+    0 18px 42px color-mix(in srgb, var(--color-black) 30%, transparent);
+  --search-card-poster-background:
+    radial-gradient(circle at 24% 20%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 34%),
+    color-mix(in srgb, var(--floating-surface-strong) 72%, transparent);
+  --search-card-poster-overlay: linear-gradient(180deg, transparent 48%, var(--mova-color-rgba-0-0-0-a34));
+  --profile-editor-background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--input-background) 96%, transparent),
+      color-mix(in srgb, var(--floating-surface) 92%, transparent)
+    ),
+    var(--input-background);
+  --profile-editor-shadow:
+    var(--panel-inset),
+    0 14px 30px color-mix(in srgb, var(--color-black) 14%, transparent);
+  --metadata-match-selected-background:
+    color-mix(in srgb, var(--floating-surface-strong) 85%, var(--mova-color-rgba-76-117-255-a12));
+  --metadata-match-selected-shadow:
+    var(--panel-inset),
+    0 18px 38px var(--mova-color-rgba-18-28-54-a34),
+    inset 0 0 0 1px var(--mova-color-rgba-119-163-255-a18);
+  --episode-artwork-border: color-mix(in srgb, var(--floating-border) 80%, transparent);
+  --episode-artwork-background: color-mix(in srgb, var(--floating-surface) 75%, var(--color-black));
+  --episode-progress-track: var(--mova-color-rgba-255-255-255-a07);
+  --episode-progress-fill: var(--mova-color-rgba-176-190-218-a62);
+  --episode-progress-fill-strong: var(--mova-color-rgba-176-190-218-a82);
+  --episode-progress-fill-muted: var(--mova-color-rgba-176-190-218-a36);
+  --episode-complete-border: var(--mova-color-rgba-102-201-133-a52);
+  --episode-complete-background: linear-gradient(135deg, var(--mova-color-rgba-78-172-106-a92), var(--mova-color-rgba-42-116-67-a92));
+  --episode-complete-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a16),
+    0 8px 18px var(--mova-color-rgba-30-83-50-a22);
+  --episode-complete-check: var(--mova-color-rgba-248-252-248-a96);
+
+  --home-active-icon: var(--mova-color-hex-78b7ff);
+  --home-shell-background:
+    radial-gradient(ellipse at 72% -10%, var(--mova-color-rgba-89-122-178-a34), transparent 43%),
+    radial-gradient(ellipse at 22% 14%, var(--mova-color-rgba-29-78-111-a2), transparent 34%),
+    radial-gradient(ellipse at 86% 42%, var(--mova-color-rgba-148-93-45-a08), transparent 32%),
+    linear-gradient(180deg, var(--mova-color-hex-0d1b2b) 0%, var(--mova-color-hex-071625) 46%, var(--mova-color-hex-04101a) 100%);
+  --home-sidebar-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a075), transparent 36%),
+    var(--mova-color-rgba-7-17-28-a66);
+  --home-sidebar-edge-shadow: inset -1px 0 0 color-mix(in srgb, var(--color-white) 4%, transparent);
+  --home-sidebar-shadow: 12px 0 44px color-mix(in srgb, var(--color-black) 18%, transparent);
+  --home-brand-text-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a96) 0%, var(--mova-color-rgba-222-235-255-a96) 38%, var(--mova-color-rgba-116-168-255-a92) 100%),
+    linear-gradient(90deg, var(--mova-color-hex-7aa7ff), var(--mova-color-hex-eef6ff) 44%, var(--mova-color-hex-8fd7ff));
+  --home-brand-text-filter:
+    drop-shadow(0 1px 0 var(--mova-color-rgba-255-255-255-a08)) drop-shadow(0 8px 18px var(--mova-color-rgba-73-143-255-a18));
+  --home-sidebar-toggle-background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 9%, transparent), transparent),
+    color-mix(in srgb, var(--floating-surface) 52%, transparent);
+  --home-sidebar-toggle-shadow:
+    var(--panel-inset),
+    0 10px 18px color-mix(in srgb, var(--color-black) 14%, transparent);
+  --home-sidebar-toggle-hover-shadow:
+    var(--panel-inset),
+    0 12px 26px color-mix(in srgb, var(--accent) 12%, var(--mova-color-rgba-0-0-0-a2));
+  --home-nav-active-background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-white) 14%, transparent),
+      color-mix(in srgb, var(--color-white) 4%, transparent)
+    ),
+    color-mix(in srgb, var(--floating-surface-strong) 82%, transparent);
+  --home-icon-button-background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 10%, transparent), transparent),
+    color-mix(in srgb, var(--floating-surface) 76%, transparent);
+  --home-icon-button-shadow:
+    var(--panel-inset),
+    0 10px 24px color-mix(in srgb, var(--color-black) 18%, transparent);
+  --home-back-button-background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 9%, transparent), transparent),
+    color-mix(in srgb, var(--floating-surface) 58%, transparent);
+  --home-back-button-shadow: var(--panel-inset);
+  --home-back-hover-border: color-mix(in srgb, var(--button-primary-border) 72%, transparent);
+  --home-back-hover-background: color-mix(in srgb, var(--floating-surface-strong) 88%, transparent);
+  --home-back-hover-shadow: var(--panel-inset);
+  --home-back-hover-color: var(--accent-strong);
 
   --library-spotlight-surface: var(--floating-surface);
   --library-spotlight-surface-strong: var(--floating-surface-strong);
+  --library-spotlight-card-background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 6%, transparent), transparent 34%),
+    var(--library-spotlight-surface),
+    var(--mova-color-hex-06101a);
+  --library-spotlight-card-shadow:
+    0 18px 42px color-mix(in srgb, var(--color-black) 32%, transparent),
+    0 5px 14px color-mix(in srgb, var(--mova-color-hex-082033) 38%, transparent);
+  --library-spotlight-card-hover-shadow:
+    0 22px 52px color-mix(in srgb, var(--color-black) 38%, transparent),
+    0 8px 18px color-mix(in srgb, var(--accent) 12%, transparent);
+  --library-spotlight-focus-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 42%, transparent),
+    0 18px 44px var(--mova-color-rgba-4-8-16-a42);
+  --library-spotlight-scanning-shadow:
+    0 18px 42px color-mix(in srgb, var(--color-black) 30%, transparent),
+    0 0 26px color-mix(in srgb, var(--accent) 10%, transparent);
+  --library-spotlight-backdrop-opacity: 1;
+  --library-spotlight-title-color: var(--text);
+  --library-spotlight-title-shadow: 0 1px 4px var(--mova-color-rgba-0-0-0-a62);
+  --library-spotlight-resource-color: color-mix(in srgb, var(--mova-color-hex-f4f7ff) 76%, var(--text-muted));
+  --library-spotlight-resource-shadow: 0 1px 4px var(--mova-color-rgba-0-0-0-a62);
+  --library-spotlight-stat-text: var(--text);
+  --library-spotlight-stat-label: color-mix(in srgb, var(--text) 74%, var(--text-muted));
+  --library-spotlight-stat-shadow: none;
+  --library-spotlight-stat-separator: color-mix(in srgb, var(--floating-border) 72%, transparent);
+  --library-spotlight-scan-text: var(--text-soft);
+  --library-spotlight-scan-text-shadow: none;
+  --library-spotlight-menu-background: color-mix(in srgb, var(--color-black) 22%, transparent);
+  --library-spotlight-menu-color: var(--mova-color-rgba-255-255-255-a82);
+  --library-spotlight-menu-hover-background:
+    color-mix(in srgb, var(--floating-surface-strong) 88%, var(--mova-color-rgba-0-0-0-a28));
+  --library-spotlight-menu-hover-shadow:
+    var(--panel-inset),
+    0 8px 18px color-mix(in srgb, var(--color-black) 28%, transparent);
+  --library-spotlight-menu-dot-shadow: 0 1px 3px var(--mova-color-rgba-0-0-0-a42);
+  --library-spotlight-overlay:
+    linear-gradient(180deg, var(--mova-color-rgba-7-12-19-a04), var(--mova-color-rgba-5-10-16-a5) 54%, var(--mova-color-rgba-4-8-14-a9)),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 18%, transparent), transparent 44%),
+    radial-gradient(circle at 18% 8%, var(--mova-color-rgba-255-255-255-a08), transparent 34%);
+  --library-spotlight-scanning-overlay:
+    linear-gradient(180deg, var(--mova-color-rgba-5-8-12-a08), var(--mova-color-rgba-5-8-12-a56) 52%, var(--mova-color-rgba-5-8-12-a9)),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 16%, transparent), transparent 44%);
+  --library-spotlight-scan-active-color: var(--mova-color-hex-f7f9ff);
+  --library-spotlight-scan-active-shadow: 0 1px 3px var(--mova-color-rgba-0-0-0-a72);
+  --library-spotlight-scan-failed-border: color-mix(in srgb, var(--mova-color-rgba-255-108-108-a58) 82%, transparent);
+  --library-spotlight-scan-failed-background: color-mix(in srgb, var(--mova-color-rgba-95-22-22-a72) 76%, transparent);
+  --library-spotlight-scan-failed-color: var(--mova-color-hex-ffd2d2);
+  --library-spotlight-scan-track-background:
+    color-mix(in srgb, var(--floating-surface) 78%, var(--mova-color-rgba-255-255-255-a08));
+  --library-spotlight-scan-track-shadow: inset 0 1px 2px var(--mova-color-rgba-0-0-0-a28);
+  --library-spotlight-scan-fill:
+    linear-gradient(90deg, var(--mova-color-rgba-255-205-135-a92), var(--mova-color-rgba-255-240-208-a95)),
+    linear-gradient(90deg, var(--mova-color-rgba-216-166-74-a42), var(--mova-color-rgba-255-221-156-a9));
+  --library-spotlight-scan-fill-shadow: 0 0 18px var(--mova-color-rgba-255-214-145-a28);
   --library-spotlight-image-overlay:
     linear-gradient(
       180deg,
@@ -103,133 +417,502 @@
       color-mix(in srgb, var(--panel-background-strong) 94%, transparent)
     );
   --library-spotlight-fallback-scanning:
-    radial-gradient(circle at 18% 16%, rgba(255, 214, 145, 0.2), transparent 34%),
-    radial-gradient(circle at 86% 18%, rgba(201, 215, 255, 0.16), transparent 36%),
-    linear-gradient(135deg, rgba(22, 29, 41, 0.94), rgba(10, 15, 24, 0.98));
+    radial-gradient(circle at 18% 16%, var(--mova-color-rgba-255-214-145-a2), transparent 34%),
+    radial-gradient(circle at 86% 18%, var(--mova-color-rgba-201-215-255-a16), transparent 36%),
+    linear-gradient(135deg, var(--mova-color-rgba-22-29-41-a94), var(--mova-color-rgba-10-15-24-a98));
+
+  --recently-added-row-border: color-mix(in srgb, var(--floating-border) 78%, transparent);
+  --recently-added-row-background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 5%, transparent), transparent 42%),
+    color-mix(in srgb, var(--floating-surface) 86%, var(--mova-color-rgba-19-34-50-a44));
+  --recently-added-row-shadow:
+    var(--panel-inset),
+    0 14px 34px color-mix(in srgb, var(--color-black) 22%, transparent),
+    0 3px 12px color-mix(in srgb, var(--mova-color-hex-0a2033) 24%, transparent);
+  --recently-added-artwork-border: color-mix(in srgb, var(--floating-border) 80%, transparent);
+  --recently-added-artwork-background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 5%, transparent), transparent),
+    color-mix(in srgb, var(--card-poster-background) 84%, transparent);
+  --recently-added-artwork-shadow: var(--panel-inset);
+
+  --settings-library-card-background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 8%, transparent), transparent 36%),
+    color-mix(in srgb, var(--panel-background-soft) 92%, var(--mova-color-rgba-8-21-34-a9));
+  --settings-library-card-shadow:
+    var(--panel-inset),
+    0 22px 54px color-mix(in srgb, var(--color-black) 24%, transparent);
+  --settings-library-card-backdrop:
+    radial-gradient(ellipse at 80% -12%, var(--mova-color-rgba-103-151-220-a28), transparent 43%),
+    radial-gradient(ellipse at 16% 84%, var(--mova-color-rgba-240-158-73-a08), transparent 36%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--panel-overlay-top) 72%, transparent),
+      color-mix(in srgb, var(--panel-background-strong) 94%, transparent) 72%
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--floating-surface-strong) 74%, transparent),
+      color-mix(in srgb, var(--panel-background-strong) 96%, transparent)
+    );
+  --settings-user-card-border: color-mix(in srgb, var(--floating-border) 90%, transparent);
+  --settings-user-card-background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 7%, transparent), transparent 48%),
+    color-mix(in srgb, var(--panel-background-soft) 90%, var(--mova-color-rgba-8-21-34-a88));
+  --settings-user-card-shadow:
+    var(--panel-inset),
+    0 20px 46px color-mix(in srgb, var(--color-black) 22%, transparent);
+  --settings-avatar-background:
+    radial-gradient(circle at 30% 24%, var(--mova-color-rgba-162-197-255-a3), transparent 42%),
+    linear-gradient(135deg, var(--mova-color-rgba-23-31-43-a92), var(--mova-color-rgba-12-16-24-a86));
+  --settings-avatar-text: var(--mova-color-hex-e8eeff);
+  --settings-scan-running-background: var(--mova-color-rgba-120-170-255-a14);
+  --settings-scan-running-border: transparent;
+  --settings-scan-running-text: var(--mova-color-hex-d6e4ff);
+  --settings-scan-success-background: var(--mova-color-rgba-115-212-160-a14);
+  --settings-scan-success-border: transparent;
+  --settings-scan-success-text: var(--mova-color-hex-d0f7e2);
+  --settings-scan-failed-background: var(--mova-color-rgba-255-126-126-a14);
+  --settings-scan-failed-border: transparent;
+  --settings-scan-failed-text: var(--mova-color-hex-ffd8d8);
+  --settings-scan-pending-background: var(--mova-color-rgba-255-214-117-a14);
+  --settings-scan-pending-border: transparent;
+  --settings-scan-pending-text: var(--mova-color-hex-ffe9b0);
+  --settings-scan-muted-border: transparent;
+  --settings-scan-muted-background: var(--mova-color-rgba-255-255-255-a08);
+  --settings-scan-muted-text: var(--text-soft);
+  --settings-primary-admin-border: var(--mova-color-rgba-255-209-90-a48);
+  --settings-primary-admin-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-209-90-a2), var(--mova-color-rgba-255-209-90-a1)),
+    color-mix(in srgb, var(--panel-background-soft) 82%, transparent);
+  --settings-primary-admin-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a14),
+    0 10px 24px var(--mova-color-rgba-255-191-64-a14);
+  --settings-primary-admin-text: var(--mova-color-hex-ffdb82);
+  --settings-switch-off-background: linear-gradient(135deg, var(--mova-color-rgba-63-33-33-a42), var(--mova-color-rgba-28-16-16-a56));
+  --settings-switch-track-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a05),
+    0 12px 24px var(--mova-color-rgba-0-0-0-a2);
+  --settings-switch-copy: var(--mova-color-rgba-241-245-255-a92);
+  --settings-switch-copy-active: var(--mova-color-rgba-21-27-38-a9);
+  --settings-switch-copy-muted: var(--mova-color-rgba-241-245-255-a72);
+  --settings-switch-knob-background: linear-gradient(180deg, var(--mova-color-rgba-252-253-255-a98), var(--mova-color-rgba-224-230-243-a88));
+  --settings-switch-knob-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a65),
+    0 8px 18px var(--mova-color-rgba-0-0-0-a28);
+  --settings-switch-on-border: color-mix(in srgb, var(--mova-color-rgba-91-196-120-a86) 52%, transparent);
+  --settings-switch-on-background: linear-gradient(135deg, var(--mova-color-rgba-72-172-102-a9), var(--mova-color-rgba-36-105-58-a88));
+  --settings-icon-hover-background: var(--mova-color-rgba-255-255-255-a05);
 
   --hero-background:
-    linear-gradient(145deg, rgba(6, 10, 18, 0.92), rgba(12, 13, 22, 0.82) 52%, rgba(17, 11, 22, 0.76)),
-    rgba(12, 18, 27, 0.56);
-  --hero-border: rgba(255, 255, 255, 0.08);
+    linear-gradient(145deg, var(--mova-color-rgba-6-10-18-a92), var(--mova-color-rgba-12-13-22-a82) 52%, var(--mova-color-rgba-17-11-22-a76)),
+    var(--mova-color-rgba-12-18-27-a56);
+  --hero-border: var(--mova-color-rgba-255-255-255-a08);
   --hero-overlay: none;
+  --detail-surface-background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--floating-surface-strong) 62%, transparent),
+      color-mix(in srgb, var(--floating-surface) 46%, transparent)
+    );
+  --detail-surface-background-accent:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 12%, transparent), transparent 42%);
+  --detail-surface-border: color-mix(in srgb, var(--floating-border) 78%, transparent);
+  --detail-surface-shadow:
+    var(--panel-inset),
+    0 18px 54px color-mix(in srgb, var(--accent) 8%, var(--mova-color-rgba-0-0-0-a16));
+  --detail-inner-surface:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--floating-surface-strong) 48%, transparent),
+      color-mix(in srgb, var(--floating-surface) 36%, transparent)
+    );
+  --detail-readable-text-primary: var(--text);
+  --detail-readable-text-secondary: var(--text-muted);
+  --detail-readable-text-tertiary: var(--text-soft);
+  --detail-readable-text-shadow: none;
+  --detail-readable-surface-border: var(--detail-surface-border);
+  --detail-readable-surface-background: var(--detail-inner-surface);
+  --detail-readable-surface-shadow: var(--panel-inset);
+  --detail-hero-poster-border: var(--floating-border);
+  --detail-rating-badge-border: color-mix(in srgb, var(--mova-color-hex-f5c518) 42%, var(--floating-border));
+  --detail-rating-badge-background:
+    linear-gradient(180deg, var(--mova-color-rgba-245-197-24-a18), var(--mova-color-rgba-245-197-24-a08)),
+    color-mix(in srgb, var(--floating-surface) 78%, transparent);
+  --detail-rating-badge-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a12),
+    0 10px 24px var(--mova-color-rgba-0-0-0-a22);
+  --detail-rating-badge-text: var(--text);
+  --detail-rating-label: color-mix(in srgb, var(--text-soft) 74%, var(--mova-color-hex-f5c518));
+  --detail-rating-strong: color-mix(in srgb, var(--text) 88%, var(--mova-color-hex-fff4bf));
+  --media-technical-badge-border: color-mix(in srgb, var(--mova-color-white) 14%, var(--floating-border));
+  --media-technical-badge-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a13), transparent 52%),
+    radial-gradient(circle at 18% 0%, var(--mova-color-rgba-255-255-255-a16), transparent 46%),
+    var(--mova-color-hex-090f1a);
+  --media-technical-badge-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a16),
+    0 12px 28px var(--mova-color-rgba-0-0-0-a22);
+  --media-technical-badge-text: var(--mova-color-hex-f8fafc);
   --detail-page-artwork-overlay:
-    linear-gradient(180deg, rgba(4, 6, 10, 0.12), rgba(4, 6, 10, 0.42) 68%, rgba(4, 6, 10, 0.86)),
+    linear-gradient(180deg, var(--mova-color-rgba-4-6-10-a12), var(--mova-color-rgba-4-6-10-a42) 68%, var(--mova-color-rgba-4-6-10-a86)),
     radial-gradient(circle at 20% 16%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 38%);
   --detail-page-artwork-opacity: 0.68;
 }
 
 :root[data-theme='glass-frost'] {
   color-scheme: light;
-  --text: #2e384b;
-  --text-muted: #718097;
-  --text-soft: #8793a7;
-  --text-dim: #98a6bb;
-  --accent: #5978c5;
-  --accent-strong: #4a68b0;
-  --accent-soft: rgba(89, 120, 197, 0.14);
-  --danger: #b25f62;
-  --danger-soft: rgba(198, 99, 110, 0.12);
+  --text: var(--mova-color-frost-text);
+  --text-muted: var(--mova-color-frost-text-muted);
+  --text-soft: var(--mova-color-frost-text-soft);
+  --text-dim: var(--mova-color-frost-text-dim);
+  --accent: var(--mova-color-frost-accent);
+  --accent-strong: var(--mova-color-frost-accent-strong);
+  --accent-soft: var(--mova-color-frost-accent-soft);
+  --danger: var(--mova-color-frost-danger);
+  --danger-soft: var(--mova-color-frost-danger-soft);
 
   --body-background:
-    radial-gradient(circle at 12% 10%, rgba(255, 255, 255, 0.9), transparent 22%),
-    radial-gradient(circle at 88% 8%, rgba(243, 229, 246, 0.72), transparent 22%),
-    radial-gradient(circle at 70% 100%, rgba(196, 226, 248, 0.68), transparent 28%),
-    linear-gradient(180deg, #dfe8f5 0%, #ecf2fa 100%);
-  --body-glow-primary: rgba(255, 255, 255, 0.85);
-  --body-glow-secondary: rgba(201, 220, 249, 0.78);
+    radial-gradient(circle at 12% 10%, var(--mova-color-rgba-255-255-255-a9), transparent 22%),
+    radial-gradient(circle at 88% 8%, var(--mova-color-rgba-243-229-246-a72), transparent 22%),
+    radial-gradient(circle at 70% 100%, var(--mova-color-rgba-196-226-248-a68), transparent 28%),
+    linear-gradient(180deg, var(--mova-color-frost-canvas) 0%, var(--mova-color-frost-canvas-raised) 100%);
+  --body-glow-primary: var(--mova-color-rgba-255-255-255-a85);
+  --body-glow-secondary: var(--mova-color-rgba-201-220-249-a78);
 
-  --shell-border: rgba(255, 255, 255, 0.58);
-  --shell-background: rgba(255, 255, 255, 0.26);
-  --shell-shadow: 0 28px 80px rgba(123, 142, 179, 0.2);
+  --shell-border: var(--mova-color-rgba-255-255-255-a58);
+  --shell-background: var(--mova-color-rgba-255-255-255-a26);
+  --shell-shadow: 0 28px 80px var(--mova-color-rgba-123-142-179-a2);
 
-  --panel-border: rgba(255, 255, 255, 0.62);
-  --panel-background: rgba(255, 255, 255, 0.5);
-  --panel-background-strong: rgba(255, 255, 255, 0.72);
-  --panel-background-soft: rgba(255, 255, 255, 0.34);
-  --panel-overlay-top: rgba(255, 255, 255, 0.48);
-  --panel-overlay-angle: rgba(255, 255, 255, 0.14);
-  --panel-separator: rgba(255, 255, 255, 0.52);
-  --panel-shadow: 0 18px 50px rgba(141, 161, 194, 0.24);
-  --panel-inset: inset 0 1px 0 rgba(255, 255, 255, 0.72);
-  --panel-edge-light: rgba(255, 255, 255, 0.82);
-  --panel-edge-accent: rgba(154, 181, 228, 0.42);
-  --panel-rim-highlight: rgba(255, 255, 255, 0.68);
+  --panel-border: var(--mova-color-frost-border);
+  --panel-background: var(--mova-color-frost-surface);
+  --panel-background-strong: var(--mova-color-frost-surface-strong);
+  --panel-background-soft: var(--mova-color-rgba-255-255-255-a34);
+  --panel-overlay-top: var(--mova-color-rgba-255-255-255-a48);
+  --panel-overlay-angle: var(--mova-color-rgba-255-255-255-a14);
+  --panel-separator: var(--mova-color-rgba-255-255-255-a52);
+  --panel-shadow: 0 18px 50px var(--mova-color-rgba-141-161-194-a24);
+  --panel-inset: inset 0 1px 0 var(--mova-color-rgba-255-255-255-a72);
+  --panel-edge-light: var(--mova-color-rgba-255-255-255-a82);
+  --panel-edge-accent: var(--mova-color-rgba-154-181-228-a42);
+  --panel-rim-highlight: var(--mova-color-rgba-255-255-255-a68);
 
-  --floating-border: rgba(255, 255, 255, 0.56);
-  --floating-surface: rgba(255, 255, 255, 0.38);
-  --floating-surface-strong: rgba(255, 255, 255, 0.54);
-  --tooltip-background: #f7faff;
-  --floating-shadow: 0 12px 26px rgba(133, 154, 191, 0.1);
-  --floating-shadow-strong: 0 14px 32px rgba(121, 146, 188, 0.16);
+  --floating-border: var(--mova-color-rgba-255-255-255-a56);
+  --floating-surface: var(--mova-color-rgba-255-255-255-a38);
+  --floating-surface-strong: var(--mova-color-rgba-255-255-255-a54);
+  --tooltip-background: var(--mova-color-hex-f7faff);
+  --floating-shadow: 0 12px 26px var(--mova-color-rgba-133-154-191-a1);
+  --floating-shadow-strong: 0 14px 32px var(--mova-color-rgba-121-146-188-a16);
 
-  --input-background: rgba(255, 255, 255, 0.52);
-  --input-placeholder: #98a6bb;
-  --input-border: rgba(255, 255, 255, 0.6);
-  --input-focus-border: rgba(89, 120, 197, 0.45);
-  --input-focus-ring: rgba(89, 120, 197, 0.12);
+  --input-background: var(--mova-color-rgba-255-255-255-a52);
+  --input-placeholder: var(--mova-color-hex-98a6bb);
+  --input-border: var(--mova-color-rgba-255-255-255-a6);
+  --input-focus-border: var(--mova-color-rgba-89-120-197-a45);
+  --input-focus-ring: var(--mova-color-rgba-89-120-197-a12);
   --menu-option-hover-background:
-    linear-gradient(180deg, rgba(89, 120, 197, 0.2), rgba(89, 120, 197, 0.11)),
-    rgba(232, 241, 255, 0.9);
-  --menu-option-hover-border: rgba(89, 120, 197, 0.36);
+    linear-gradient(180deg, var(--mova-color-rgba-89-120-197-a2), var(--mova-color-rgba-89-120-197-a11)),
+    var(--mova-color-rgba-232-241-255-a9);
+  --menu-option-hover-border: var(--mova-color-rgba-89-120-197-a36);
   --menu-option-hover-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.76), 0 8px 18px rgba(103, 128, 175, 0.12);
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a76), 0 8px 18px var(--mova-color-rgba-103-128-175-a12);
   --menu-option-selected-background:
-    linear-gradient(180deg, rgba(89, 120, 197, 0.24), rgba(89, 120, 197, 0.14)),
-    rgba(222, 235, 255, 0.94);
-  --menu-option-selected-border: rgba(89, 120, 197, 0.42);
+    linear-gradient(180deg, var(--mova-color-rgba-89-120-197-a24), var(--mova-color-rgba-89-120-197-a14)),
+    var(--mova-color-rgba-222-235-255-a94);
+  --menu-option-selected-border: var(--mova-color-rgba-89-120-197-a42);
   --menu-option-selected-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 8px 18px rgba(103, 128, 175, 0.14);
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a82), 0 8px 18px var(--mova-color-rgba-103-128-175-a14);
 
-  --button-background: rgba(255, 255, 255, 0.56);
-  --button-border: rgba(255, 255, 255, 0.56);
+  --button-background: var(--mova-color-rgba-255-255-255-a56);
+  --button-border: var(--mova-color-rgba-255-255-255-a56);
   --button-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 10px 24px rgba(141, 157, 190, 0.12);
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a8), 0 10px 24px var(--mova-color-rgba-141-157-190-a12);
   --button-shadow-hover:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82), 0 14px 28px rgba(141, 157, 190, 0.16);
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a82), 0 14px 28px var(--mova-color-rgba-141-157-190-a16);
   --button-primary-background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(235, 242, 255, 0.62)),
-    rgba(255, 255, 255, 0.52);
-  --button-primary-border: rgba(109, 140, 211, 0.32);
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a78), var(--mova-color-rgba-235-242-255-a62)),
+    var(--mova-color-rgba-255-255-255-a52);
+  --button-primary-border: var(--mova-color-rgba-109-140-211-a32);
+  --button-primary-text: var(--accent-strong);
 
-  --pill-background: rgba(255, 255, 255, 0.5);
-  --pill-border: rgba(255, 255, 255, 0.6);
-  --pill-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
-  --status-success-background: rgba(233, 244, 255, 0.72);
-  --status-danger-background: rgba(255, 243, 244, 0.78);
+  --pill-background: var(--mova-color-rgba-255-255-255-a5);
+  --pill-border: var(--mova-color-rgba-255-255-255-a6);
+  --pill-shadow: inset 0 1px 0 var(--mova-color-rgba-255-255-255-a72);
+  --status-success-background: var(--mova-color-rgba-233-244-255-a72);
+  --status-danger-background: var(--mova-color-rgba-255-243-244-a78);
 
   --card-poster-background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.52), rgba(220, 230, 245, 0.38)),
-    linear-gradient(135deg, rgba(180, 200, 231, 0.44), rgba(244, 248, 255, 0.54));
-  --card-poster-overlay: linear-gradient(180deg, transparent 55%, rgba(224, 235, 248, 0.28));
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a52), var(--mova-color-rgba-220-230-245-a38)),
+    linear-gradient(135deg, var(--mova-color-rgba-180-200-231-a44), var(--mova-color-rgba-244-248-255-a54));
+  --card-poster-overlay: linear-gradient(180deg, transparent 55%, var(--mova-color-rgba-224-235-248-a28));
+
+  --button-primary-glow: var(--mova-color-rgba-89-120-197-a18);
+  --surface-soft-hover: var(--mova-color-rgba-255-255-255-a46);
+  --surface-soft-hover-strong: var(--mova-color-rgba-255-255-255-a54);
+  --control-field-shadow: 0 10px 24px var(--mova-color-rgba-141-157-190-a12);
+  --control-field-shadow-compact: 0 8px 18px var(--mova-color-rgba-141-157-190-a11);
+  --callout-danger-border: var(--mova-color-rgba-178-95-98-a18);
+  --overlay-backdrop-background: var(--mova-color-rgba-24-37-58-a34);
+  --modal-surface-shadow:
+    0 40px 120px var(--mova-color-rgba-104-129-172-a2),
+    var(--panel-inset);
+  --popover-surface-shadow:
+    0 28px 70px var(--mova-color-rgba-104-129-172-a18),
+    var(--panel-inset);
+  --tooltip-shadow:
+    var(--panel-inset),
+    0 18px 36px var(--mova-color-rgba-104-129-172-a18);
+  --status-primary-admin-border: var(--mova-color-rgba-180-111-18-a32);
+  --status-primary-admin-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-205-110-a36), var(--mova-color-rgba-255-232-177-a22)),
+    var(--mova-color-rgba-255-249-235-a76);
+  --status-primary-admin-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a74),
+    0 10px 22px var(--mova-color-rgba-176-110-24-a12);
+  --status-primary-admin-text: var(--mova-color-hex-7c3e07);
+  --status-admin-border: var(--mova-color-rgba-100-126-174-a28);
+  --status-admin-background:
+    linear-gradient(180deg, var(--mova-color-rgba-232-241-255-a62), var(--mova-color-rgba-218-230-248-a42)),
+    var(--mova-color-rgba-245-249-255-a66);
+  --status-admin-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a72),
+    0 10px 22px var(--mova-color-rgba-104-129-172-a1);
+  --status-admin-text: var(--mova-color-hex-34486f);
+  --identity-badge-border: var(--mova-color-rgba-255-255-255-a62);
+  --identity-badge-background:
+    radial-gradient(circle at 30% 24%, var(--mova-color-rgba-103-151-220-a28), transparent 42%),
+    linear-gradient(135deg, var(--mova-color-rgba-245-250-255-a72), var(--mova-color-rgba-220-233-250-a58));
+  --identity-badge-text: var(--mova-color-hex-34527f);
+  --checkbox-background: var(--mova-color-rgba-255-255-255-a5);
+  --checkbox-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a72),
+    0 10px 20px var(--mova-color-rgba-104-129-172-a12);
+  --checkbox-checked-background:
+    linear-gradient(135deg, var(--mova-color-rgba-64-170-101-a9), var(--mova-color-rgba-34-121-69-a88));
+  --checkbox-checked-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a28),
+    0 12px 24px var(--mova-color-rgba-42-130-74-a18);
+  --scan-panel-border: var(--mova-color-rgba-180-111-18-a26);
+  --scan-panel-background: var(--mova-color-rgba-255-232-177-a2);
+  --scan-panel-failed-border: var(--mova-color-rgba-220-38-38-a24);
+  --scan-panel-failed-background: var(--mova-color-rgba-239-68-68-a12);
+  --scan-panel-failed-text: var(--mova-color-hex-b91c1c);
+  --scan-progress-track-background: var(--mova-color-rgba-255-255-255-a5);
+  --scan-progress-track-shadow: inset 0 1px 2px var(--mova-color-rgba-104-129-172-a14);
+  --scan-chip-border: var(--mova-color-rgba-181-124-25-a34);
+  --scan-chip-background: var(--mova-color-rgba-255-250-236-a74);
+  --media-tile-poster-border: var(--mova-color-rgba-100-126-174-a16);
+  --media-tile-poster-shadow:
+    var(--panel-inset),
+    0 16px 34px var(--mova-color-rgba-104-129-172-a12);
+  --media-tile-poster-hover-shadow:
+    var(--panel-inset),
+    0 20px 42px var(--mova-color-rgba-104-129-172-a18),
+    0 7px 18px var(--mova-color-rgba-89-120-197-a1);
+  --home-continue-card-shadow: 0 10px 24px var(--mova-color-rgba-104-129-172-a12);
+  --search-form-border: var(--mova-color-rgba-255-255-255-a64);
+  --search-form-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a72), var(--mova-color-rgba-238-246-255-a52)),
+    var(--mova-color-rgba-234-243-255-a58);
+  --search-form-shadow:
+    var(--panel-inset),
+    0 12px 30px var(--mova-color-rgba-104-129-172-a12);
+  --search-empty-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a62), transparent),
+    var(--mova-color-rgba-234-243-255-a46);
+  --search-card-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a64), transparent),
+    var(--mova-color-rgba-234-243-255-a5);
+  --search-card-shadow:
+    var(--panel-inset),
+    0 14px 32px var(--mova-color-rgba-104-129-172-a12);
+  --search-card-hover-shadow:
+    var(--panel-inset),
+    0 18px 42px var(--mova-color-rgba-104-129-172-a16);
+  --search-card-poster-background:
+    radial-gradient(circle at 24% 20%, var(--mova-color-rgba-89-120-197-a12), transparent 34%),
+    var(--mova-color-rgba-220-233-250-a6);
+  --profile-editor-shadow:
+    var(--panel-inset),
+    0 14px 30px var(--mova-color-rgba-104-129-172-a12);
+  --metadata-match-selected-background:
+    linear-gradient(180deg, var(--mova-color-rgba-89-120-197-a16), var(--mova-color-rgba-89-120-197-a08)),
+    var(--mova-color-rgba-232-241-255-a82);
+  --metadata-match-selected-shadow:
+    var(--panel-inset),
+    0 18px 38px var(--mova-color-rgba-104-129-172-a16),
+    inset 0 0 0 1px var(--mova-color-rgba-89-120-197-a18);
+  --episode-artwork-background: var(--mova-color-rgba-220-233-250-a6);
+  --episode-progress-track: var(--mova-color-rgba-100-126-174-a12);
+  --episode-progress-fill: var(--mova-color-rgba-89-120-197-a48);
+  --episode-progress-fill-strong: var(--mova-color-rgba-89-120-197-a64);
+  --episode-progress-fill-muted: var(--mova-color-rgba-89-120-197-a28);
+
+  --home-active-icon: var(--mova-color-hex-4f7dd8);
+  --home-shell-background:
+    radial-gradient(circle at 76% 0%, var(--mova-color-rgba-151-180-222-a22), transparent 34%),
+    linear-gradient(180deg, var(--mova-color-rgba-243-248-255-a86), var(--mova-color-rgba-224-235-250-a9) 44%, var(--mova-color-hex-dae6f4)),
+    var(--mova-color-hex-dfe9f6);
+  --home-sidebar-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a46), transparent 42%),
+    var(--mova-color-rgba-238-246-255-a42);
+  --home-sidebar-edge-shadow: inset -1px 0 0 color-mix(in srgb, var(--color-white) 4%, transparent);
+  --home-sidebar-shadow: 12px 0 44px color-mix(in srgb, var(--color-black) 18%, transparent);
+  --home-brand-text-background:
+    linear-gradient(180deg, var(--mova-color-hex-1f3358) 0%, var(--mova-color-hex-426fbf) 54%, var(--mova-color-hex-5aa5dd) 100%),
+    linear-gradient(90deg, var(--mova-color-hex-315ca8), var(--mova-color-hex-233853) 48%, var(--mova-color-hex-4c86c8));
+  --home-brand-text-filter: drop-shadow(0 1px 0 var(--mova-color-rgba-255-255-255-a42));
+  --home-back-button-shadow:
+    var(--panel-inset),
+    0 10px 24px var(--mova-color-rgba-100-126-174-a12);
+  --home-back-hover-border: var(--mova-color-rgba-77-109-184-a48);
+  --home-back-hover-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a82), var(--mova-color-rgba-222-235-255-a68)),
+    var(--mova-color-rgba-221-234-255-a78);
+  --home-back-hover-shadow:
+    var(--panel-inset),
+    0 12px 28px var(--mova-color-rgba-75-105-170-a18);
+  --home-back-hover-color: var(--mova-color-hex-294f9e);
 
   --library-spotlight-surface:
-    linear-gradient(180deg, rgba(226, 236, 250, 0.58), rgba(210, 225, 246, 0.4)),
-    rgba(219, 232, 249, 0.46);
+    linear-gradient(180deg, var(--mova-color-rgba-226-236-250-a58), var(--mova-color-rgba-210-225-246-a4)),
+    var(--mova-color-rgba-219-232-249-a46);
   --library-spotlight-surface-strong:
-    linear-gradient(180deg, rgba(220, 232, 249, 0.66), rgba(197, 216, 243, 0.46)),
-    rgba(211, 226, 247, 0.52);
+    linear-gradient(180deg, var(--mova-color-rgba-220-232-249-a66), var(--mova-color-rgba-197-216-243-a46)),
+    var(--mova-color-rgba-211-226-247-a52);
+  --library-spotlight-card-background:
+    linear-gradient(180deg, var(--mova-color-rgba-7-13-22-a88), var(--mova-color-rgba-5-10-17-a96)),
+    var(--mova-color-hex-06101a);
+  --library-spotlight-title-color: var(--mova-color-hex-f8fbff);
+  --library-spotlight-title-shadow:
+    0 1px 5px var(--mova-color-rgba-15-26-42-a76),
+    0 0 18px var(--mova-color-rgba-255-255-255-a2);
+  --library-spotlight-resource-color: var(--mova-color-hex-f4f8ff);
+  --library-spotlight-resource-shadow: 0 1px 5px var(--mova-color-rgba-15-26-42-a76);
+  --library-spotlight-stat-text: var(--mova-color-hex-f4f8ff);
+  --library-spotlight-stat-label: var(--mova-color-hex-e7efff);
+  --library-spotlight-stat-shadow: 0 1px 5px var(--mova-color-rgba-15-26-42-a76);
+  --library-spotlight-stat-separator: var(--mova-color-rgba-247-250-255-a28);
+  --library-spotlight-scan-text: var(--mova-color-hex-f4f8ff);
+  --library-spotlight-scan-text-shadow: 0 1px 5px var(--mova-color-rgba-15-26-42-a76);
   --library-spotlight-image-overlay:
-    linear-gradient(180deg, rgba(235, 242, 252, 0.08), rgba(174, 196, 228, 0.24)),
-    radial-gradient(circle at top right, rgba(89, 120, 197, 0.12), transparent 42%);
+    linear-gradient(180deg, var(--mova-color-rgba-235-242-252-a08), var(--mova-color-rgba-174-196-228-a24)),
+    radial-gradient(circle at top right, var(--mova-color-rgba-89-120-197-a12), transparent 42%);
   --library-spotlight-fallback:
-    radial-gradient(circle at top left, rgba(89, 120, 197, 0.16), transparent 36%),
-    linear-gradient(135deg, rgba(199, 216, 242, 0.5), rgba(226, 236, 249, 0.38));
+    radial-gradient(circle at top left, var(--mova-color-rgba-89-120-197-a16), transparent 36%),
+    linear-gradient(135deg, var(--mova-color-rgba-199-216-242-a5), var(--mova-color-rgba-226-236-249-a38));
   --library-spotlight-fallback-loading:
-    linear-gradient(135deg, rgba(199, 216, 242, 0.5), rgba(226, 236, 249, 0.38));
+    linear-gradient(135deg, var(--mova-color-rgba-199-216-242-a5), var(--mova-color-rgba-226-236-249-a38));
   --library-spotlight-fallback-scanning:
-    radial-gradient(circle at 16% 14%, rgba(89, 120, 197, 0.16), transparent 34%),
-    radial-gradient(circle at 90% 18%, rgba(128, 181, 222, 0.24), transparent 36%),
-    linear-gradient(135deg, rgba(250, 253, 255, 0.82), rgba(224, 236, 252, 0.68) 52%, rgba(239, 245, 252, 0.78));
+    radial-gradient(circle at 16% 14%, var(--mova-color-rgba-89-120-197-a16), transparent 34%),
+    radial-gradient(circle at 90% 18%, var(--mova-color-rgba-128-181-222-a24), transparent 36%),
+    linear-gradient(135deg, var(--mova-color-rgba-250-253-255-a82), var(--mova-color-rgba-224-236-252-a68) 52%, var(--mova-color-rgba-239-245-252-a78));
+
+  --recently-added-row-border: var(--mova-color-rgba-255-255-255-a66);
+  --recently-added-row-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a72), var(--mova-color-rgba-238-246-255-a5) 58%),
+    var(--mova-color-rgba-234-243-255-a62);
+  --recently-added-row-shadow:
+    var(--panel-inset),
+    0 14px 34px var(--mova-color-rgba-125-150-190-a12),
+    0 3px 12px var(--mova-color-rgba-112-139-181-a08);
+  --recently-added-artwork-border: var(--mova-color-rgba-255-255-255-a68);
+  --recently-added-artwork-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a54), var(--mova-color-rgba-224-236-252-a36)),
+    var(--mova-color-rgba-230-240-254-a52);
+  --recently-added-artwork-shadow:
+    var(--panel-inset),
+    0 8px 18px var(--mova-color-rgba-115-142-184-a1);
+
+  --settings-user-card-border: color-mix(in srgb, var(--floating-border) 94%, var(--mova-color-rgba-141-161-194-a16));
+  --settings-user-card-background:
+    radial-gradient(ellipse at 80% -12%, var(--mova-color-rgba-103-151-220-a18), transparent 43%),
+    radial-gradient(ellipse at 16% 84%, var(--mova-color-rgba-240-158-73-a07), transparent 36%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--panel-overlay-top) 76%, transparent),
+      color-mix(in srgb, var(--panel-background-strong) 92%, transparent) 72%
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--floating-surface-strong) 78%, transparent),
+      color-mix(in srgb, var(--panel-background-strong) 96%, transparent)
+    );
+  --settings-user-card-shadow:
+    var(--panel-inset),
+    0 18px 46px var(--mova-color-rgba-121-146-188-a16);
+  --settings-scan-running-border: var(--mova-color-rgba-37-99-235-a24);
+  --settings-scan-running-background: var(--mova-color-rgba-37-99-235-a12);
+  --settings-scan-running-text: var(--mova-color-hex-1d4ed8);
+  --settings-scan-success-border: var(--mova-color-rgba-5-150-105-a24);
+  --settings-scan-success-background: var(--mova-color-rgba-16-185-129-a13);
+  --settings-scan-success-text: var(--mova-color-hex-047857);
+  --settings-scan-failed-border: var(--mova-color-rgba-220-38-38-a24);
+  --settings-scan-failed-background: var(--mova-color-rgba-239-68-68-a12);
+  --settings-scan-failed-text: var(--mova-color-hex-b91c1c);
+  --settings-scan-pending-border: var(--mova-color-rgba-217-119-6-a26);
+  --settings-scan-pending-background: var(--mova-color-rgba-245-158-11-a16);
+  --settings-scan-pending-text: var(--mova-color-hex-92400e);
+  --settings-scan-muted-border: var(--mova-color-rgba-113-128-151-a2);
+  --settings-scan-muted-background: var(--mova-color-rgba-113-128-151-a12);
+  --settings-scan-muted-text: var(--text-muted);
+  --settings-primary-admin-border: var(--mova-color-rgba-180-111-18-a32);
+  --settings-primary-admin-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-205-110-a36), var(--mova-color-rgba-255-232-177-a22)),
+    var(--mova-color-rgba-255-249-235-a76);
+  --settings-primary-admin-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a74),
+    0 10px 22px var(--mova-color-rgba-176-110-24-a12);
+  --settings-primary-admin-text: var(--mova-color-hex-7c3e07);
 
   --hero-background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(247, 251, 255, 0.7)),
-    rgba(255, 255, 255, 0.54);
-  --hero-border: rgba(255, 255, 255, 0.72);
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a88), var(--mova-color-rgba-247-251-255-a7)),
+    var(--mova-color-rgba-255-255-255-a54);
+  --hero-border: var(--mova-color-rgba-255-255-255-a72);
   --hero-overlay:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.62), transparent 42%),
-    linear-gradient(135deg, rgba(244, 249, 255, 0.54), rgba(221, 235, 255, 0.2) 56%, transparent);
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a62), transparent 42%),
+    linear-gradient(135deg, var(--mova-color-rgba-244-249-255-a54), var(--mova-color-rgba-221-235-255-a2) 56%, transparent);
+  --detail-surface-background:
+    linear-gradient(145deg, var(--mova-color-rgba-240-246-255-a72), var(--mova-color-rgba-219-230-247-a56));
+  --detail-surface-background-accent:
+    radial-gradient(circle at top left, var(--mova-color-rgba-89-120-197-a12), transparent 42%);
+  --detail-surface-border: var(--mova-color-rgba-255-255-255-a62);
+  --detail-surface-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a5),
+    0 18px 48px var(--mova-color-rgba-104-129-172-a12);
+  --detail-inner-surface:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a62), var(--mova-color-rgba-230-239-253-a48));
+  --detail-readable-text-primary: var(--mova-color-hex-172033);
+  --detail-readable-text-secondary: var(--mova-color-hex-2f3e57);
+  --detail-readable-text-tertiary: var(--mova-color-hex-53627d);
+  --detail-readable-text-shadow: 0 1px 0 var(--mova-color-rgba-255-255-255-a42);
+  --detail-readable-surface-border: var(--mova-color-rgba-100-126-174-a24);
+  --detail-readable-surface-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a7), var(--mova-color-rgba-232-241-254-a52)),
+    var(--mova-color-rgba-245-249-255-a56);
+  --detail-readable-surface-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a76),
+    0 14px 30px var(--mova-color-rgba-110-136-180-a12);
+  --detail-hero-poster-border: var(--mova-color-rgba-100-126-174-a18);
+  --detail-rating-badge-border: var(--mova-color-rgba-181-124-25-a34);
+  --detail-rating-badge-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-213-102-a34), var(--mova-color-rgba-255-236-179-a2)),
+    var(--mova-color-rgba-255-250-236-a78);
+  --detail-rating-badge-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a76),
+    0 12px 28px var(--mova-color-rgba-171-111-18-a12);
+  --detail-rating-badge-text: var(--mova-color-hex-1f2937);
+  --detail-rating-label: var(--mova-color-hex-8a5408);
+  --detail-rating-strong: var(--mova-color-hex-172033);
+  --media-technical-badge-border: var(--mova-color-rgba-14-26-44-a22);
+  --media-technical-badge-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a16), transparent 52%),
+    radial-gradient(circle at 18% 0%, var(--mova-color-rgba-255-255-255-a18), transparent 46%),
+    var(--mova-color-hex-111827);
+  --media-technical-badge-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a18),
+    0 12px 28px var(--mova-color-rgba-36-52-80-a2);
+  --media-technical-badge-text: var(--mova-color-hex-f8fafc);
   --detail-page-artwork-overlay:
-    linear-gradient(180deg, rgba(247, 251, 255, 0.06), rgba(230, 239, 252, 0.34) 68%, rgba(238, 245, 253, 0.78)),
-    radial-gradient(circle at 18% 16%, rgba(89, 120, 197, 0.16), transparent 42%);
+    linear-gradient(180deg, var(--mova-color-rgba-247-251-255-a06), var(--mova-color-rgba-230-239-252-a34) 68%, var(--mova-color-rgba-238-245-253-a78)),
+    radial-gradient(circle at 18% 16%, var(--mova-color-rgba-89-120-197-a16), transparent 42%);
   --detail-page-artwork-opacity: 0.58;
 }

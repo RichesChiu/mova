@@ -47,16 +47,8 @@
   padding: 4px 8px 4px 14px;
   border: 1px solid color-mix(in srgb, var(--input-border) 88%, transparent);
   border-radius: 18px;
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--input-background) 96%, transparent),
-      color-mix(in srgb, var(--floating-surface) 92%, transparent)
-    ),
-    var(--input-background);
-  box-shadow:
-    var(--panel-inset),
-    0 14px 30px color-mix(in srgb, #000 14%, transparent);
+  background: var(--profile-editor-background);
+  box-shadow: var(--profile-editor-shadow);
 }
 
 .profile-page__editor-actions {

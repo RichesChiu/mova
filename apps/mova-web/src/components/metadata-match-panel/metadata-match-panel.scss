@@ -61,7 +61,7 @@
 
 .metadata-match-modal__close:hover {
   transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-soft-hover);
   color: var(--text);
 }
 
@@ -120,11 +120,8 @@
 
 .metadata-match-card--selected {
   border-color: var(--button-primary-border);
-  background: color-mix(in srgb, var(--floating-surface-strong) 85%, rgba(76, 117, 255, 0.12));
-  box-shadow:
-    var(--panel-inset),
-    0 18px 38px rgba(18, 28, 54, 0.34),
-    inset 0 0 0 1px rgba(119, 163, 255, 0.18);
+  background: var(--metadata-match-selected-background);
+  box-shadow: var(--metadata-match-selected-shadow);
 }
 
 .metadata-match-card__poster {
@@ -132,7 +129,7 @@
   border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 80%, transparent);
   aspect-ratio: 2 / 3;
-  background: color-mix(in srgb, var(--floating-surface) 78%, black);
+  background: color-mix(in srgb, var(--floating-surface) 78%, var(--color-black));
 }
 
 .metadata-match-card__poster img {

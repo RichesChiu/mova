@@ -9,18 +9,10 @@
   width: min(720px, 100%);
   min-height: 44px;
   padding: 0 8px 0 14px;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 118%, rgba(218, 232, 255, 0.18));
+  border: 1px solid var(--search-form-border);
   border-radius: 8px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, #fff 9%, transparent),
-      color-mix(in srgb, #fff 2%, transparent)
-    ),
-    color-mix(in srgb, var(--floating-surface-strong) 92%, rgba(34, 55, 78, 0.78));
-  box-shadow:
-    var(--panel-inset),
-    0 12px 30px color-mix(in srgb, #000 22%, transparent);
+  background: var(--search-form-background);
+  box-shadow: var(--search-form-shadow);
 }
 
 .search-page__form input {
@@ -81,9 +73,7 @@
   min-height: 220px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 76%, transparent);
   border-radius: 14px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 5%, transparent), transparent),
-    color-mix(in srgb, var(--floating-surface) 46%, transparent);
+  background: var(--search-empty-background);
   box-shadow: var(--panel-inset);
   color: var(--text-soft);
   font-weight: 740;
@@ -104,12 +94,8 @@
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--floating-border) 86%, transparent);
   border-radius: 10px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 7%, transparent), transparent),
-    color-mix(in srgb, var(--floating-surface) 68%, transparent);
-  box-shadow:
-    var(--panel-inset),
-    0 14px 32px color-mix(in srgb, #000 22%, transparent);
+  background: var(--search-card-background);
+  box-shadow: var(--search-card-shadow);
   color: var(--text);
   transition:
     border-color 160ms ease,
@@ -122,9 +108,7 @@
 .search-card:focus-visible {
   border-color: color-mix(in srgb, var(--button-primary-border) 70%, transparent);
   background: color-mix(in srgb, var(--floating-surface-strong) 88%, transparent);
-  box-shadow:
-    var(--panel-inset),
-    0 18px 42px color-mix(in srgb, #000 30%, transparent);
+  box-shadow: var(--search-card-hover-shadow);
   transform: translateY(-2px);
 }
 
@@ -140,16 +124,14 @@
   aspect-ratio: 2 / 3;
   min-width: 0;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 24% 20%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 34%),
-    color-mix(in srgb, var(--floating-surface-strong) 72%, transparent);
+  background: var(--search-card-poster-background);
 }
 
 .search-card__poster::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, transparent 48%, rgba(0, 0, 0, 0.34));
+  background: var(--search-card-poster-overlay);
   pointer-events: none;
 }
 

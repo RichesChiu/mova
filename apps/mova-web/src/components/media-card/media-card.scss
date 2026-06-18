@@ -208,18 +208,16 @@
   overflow: hidden;
   height: 8px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--panel-border) 68%, rgba(255, 255, 255, 0.08));
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22);
+  background: var(--scan-progress-track-background);
+  box-shadow: var(--scan-progress-track-shadow);
 }
 
 .media-card__scan-fill {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background:
-    linear-gradient(90deg, rgba(255, 205, 135, 0.92), rgba(255, 240, 208, 0.95)),
-    linear-gradient(90deg, rgba(216, 166, 74, 0.42), rgba(255, 221, 156, 0.9));
-  box-shadow: 0 0 18px rgba(255, 214, 145, 0.28);
+  background: var(--scan-progress-fill);
+  box-shadow: var(--scan-progress-fill-shadow);
 }
 
 .chip--scan {
@@ -229,9 +227,9 @@
   min-height: 28px;
   height: 28px;
   padding: 0 11px;
-  border-color: color-mix(in srgb, rgba(255, 213, 142, 0.92) 58%, transparent);
-  background: color-mix(in srgb, rgba(255, 235, 196, 0.2) 72%, var(--pill-background));
-  color: color-mix(in srgb, var(--accent-strong) 86%, white 14%);
+  border-color: var(--scan-chip-border);
+  background: var(--scan-chip-background);
+  color: color-mix(in srgb, var(--accent-strong) 86%, var(--color-white) 14%);
   line-height: 1;
   text-align: center;
   white-space: nowrap;

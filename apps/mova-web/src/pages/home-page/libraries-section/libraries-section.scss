@@ -52,25 +52,21 @@
   transform: scaleX(1.04);
 }
 
-.libraries-section__viewport .scrollable-rail__track {
-  grid-auto-columns: clamp(240px, 23vw, 260px);
+.libraries-section__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 260px));
   gap: clamp(10px, 1.1vw, 13px);
-  padding: 1px 1px 4px;
+  align-items: stretch;
+  overflow: visible;
 }
 
-.libraries-section__viewport .library-spotlight {
-  box-shadow:
-    var(--panel-inset),
-    0 18px 42px color-mix(in srgb, #000 32%, transparent),
-    0 5px 14px color-mix(in srgb, #082033 38%, transparent);
+.libraries-section__grid .library-spotlight {
+  box-shadow: var(--library-spotlight-card-shadow);
 }
 
-.libraries-section__viewport .library-spotlight:hover {
+.libraries-section__grid .library-spotlight:hover {
   transform: translateY(-2px);
-  box-shadow:
-    var(--panel-inset),
-    0 22px 52px color-mix(in srgb, #000 38%, transparent),
-    0 8px 18px color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: var(--library-spotlight-card-hover-shadow);
 }
 
 .library-spotlight {
@@ -78,15 +74,11 @@
   overflow: hidden;
   display: grid;
   min-height: clamp(190px, 18.8vw, 204px);
-  border: 1px solid var(--floating-border);
+  border: 0;
   border-radius: 8px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, #fff 6%, transparent), transparent 34%),
-    var(--library-spotlight-surface);
-  box-shadow:
-    var(--panel-inset),
-    inset 0 -1px 0 color-mix(in srgb, #fff 3%, transparent),
-    var(--floating-shadow);
+  background: var(--library-spotlight-card-background);
+  background-clip: padding-box;
+  box-shadow: var(--floating-shadow);
   transition:
     transform 180ms ease,
     border-color 180ms ease,
@@ -103,11 +95,13 @@
 
 .library-spotlight:hover {
   transform: translateY(-3px);
-  border-color: var(--button-primary-border);
-  box-shadow:
-    var(--panel-inset),
-    0 18px 44px rgba(4, 8, 16, 0.42);
+  border-color: transparent;
+  box-shadow: var(--library-spotlight-card-hover-shadow);
   background: var(--library-spotlight-surface-strong);
+}
+
+.library-spotlight:focus-within {
+  box-shadow: var(--library-spotlight-focus-shadow);
 }
 
 .library-spotlight--loading {
@@ -115,10 +109,11 @@
 }
 
 .library-spotlight--scanning.library-spotlight--empty-artwork {
-  border-color: color-mix(in srgb, var(--accent) 24%, var(--floating-border));
+  border-color: transparent;
   background:
     radial-gradient(circle at 16% 12%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 42%),
     var(--library-spotlight-surface-strong);
+  box-shadow: var(--library-spotlight-scanning-shadow);
 }
 
 .library-spotlight--scanning.library-spotlight--empty-artwork .library-spotlight__backdrop {
@@ -132,23 +127,18 @@
 .library-spotlight__backdrop {
   position: absolute;
   inset: 0;
-  opacity: 0.82;
+  opacity: var(--library-spotlight-backdrop-opacity);
 }
 
 .library-spotlight__backdrop::after {
   content: '';
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(180deg, rgba(7, 12, 19, 0.04), rgba(5, 10, 16, 0.5) 54%, rgba(4, 8, 14, 0.9)),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 18%, transparent), transparent 44%),
-    radial-gradient(circle at 18% 8%, rgba(255, 255, 255, 0.08), transparent 34%);
+  background: var(--library-spotlight-overlay);
 }
 
 .library-spotlight--scanning .library-spotlight__backdrop::after {
-  background:
-    linear-gradient(180deg, rgba(5, 8, 12, 0.08), rgba(5, 8, 12, 0.56) 52%, rgba(5, 8, 12, 0.9)),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 16%, transparent), transparent 44%);
+  background: var(--library-spotlight-scanning-overlay);
 }
 
 .library-spotlight__poster,
@@ -185,8 +175,8 @@
   padding: 0;
   border: 0;
   border-radius: 999px;
-  background: color-mix(in srgb, #000 22%, transparent);
-  color: rgba(255, 255, 255, 0.82);
+  background: var(--library-spotlight-menu-background);
+  color: var(--library-spotlight-menu-color);
   cursor: pointer;
   transition:
     background 160ms ease,
@@ -197,10 +187,8 @@
 
 .library-spotlight__menu:hover,
 .library-spotlight__menu[aria-expanded='true'] {
-  background: color-mix(in srgb, var(--floating-surface-strong) 88%, rgba(0, 0, 0, 0.28));
-  box-shadow:
-    var(--panel-inset),
-    0 8px 18px color-mix(in srgb, #000 28%, transparent);
+  background: var(--library-spotlight-menu-hover-background);
+  box-shadow: var(--library-spotlight-menu-hover-shadow);
   color: var(--text);
   transform: translateY(-1px);
 }
@@ -216,7 +204,7 @@
   height: 3px;
   border-radius: 999px;
   background: currentColor;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.42);
+  box-shadow: var(--library-spotlight-menu-dot-shadow);
 }
 
 .library-spotlight__action-menu {
@@ -243,7 +231,7 @@
   border: 1px solid transparent;
   border-radius: 10px;
   background: transparent;
-  color: var(--text);
+  color: var(--library-spotlight-title-color);
   font-size: 0.82rem;
   font-weight: 760;
   text-align: left;
@@ -305,17 +293,17 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.62);
+  text-shadow: var(--library-spotlight-title-shadow);
 }
 
 .library-spotlight__resource-count {
   overflow: hidden;
-  color: color-mix(in srgb, #f4f7ff 76%, var(--text-muted));
+  color: var(--library-spotlight-resource-color);
   font-size: 0.74rem;
   font-weight: 720;
   line-height: 1.15;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.62);
+  text-shadow: var(--library-spotlight-resource-shadow);
   white-space: nowrap;
 }
 
@@ -350,9 +338,9 @@
 
 .library-spotlight__scan--failed {
   padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, rgba(255, 108, 108, 0.58) 82%, transparent);
+  border: 1px solid var(--library-spotlight-scan-failed-border);
   border-radius: 14px;
-  background: color-mix(in srgb, rgba(95, 22, 22, 0.72) 76%, transparent);
+  background: var(--library-spotlight-scan-failed-background);
 }
 
 .library-spotlight__scan-row {
@@ -365,15 +353,16 @@
 
 .library-spotlight__scan-label,
 .library-spotlight__scan-value {
-  color: var(--text-soft);
+  color: var(--library-spotlight-scan-text);
   font-size: 0.76rem;
   font-weight: 700;
+  text-shadow: var(--library-spotlight-scan-text-shadow);
 }
 
 .library-spotlight--scanning .library-spotlight__scan-label,
 .library-spotlight--scanning .library-spotlight__scan-value {
-  color: #f7f9ff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.72);
+  color: var(--library-spotlight-scan-active-color);
+  text-shadow: var(--library-spotlight-scan-active-shadow);
 }
 
 .library-spotlight__scan-label {
@@ -393,25 +382,23 @@
 
 .library-spotlight__scan--failed .library-spotlight__scan-label,
 .library-spotlight__scan--failed .library-spotlight__scan-value {
-  color: #ffd2d2;
+  color: var(--library-spotlight-scan-failed-color);
 }
 
 .library-spotlight__scan-track {
   overflow: hidden;
   height: 6px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--floating-surface) 78%, rgba(255, 255, 255, 0.08));
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28);
+  background: var(--library-spotlight-scan-track-background);
+  box-shadow: var(--library-spotlight-scan-track-shadow);
 }
 
 .library-spotlight__scan-fill {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background:
-    linear-gradient(90deg, rgba(255, 205, 135, 0.92), rgba(255, 240, 208, 0.95)),
-    linear-gradient(90deg, rgba(216, 166, 74, 0.42), rgba(255, 221, 156, 0.9));
-  box-shadow: 0 0 18px rgba(255, 214, 145, 0.28);
+  background: var(--library-spotlight-scan-fill);
+  box-shadow: var(--library-spotlight-scan-fill-shadow);
 }
 
 .library-spotlight__stat {
@@ -423,10 +410,10 @@
   height: 32px;
   padding: 0 6px;
   border: 0;
-  border-right: 1px solid color-mix(in srgb, var(--floating-border) 72%, transparent);
+  border-right: 1px solid var(--library-spotlight-stat-separator);
   border-radius: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--library-spotlight-stat-text);
   box-shadow: none;
   font-size: 0.62rem;
   font-weight: 760;
@@ -449,14 +436,16 @@
 }
 
 .library-spotlight__stat strong {
-  color: var(--text);
+  color: var(--library-spotlight-stat-text);
   font-size: 0.92rem;
   font-weight: 820;
   font-variant-numeric: tabular-nums;
+  text-shadow: var(--library-spotlight-stat-shadow);
 }
 
 .library-spotlight__stat span {
-  color: color-mix(in srgb, var(--text) 74%, var(--text-muted));
+  color: var(--library-spotlight-stat-label);
+  text-shadow: var(--library-spotlight-stat-shadow);
 }
 
 .library-spotlight__stat:last-child {
@@ -476,4 +465,10 @@
   border-color: color-mix(in srgb, var(--floating-border) 72%, transparent);
   background: transparent;
   color: transparent;
+}
+
+@media (max-width: 720px) {
+  .libraries-section__grid {
+    grid-template-columns: 1fr;
+  }
 }

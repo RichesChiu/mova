@@ -24,7 +24,7 @@
 
 .section-help__trigger:hover,
 .section-help__trigger:focus-visible {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--surface-soft-hover-strong);
   color: var(--text);
   transform: translateY(-1px);
   outline: none;
@@ -52,9 +52,7 @@
   border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
   border-radius: 14px;
   background: var(--tooltip-background);
-  box-shadow:
-    var(--panel-inset),
-    0 18px 36px rgba(0, 0, 0, 0.26);
+  box-shadow: var(--tooltip-shadow);
   color: var(--text-muted);
   font-size: 0.8rem;
   line-height: 1.5;

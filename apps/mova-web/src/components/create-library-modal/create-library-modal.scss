@@ -57,7 +57,7 @@
 
 .create-library-modal__close:hover:not(:disabled) {
   transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-soft-hover);
   color: var(--text);
 }
 

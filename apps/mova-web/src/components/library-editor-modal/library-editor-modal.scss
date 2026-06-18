@@ -50,13 +50,11 @@
   place-items: center;
   width: 68px;
   height: 68px;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
+  border: 1px solid var(--identity-badge-border);
   border-radius: 999px;
-  background:
-    radial-gradient(circle at 28% 22%, rgba(162, 197, 255, 0.32), transparent 42%),
-    linear-gradient(135deg, rgba(23, 31, 43, 0.92), rgba(12, 16, 24, 0.86));
+  background: var(--identity-badge-background);
   box-shadow: var(--panel-inset), var(--floating-shadow-strong);
-  color: #e8eeff;
+  color: var(--identity-badge-text);
   font-size: 1.35rem;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -83,7 +81,7 @@
 
 .library-editor-modal__close:hover {
   transform: translateY(-1px);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--surface-soft-hover);
   color: var(--text);
 }
 

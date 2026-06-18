@@ -26,25 +26,23 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  color: #ffffff;
+  color: var(--feedback-marker-text);
   font-size: 1.05rem;
   font-weight: 900;
   line-height: 1;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.34),
-    0 10px 20px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--feedback-marker-shadow);
 }
 
 .feedback-dialog--success .feedback-dialog__marker {
-  background: linear-gradient(180deg, #64c98a, #2f9258);
+  background: var(--feedback-success-marker-background);
 }
 
 .feedback-dialog--err .feedback-dialog__marker {
-  background: linear-gradient(180deg, #ff9aa5, #c95361);
+  background: var(--feedback-error-marker-background);
 }
 
 .feedback-dialog--warn .feedback-dialog__marker {
-  background: linear-gradient(180deg, #ffd676, #c98822);
+  background: var(--feedback-warning-marker-background);
 }
 
 .feedback-dialog__copy {
