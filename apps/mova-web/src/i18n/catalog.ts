@@ -29,9 +29,6 @@ const zhCN: Record<string, string> = {
   'Primary Admin': '高级管理员',
   Administrator: '管理员',
   Member: '成员',
-  'Stored locally on this browser for your interface preference.': '该偏好保存在当前浏览器本地。',
-  'Switch between the dark and light glass surfaces instantly.':
-    '在深色和浅色玻璃主题之间即时切换。',
   'Edit nickname': '编辑昵称',
   'Loading session…': '正在加载会话…',
   'Validating the current signed-in session.': '正在验证当前登录会话。',

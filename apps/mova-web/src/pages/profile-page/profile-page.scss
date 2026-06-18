@@ -29,7 +29,7 @@
 }
 
 .profile-page__row--setting {
-  align-items: flex-start;
+  align-items: center;
 }
 
 .profile-page__inline-editor {
@@ -83,13 +83,6 @@
 
 .profile-page__select {
   width: min(220px, 100%);
-}
-
-.profile-page__hint {
-  margin: 0;
-  color: var(--text-dim);
-  font-size: 0.78rem;
-  line-height: 1.5;
 }
 
 .profile-page__input {

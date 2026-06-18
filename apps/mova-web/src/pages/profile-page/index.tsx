@@ -218,9 +218,6 @@ export const ProfilePage = () => {
                         value={interfaceLanguage}
                       />
                     </div>
-                    <p className="profile-page__hint">
-                      {l('Stored locally on this browser for your interface preference.')}
-                    </p>
                   </div>
                 </div>
 
@@ -238,9 +235,6 @@ export const ProfilePage = () => {
                         value={themePreference}
                       />
                     </div>
-                    <p className="profile-page__hint">
-                      {l('Switch between the dark and light glass surfaces instantly.')}
-                    </p>
                   </div>
                 </div>
 
