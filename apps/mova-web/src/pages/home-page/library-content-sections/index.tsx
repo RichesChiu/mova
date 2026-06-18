@@ -4,7 +4,6 @@ import type { MediaItem, RecentlyAddedLibraryMediaItems } from '../../../api/typ
 import { useI18n } from '../../../i18n'
 import { mediaItemPrimaryPath } from '../../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../../lib/media-type-label'
-import { getLibraryArtworkSrc } from '../library-artwork'
 
 interface LibraryContentSectionsProps {
   errorMessage: string | null
@@ -48,7 +47,7 @@ const RecentlyAddedArtwork = ({
           src={src ?? undefined}
         />
       ) : (
-        <div className="recently-added-poster__placeholder">
+        <div className="recently-added-artwork__placeholder">
           <span>{placeholderLabel}</span>
         </div>
       )}
@@ -56,22 +55,25 @@ const RecentlyAddedArtwork = ({
   )
 }
 
-const RecentlyAddedPosterCard = ({ item }: { item: MediaItem }) => {
+const RecentlyAddedMediaCard = ({ item }: { item: MediaItem }) => {
   const { l } = useI18n()
   const title = item.title.trim() || item.source_title.trim() || l('Untitled')
   const mediaTypeLabel = formatLibraryMediaTypeLabel(item.media_type, l)
+  const metaLabel = item.year ? `${mediaTypeLabel} · ${item.year}` : mediaTypeLabel
+  const overview = item.overview?.trim() ?? ''
 
   return (
-    <Link className="recently-added-poster" to={mediaItemPrimaryPath(item)}>
+    <Link className="recently-added-card" to={mediaItemPrimaryPath(item)}>
       <RecentlyAddedArtwork
         alt={`${title} poster`}
-        className="recently-added-poster__artwork"
+        className="recently-added-card__artwork"
         placeholderLabel={mediaTypeLabel}
         src={item.poster_path}
       />
-      <div className="recently-added-poster__meta">
+      <div className="recently-added-card__body">
         <strong title={title}>{title}</strong>
-        <span>{item.year ? `${mediaTypeLabel} · ${item.year}` : mediaTypeLabel}</span>
+        <span>{metaLabel}</span>
+        {overview ? <p title={overview}>{overview}</p> : null}
       </div>
     </Link>
   )
@@ -80,21 +82,24 @@ const RecentlyAddedPosterCard = ({ item }: { item: MediaItem }) => {
 const RecentlyAddedRowSkeleton = ({ index }: { index: number }) => {
   return (
     <section aria-hidden="true" className="recently-added-row">
-      <div className="recently-added-row__summary">
-        <span className="recently-added-row__cover skeleton-shimmer" />
+      <div className="recently-added-row__header">
         <div className="recently-added-row__copy">
           <span className="recently-added-row__line recently-added-row__line--title skeleton-shimmer" />
-          <span className="recently-added-row__line recently-added-row__line--meta skeleton-shimmer" />
         </div>
+        <span className="recently-added-row__action recently-added-row__action--loading skeleton-shimmer" />
       </div>
-      <div className="recently-added-row__posters">
-        {RECENTLY_ADDED_POSTER_SKELETON_KEYS.slice(0, index === 0 ? 6 : 5).map((key) => (
-          <span className="recently-added-poster recently-added-poster--loading" key={key}>
-            <span className="recently-added-poster__artwork skeleton-shimmer" />
+      <div className="recently-added-row__cards">
+        {RECENTLY_ADDED_POSTER_SKELETON_KEYS.slice(0, index === 0 ? 6 : 4).map((key) => (
+          <span className="recently-added-card recently-added-card--loading" key={key}>
+            <span className="recently-added-card__artwork skeleton-shimmer" />
+            <span className="recently-added-card__body">
+              <span className="recently-added-card__line recently-added-card__line--title skeleton-shimmer" />
+              <span className="recently-added-card__line recently-added-card__line--meta skeleton-shimmer" />
+              <span className="recently-added-card__line recently-added-card__line--copy skeleton-shimmer" />
+            </span>
           </span>
         ))}
       </div>
-      <span className="button recently-added-row__action skeleton-shimmer" />
     </section>
   )
 }
@@ -133,39 +138,27 @@ export const LibraryContentSections = ({
 
       {groups.length > 0 ? (
         <div className="recently-added-list">
-          {groups.map((group) => {
-            const libraryArtworkSrc = getLibraryArtworkSrc(group.items)
-
-            return (
-              <section className="recently-added-row" key={group.library.id}>
-                <div className="recently-added-row__summary">
-                  <RecentlyAddedArtwork
-                    alt={`${group.library.name} artwork`}
-                    className="recently-added-row__cover"
-                    placeholderLabel={l('Library')}
-                    src={libraryArtworkSrc}
-                  />
-                  <div className="recently-added-row__copy">
-                    <strong>{group.library.name}</strong>
-                    <span>{l('{{count}} recently added', { count: group.items.length })}</span>
-                  </div>
+          {groups.map((group) => (
+            <section className="recently-added-row" key={group.library.id}>
+              <div className="recently-added-row__header">
+                <div className="recently-added-row__copy">
+                  <strong>{group.library.name}</strong>
                 </div>
-
-                <div className="recently-added-row__posters">
-                  {group.items.map((item) => (
-                    <RecentlyAddedPosterCard item={item} key={item.id} />
-                  ))}
-                </div>
-
                 <Link
-                  className="button recently-added-row__action"
+                  className="recently-added-row__action"
                   to={`/libraries/${group.library.id}`}
                 >
                   {l('View Library')}
                 </Link>
-              </section>
-            )
-          })}
+              </div>
+
+              <div className="recently-added-row__cards">
+                {group.items.map((item) => (
+                  <RecentlyAddedMediaCard item={item} key={item.id} />
+                ))}
+              </div>
+            </section>
+          ))}
         </div>
       ) : null}
     </section>

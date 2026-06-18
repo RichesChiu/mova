@@ -27,7 +27,6 @@ const DEFAULT_MEDIA_ITEMS_PAGE_SIZE: i64 = 50;
 const MAX_MEDIA_ITEMS_PAGE_SIZE: i64 = 100;
 const DEFAULT_RECENTLY_ADDED_LIBRARY_LIMIT: i64 = 3;
 const DEFAULT_RECENTLY_ADDED_ITEM_LIMIT: i64 = 8;
-const MAX_RECENTLY_ADDED_LIBRARY_LIMIT: i64 = 12;
 const MAX_RECENTLY_ADDED_ITEM_LIMIT: i64 = 12;
 const DEFAULT_GLOBAL_SEARCH_LIMIT: i64 = 12;
 const MAX_GLOBAL_SEARCH_LIMIT: i64 = 30;
@@ -195,13 +194,13 @@ pub async fn list_recently_added_media_items_by_library(
     let library_limit = normalize_recently_added_limit(
         input.library_limit,
         DEFAULT_RECENTLY_ADDED_LIBRARY_LIMIT,
-        MAX_RECENTLY_ADDED_LIBRARY_LIMIT,
+        None,
         "library_limit",
     )?;
     let item_limit = normalize_recently_added_limit(
         input.item_limit,
         DEFAULT_RECENTLY_ADDED_ITEM_LIMIT,
-        MAX_RECENTLY_ADDED_ITEM_LIMIT,
+        Some(MAX_RECENTLY_ADDED_ITEM_LIMIT),
         "item_limit",
     )?;
     let visible_library_ids = input.visible_library_ids;
@@ -1140,7 +1139,7 @@ fn normalize_page_size(page_size: Option<i64>) -> ApplicationResult<i64> {
 fn normalize_recently_added_limit(
     limit: Option<i64>,
     default_value: i64,
-    max_value: i64,
+    max_value: Option<i64>,
     field_name: &str,
 ) -> ApplicationResult<i64> {
     match limit.unwrap_or(default_value) {
@@ -1148,8 +1147,13 @@ fn normalize_recently_added_limit(
             "{} must be a positive integer",
             field_name
         ))),
-        value if value > max_value => Ok(max_value),
-        value => Ok(value),
+        value => {
+            if let Some(max_value) = max_value {
+                return Ok(value.min(max_value));
+            }
+
+            Ok(value)
+        }
     }
 }
 
@@ -1209,7 +1213,7 @@ mod tests {
     #[test]
     fn normalize_recently_added_limit_rejects_non_positive_values() {
         assert!(matches!(
-            normalize_recently_added_limit(Some(0), 3, 12, "item_limit"),
+            normalize_recently_added_limit(Some(0), 3, Some(12), "item_limit"),
             Err(ApplicationError::Validation(message))
                 if message.contains("positive integer")
         ));
@@ -1218,8 +1222,16 @@ mod tests {
     #[test]
     fn normalize_recently_added_limit_caps_large_values() {
         assert_eq!(
-            normalize_recently_added_limit(Some(24), 3, 12, "item_limit").unwrap(),
+            normalize_recently_added_limit(Some(24), 3, Some(12), "item_limit").unwrap(),
             12
+        );
+    }
+
+    #[test]
+    fn normalize_recently_added_limit_allows_uncapped_library_groups() {
+        assert_eq!(
+            normalize_recently_added_limit(Some(24), 3, None, "library_limit").unwrap(),
+            24
         );
     }
 

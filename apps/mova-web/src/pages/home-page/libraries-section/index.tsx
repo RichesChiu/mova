@@ -27,7 +27,6 @@ interface LibrariesSectionProps {
 
 const LIBRARY_SPOTLIGHT_SKELETON_COUNT = 3
 const LIBRARY_SPOTLIGHT_SKELETON_KEYS = ['library-a', 'library-b', 'library-c'] as const
-const HOME_LIBRARY_PREVIEW_LIMIT = 3
 
 const LibrarySpotlightSkeleton = () => (
   <div aria-hidden="true" className="library-spotlight library-spotlight--loading">
@@ -150,7 +149,6 @@ const LibrariesSectionBody = ({
 }: LibrariesSectionProps) => {
   const { formatNumber, l } = useI18n()
   const [openMenuLibraryId, setOpenMenuLibraryId] = useState<number | null>(null)
-  const visibleLibraryModules = libraryModules.slice(0, HOME_LIBRARY_PREVIEW_LIMIT)
 
   useEffect(() => {
     if (openMenuLibraryId === null) {
@@ -217,7 +215,7 @@ const LibrariesSectionBody = ({
             <p className="callout callout--danger">{actionErrorMessage}</p>
           ) : null}
           <div className="libraries-section__grid">
-            {visibleLibraryModules.map(
+            {libraryModules.map(
               ({ detail, detailError, detailLoading, library, recentItems, scanRuntime }) => {
                 const mediaCount = detail?.media_count ?? 0
                 const movieCount = detail?.movie_count ?? 0

@@ -429,6 +429,15 @@
     var(--panel-inset),
     0 14px 34px color-mix(in srgb, var(--color-black) 22%, transparent),
     0 3px 12px color-mix(in srgb, var(--mova-color-hex-0a2033) 24%, transparent);
+  --recently-added-card-border: color-mix(in srgb, var(--floating-border) 76%, transparent);
+  --recently-added-card-background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 4%, transparent), transparent 54%),
+    color-mix(in srgb, var(--floating-surface-strong) 72%, transparent);
+  --recently-added-card-shadow: var(--panel-inset);
+  --recently-added-card-hover-border: color-mix(in srgb, var(--button-primary-border) 70%, transparent);
+  --recently-added-card-hover-background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 6%, transparent), transparent 58%),
+    color-mix(in srgb, var(--floating-surface-strong) 88%, transparent);
   --recently-added-artwork-border: color-mix(in srgb, var(--floating-border) 80%, transparent);
   --recently-added-artwork-background:
     linear-gradient(180deg, color-mix(in srgb, var(--color-white) 5%, transparent), transparent),
@@ -814,6 +823,17 @@
     var(--panel-inset),
     0 14px 34px var(--mova-color-rgba-125-150-190-a12),
     0 3px 12px var(--mova-color-rgba-112-139-181-a08);
+  --recently-added-card-border: color-mix(in srgb, var(--floating-border) 84%, var(--mova-color-rgba-141-161-194-a16));
+  --recently-added-card-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a54), transparent 58%),
+    var(--mova-color-rgba-245-249-255-a56);
+  --recently-added-card-shadow:
+    var(--panel-inset),
+    0 8px 18px var(--mova-color-rgba-115-142-184-a1);
+  --recently-added-card-hover-border: color-mix(in srgb, var(--button-primary-border) 76%, var(--mova-color-rgba-141-161-194-a24));
+  --recently-added-card-hover-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a72), transparent 58%),
+    var(--mova-color-rgba-245-249-255-a66);
   --recently-added-artwork-border: var(--mova-color-rgba-255-255-255-a68);
   --recently-added-artwork-background:
     linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a54), var(--mova-color-rgba-224-236-252-a36)),

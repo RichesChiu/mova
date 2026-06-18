@@ -21,7 +21,7 @@
   display: grid;
   gap: 6px;
   padding: 9px 11px;
-  border: 1px solid var(--scan-panel-border);
+  border: 1px solid color-mix(in srgb, var(--floating-border) 78%, transparent);
   border-radius: 8px;
   background: var(--scan-panel-background);
 }
@@ -103,15 +103,11 @@
 }
 
 .library-detail-section__grid {
-  --library-detail-tile-width: clamp(128px, 8.5vw, 158px);
+  --library-detail-tile-min: 124px;
 
   contain: layout style;
   display: grid;
-  grid-template-columns: repeat(
-    auto-fill,
-    minmax(var(--library-detail-tile-width), var(--library-detail-tile-width))
-  );
-  justify-content: start;
+  grid-template-columns: minmax(var(--library-detail-tile-min), 1fr);
   gap: clamp(14px, 1.25vw, 18px);
 }
 
@@ -219,10 +215,6 @@
   cursor: progress;
 }
 
-.library-detail-tile--scanning .library-detail-tile__poster {
-  border-color: var(--scan-panel-border);
-}
-
 .library-detail-tile__sync {
   position: absolute;
   right: 8px;
@@ -232,7 +224,7 @@
   display: grid;
   gap: 5px;
   padding: 7px;
-  border: 1px solid var(--media-tile-sync-border);
+  border: 0;
   border-radius: 8px;
   background: var(--media-tile-sync-background);
   backdrop-filter: blur(12px) saturate(130%);
@@ -302,10 +294,44 @@
   padding: 18px;
 }
 
-@media (max-width: 720px) {
+@media (min-width: 520px) {
   .library-detail-section__grid {
-    --library-detail-tile-width: minmax(118px, 1fr);
+    grid-template-columns: repeat(2, minmax(var(--library-detail-tile-min), 1fr));
+  }
+}
 
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (min-width: 760px) {
+  .library-detail-section__grid {
+    grid-template-columns: repeat(3, minmax(var(--library-detail-tile-min), 1fr));
+  }
+}
+
+@media (min-width: 980px) {
+  .library-detail-section__grid {
+    grid-template-columns: repeat(4, minmax(var(--library-detail-tile-min), 1fr));
+  }
+}
+
+@media (min-width: 1200px) {
+  .library-detail-section__grid {
+    grid-template-columns: repeat(5, minmax(var(--library-detail-tile-min), 1fr));
+  }
+}
+
+@media (min-width: 1420px) {
+  .library-detail-section__grid {
+    grid-template-columns: repeat(6, minmax(var(--library-detail-tile-min), 1fr));
+  }
+}
+
+@media (min-width: 1640px) {
+  .library-detail-section__grid {
+    grid-template-columns: repeat(7, minmax(var(--library-detail-tile-min), 1fr));
+  }
+}
+
+@media (min-width: 1860px) {
+  .library-detail-section__grid {
+    grid-template-columns: repeat(8, minmax(var(--library-detail-tile-min), 1fr));
   }
 }

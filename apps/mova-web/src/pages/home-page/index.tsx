@@ -5,6 +5,7 @@ import {
   deleteLibrary,
   getLibrary,
   getMediaItemEpisodeOutline,
+  listLibraryMediaItems,
   listContinueWatching,
   listRecentlyAddedByLibrary,
   scanLibrary,
@@ -57,6 +58,9 @@ const isEpisodeContextEntry = (entry: {
   season_number: number | null
   episode_number: number | null
 }) => typeof entry.season_number === 'number' && typeof entry.episode_number === 'number'
+
+const RECENTLY_ADDED_ITEM_LIMIT = 6
+const HOME_LIBRARY_ARTWORK_ITEM_LIMIT = 12
 
 export const HomePage = () => {
   const { l } = useI18n()
@@ -164,9 +168,11 @@ export const HomePage = () => {
     queryKey: ['continue-watching', 20],
     queryFn: () => listContinueWatching(20),
   })
+  const recentlyAddedLibraryLimit = Math.max(libraries.length, 1)
   const recentlyAddedQuery = useQuery({
-    queryKey: ['recently-added-by-library', 3, 8],
-    queryFn: () => listRecentlyAddedByLibrary(3, 8),
+    enabled: !librariesLoading,
+    queryKey: ['recently-added-by-library', recentlyAddedLibraryLimit, RECENTLY_ADDED_ITEM_LIMIT],
+    queryFn: () => listRecentlyAddedByLibrary(recentlyAddedLibraryLimit, RECENTLY_ADDED_ITEM_LIMIT),
   })
   const continueWatchingItems = continueWatchingQuery.data ?? []
   const recentlyAddedGroups = recentlyAddedQuery.data ?? []
@@ -203,6 +209,17 @@ export const HomePage = () => {
       queryFn: () => getLibrary(library.id),
     })),
   })
+  const libraryArtworkQueries = useQueries({
+    queries: libraries.map((library) => ({
+      queryKey: ['library-media', library.id, 'home-artwork', HOME_LIBRARY_ARTWORK_ITEM_LIMIT],
+      queryFn: () =>
+        listLibraryMediaItems(library.id, {
+          page: 1,
+          pageSize: HOME_LIBRARY_ARTWORK_ITEM_LIMIT,
+        }),
+      staleTime: 60_000,
+    })),
+  })
   // Build a page-level view model once and keep the three home modules purely presentational.
   const libraryModules: HomeLibraryModuleData[] = libraries.map((library, index) => ({
     detail: libraryDetailQueries[index]?.data ?? null,
@@ -212,7 +229,8 @@ export const HomePage = () => {
         : null,
     detailLoading: libraryDetailQueries[index]?.isLoading ?? false,
     library,
-    recentItems: recentlyAddedByLibraryId.get(library.id) ?? [],
+    recentItems:
+      recentlyAddedByLibraryId.get(library.id) ?? libraryArtworkQueries[index]?.data?.items ?? [],
     scanRuntime: getLibraryScanRuntime(scanRuntimeByLibrary, library.id),
   }))
   const continueWatchingCards: ContinueWatchingCardData[] = continueWatchingItems.map((entry) => {

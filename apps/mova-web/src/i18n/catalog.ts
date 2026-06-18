@@ -108,7 +108,6 @@ const zhCN: Record<string, string> = {
   'Recently Added': '最近添加',
   'Loading recently added media': '正在加载最近添加',
   'No recently added media yet.': '还没有最近添加内容。',
-  '{{count}} recently added': '最近 {{count}} 个',
   'View Library': '查看媒体库',
   'About {{name}}': '关于 {{name}}',
   'No items yet.': '还没有内容。',
