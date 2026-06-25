@@ -648,7 +648,7 @@ export const SettingsPage = () => {
 
                           <div className="settings-library-card__actions">
                             <button
-                              className="button"
+                              className="button settings-library-card__scan-action"
                               disabled={isTriggeringScan}
                               onClick={() => scanMutation.mutate(library.id)}
                               type="button"

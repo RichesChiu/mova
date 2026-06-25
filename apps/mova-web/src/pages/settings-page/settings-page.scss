@@ -242,6 +242,20 @@
   white-space: nowrap;
 }
 
+.settings-library-card__scan-action {
+  border-color: var(--settings-library-scan-action-border);
+  background: var(--settings-library-scan-action-background);
+  color: var(--settings-library-scan-action-text);
+  box-shadow: var(--settings-library-scan-action-shadow);
+}
+
+.settings-library-card__scan-action:not(:disabled):hover {
+  border-color: var(--settings-library-scan-action-hover-border);
+  background: var(--settings-library-scan-action-hover-background);
+  color: var(--settings-library-scan-action-hover-text);
+  box-shadow: var(--settings-library-scan-action-hover-shadow);
+}
+
 .settings-library-card__delete {
   min-width: 0;
 }
@@ -264,9 +278,9 @@
   margin: 0;
   padding: 0;
   gap: 14px;
-  grid-template-columns: repeat(auto-fill, minmax(min(292px, 100%), 320px));
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
-  justify-content: start;
+  justify-content: stretch;
 }
 
 .settings-user-card {
@@ -595,5 +609,23 @@
   .settings-user-card__identity-meta {
     width: 100%;
     justify-content: flex-start;
+  }
+}
+
+@media (min-width: 680px) {
+  .settings-library-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1040px) {
+  .settings-library-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .settings-library-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
