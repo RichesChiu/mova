@@ -7,13 +7,44 @@
 }
 
 .login-card {
-  width: min(100%, 480px);
+  width: min(100%, 560px);
   display: grid;
   gap: 16px;
-  padding: 28px;
+  padding: 30px;
   border: 1px solid var(--panel-border);
   border-radius: 28px;
   background: var(--panel-background-soft);
   backdrop-filter: blur(30px) saturate(140%);
   box-shadow: var(--panel-shadow);
+}
+
+.login-card h2 {
+  font-size: 1.62rem;
+  line-height: 1.14;
+  white-space: nowrap;
+}
+
+@media (max-width: 620px) {
+  .login-card {
+    width: min(100%, 480px);
+    padding: 24px;
+    border-radius: 24px;
+  }
+
+  .login-card h2 {
+    font-size: 1.45rem;
+    line-height: 1.18;
+    white-space: normal;
+    text-wrap: balance;
+  }
+}
+
+@media (max-width: 420px) {
+  .login-card {
+    padding: 22px;
+  }
+
+  .login-card h2 {
+    font-size: 1.32rem;
+  }
 }
