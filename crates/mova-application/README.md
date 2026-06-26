@@ -21,6 +21,7 @@
 
 - Axum 路由和 HTTP 协议
 - Cookie / session header 等传输层细节
+- 原生客户端 access/refresh token 的 HTTP 传输细节
 - 原始 SQL
 
 ## 2. 入口文件
@@ -95,8 +96,13 @@
 - `bootstrap_required`
 - `bootstrap_admin`
 - `login`
+- `login_native_client`
+- `refresh_native_client_session`
 - `logout`
+- `logout_native_client_access_token`
+- `logout_native_client_refresh_token`
 - `get_user_by_session_token`
+- `get_user_by_native_access_token`
 - `update_own_profile`
 - `change_own_password`
 - `create_user`

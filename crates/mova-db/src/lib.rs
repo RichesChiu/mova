@@ -50,12 +50,17 @@ pub use scan_jobs::{
     mark_scan_job_running, update_scan_job_progress, CreateScanJobParams, EnqueueScanJobResult,
 };
 pub use users::{
-    count_admin_users, count_enabled_admin_users, create_session, create_user, delete_session,
-    delete_sessions_for_user, delete_user, get_primary_admin_user_id, get_user,
-    get_user_authentication_record, get_user_by_session_token, get_user_by_username,
-    list_library_ids_for_user, list_users, replace_user_library_access, update_user,
-    update_user_nickname, update_user_password, CreateSessionParams, CreateUserParams,
-    UpdateUserParams, UserAuthenticationRecord,
+    count_admin_users, count_enabled_admin_users, create_native_client_session, create_session,
+    create_user, delete_session, delete_sessions_for_user, delete_user,
+    get_native_client_session_by_refresh_token_hash, get_primary_admin_user_id,
+    get_used_native_refresh_token, get_user, get_user_authentication_record,
+    get_user_by_native_access_token_hash, get_user_by_session_token, get_user_by_username,
+    list_library_ids_for_user, list_users, replace_user_library_access,
+    revoke_native_client_session, revoke_native_client_session_by_refresh_token_hash,
+    revoke_native_client_sessions_for_user, rotate_native_client_session_tokens,
+    touch_native_client_session, update_user, update_user_nickname, update_user_password,
+    CreateNativeClientSessionParams, CreateSessionParams, CreateUserParams,
+    NativeClientSessionUser, UpdateUserParams, UsedNativeRefreshToken, UserAuthenticationRecord,
 };
 pub use watch_history::{
     create_watch_history, get_latest_open_watch_history, list_watch_history, update_watch_history,

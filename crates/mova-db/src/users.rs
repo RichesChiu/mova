@@ -33,6 +33,33 @@ pub struct CreateSessionParams {
 }
 
 #[derive(Debug, Clone)]
+pub struct CreateNativeClientSessionParams {
+    pub user_id: i64,
+    pub access_token_hash: String,
+    pub refresh_token_hash: String,
+    pub access_token_expires_at: OffsetDateTime,
+    pub refresh_token_expires_at: OffsetDateTime,
+    pub user_agent: Option<String>,
+    pub device_name: Option<String>,
+    pub client_type: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeClientSessionUser {
+    pub session_id: i64,
+    pub user: UserProfile,
+    pub access_token_expires_at: OffsetDateTime,
+    pub refresh_token_expires_at: OffsetDateTime,
+    pub revoked_at: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UsedNativeRefreshToken {
+    pub session_id: i64,
+    pub user_id: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct UserAuthenticationRecord {
     pub user: User,
     pub password_hash: String,
@@ -473,6 +500,221 @@ pub async fn delete_sessions_for_user(pool: &PgPool, user_id: i64) -> Result<()>
     Ok(())
 }
 
+pub async fn create_native_client_session(
+    pool: &PgPool,
+    params: CreateNativeClientSessionParams,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        insert into native_client_sessions (
+            user_id,
+            access_token_hash,
+            refresh_token_hash,
+            access_token_expires_at,
+            refresh_token_expires_at,
+            user_agent,
+            device_name,
+            client_type
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#,
+    )
+    .bind(params.user_id)
+    .bind(params.access_token_hash)
+    .bind(params.refresh_token_hash)
+    .bind(params.access_token_expires_at)
+    .bind(params.refresh_token_expires_at)
+    .bind(params.user_agent)
+    .bind(params.device_name)
+    .bind(params.client_type)
+    .execute(pool)
+    .await
+    .context("failed to create native client session")?;
+
+    Ok(())
+}
+
+pub async fn get_user_by_native_access_token_hash(
+    pool: &PgPool,
+    token_hash: &str,
+) -> Result<Option<NativeClientSessionUser>> {
+    let query = native_client_session_user_select_sql("s.access_token_hash = $1");
+    let row = sqlx::query(&query)
+        .bind(token_hash)
+        .fetch_optional(pool)
+        .await
+        .context("failed to get native client session by access token hash")?;
+
+    map_native_client_session_user(pool, row).await
+}
+
+pub async fn get_native_client_session_by_refresh_token_hash(
+    pool: &PgPool,
+    token_hash: &str,
+) -> Result<Option<NativeClientSessionUser>> {
+    let query = native_client_session_user_select_sql("s.refresh_token_hash = $1");
+    let row = sqlx::query(&query)
+        .bind(token_hash)
+        .fetch_optional(pool)
+        .await
+        .context("failed to get native client session by refresh token hash")?;
+
+    map_native_client_session_user(pool, row).await
+}
+
+pub async fn get_used_native_refresh_token(
+    pool: &PgPool,
+    token_hash: &str,
+) -> Result<Option<UsedNativeRefreshToken>> {
+    let row = sqlx::query(
+        r#"
+        select session_id, user_id
+        from native_client_used_refresh_tokens
+        where token_hash = $1
+        "#,
+    )
+    .bind(token_hash)
+    .fetch_optional(pool)
+    .await
+    .context("failed to get used native refresh token")?;
+
+    Ok(row.map(|row| UsedNativeRefreshToken {
+        session_id: row.get("session_id"),
+        user_id: row.get("user_id"),
+    }))
+}
+
+pub async fn touch_native_client_session(pool: &PgPool, session_id: i64) -> Result<()> {
+    sqlx::query(
+        r#"
+        update native_client_sessions
+        set last_used_at = now(),
+            updated_at = now()
+        where id = $1
+        "#,
+    )
+    .bind(session_id)
+    .execute(pool)
+    .await
+    .context("failed to touch native client session")?;
+
+    Ok(())
+}
+
+pub async fn rotate_native_client_session_tokens(
+    pool: &PgPool,
+    session_id: i64,
+    old_refresh_token_hash: &str,
+    new_access_token_hash: &str,
+    new_refresh_token_hash: &str,
+    access_token_expires_at: OffsetDateTime,
+    refresh_token_expires_at: OffsetDateTime,
+) -> Result<bool> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to begin native token rotation")?;
+
+    sqlx::query(
+        r#"
+        insert into native_client_used_refresh_tokens (token_hash, session_id, user_id)
+        select $1, id, user_id
+        from native_client_sessions
+        where id = $2
+        on conflict (token_hash) do nothing
+        "#,
+    )
+    .bind(old_refresh_token_hash)
+    .bind(session_id)
+    .execute(&mut *tx)
+    .await
+    .context("failed to record used native refresh token")?;
+
+    let result = sqlx::query(
+        r#"
+        update native_client_sessions
+        set access_token_hash = $3,
+            refresh_token_hash = $4,
+            access_token_expires_at = $5,
+            refresh_token_expires_at = $6,
+            last_used_at = now(),
+            updated_at = now()
+        where id = $1
+          and refresh_token_hash = $2
+          and revoked_at is null
+        "#,
+    )
+    .bind(session_id)
+    .bind(old_refresh_token_hash)
+    .bind(new_access_token_hash)
+    .bind(new_refresh_token_hash)
+    .bind(access_token_expires_at)
+    .bind(refresh_token_expires_at)
+    .execute(&mut *tx)
+    .await
+    .context("failed to rotate native client session tokens")?;
+
+    tx.commit()
+        .await
+        .context("failed to commit native token rotation")?;
+
+    Ok(result.rows_affected() == 1)
+}
+
+pub async fn revoke_native_client_session(pool: &PgPool, session_id: i64) -> Result<()> {
+    sqlx::query(
+        r#"
+        update native_client_sessions
+        set revoked_at = coalesce(revoked_at, now()),
+            updated_at = now()
+        where id = $1
+        "#,
+    )
+    .bind(session_id)
+    .execute(pool)
+    .await
+    .context("failed to revoke native client session")?;
+
+    Ok(())
+}
+
+pub async fn revoke_native_client_session_by_refresh_token_hash(
+    pool: &PgPool,
+    token_hash: &str,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        update native_client_sessions
+        set revoked_at = coalesce(revoked_at, now()),
+            updated_at = now()
+        where refresh_token_hash = $1
+        "#,
+    )
+    .bind(token_hash)
+    .execute(pool)
+    .await
+    .context("failed to revoke native client session by refresh token hash")?;
+
+    Ok(())
+}
+
+pub async fn revoke_native_client_sessions_for_user(pool: &PgPool, user_id: i64) -> Result<()> {
+    sqlx::query(
+        r#"
+        update native_client_sessions
+        set revoked_at = coalesce(revoked_at, now()),
+            updated_at = now()
+        where user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .context("failed to revoke native client sessions for user")?;
+
+    Ok(())
+}
+
 pub async fn delete_user(pool: &PgPool, user_id: i64) -> Result<bool> {
     let result = sqlx::query(
         r#"
@@ -525,6 +767,57 @@ fn map_user_row(row: PgRow) -> User {
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
+}
+
+fn native_client_session_user_select_sql(predicate: &str) -> String {
+    format!(
+        r#"
+        select
+            s.id as session_id,
+            s.access_token_expires_at,
+            s.refresh_token_expires_at,
+            s.revoked_at,
+            u.id,
+            u.username,
+            u.nickname,
+            u.role,
+            u.is_enabled,
+            u.created_at,
+            u.updated_at
+        from native_client_sessions s
+        join users u on u.id = s.user_id
+        where {}
+        "#,
+        predicate
+    )
+}
+
+async fn map_native_client_session_user(
+    pool: &PgPool,
+    row: Option<PgRow>,
+) -> Result<Option<NativeClientSessionUser>> {
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    let session_id = row.get("session_id");
+    let access_token_expires_at = row.get("access_token_expires_at");
+    let refresh_token_expires_at = row.get("refresh_token_expires_at");
+    let revoked_at = row.get("revoked_at");
+    let user = map_user_row(row);
+    let library_ids = list_library_ids_for_user(pool, user.id).await?;
+
+    Ok(Some(NativeClientSessionUser {
+        session_id,
+        user: UserProfile {
+            user,
+            is_primary_admin: false,
+            library_ids,
+        },
+        access_token_expires_at,
+        refresh_token_expires_at,
+        revoked_at,
+    }))
 }
 
 fn parse_user_role(value: &str) -> UserRole {

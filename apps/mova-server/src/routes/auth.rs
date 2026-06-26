@@ -16,6 +16,10 @@ pub fn router() -> Router<crate::state::AppState> {
             "/auth/token-login",
             axum::routing::post(handlers::auth::token_login),
         )
+        .route(
+            "/auth/refresh",
+            axum::routing::post(handlers::auth::refresh_token),
+        )
         .route("/auth/logout", axum::routing::post(handlers::auth::logout))
         .route(
             "/auth/me",

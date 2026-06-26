@@ -22,6 +22,8 @@ The project aims to keep the media-server experience simple and dependable: moun
 
 The Web home page is library-first: it shows continue watching, a short `Your Libraries` summary, and recently added media grouped by every visible library that has new items from the server-side recently-added query rather than a front-end merge of per-library title-sorted lists. Dashboard routes share a left navigation rail that stays anchored to the viewport, with the profile entry at the lower edge and a small lower-left expand handle when collapsed. The rail's recent-watching entry opens the real watch-history page backed by the server watch-history API.
 
+Native clients authenticate with opaque short-lived access tokens plus rotating refresh tokens. Business APIs only accept the access token in `Authorization: Bearer ...`; refresh tokens are stored server-side as hashes, can be revoked per device session, and are used only through `/api/auth/refresh`.
+
 For UI review on machines with very small local libraries, the Web app also has an explicit development-only mock API switch. It is documented in [apps/mova-web/README.md](apps/mova-web/README.md) and is off by default, so real API errors are not hidden by mock data.
 
 Series grouping is intentionally filename-first. Use filenames such as `Show.Name.S01E01.mkv`, `Show S01E01 - Episode 1.mkv`, `Show - S01E01.mkv`, `Show_S01E01.mkv`, or `ShowNameS01E01.mkv`; Mova does not infer series identity from arbitrary folder names. When an explicit season folder sits under a clean series folder such as `Study Group (2025)/Season 01/Study Group S01E01.mkv`, the folder year is used only as a metadata search hint. Before TMDB enrichment succeeds, cards use the locally analyzed movie or series title; once TMDB succeeds, the TMDB title replaces the local title. Movie files that resolve to the same TMDB movie are grouped into one detail page as multiple local versions, even when their local folders or punctuation differ; when a movie file name and a clean CJK parent folder disagree, the CJK folder name is only used as a fallback TMDB search candidate. Files without season/episode identity are checked against TMDB movie and TV results; TV matches without local season/episode identity, failed matches, and malformed filenames are stored with explicit metadata review status and stay in the Other section. If TMDB is disabled, metadata is marked as skipped and local movie/series detection still remains visible.
@@ -84,7 +86,7 @@ After startup, Mova creates two runtime folders:
 - `data/postgres/`: PostgreSQL database files for libraries, users, metadata, and playback progress.
 - `data/cache/`: cached artwork and generated media assets. Deleting a library also removes its unshared TMDB artwork cache files.
 
-During the current pre-MVP development stage, database schema changes can require rebuilding `data/postgres/`. The current schema stores local analysis versioning and keeps TMDB/provider text fields unbounded in `migrations/0001_init.sql`, so existing development databases should be rebuilt after pulling this change.
+During the current pre-MVP development stage, database schema changes can require rebuilding `data/postgres/`. The current schema stores local analysis versioning, native access/refresh token device sessions, and keeps TMDB/provider text fields unbounded in `migrations/0001_init.sql`, so existing development databases should be rebuilt after pulling this change.
 
 Your media folder is mounted read-only. Mova does not modify your original media files.
 

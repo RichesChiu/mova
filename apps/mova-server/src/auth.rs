@@ -5,18 +5,33 @@ use mova_domain::{Library, MediaFile, MediaItem, Season, UserProfile};
 use time::{Duration, OffsetDateTime};
 
 pub const SESSION_TTL: Duration = Duration::days(30);
+pub const NATIVE_ACCESS_TOKEN_TTL: Duration = Duration::hours(2);
+pub const NATIVE_REFRESH_TOKEN_TTL: Duration = Duration::days(30);
 const SESSION_COOKIE_NAME: &str = "mova_session";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthCredential {
+    Bearer(String),
+    SessionCookie(String),
+}
 
 pub async fn require_user(
     state: &AppState,
     headers: &HeaderMap,
     jar: &CookieJar,
 ) -> Result<UserProfile, ApiError> {
-    let token = request_auth_token(headers, jar)?;
-
-    mova_application::get_user_by_session_token(&state.db, &token)
-        .await
-        .map_err(ApiError::from)
+    match request_auth_credential(headers, jar)? {
+        AuthCredential::Bearer(token) => {
+            mova_application::get_user_by_native_access_token(&state.db, &token)
+                .await
+                .map_err(ApiError::from)
+        }
+        AuthCredential::SessionCookie(token) => {
+            mova_application::get_user_by_session_token(&state.db, &token)
+                .await
+                .map_err(ApiError::from)
+        }
+    }
 }
 
 pub async fn require_admin(
@@ -40,9 +55,20 @@ pub fn clear_session_cookie(jar: CookieJar) -> CookieJar {
     jar.remove(Cookie::build((SESSION_COOKIE_NAME, "")).path("/").build())
 }
 
+#[cfg(test)]
 pub fn request_auth_token(headers: &HeaderMap, jar: &CookieJar) -> Result<String, ApiError> {
+    match request_auth_credential(headers, jar)? {
+        AuthCredential::Bearer(token) | AuthCredential::SessionCookie(token) => Ok(token),
+    }
+}
+
+pub fn request_auth_credential(
+    headers: &HeaderMap,
+    jar: &CookieJar,
+) -> Result<AuthCredential, ApiError> {
     bearer_token(headers)
-        .or_else(|| session_token(jar))
+        .map(AuthCredential::Bearer)
+        .or_else(|| session_token(jar).map(AuthCredential::SessionCookie))
         .ok_or_else(|| ApiError::Unauthorized("authentication required".to_string()))
 }
 

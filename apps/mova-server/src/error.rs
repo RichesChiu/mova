@@ -1,4 +1,4 @@
-use crate::response::ApiEnvelope;
+use crate::response::{ApiCode, ApiEnvelope};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -11,10 +11,17 @@ pub enum ApiError {
     BadRequest(String),
     Conflict(String),
     Unauthorized(String),
+    UnauthorizedCode {
+        code: mova_application::AuthTokenErrorCode,
+        message: String,
+    },
     Forbidden(String),
     NotFound(String),
     ServiceUnavailable(String),
-    RangeNotSatisfiable { message: String, file_size: u64 },
+    RangeNotSatisfiable {
+        message: String,
+        file_size: u64,
+    },
     Internal,
 }
 
@@ -25,6 +32,9 @@ impl From<mova_application::ApplicationError> for ApiError {
             mova_application::ApplicationError::Conflict(message) => Self::Conflict(message),
             mova_application::ApplicationError::Unauthorized(message) => {
                 Self::Unauthorized(message)
+            }
+            mova_application::ApplicationError::AuthToken { code, message } => {
+                Self::UnauthorizedCode { code, message }
             }
             mova_application::ApplicationError::Forbidden(message) => Self::Forbidden(message),
             mova_application::ApplicationError::NotFound(message) => Self::NotFound(message),
@@ -39,18 +49,47 @@ impl From<mova_application::ApplicationError> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, message) = match self {
-            Self::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
-            Self::Conflict(message) => (StatusCode::CONFLICT, message),
-            Self::Unauthorized(message) => (StatusCode::UNAUTHORIZED, message),
-            Self::Forbidden(message) => (StatusCode::FORBIDDEN, message),
-            Self::NotFound(message) => (StatusCode::NOT_FOUND, message),
-            Self::ServiceUnavailable(message) => (StatusCode::SERVICE_UNAVAILABLE, message),
+        let (status, code, message) = match self {
+            Self::BadRequest(message) => (
+                StatusCode::BAD_REQUEST,
+                ApiCode::Http(StatusCode::BAD_REQUEST.as_u16()),
+                message,
+            ),
+            Self::Conflict(message) => (
+                StatusCode::CONFLICT,
+                ApiCode::Http(StatusCode::CONFLICT.as_u16()),
+                message,
+            ),
+            Self::Unauthorized(message) => (
+                StatusCode::UNAUTHORIZED,
+                ApiCode::Http(StatusCode::UNAUTHORIZED.as_u16()),
+                message,
+            ),
+            Self::UnauthorizedCode { code, message } => (
+                StatusCode::UNAUTHORIZED,
+                ApiCode::Error(code.as_str()),
+                message,
+            ),
+            Self::Forbidden(message) => (
+                StatusCode::FORBIDDEN,
+                ApiCode::Http(StatusCode::FORBIDDEN.as_u16()),
+                message,
+            ),
+            Self::NotFound(message) => (
+                StatusCode::NOT_FOUND,
+                ApiCode::Http(StatusCode::NOT_FOUND.as_u16()),
+                message,
+            ),
+            Self::ServiceUnavailable(message) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                ApiCode::Http(StatusCode::SERVICE_UNAVAILABLE.as_u16()),
+                message,
+            ),
             Self::RangeNotSatisfiable { message, file_size } => {
                 let mut response = (
                     StatusCode::RANGE_NOT_SATISFIABLE,
                     Json(ApiEnvelope {
-                        code: StatusCode::RANGE_NOT_SATISFIABLE.as_u16(),
+                        code: ApiCode::Http(StatusCode::RANGE_NOT_SATISFIABLE.as_u16()),
                         message,
                         data: (),
                     }),
@@ -67,6 +106,7 @@ impl IntoResponse for ApiError {
             }
             Self::Internal => (
                 StatusCode::INTERNAL_SERVER_ERROR,
+                ApiCode::Http(StatusCode::INTERNAL_SERVER_ERROR.as_u16()),
                 "internal server error".to_string(),
             ),
         };
@@ -74,7 +114,7 @@ impl IntoResponse for ApiError {
         (
             status,
             Json(ApiEnvelope {
-                code: status.as_u16(),
+                code,
                 message,
                 data: (),
             }),

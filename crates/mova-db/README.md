@@ -47,7 +47,7 @@
 | --- | --- |
 | `src/pool.rs` | `DatabaseSettings`、`connect`、`migrate`、`ping`。 |
 | `src/libraries.rs` | 媒体库 CRUD。 |
-| `src/users.rs` | 用户、密码、session、媒体库授权。 |
+| `src/users.rs` | 用户、密码、Web session、原生客户端 access/refresh token 设备会话、媒体库授权。 |
 | `src/scan_jobs.rs` | 扫描任务创建、运行态更新、收尾、历史查询。 |
 | `src/playback_progress.rs` | 播放进度与继续观看相关表读写。 |
 | `src/watch_history.rs` | 观看历史表读写。 |
@@ -85,6 +85,15 @@
 - `create_session`
 - `delete_session`
 - `delete_sessions_for_user`
+- `create_native_client_session`
+- `get_user_by_native_access_token_hash`
+- `get_native_client_session_by_refresh_token_hash`
+- `get_used_native_refresh_token`
+- `touch_native_client_session`
+- `rotate_native_client_session_tokens`
+- `revoke_native_client_session`
+- `revoke_native_client_session_by_refresh_token_hash`
+- `revoke_native_client_sessions_for_user`
 - `replace_user_library_access`
 - `update_user_password`
 

@@ -1,6 +1,7 @@
 use crate::{
     auth::{
-        attach_session_cookie, clear_session_cookie, request_auth_token, require_user, SESSION_TTL,
+        attach_session_cookie, clear_session_cookie, request_auth_credential, require_user,
+        AuthCredential, NATIVE_ACCESS_TOKEN_TTL, NATIVE_REFRESH_TOKEN_TTL, SESSION_TTL,
     },
     error::ApiError,
     response::{
@@ -10,7 +11,7 @@ use crate::{
 };
 use axum::{
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     Json,
 };
 use axum_extra::extract::cookie::CookieJar;
@@ -20,6 +21,8 @@ use serde::Deserialize;
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
+    pub device_name: Option<String>,
+    pub client_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,6 +40,16 @@ pub struct ChangePasswordRequest {
 #[derive(Debug, Deserialize)]
 pub struct UpdateOwnProfileRequest {
     pub nickname: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RefreshTokenRequest {
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LogoutRequest {
+    pub refresh_token: Option<String>,
 }
 
 pub async fn get_bootstrap_status(
@@ -103,20 +116,46 @@ pub async fn login(
 
 pub async fn token_login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<LoginRequest>,
 ) -> Result<ApiJson<TokenLoginResponse>, ApiError> {
-    let session = mova_application::login(
+    let session = mova_application::login_native_client(
         &state.db,
-        mova_application::LoginInput {
+        mova_application::NativeClientLoginInput {
             username: request.username,
             password: request.password,
+            user_agent: request_user_agent(&headers),
+            device_name: request.device_name,
+            client_type: request.client_type,
         },
-        SESSION_TTL,
+        NATIVE_ACCESS_TOKEN_TTL,
+        NATIVE_REFRESH_TOKEN_TTL,
     )
     .await
     .map_err(ApiError::from)?;
 
-    Ok(ok(TokenLoginResponse::from_session(
+    Ok(ok(TokenLoginResponse::from_native_session(
+        session,
+        state.api_time_offset,
+    )))
+}
+
+pub async fn refresh_token(
+    State(state): State<AppState>,
+    Json(request): Json<RefreshTokenRequest>,
+) -> Result<ApiJson<TokenLoginResponse>, ApiError> {
+    let session = mova_application::refresh_native_client_session(
+        &state.db,
+        mova_application::RefreshNativeClientSessionInput {
+            refresh_token: request.refresh_token,
+        },
+        NATIVE_ACCESS_TOKEN_TTL,
+        NATIVE_REFRESH_TOKEN_TTL,
+    )
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(ok(TokenLoginResponse::from_native_session(
         session,
         state.api_time_offset,
     )))
@@ -126,11 +165,29 @@ pub async fn logout(
     State(state): State<AppState>,
     headers: HeaderMap,
     jar: CookieJar,
+    body: Option<Json<LogoutRequest>>,
 ) -> Result<(CookieJar, ApiJson<()>), ApiError> {
-    if let Ok(token) = request_auth_token(&headers, &jar) {
-        mova_application::logout(&state.db, &token)
-            .await
-            .map_err(ApiError::from)?;
+    if let Ok(credential) = request_auth_credential(&headers, &jar) {
+        match credential {
+            AuthCredential::Bearer(token) => {
+                mova_application::logout_native_client_access_token(&state.db, &token)
+                    .await
+                    .map_err(ApiError::from)?;
+            }
+            AuthCredential::SessionCookie(token) => {
+                mova_application::logout(&state.db, &token)
+                    .await
+                    .map_err(ApiError::from)?;
+            }
+        }
+    }
+
+    if let Some(Json(request)) = body {
+        if let Some(refresh_token) = request.refresh_token {
+            mova_application::logout_native_client_refresh_token(&state.db, &refresh_token)
+                .await
+                .map_err(ApiError::from)?;
+        }
     }
 
     Ok((clear_session_cookie(jar), ok_message("logged out", ())))
@@ -194,4 +251,11 @@ pub async fn change_password(
             UserResponse::from_domain(session.user, state.api_time_offset),
         ),
     ))
+}
+
+fn request_user_agent(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .map(ToString::to_string)
 }

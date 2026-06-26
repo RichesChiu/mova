@@ -9,10 +9,10 @@
   - 普通业务接口默认返回 JSON，并统一包裹成 `code / message / data`
   - 媒体流和图片资源接口返回文件流，不返回 JSON
 - 鉴权：
-  - `GET /api/health`、`GET /api/auth/bootstrap-status`、`POST /api/auth/bootstrap-admin`、`POST /api/auth/login`、`POST /api/auth/token-login` 可匿名访问
+  - `GET /api/health`、`GET /api/auth/bootstrap-status`、`POST /api/auth/bootstrap-admin`、`POST /api/auth/login`、`POST /api/auth/token-login`、`POST /api/auth/refresh` 可匿名访问
   - 其他接口都要求登录态
   - Web 端继续使用 session cookie
-  - 原生客户端可使用 `Authorization: Bearer <token>`，token 通过 `POST /api/auth/token-login` 获取
+  - 原生客户端使用 `Authorization: Bearer <access_token>` 访问业务接口，`access_token` 和 `refresh_token` 通过 `POST /api/auth/token-login` 获取；`refresh_token` 只能调用 `POST /api/auth/refresh`，不能访问普通业务接口
   - 管理类接口（用户管理、建库、删库、触发扫描、服务器根目录等）要求 `admin`
   - `GET /api/events` 返回 `text/event-stream`，不使用统一 JSON envelope
 - 成功格式：
@@ -37,6 +37,16 @@
 }
 ```
 
+认证相关错误会使用字符串 `code`，例如：
+
+```json
+{
+  "code": "TOKEN_EXPIRED",
+  "message": "Access token expired",
+  "data": null
+}
+```
+
 - 文档中后续字段示例多数只展示 `data` 内部结构，真实响应会额外包一层统一 envelope。
 
 - 常见状态码：
@@ -44,7 +54,7 @@
   - `201 Created`：创建成功
   - `202 Accepted`：异步任务已创建并开始后台执行
   - `400 Bad Request`：请求参数或业务校验不通过
-  - `401 Unauthorized`：未登录或 session 已失效
+  - `401 Unauthorized`：未登录、access token 无效/过期，或 refresh token 无效/过期/已撤销
   - `403 Forbidden`：已登录但没有权限访问
   - `409 Conflict`：资源当前状态不允许执行该操作
   - `404 Not Found`：资源不存在
@@ -53,7 +63,7 @@
 - TMDB provider 现在从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取；但每个媒体库仍可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。
 - 如果额外配置了可选的 `MOVA_OMDB_API_KEY`，服务端会在已拿到 `imdb_id` 的前提下补齐 `imdb_rating`；不配置时该字段保持为空，不影响扫描、入库和播放。
 - 本地海报和背景图这类图片资源，对外返回的 URL 现在会带版本参数（例如 `/api/media-items/42/poster?v=1704164645`），浏览器可以长期缓存；当媒体元数据更新时，版本参数会变化，前端会自动拿到新图。
-- 当前 pre-1.0 阶段的数据库 schema 只维护 `migrations/0001_init.sql`；本版会保存扫描本地分析版本，并把 TMDB / provider 返回的标题、国家、题材、制作公司、演员角色等自由文本字段按 `text` 存储，已有开发库需要重建数据库 / 重扫媒体库才能得到完整状态。
+- 当前 pre-1.0 阶段的数据库 schema 只维护 `migrations/0001_init.sql`；本版会保存扫描本地分析版本、原生客户端 access/refresh token 设备会话，并把 TMDB / provider 返回的标题、国家、题材、制作公司、演员角色等自由文本字段按 `text` 存储，已有开发库需要重建数据库 / 重扫媒体库才能得到完整状态。
 
 ## 接口总览
 
@@ -63,7 +73,8 @@
 | `GET` | `/api/auth/bootstrap-status` | 查询是否需要初始化首个管理员 |
 | `POST` | `/api/auth/bootstrap-admin` | 初始化首个管理员并登录 |
 | `POST` | `/api/auth/login` | 登录 |
-| `POST` | `/api/auth/token-login` | 为原生客户端创建 Bearer token |
+| `POST` | `/api/auth/token-login` | 为原生客户端创建 access token 和 refresh token |
+| `POST` | `/api/auth/refresh` | 使用 refresh token 轮换并获取新的 token |
 | `POST` | `/api/auth/logout` | 登出 |
 | `GET` | `/api/auth/me` | 查询当前用户 |
 | `PATCH` | `/api/auth/me` | 更新当前用户昵称 |
@@ -187,24 +198,32 @@
 ### `POST /api/auth/token-login`
 
 作用：
-- 使用用户名和密码登录，并直接返回给原生客户端可复用的 Bearer token
+- 使用用户名和密码登录，并返回原生客户端使用的短期 `access_token` 和长期 `refresh_token`
 
 请求体：
 
 ```json
 {
   "username": "admin",
-  "password": "admin123456"
+  "password": "admin123456",
+  "device_name": "Mova iOS",
+  "client_type": "native-ios"
 }
 ```
+
+字段说明：
+- `device_name`：可选，客户端设备名称，用于服务端追踪设备会话
+- `client_type`：可选，客户端类型；默认 `native`
 
 返回：
 
 ```json
 {
-  "token": "native-client-session-token",
-  "token_type": "Bearer",
-  "expires_at": "2026-05-20T08:15:30Z",
+  "access_token": "short-lived-access-token",
+  "access_token_type": "Bearer",
+  "access_token_expires_at": "2026-06-25T10:30:00Z",
+  "refresh_token": "long-lived-refresh-token",
+  "refresh_token_expires_at": "2026-07-25T10:00:00Z",
   "user": {
     "id": 1,
     "username": "admin",
@@ -218,22 +237,73 @@
 ```
 
 说明：
-- 当前会直接复用服务端现有 session 机制，只是把 token 直接返回给客户端，而不是写 cookie
-- 后续请求把 `Authorization: Bearer <token>` 带到受保护接口即可
-- token 过期、用户被禁用或被删除后，这个 token 会失效
+- `access_token` 当前默认有效期 2 小时，只用于访问普通业务接口
+- `refresh_token` 当前默认有效期 30 天，只用于调用 `POST /api/auth/refresh`
+- 服务端只保存 token hash，不明文保存原始 token
+- 后续业务请求把 `Authorization: Bearer <access_token>` 带到受保护接口即可
+- access token 过期、refresh token 过期/撤销、用户被禁用/删除/改密后，对应原生客户端会话会失效
 - Web 端不需要使用这个接口，仍然继续调用 `POST /api/auth/login`
+
+### `POST /api/auth/refresh`
+
+作用：
+- 使用有效 `refresh_token` 轮换当前原生客户端设备会话，并返回新的 `access_token` 和 `refresh_token`
+
+请求体：
+
+```json
+{
+  "refresh_token": "long-lived-refresh-token"
+}
+```
+
+返回：
+
+```json
+{
+  "access_token": "new-short-lived-access-token",
+  "access_token_type": "Bearer",
+  "access_token_expires_at": "2026-06-25T12:30:00Z",
+  "refresh_token": "new-long-lived-refresh-token",
+  "refresh_token_expires_at": "2026-07-25T12:00:00Z",
+  "user": {
+    "id": 1,
+    "username": "admin",
+    "nickname": "admin",
+    "role": "admin",
+    "is_primary_admin": true,
+    "is_enabled": true,
+    "library_ids": []
+  }
+}
+```
+
+说明：
+- refresh 成功后旧 `refresh_token` 会立即失效
+- 旧 `refresh_token` 被重复使用时，服务端会视为异常重放并撤销对应原生客户端设备会话
+- 用户被禁用、删除或改密后，旧 `access_token` 和 `refresh_token` 都不能继续使用
+- 失败时常见错误码包括 `INVALID_REFRESH_TOKEN`、`REFRESH_TOKEN_EXPIRED`、`SESSION_REVOKED`
 
 ### `POST /api/auth/logout`
 
 作用：
 - 删除当前登录态对应的服务端会话记录；如果当前是 cookie 登录，还会顺带清理 session cookie
 
+可选请求体：
+
+```json
+{
+  "refresh_token": "long-lived-refresh-token"
+}
+```
+
 返回：
 - `200 OK`
 
 说明：
-- 支持 cookie 和 Bearer token 两种登录态
+- 支持 cookie、Bearer access token 和请求体里的 `refresh_token`
 - 如果同时带了 cookie 和 `Authorization`，服务端会优先使用 Bearer token
+- 原生客户端应尽量在登出时同时提交当前 `refresh_token`；如果 access token 已过期但 refresh token 仍有效，服务端仍会撤销对应设备会话
 
 ### `GET /api/auth/me`
 
@@ -243,7 +313,7 @@
 返回：
 - `200 OK`
 - 返回字段包括 `id`、`username`、`nickname`、`role`、`is_primary_admin`、`is_enabled`、`library_ids`
-- 支持 cookie 和 Bearer token 两种登录态
+- 支持 cookie 和 Bearer access token 两种登录态；不接受 refresh token
 - `is_primary_admin = true` 只会出现在系统初始化出来的首个管理员身上；它可以创建、提升、编辑和删除普通管理员
 
 ### `PATCH /api/auth/me`
@@ -347,7 +417,7 @@
 - `new_password` 最少 8 位
 - `new_password` 不能和当前密码相同
 - 修改成功后会轮换 session，旧会话失效，响应会写回新的 session cookie
-- 如果当前是 Bearer token 客户端，修改密码成功后应使用新密码重新调用 `POST /api/auth/token-login` 获取新 token
+- 修改成功后，该用户现有原生客户端 access/refresh token 也会全部撤销；原生客户端应使用新密码重新调用 `POST /api/auth/token-login`
 
 ### `GET /api/users`
 
@@ -410,7 +480,7 @@
 - 当前用户不能通过该接口禁用自己
 - 当前用户不能通过该接口修改自己的角色
 - 不能降级、禁用最后一个启用中的管理员
-- 禁用用户后，服务端会清理该用户现有 session
+- 禁用用户后，服务端会清理该用户现有 Web session 和原生客户端 access/refresh token 会话
 - 只有主管理员可以编辑普通管理员
 - 主管理员也可以启用或禁用普通管理员
 - 普通管理员不能修改或降级其他管理员，也不能修改主管理员
@@ -446,7 +516,7 @@
 说明：
 - `new_password` 最少 8 位
 - 当前用户不能通过该接口重置自己的密码；应使用 `PUT /api/auth/password`
-- 重置成功后，该用户现有 session 会全部失效
+- 重置成功后，该用户现有 Web session 和原生客户端 access/refresh token 会话会全部失效
 - 只有主管理员可以重置普通管理员密码
 
 ### `PUT /api/users/{id}/library-access`

@@ -14,7 +14,7 @@ mod scan_jobs;
 mod users;
 mod watch_history;
 
-pub use error::{ApplicationError, ApplicationResult};
+pub use error::{ApplicationError, ApplicationResult, AuthTokenErrorCode};
 pub use file_sync::{reconcile_library_inventory, sync_library_filesystem_changes};
 pub use libraries::{
     create_library, delete_library, get_library, get_library_detail, list_libraries,
@@ -59,9 +59,12 @@ pub use scan_jobs::{
 };
 pub use users::{
     bootstrap_admin, bootstrap_required, change_own_password, create_user, delete_user, get_user,
-    get_user_by_session_token, list_users, login, logout, replace_user_library_access,
+    get_user_by_native_access_token, get_user_by_session_token, list_users, login,
+    login_native_client, logout, logout_native_client_access_token,
+    logout_native_client_refresh_token, refresh_native_client_session, replace_user_library_access,
     reset_user_password, update_own_profile, update_user, AuthSession, BootstrapAdminInput,
-    ChangeOwnPasswordInput, CreateUserInput, LoginInput, ResetUserPasswordInput,
-    UpdateOwnProfileInput, UpdateUserInput, UpdateUserLibraryAccessInput,
+    ChangeOwnPasswordInput, CreateUserInput, LoginInput, NativeAuthSession, NativeClientLoginInput,
+    RefreshNativeClientSessionInput, ResetUserPasswordInput, UpdateOwnProfileInput,
+    UpdateUserInput, UpdateUserLibraryAccessInput,
 };
 pub use watch_history::list_watch_history;

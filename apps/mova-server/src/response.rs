@@ -14,16 +14,23 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
 /// 所有 JSON 业务接口统一包裹成 code/message/data，便于前端和第三方客户端稳定消费。
 #[derive(Debug, Serialize)]
 pub struct ApiEnvelope<T> {
-    pub code: u16,
+    pub code: ApiCode,
     pub message: String,
     pub data: T,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum ApiCode {
+    Http(u16),
+    Error(&'static str),
 }
 
 pub type ApiJson<T> = Json<ApiEnvelope<T>>;
 
 pub fn ok<T>(data: T) -> ApiJson<T> {
     Json(ApiEnvelope {
-        code: StatusCode::OK.as_u16(),
+        code: ApiCode::Http(StatusCode::OK.as_u16()),
         message: "ok".to_string(),
         data,
     })
@@ -31,7 +38,7 @@ pub fn ok<T>(data: T) -> ApiJson<T> {
 
 pub fn ok_message<T>(message: impl Into<String>, data: T) -> ApiJson<T> {
     Json(ApiEnvelope {
-        code: StatusCode::OK.as_u16(),
+        code: ApiCode::Http(StatusCode::OK.as_u16()),
         message: message.into(),
         data,
     })
@@ -45,7 +52,7 @@ pub fn with_status<T>(
     (
         status,
         Json(ApiEnvelope {
-            code: status.as_u16(),
+            code: ApiCode::Http(status.as_u16()),
             message: message.into(),
             data,
         }),
@@ -467,9 +474,11 @@ pub struct BootstrapStatusResponse {
 
 #[derive(Debug, Serialize)]
 pub struct TokenLoginResponse {
-    pub token: String,
-    pub token_type: String,
-    pub expires_at: String,
+    pub access_token: String,
+    pub access_token_type: String,
+    pub access_token_expires_at: String,
+    pub refresh_token: String,
+    pub refresh_token_expires_at: String,
     pub user: UserResponse,
 }
 
@@ -717,11 +726,16 @@ impl UserResponse {
 }
 
 impl TokenLoginResponse {
-    pub fn from_session(session: mova_application::AuthSession, offset: UtcOffset) -> Self {
+    pub fn from_native_session(
+        session: mova_application::NativeAuthSession,
+        offset: UtcOffset,
+    ) -> Self {
         Self {
-            token: session.token,
-            token_type: "Bearer".to_string(),
-            expires_at: format_datetime(session.expires_at, offset),
+            access_token: session.access_token,
+            access_token_type: "Bearer".to_string(),
+            access_token_expires_at: format_datetime(session.access_token_expires_at, offset),
+            refresh_token: session.refresh_token,
+            refresh_token_expires_at: format_datetime(session.refresh_token_expires_at, offset),
             user: UserResponse::from_domain(session.user, offset),
         }
     }

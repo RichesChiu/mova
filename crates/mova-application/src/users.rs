@@ -1,12 +1,14 @@
 use crate::{
-    error::{ApplicationError, ApplicationResult},
+    error::{ApplicationError, ApplicationResult, AuthTokenErrorCode},
     libraries::get_library,
 };
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
 use mova_domain::{UserProfile, UserRole};
+use rand_core::{OsRng, RngCore};
+use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPool;
 use sqlx::Error as SqlxError;
 use time::{Duration, OffsetDateTime};
@@ -14,6 +16,7 @@ use uuid::Uuid;
 
 const MIN_PASSWORD_LENGTH: usize = 8;
 const MAX_NICKNAME_LENGTH: usize = 128;
+const NATIVE_TOKEN_BYTES: usize = 32;
 
 #[derive(Debug, Clone)]
 pub struct CreateUserInput {
@@ -46,6 +49,20 @@ pub struct LoginInput {
 }
 
 #[derive(Debug, Clone)]
+pub struct NativeClientLoginInput {
+    pub username: String,
+    pub password: String,
+    pub user_agent: Option<String>,
+    pub device_name: Option<String>,
+    pub client_type: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RefreshNativeClientSessionInput {
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct BootstrapAdminInput {
     pub username: String,
     pub password: String,
@@ -72,6 +89,15 @@ pub struct AuthSession {
     pub user: UserProfile,
     pub token: String,
     pub expires_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeAuthSession {
+    pub user: UserProfile,
+    pub access_token: String,
+    pub access_token_expires_at: OffsetDateTime,
+    pub refresh_token: String,
+    pub refresh_token_expires_at: OffsetDateTime,
 }
 
 pub async fn bootstrap_required(pool: &PgPool) -> ApplicationResult<bool> {
@@ -120,49 +146,200 @@ pub async fn login(
     input: LoginInput,
     session_ttl: Duration,
 ) -> ApplicationResult<AuthSession> {
-    let username = normalize_username(input.username)?;
-    validate_password("password", &input.password)?;
+    let user = authenticate_login(pool, input.username, input.password).await?;
+    create_session_for_user(pool, user, session_ttl).await
+}
 
-    let Some(record) = mova_db::get_user_by_username(pool, &username)
+pub async fn login_native_client(
+    pool: &PgPool,
+    input: NativeClientLoginInput,
+    access_token_ttl: Duration,
+    refresh_token_ttl: Duration,
+) -> ApplicationResult<NativeAuthSession> {
+    let user = authenticate_login(pool, input.username, input.password).await?;
+    create_native_session_for_user(
+        pool,
+        user,
+        access_token_ttl,
+        refresh_token_ttl,
+        normalize_optional_text(input.user_agent),
+        normalize_optional_text(input.device_name),
+        normalize_client_type(input.client_type),
+    )
+    .await
+}
+
+pub async fn get_user_by_native_access_token(
+    pool: &PgPool,
+    token: &str,
+) -> ApplicationResult<UserProfile> {
+    let token_hash = hash_token(token);
+    let Some(session) = mova_db::get_user_by_native_access_token_hash(pool, &token_hash)
         .await
         .map_err(ApplicationError::from)?
     else {
-        return Err(ApplicationError::Unauthorized(
-            "invalid username or password".to_string(),
+        return Err(ApplicationError::auth_token(
+            AuthTokenErrorCode::InvalidToken,
         ));
     };
 
-    if !verify_password(&record.password_hash, &input.password)? {
-        return Err(ApplicationError::Unauthorized(
-            "invalid username or password".to_string(),
+    if session.revoked_at.is_some() {
+        return Err(ApplicationError::auth_token(
+            AuthTokenErrorCode::InvalidToken,
         ));
     }
 
-    if !record.user.is_enabled {
-        return Err(ApplicationError::Forbidden(format!(
-            "user {} is disabled",
-            record.user.username
-        )));
+    if session.access_token_expires_at <= OffsetDateTime::now_utc() {
+        return Err(ApplicationError::auth_token(
+            AuthTokenErrorCode::TokenExpired,
+        ));
     }
 
-    let library_ids = mova_db::list_library_ids_for_user(pool, record.user.id)
+    if !session.user.user.is_enabled {
+        mova_db::revoke_native_client_sessions_for_user(pool, session.user.user.id)
+            .await
+            .map_err(ApplicationError::from)?;
+        return Err(ApplicationError::auth_token(
+            AuthTokenErrorCode::InvalidToken,
+        ));
+    }
+
+    mova_db::touch_native_client_session(pool, session.session_id)
         .await
         .map_err(ApplicationError::from)?;
 
-    create_session_for_user(
+    enrich_user_profile(pool, session.user).await
+}
+
+pub async fn refresh_native_client_session(
+    pool: &PgPool,
+    input: RefreshNativeClientSessionInput,
+    access_token_ttl: Duration,
+    refresh_token_ttl: Duration,
+) -> ApplicationResult<NativeAuthSession> {
+    let refresh_token = input.refresh_token.trim();
+    if refresh_token.is_empty() {
+        return Err(ApplicationError::auth_token(
+            AuthTokenErrorCode::InvalidRefreshToken,
+        ));
+    }
+
+    let refresh_token_hash = hash_token(refresh_token);
+    let Some(session) =
+        mova_db::get_native_client_session_by_refresh_token_hash(pool, &refresh_token_hash)
+            .await
+            .map_err(ApplicationError::from)?
+    else {
+        if let Some(used_token) = mova_db::get_used_native_refresh_token(pool, &refresh_token_hash)
+            .await
+            .map_err(ApplicationError::from)?
+        {
+            mova_db::revoke_native_client_session(pool, used_token.session_id)
+                .await
+                .map_err(ApplicationError::from)?;
+            return Err(ApplicationError::auth_token(
+                AuthTokenErrorCode::SessionRevoked,
+            ));
+        }
+
+        return Err(ApplicationError::auth_token(
+            AuthTokenErrorCode::InvalidRefreshToken,
+        ));
+    };
+
+    if session.revoked_at.is_some() {
+        return Err(ApplicationError::auth_token(
+            AuthTokenErrorCode::SessionRevoked,
+        ));
+    }
+
+    if session.refresh_token_expires_at <= OffsetDateTime::now_utc() {
+        return Err(ApplicationError::auth_token(
+            AuthTokenErrorCode::RefreshTokenExpired,
+        ));
+    }
+
+    if !session.user.user.is_enabled {
+        mova_db::revoke_native_client_sessions_for_user(pool, session.user.user.id)
+            .await
+            .map_err(ApplicationError::from)?;
+        return Err(ApplicationError::auth_token(
+            AuthTokenErrorCode::SessionRevoked,
+        ));
+    }
+
+    let access_token = generate_native_token();
+    let refresh_token = generate_native_token();
+    let access_token_expires_at = OffsetDateTime::now_utc() + access_token_ttl;
+    let refresh_token_expires_at = OffsetDateTime::now_utc() + refresh_token_ttl;
+    let rotated = mova_db::rotate_native_client_session_tokens(
         pool,
-        enrich_user_profile(
-            pool,
-            UserProfile {
-                user: record.user,
-                is_primary_admin: false,
-                library_ids,
-            },
-        )
-        .await?,
-        session_ttl,
+        session.session_id,
+        &refresh_token_hash,
+        &hash_token(&access_token),
+        &hash_token(&refresh_token),
+        access_token_expires_at,
+        refresh_token_expires_at,
     )
     .await
+    .map_err(ApplicationError::from)?;
+
+    if !rotated {
+        return Err(ApplicationError::auth_token(
+            AuthTokenErrorCode::SessionRevoked,
+        ));
+    }
+
+    Ok(NativeAuthSession {
+        user: enrich_user_profile(pool, session.user).await?,
+        access_token,
+        access_token_expires_at,
+        refresh_token,
+        refresh_token_expires_at,
+    })
+}
+
+pub async fn logout_native_client_access_token(
+    pool: &PgPool,
+    token: &str,
+) -> ApplicationResult<()> {
+    let token_hash = hash_token(token);
+    if let Some(session) = mova_db::get_user_by_native_access_token_hash(pool, &token_hash)
+        .await
+        .map_err(ApplicationError::from)?
+    {
+        mova_db::revoke_native_client_session(pool, session.session_id)
+            .await
+            .map_err(ApplicationError::from)?;
+    }
+
+    Ok(())
+}
+
+pub async fn logout_native_client_refresh_token(
+    pool: &PgPool,
+    token: &str,
+) -> ApplicationResult<()> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Ok(());
+    }
+
+    let token_hash = hash_token(token);
+    mova_db::revoke_native_client_session_by_refresh_token_hash(pool, &token_hash)
+        .await
+        .map_err(ApplicationError::from)?;
+
+    if let Some(used_token) = mova_db::get_used_native_refresh_token(pool, &token_hash)
+        .await
+        .map_err(ApplicationError::from)?
+    {
+        mova_db::revoke_native_client_session(pool, used_token.session_id)
+            .await
+            .map_err(ApplicationError::from)?;
+    }
+
+    Ok(())
 }
 
 pub async fn get_user_by_session_token(
@@ -328,6 +505,9 @@ pub async fn update_user(
         mova_db::delete_sessions_for_user(pool, updated.user.id)
             .await
             .map_err(ApplicationError::from)?;
+        mova_db::revoke_native_client_sessions_for_user(pool, updated.user.id)
+            .await
+            .map_err(ApplicationError::from)?;
     }
 
     enrich_user_profile(pool, updated).await
@@ -380,6 +560,9 @@ pub async fn reset_user_password(
         .await
         .map_err(ApplicationError::from)?;
     mova_db::delete_sessions_for_user(pool, user_id)
+        .await
+        .map_err(ApplicationError::from)?;
+    mova_db::revoke_native_client_sessions_for_user(pool, user_id)
         .await
         .map_err(ApplicationError::from)?;
 
@@ -435,6 +618,9 @@ pub async fn change_own_password(
         .await
         .map_err(ApplicationError::from)?;
     mova_db::delete_sessions_for_user(pool, user_id)
+        .await
+        .map_err(ApplicationError::from)?;
+    mova_db::revoke_native_client_sessions_for_user(pool, user_id)
         .await
         .map_err(ApplicationError::from)?;
 
@@ -654,6 +840,51 @@ fn verify_password(password_hash: &str, password: &str) -> ApplicationResult<boo
         .is_ok())
 }
 
+async fn authenticate_login(
+    pool: &PgPool,
+    username: String,
+    password: String,
+) -> ApplicationResult<UserProfile> {
+    let username = normalize_username(username)?;
+    validate_password("password", &password)?;
+
+    let Some(record) = mova_db::get_user_by_username(pool, &username)
+        .await
+        .map_err(ApplicationError::from)?
+    else {
+        return Err(ApplicationError::Unauthorized(
+            "invalid username or password".to_string(),
+        ));
+    };
+
+    if !verify_password(&record.password_hash, &password)? {
+        return Err(ApplicationError::Unauthorized(
+            "invalid username or password".to_string(),
+        ));
+    }
+
+    if !record.user.is_enabled {
+        return Err(ApplicationError::Forbidden(format!(
+            "user {} is disabled",
+            record.user.username
+        )));
+    }
+
+    let library_ids = mova_db::list_library_ids_for_user(pool, record.user.id)
+        .await
+        .map_err(ApplicationError::from)?;
+
+    enrich_user_profile(
+        pool,
+        UserProfile {
+            user: record.user,
+            is_primary_admin: false,
+            library_ids,
+        },
+    )
+    .await
+}
+
 async fn create_session_for_user(
     pool: &PgPool,
     user: UserProfile,
@@ -678,6 +909,83 @@ async fn create_session_for_user(
         token,
         expires_at,
     })
+}
+
+async fn create_native_session_for_user(
+    pool: &PgPool,
+    user: UserProfile,
+    access_token_ttl: Duration,
+    refresh_token_ttl: Duration,
+    user_agent: Option<String>,
+    device_name: Option<String>,
+    client_type: String,
+) -> ApplicationResult<NativeAuthSession> {
+    let access_token = generate_native_token();
+    let refresh_token = generate_native_token();
+    let access_token_expires_at = OffsetDateTime::now_utc() + access_token_ttl;
+    let refresh_token_expires_at = OffsetDateTime::now_utc() + refresh_token_ttl;
+
+    mova_db::create_native_client_session(
+        pool,
+        mova_db::CreateNativeClientSessionParams {
+            user_id: user.user.id,
+            access_token_hash: hash_token(&access_token),
+            refresh_token_hash: hash_token(&refresh_token),
+            access_token_expires_at,
+            refresh_token_expires_at,
+            user_agent,
+            device_name,
+            client_type,
+        },
+    )
+    .await
+    .map_err(ApplicationError::from)?;
+
+    Ok(NativeAuthSession {
+        user,
+        access_token,
+        access_token_expires_at,
+        refresh_token,
+        refresh_token_expires_at,
+    })
+}
+
+fn generate_native_token() -> String {
+    let mut bytes = [0_u8; NATIVE_TOKEN_BYTES];
+    OsRng.fill_bytes(&mut bytes);
+    hex_encode(&bytes)
+}
+
+fn hash_token(token: &str) -> String {
+    let digest = Sha256::digest(token.as_bytes());
+    hex_encode(&digest)
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+
+    for byte in bytes {
+        encoded.push(HEX[(byte >> 4) as usize] as char);
+        encoded.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+
+    encoded
+}
+
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let value = value.trim();
+        if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        }
+    })
+}
+
+fn normalize_client_type(value: Option<String>) -> String {
+    normalize_optional_text(value).unwrap_or_else(|| "native".to_string())
 }
 
 async fn enrich_user_profile(
