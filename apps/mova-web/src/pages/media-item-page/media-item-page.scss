@@ -403,41 +403,16 @@
   padding: 18px;
 }
 
-.cast-panel {
-  gap: 18px;
-}
-
-.cast-panel__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+.media-item-section-title-row {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
 }
 
 .cast-panel__viewport .scrollable-rail__track {
   grid-auto-columns: minmax(132px, 156px);
   gap: 10px;
-}
-
-.media-file-panel {
-  gap: 18px;
-}
-
-.media-file-panel__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.media-file-panel__title-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.media-file-panel__title-row .eyebrow {
-  margin: 0;
 }
 
 .media-file-panel__list {

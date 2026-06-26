@@ -4,41 +4,97 @@
 }
 
 .scrollable-rail__frame {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
+  position: relative;
+  display: block;
+  min-width: 0;
 }
 
 .scrollable-rail__nav {
-  width: 34px;
-  height: 34px;
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  width: 54px;
+  height: 88px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--floating-border);
-  border-radius: 999px;
-  background: var(--floating-surface);
-  box-shadow: var(--panel-inset), var(--floating-shadow);
+  border: 0;
+  background: color-mix(in srgb, var(--tooltip-background) 92%, var(--panel-background-strong));
+  box-shadow:
+    var(--floating-shadow-strong),
+    inset 0 1px 0 color-mix(in srgb, var(--color-white) 32%, transparent);
+  color: var(--accent-strong);
+  opacity: 0;
+  pointer-events: none;
+  backdrop-filter: blur(18px) saturate(138%);
+  -webkit-backdrop-filter: blur(18px) saturate(138%);
+  transform: translateY(-50%) scale(0.94);
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease,
     transform 160ms ease;
 }
 
+.scrollable-rail__nav:first-child {
+  left: 0;
+  border-radius: 0 18px 18px 0;
+  box-shadow:
+    var(--floating-shadow-strong),
+    inset -1px 0 0 color-mix(in srgb, var(--panel-separator) 84%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--color-white) 32%, transparent);
+}
+
+.scrollable-rail__nav:last-child {
+  right: 0;
+  border-radius: 18px 0 0 18px;
+  box-shadow:
+    var(--floating-shadow-strong),
+    inset 1px 0 0 color-mix(in srgb, var(--panel-separator) 84%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--color-white) 32%, transparent);
+}
+
 .scrollable-rail__nav svg {
-  width: 18px;
-  height: 18px;
+  width: 28px;
+  height: 28px;
+  stroke-width: 2.35;
+}
+
+.scrollable-rail:hover .scrollable-rail__nav:not(:disabled),
+.scrollable-rail:focus-within .scrollable-rail__nav:not(:disabled) {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(-50%) scale(1);
 }
 
 .scrollable-rail__nav:hover:not(:disabled) {
-  border-color: var(--button-primary-border);
-  background: var(--floating-surface-strong);
-  transform: translateY(-1px);
+  opacity: 1;
+  transform: translateY(calc(-50% - 2px)) scale(1.1);
+}
+
+.scrollable-rail__nav:first-child:hover:not(:disabled) {
+  box-shadow:
+    var(--floating-shadow-strong),
+    0 18px 42px color-mix(in srgb, var(--accent) 16%, transparent),
+    inset -1px 0 0 color-mix(in srgb, var(--panel-separator) 84%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--color-white) 36%, transparent);
+}
+
+.scrollable-rail__nav:last-child:hover:not(:disabled) {
+  box-shadow:
+    var(--floating-shadow-strong),
+    0 18px 42px color-mix(in srgb, var(--accent) 16%, transparent),
+    inset 1px 0 0 color-mix(in srgb, var(--panel-separator) 84%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--color-white) 36%, transparent);
+}
+
+.scrollable-rail__nav:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--button-primary-border) 78%, transparent);
+  outline-offset: 3px;
 }
 
 .scrollable-rail__nav:disabled {
-  opacity: 0.35;
+  opacity: 0;
   cursor: not-allowed;
+  visibility: hidden;
 }
 
 .scrollable-rail__hint {

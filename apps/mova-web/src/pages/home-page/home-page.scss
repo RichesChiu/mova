@@ -575,38 +575,6 @@
   gap: 0;
 }
 
-.home-dashboard .scrollable-rail__frame {
-  position: relative;
-  display: block;
-  min-width: 0;
-}
-
-.home-dashboard .scrollable-rail__nav {
-  position: absolute;
-  z-index: 4;
-  top: 50%;
-  width: 30px;
-  height: 30px;
-  opacity: 0.78;
-  transform: translateY(-50%);
-}
-
-.home-dashboard .scrollable-rail__nav:first-child {
-  left: -15px;
-}
-
-.home-dashboard .scrollable-rail__nav:last-child {
-  right: -15px;
-}
-
-.home-dashboard .scrollable-rail__nav:hover:not(:disabled) {
-  transform: translateY(calc(-50% - 1px));
-}
-
-.home-dashboard .scrollable-rail__nav:disabled {
-  visibility: hidden;
-}
-
 .home-dashboard .scrollable-rail__viewport {
   width: 100%;
 }
