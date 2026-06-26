@@ -716,13 +716,14 @@ export const MediaItemPage = () => {
               <div className="detail-hero__actions">
                 {playbackTargetMediaItemId ? (
                   <Link
-                    className="button button--primary"
+                    className="button button--primary detail-hero__play-button"
                     to={
                       playbackPrimaryPath ??
                       playbackActionLinks?.primaryPath ??
                       mediaItemPlayPath(playbackTargetMediaItemId)
                     }
                   >
+                    <HomeIcon className="button__icon" name="play" />
                     <span>{playbackActionLinks?.primaryLabel ?? l('Play')}</span>
                   </Link>
                 ) : null}

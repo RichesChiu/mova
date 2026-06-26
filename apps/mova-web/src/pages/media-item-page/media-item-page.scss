@@ -272,6 +272,16 @@
   gap: 10px;
 }
 
+.detail-hero__play-button {
+  gap: 7px;
+}
+
+.detail-hero__play-button .button__icon {
+  width: 24px;
+  height: 24px;
+  margin-left: -2px;
+}
+
 .detail-hero__version-picker {
   display: flex;
   align-items: center;
