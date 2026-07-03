@@ -1,0 +1,21 @@
+{
+  "name": "mova 服务展示",
+  "short_name": "mova",
+  "description": "mova 服务功能展示、文档入口和使用方式说明页面",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7f4",
+  "theme_color": "#2a80e1",
+  "icons": [
+    {
+      "src": "/mova-logo-pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/mova-logo-app-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
