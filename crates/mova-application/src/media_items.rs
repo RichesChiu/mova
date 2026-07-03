@@ -27,7 +27,9 @@ const DEFAULT_MEDIA_ITEMS_PAGE_SIZE: i64 = 50;
 const MAX_MEDIA_ITEMS_PAGE_SIZE: i64 = 100;
 const DEFAULT_RECENTLY_ADDED_LIBRARY_LIMIT: i64 = 3;
 const DEFAULT_RECENTLY_ADDED_ITEM_LIMIT: i64 = 8;
-const MAX_RECENTLY_ADDED_ITEM_LIMIT: i64 = 12;
+const MAX_RECENTLY_ADDED_ITEM_LIMIT: i64 = 50;
+const DEFAULT_RECENTLY_ADDED_DAYS: i64 = 7;
+const MAX_RECENTLY_ADDED_DAYS: i64 = 365;
 const DEFAULT_GLOBAL_SEARCH_LIMIT: i64 = 12;
 const MAX_GLOBAL_SEARCH_LIMIT: i64 = 30;
 const SERIES_EPISODE_OUTLINE_CACHE_TTL_SECONDS: i64 = 24 * 60 * 60;
@@ -53,6 +55,8 @@ pub struct ListRecentlyAddedByLibraryInput {
     pub visible_library_ids: Option<Vec<i64>>,
     pub library_limit: Option<i64>,
     pub item_limit: Option<i64>,
+    pub limit: Option<i64>,
+    pub days: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -198,11 +202,13 @@ pub async fn list_recently_added_media_items_by_library(
         "library_limit",
     )?;
     let item_limit = normalize_recently_added_limit(
-        input.item_limit,
+        input.item_limit.or(input.limit),
         DEFAULT_RECENTLY_ADDED_ITEM_LIMIT,
         Some(MAX_RECENTLY_ADDED_ITEM_LIMIT),
         "item_limit",
     )?;
+    let days = normalize_recently_added_days(input.days)?;
+    let created_since = OffsetDateTime::now_utc() - Duration::days(days);
     let visible_library_ids = input.visible_library_ids;
 
     if visible_library_ids
@@ -218,6 +224,7 @@ pub async fn list_recently_added_media_items_by_library(
         visible_library_ids.as_deref(),
         library_limit,
         item_limit,
+        created_since,
     )
     .await
     .map_err(ApplicationError::from)?;
@@ -1157,6 +1164,16 @@ fn normalize_recently_added_limit(
     }
 }
 
+fn normalize_recently_added_days(days: Option<i64>) -> ApplicationResult<i64> {
+    match days.unwrap_or(DEFAULT_RECENTLY_ADDED_DAYS) {
+        value if value <= 0 => Err(ApplicationError::Validation(
+            "days must be a positive integer".to_string(),
+        )),
+        value if value > MAX_RECENTLY_ADDED_DAYS => Ok(MAX_RECENTLY_ADDED_DAYS),
+        value => Ok(value),
+    }
+}
+
 fn normalize_global_search_limit(limit: Option<i64>) -> ApplicationResult<i64> {
     match limit.unwrap_or(DEFAULT_GLOBAL_SEARCH_LIMIT) {
         value if value <= 0 => Err(ApplicationError::Validation(
@@ -1171,8 +1188,8 @@ fn normalize_global_search_limit(limit: Option<i64>) -> ApplicationResult<i64> {
 mod tests {
     use super::{
         merge_remote_outline_with_local, normalize_global_search_limit, normalize_page,
-        normalize_page_size, normalize_query, normalize_recently_added_limit, normalize_year,
-        LocalSeriesEpisode, LocalSeriesSeason,
+        normalize_page_size, normalize_query, normalize_recently_added_days,
+        normalize_recently_added_limit, normalize_year, LocalSeriesEpisode, LocalSeriesSeason,
     };
     use crate::ApplicationError;
     use crate::{RemoteSeriesEpisode, RemoteSeriesEpisodeOutline, RemoteSeriesSeason};
@@ -1222,8 +1239,8 @@ mod tests {
     #[test]
     fn normalize_recently_added_limit_caps_large_values() {
         assert_eq!(
-            normalize_recently_added_limit(Some(24), 3, Some(12), "item_limit").unwrap(),
-            12
+            normalize_recently_added_limit(Some(80), 3, Some(50), "item_limit").unwrap(),
+            50
         );
     }
 
@@ -1233,6 +1250,25 @@ mod tests {
             normalize_recently_added_limit(Some(24), 3, None, "library_limit").unwrap(),
             24
         );
+    }
+
+    #[test]
+    fn normalize_recently_added_days_uses_default_value() {
+        assert_eq!(normalize_recently_added_days(None).unwrap(), 7);
+    }
+
+    #[test]
+    fn normalize_recently_added_days_rejects_non_positive_values() {
+        assert!(matches!(
+            normalize_recently_added_days(Some(0)),
+            Err(ApplicationError::Validation(message))
+                if message.contains("positive integer")
+        ));
+    }
+
+    #[test]
+    fn normalize_recently_added_days_caps_large_values() {
+        assert_eq!(normalize_recently_added_days(Some(900)).unwrap(), 365);
     }
 
     #[test]

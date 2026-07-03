@@ -230,12 +230,22 @@ const listLibraryMediaItems = (libraryId: number, url: URL): MediaItemListRespon
 
 const recentlyAddedByLibrary = (url: URL): RecentlyAddedLibraryMediaItems[] => {
   const libraryLimit = Math.max(1, Number(url.searchParams.get('library_limit') ?? 3))
-  const itemLimit = Math.max(1, Number(url.searchParams.get('item_limit') ?? 8))
+  const itemLimit = Math.min(
+    50,
+    Math.max(
+      1,
+      Number(url.searchParams.get('item_limit') ?? url.searchParams.get('limit') ?? 8),
+    ),
+  )
+  const days = Math.min(365, Math.max(1, Number(url.searchParams.get('days') ?? 7)))
+  const createdSince = Date.parse(MOCK_NOW) - days * 24 * 60 * 60 * 1000
 
   return mockLibraries
     .map((library) => {
       const items = sortedMediaItems(
-        mockMediaItems.filter((item) => item.library_id === library.id),
+        mockMediaItems.filter(
+          (item) => item.library_id === library.id && Date.parse(item.created_at) >= createdSince,
+        ),
       )
       return {
         library,

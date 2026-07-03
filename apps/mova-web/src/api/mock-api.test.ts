@@ -44,12 +44,22 @@ describe('mock api switch', () => {
     setLocation('/?mova_mock_api=1')
 
     const response = await requestMockJson<RecentlyAddedLibraryMediaItems[]>(
-      '/api/libraries/recently-added?library_limit=2&item_limit=3',
+      '/api/libraries/recently-added?library_limit=2&limit=3',
     )
 
     expect(response?.data).toHaveLength(2)
     expect(response?.data[0]?.items).toHaveLength(3)
     expect(response?.data[0]?.library.name).toBe('Overseas TV')
+  })
+
+  it('filters recently added mock data by days', async () => {
+    setLocation('/?mova_mock_api=1')
+
+    const response = await requestMockJson<RecentlyAddedLibraryMediaItems[]>(
+      '/api/libraries/recently-added?days=1',
+    )
+
+    expect(response?.data.every((group) => group.items.length > 0)).toBe(true)
   })
 
   it('does not mock admin write routes', async () => {
