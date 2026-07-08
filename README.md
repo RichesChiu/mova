@@ -12,13 +12,11 @@
   English | <a href="README.zh-CN.md">Chinese</a>
 </p>
 
-![Mova home](docs/assets/readme/home.png)
-
 ## What Mova Is
 
 Mova is a self-hosted media server for organizing, browsing, and playing local movies and series. Its server is built with Rust, a modern systems language focused on memory safety, predictable performance, and efficient resource usage.
 
-The project aims to keep the media-server experience simple and dependable: mount a media folder, scan the library, enrich metadata when needed, and browse or play from a clean Web interface. The current release is a usable MVP for local machines, home servers, and private media setups.
+The project aims to keep the media-server experience simple and dependable: mount a media folder, scan the library, enrich metadata when needed, and browse or play from a clean Web interface. The current release is a usable pre-1.0 MVP preview for local machines, home servers, and private media setups.
 
 The Web home page is library-first: it shows continue watching, a short `Your Libraries` summary, and recently added media grouped by every visible library that has items from the server-side last-7-days recently-added query rather than a front-end merge of per-library title-sorted lists. Dashboard routes share a left navigation rail that stays anchored to the viewport, with the profile entry at the lower edge and a small lower-left expand handle when collapsed. The rail's recent-watching entry opens the real watch-history page backed by the server watch-history API.
 
@@ -31,16 +29,6 @@ Series grouping is intentionally filename-first. Use filenames such as `Show.Nam
 After a successful scan, later scans first match by file path and compare a lightweight fingerprint based on file size and modified time. Scanning is split into four phases: discover physical files, shallow filename grouping, group-by-group local analysis, then TMDB enrichment. The shallow pass only reads filenames and paths so it can build stable movie/series groups before expensive sidecar reads or `ffprobe`; each group is then fully analyzed, written, and pushed to the Web UI before the next group starts. Local analysis stores its own version, so unchanged files skip filename parsing, sidecar reads, `ffprobe`, and aggregation only when both the fingerprint and local analysis version still match. When an unchanged item still needs TMDB because it has no TMDB provider binding, sits in Other, failed earlier, was previously skipped before TMDB was enabled, or only has remote artwork URLs that need local caching, Mova reuses the stored local analysis and goes straight to item-by-item TMDB enrichment. Automatic matching stays conservative; broader candidate review belongs to the manual metadata search flow. Artwork fields keep their own semantics: series, season, episode, poster, and backdrop values are not substituted from another level or another image field. Already matched and unchanged items stay stable even if TMDB has no poster for them. Local placeholder items are written group by group, but a pending local write does not clear existing artwork; only a completed `matched` metadata write can clear artwork fields when the remote item truly has no image. Each successful TMDB result is written immediately so artwork appears progressively.
 
 When `ffprobe` is available, Mova also stores resource-level technical tags such as 4K, 1080p, HDR10, Dolby Vision, DTS-HD, and Atmos for each physical media file, then surfaces those tags as resource badges on detail pages.
-
-## Screenshots
-
-### Detail Page And Light Theme
-
-![Mova detail page with light theme](docs/assets/readme/theme.png)
-
-### Server Settings
-
-![Mova server settings](docs/assets/readme/server-setting.png)
 
 ## Deployment
 
@@ -86,7 +74,7 @@ After startup, Mova creates two runtime folders:
 - `data/postgres/`: PostgreSQL database files for libraries, users, metadata, and playback progress.
 - `data/cache/`: cached artwork and generated media assets. Deleting a library also removes its unshared TMDB artwork cache files.
 
-During the current pre-MVP development stage, database schema changes can require rebuilding `data/postgres/`. The current schema stores local analysis versioning, native access/refresh token device sessions, and keeps TMDB/provider text fields unbounded in `migrations/0001_init.sql`, so existing development databases should be rebuilt after pulling this change.
+During the current pre-1.0 MVP preview stage, database schema changes can require rebuilding `data/postgres/`. Schema changes are still applied directly through `migrations/0001_init.sql`, so development databases may need to be rebuilt after pulling schema updates.
 
 Your media folder is mounted read-only. Mova does not modify your original media files.
 
