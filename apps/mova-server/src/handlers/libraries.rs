@@ -50,10 +50,8 @@ pub struct ListLibraryMediaItemsQuery {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct RecentlyAddedByLibraryQuery {
-    pub library_limit: Option<i64>,
-    pub item_limit: Option<i64>,
-    pub limit: Option<i64>,
     pub days: Option<i64>,
+    pub limit: Option<i64>,
 }
 
 /// 查询所有已配置的媒体库，供前端渲染列表页或设置页使用。
@@ -91,10 +89,8 @@ pub async fn list_recently_added_by_library(
         &state.db,
         mova_application::ListRecentlyAddedByLibraryInput {
             visible_library_ids,
-            library_limit: query.library_limit,
-            item_limit: query.item_limit,
-            limit: query.limit,
             days: query.days,
+            limit: query.limit,
         },
     )
     .await

@@ -229,22 +229,18 @@ const listLibraryMediaItems = (libraryId: number, url: URL): MediaItemListRespon
 }
 
 const recentlyAddedByLibrary = (url: URL): RecentlyAddedLibraryMediaItems[] => {
-  const libraryLimit = Math.max(1, Number(url.searchParams.get('library_limit') ?? 3))
-  const itemLimit = Math.min(
-    50,
-    Math.max(
-      1,
-      Number(url.searchParams.get('item_limit') ?? url.searchParams.get('limit') ?? 8),
-    ),
-  )
-  const days = Math.min(365, Math.max(1, Number(url.searchParams.get('days') ?? 7)))
-  const createdSince = Date.parse(MOCK_NOW) - days * 24 * 60 * 60 * 1000
+  const itemLimit = Math.min(50, Math.max(1, Number(url.searchParams.get('limit') ?? 8)))
+  const daysValue = url.searchParams.get('days')
+  const days = daysValue === null ? null : Math.min(365, Math.max(1, Number(daysValue)))
+  const createdSince = days === null ? null : Date.parse(MOCK_NOW) - days * 24 * 60 * 60 * 1000
 
   return mockLibraries
     .map((library) => {
       const items = sortedMediaItems(
         mockMediaItems.filter(
-          (item) => item.library_id === library.id && Date.parse(item.created_at) >= createdSince,
+          (item) =>
+            item.library_id === library.id &&
+            (createdSince === null || Date.parse(item.created_at) >= createdSince),
         ),
       )
       return {
@@ -259,7 +255,6 @@ const recentlyAddedByLibrary = (url: URL): RecentlyAddedLibraryMediaItems[] => {
       const rightLatest = Date.parse(right.items[0]?.created_at ?? '0')
       return rightLatest - leftLatest
     })
-    .slice(0, libraryLimit)
 }
 
 const globalSearch = (url: URL): GlobalSearchResult[] => {

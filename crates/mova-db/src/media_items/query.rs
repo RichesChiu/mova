@@ -100,9 +100,8 @@ pub async fn list_media_items_for_library(
 pub async fn list_recently_added_media_items_by_library(
     pool: &PgPool,
     library_ids: Option<&[i64]>,
-    library_limit: i64,
     item_limit: i64,
-    created_since: OffsetDateTime,
+    created_since: Option<OffsetDateTime>,
 ) -> Result<Vec<RecentlyAddedLibraryMediaItems>> {
     let library_ids = library_ids.map(|ids| ids.to_vec());
     let rows = sqlx::query(
@@ -153,7 +152,7 @@ pub async fn list_recently_added_media_items_by_library(
             from media_items mi
             join visible_libraries vl on vl.id = mi.library_id
             where mi.media_type in ('movie', 'series')
-                and mi.created_at >= $4
+                and ($3::timestamptz is null or mi.created_at >= $3)
         ),
         library_recency as (
             select
@@ -163,7 +162,6 @@ pub async fn list_recently_added_media_items_by_library(
             from ranked_items
             group by library_id
             order by max(created_at) desc, library_id asc
-            limit $3
         )
         select
             vl.id as library_id,
@@ -207,7 +205,6 @@ pub async fn list_recently_added_media_items_by_library(
     )
     .bind(library_ids.as_deref())
     .bind(item_limit)
-    .bind(library_limit)
     .bind(created_since)
     .fetch_all(pool)
     .await

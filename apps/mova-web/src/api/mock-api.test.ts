@@ -40,14 +40,14 @@ describe('mock api switch', () => {
     expect(isMockApiEnabled()).toBe(false)
   })
 
-  it('returns limited recently added groups by library', async () => {
+  it('returns all recently added library groups with a per-library limit', async () => {
     setLocation('/?mova_mock_api=1')
 
     const response = await requestMockJson<RecentlyAddedLibraryMediaItems[]>(
-      '/api/libraries/recently-added?library_limit=2&limit=3',
+      '/api/libraries/recently-added?limit=3',
     )
 
-    expect(response?.data).toHaveLength(2)
+    expect(response?.data).toHaveLength(6)
     expect(response?.data[0]?.items).toHaveLength(3)
     expect(response?.data[0]?.library.name).toBe('Overseas TV')
   })

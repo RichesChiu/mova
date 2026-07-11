@@ -168,11 +168,10 @@ export const HomePage = () => {
     queryKey: ['continue-watching', 20],
     queryFn: () => listContinueWatching(20),
   })
-  const recentlyAddedLibraryLimit = Math.max(libraries.length, 1)
   const recentlyAddedQuery = useQuery({
     enabled: !librariesLoading,
-    queryKey: ['recently-added-by-library', recentlyAddedLibraryLimit, RECENTLY_ADDED_ITEM_LIMIT],
-    queryFn: () => listRecentlyAddedByLibrary(recentlyAddedLibraryLimit, RECENTLY_ADDED_ITEM_LIMIT),
+    queryKey: ['recently-added-by-library', RECENTLY_ADDED_ITEM_LIMIT],
+    queryFn: () => listRecentlyAddedByLibrary({ limit: RECENTLY_ADDED_ITEM_LIMIT }),
   })
   const continueWatchingItems = continueWatchingQuery.data ?? []
   const recentlyAddedGroups = recentlyAddedQuery.data ?? []

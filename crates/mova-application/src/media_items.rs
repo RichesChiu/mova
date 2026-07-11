@@ -25,10 +25,8 @@ use time::{Duration, OffsetDateTime};
 const DEFAULT_MEDIA_ITEMS_PAGE: i64 = 1;
 const DEFAULT_MEDIA_ITEMS_PAGE_SIZE: i64 = 50;
 const MAX_MEDIA_ITEMS_PAGE_SIZE: i64 = 100;
-const DEFAULT_RECENTLY_ADDED_LIBRARY_LIMIT: i64 = 3;
 const DEFAULT_RECENTLY_ADDED_ITEM_LIMIT: i64 = 8;
 const MAX_RECENTLY_ADDED_ITEM_LIMIT: i64 = 50;
-const DEFAULT_RECENTLY_ADDED_DAYS: i64 = 7;
 const MAX_RECENTLY_ADDED_DAYS: i64 = 365;
 const DEFAULT_GLOBAL_SEARCH_LIMIT: i64 = 12;
 const MAX_GLOBAL_SEARCH_LIMIT: i64 = 30;
@@ -53,10 +51,8 @@ pub struct ListMediaItemsForLibraryOutput {
 #[derive(Debug, Clone, Default)]
 pub struct ListRecentlyAddedByLibraryInput {
     pub visible_library_ids: Option<Vec<i64>>,
-    pub library_limit: Option<i64>,
-    pub item_limit: Option<i64>,
-    pub limit: Option<i64>,
     pub days: Option<i64>,
+    pub limit: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -195,20 +191,9 @@ pub async fn list_recently_added_media_items_by_library(
     pool: &PgPool,
     input: ListRecentlyAddedByLibraryInput,
 ) -> ApplicationResult<Vec<RecentlyAddedLibraryMediaItems>> {
-    let library_limit = normalize_recently_added_limit(
-        input.library_limit,
-        DEFAULT_RECENTLY_ADDED_LIBRARY_LIMIT,
-        None,
-        "library_limit",
-    )?;
-    let item_limit = normalize_recently_added_limit(
-        input.item_limit.or(input.limit),
-        DEFAULT_RECENTLY_ADDED_ITEM_LIMIT,
-        Some(MAX_RECENTLY_ADDED_ITEM_LIMIT),
-        "item_limit",
-    )?;
-    let days = normalize_recently_added_days(input.days)?;
-    let created_since = OffsetDateTime::now_utc() - Duration::days(days);
+    let item_limit = normalize_recently_added_limit(input.limit)?;
+    let created_since = normalize_recently_added_days(input.days)?
+        .map(|days| OffsetDateTime::now_utc() - Duration::days(days));
     let visible_library_ids = input.visible_library_ids;
 
     if visible_library_ids
@@ -222,7 +207,6 @@ pub async fn list_recently_added_media_items_by_library(
     let groups = mova_db::list_recently_added_media_items_by_library(
         pool,
         visible_library_ids.as_deref(),
-        library_limit,
         item_limit,
         created_since,
     )
@@ -1143,34 +1127,23 @@ fn normalize_page_size(page_size: Option<i64>) -> ApplicationResult<i64> {
     }
 }
 
-fn normalize_recently_added_limit(
-    limit: Option<i64>,
-    default_value: i64,
-    max_value: Option<i64>,
-    field_name: &str,
-) -> ApplicationResult<i64> {
-    match limit.unwrap_or(default_value) {
-        value if value <= 0 => Err(ApplicationError::Validation(format!(
-            "{} must be a positive integer",
-            field_name
-        ))),
-        value => {
-            if let Some(max_value) = max_value {
-                return Ok(value.min(max_value));
-            }
-
-            Ok(value)
-        }
+fn normalize_recently_added_limit(limit: Option<i64>) -> ApplicationResult<i64> {
+    match limit.unwrap_or(DEFAULT_RECENTLY_ADDED_ITEM_LIMIT) {
+        value if value <= 0 => Err(ApplicationError::Validation(
+            "limit must be a positive integer".to_string(),
+        )),
+        value => Ok(value.min(MAX_RECENTLY_ADDED_ITEM_LIMIT)),
     }
 }
 
-fn normalize_recently_added_days(days: Option<i64>) -> ApplicationResult<i64> {
-    match days.unwrap_or(DEFAULT_RECENTLY_ADDED_DAYS) {
-        value if value <= 0 => Err(ApplicationError::Validation(
+fn normalize_recently_added_days(days: Option<i64>) -> ApplicationResult<Option<i64>> {
+    match days {
+        None => Ok(None),
+        Some(value) if value <= 0 => Err(ApplicationError::Validation(
             "days must be a positive integer".to_string(),
         )),
-        value if value > MAX_RECENTLY_ADDED_DAYS => Ok(MAX_RECENTLY_ADDED_DAYS),
-        value => Ok(value),
+        Some(value) if value > MAX_RECENTLY_ADDED_DAYS => Ok(Some(MAX_RECENTLY_ADDED_DAYS)),
+        Some(value) => Ok(Some(value)),
     }
 }
 
@@ -1230,7 +1203,7 @@ mod tests {
     #[test]
     fn normalize_recently_added_limit_rejects_non_positive_values() {
         assert!(matches!(
-            normalize_recently_added_limit(Some(0), 3, Some(12), "item_limit"),
+            normalize_recently_added_limit(Some(0)),
             Err(ApplicationError::Validation(message))
                 if message.contains("positive integer")
         ));
@@ -1238,23 +1211,17 @@ mod tests {
 
     #[test]
     fn normalize_recently_added_limit_caps_large_values() {
-        assert_eq!(
-            normalize_recently_added_limit(Some(80), 3, Some(50), "item_limit").unwrap(),
-            50
-        );
+        assert_eq!(normalize_recently_added_limit(Some(80)).unwrap(), 50);
     }
 
     #[test]
-    fn normalize_recently_added_limit_allows_uncapped_library_groups() {
-        assert_eq!(
-            normalize_recently_added_limit(Some(24), 3, None, "library_limit").unwrap(),
-            24
-        );
+    fn normalize_recently_added_limit_uses_safe_default() {
+        assert_eq!(normalize_recently_added_limit(None).unwrap(), 8);
     }
 
     #[test]
-    fn normalize_recently_added_days_uses_default_value() {
-        assert_eq!(normalize_recently_added_days(None).unwrap(), 7);
+    fn normalize_recently_added_days_omits_time_filter_by_default() {
+        assert_eq!(normalize_recently_added_days(None).unwrap(), None);
     }
 
     #[test]
@@ -1268,7 +1235,7 @@ mod tests {
 
     #[test]
     fn normalize_recently_added_days_caps_large_values() {
-        assert_eq!(normalize_recently_added_days(Some(900)).unwrap(), 365);
+        assert_eq!(normalize_recently_added_days(Some(900)).unwrap(), Some(365));
     }
 
     #[test]

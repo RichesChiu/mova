@@ -28,8 +28,8 @@ export const LibrariesPage = () => {
   })
   const recentPreviewQuery = useQuery({
     enabled: libraries.length > 0,
-    queryKey: ['libraries-page-recently-added', libraries.length, 8],
-    queryFn: () => listRecentlyAddedByLibrary(libraries.length, 8),
+    queryKey: ['libraries-page-recently-added', 8],
+    queryFn: () => listRecentlyAddedByLibrary({ limit: 8 }),
   })
   const recentPreviewByLibraryId = new Map(
     (recentPreviewQuery.data ?? []).map((group) => [group.library.id, group.items]),

@@ -219,14 +219,25 @@ export const getServerMediaTree = () =>
 export const getLibrary = (libraryId: number) =>
   requestJson<LibraryDetail>(withApiPrefix(`/libraries/${libraryId}`))
 
-export const listRecentlyAddedByLibrary = (libraryLimit = 3, itemLimit = 8) => {
-  const searchParams = new URLSearchParams({
-    item_limit: String(itemLimit),
-    library_limit: String(libraryLimit),
-  })
+interface RecentlyAddedParams {
+  days?: number
+  limit?: number
+}
+
+export const listRecentlyAddedByLibrary = ({ days, limit }: RecentlyAddedParams = {}) => {
+  const searchParams = new URLSearchParams()
+
+  if (days !== undefined) {
+    searchParams.set('days', String(days))
+  }
+  if (limit !== undefined) {
+    searchParams.set('limit', String(limit))
+  }
 
   return requestJson<RecentlyAddedLibraryMediaItems[]>(
-    withApiPrefix(`/libraries/recently-added?${searchParams.toString()}`),
+    withApiPrefix(
+      `/libraries/recently-added${searchParams.size > 0 ? `?${searchParams.toString()}` : ''}`,
+    ),
   )
 }
 
