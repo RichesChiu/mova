@@ -291,6 +291,12 @@ export interface WatchHistory {
 export interface WatchHistoryItem {
   media_item: MediaItem
   watch_history: WatchHistory
+  season_number: number | null
+  episode_number: number | null
+  episode_title: string | null
+  episode_overview: string | null
+  episode_poster_path: string | null
+  episode_backdrop_path: string | null
 }
 
 export interface CreateLibraryInput {

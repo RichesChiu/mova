@@ -5,8 +5,8 @@ import {
   deleteLibrary,
   getLibrary,
   getMediaItemEpisodeOutline,
-  listLibraryMediaItems,
   listContinueWatching,
+  listLibraryMediaItems,
   listRecentlyAddedByLibrary,
   scanLibrary,
   updateLibrary,
@@ -15,6 +15,7 @@ import type { Library, LibraryDetail } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import { getLibraryScanRuntime } from '../../components/app-shell/scan-runtime'
 import { ConfirmActionModal } from '../../components/confirm-action-modal'
+import type { ContinueWatchingCardData } from '../../components/continue-watching-card'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { useI18n } from '../../i18n'
 import { mediaItemDetailPath, mediaItemPrimaryPath } from '../../lib/media-routes'
@@ -31,7 +32,7 @@ import { DashboardPageHeader } from './dashboard-page-header'
 import { HomeDashboardShell } from './home-dashboard-shell'
 import { LibrariesSection } from './libraries-section'
 import { LibraryContentSections } from './library-content-sections'
-import type { ContinueWatchingCardData, HomeLibraryModuleData } from './types'
+import type { HomeLibraryModuleData } from './types'
 
 // Playback progress is stored in seconds, but the card UI needs a clamped percentage.
 const progressPercent = (position: number, duration: number | null) => {
@@ -40,18 +41,6 @@ const progressPercent = (position: number, duration: number | null) => {
   }
 
   return Math.max(0, Math.min(100, Math.round((position / duration) * 100)))
-}
-
-const progressStatus = (percent: number) => {
-  if (percent >= 100) {
-    return 'complete' as const
-  }
-
-  if (percent > 0) {
-    return 'progress' as const
-  }
-
-  return 'idle' as const
 }
 
 const isEpisodeContextEntry = (entry: {
@@ -259,21 +248,16 @@ export const HomePage = () => {
     const title = hasEpisodeContext
       ? (localizedEpisode?.title ?? entry.episode_title ?? entry.media_item.title)
       : entry.media_item.title
-    const description = hasEpisodeContext
-      ? (localizedEpisode?.overview ?? entry.episode_overview ?? null)
-      : (entry.media_item.overview ?? null)
     const placeholderLabel = hasEpisodeContext ? `${seasonNumber}-${episodeNumber}` : l('Movies')
 
     return {
-      artworkAlt: `${entry.media_item.title} artwork`,
+      artworkAlt: l('{{title}} artwork', { title: entry.media_item.title }),
       artworkSrc: artwork,
-      description,
       href: continuePath,
       id: entry.playback_progress.id,
       metaLabel: episodeLabel,
       placeholderLabel,
       progressPercent: percent,
-      status: progressStatus(percent),
       title,
     }
   })

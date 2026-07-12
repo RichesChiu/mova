@@ -36,6 +36,17 @@
   animation: skeleton-shimmer 1.6s linear infinite;
 }
 
+.artwork-placeholder {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .page-stack,
 .stack {
   position: relative;

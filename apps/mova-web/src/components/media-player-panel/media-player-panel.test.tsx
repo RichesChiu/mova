@@ -298,6 +298,56 @@ describe('MediaPlayerPanel', () => {
     })
   })
 
+  it('releases pointer-focused controls so space returns to playback', async () => {
+    const { container } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel mediaItemId={31} title="Interstellar" variant="immersive" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
+    const video = container.querySelector('video') as HTMLVideoElement
+    installVideoTestState(video)
+    const fullscreenButton = screen.getByRole('button', { name: 'Enter fullscreen' })
+
+    fullscreenButton.focus()
+    expect(document.activeElement).toBe(fullscreenButton)
+
+    fireEvent.pointerUp(fullscreenButton, { pointerType: 'mouse' })
+    expect(document.activeElement).not.toBe(fullscreenButton)
+
+    fireEvent.keyDown(window, { code: 'Space', key: ' ' })
+    expect(video.play).toHaveBeenCalledTimes(1)
+  })
+
+  it('requests fullscreen on the complete player screen', async () => {
+    const { container } = render(
+      <div className="player-screen" data-testid="player-screen">
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MediaPlayerPanel mediaItemId={31} title="Interstellar" variant="immersive" />
+        </QueryClientProvider>
+      </div>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
+    const playerScreen = screen.getByTestId('player-screen')
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(playerScreen, 'requestFullscreen', {
+      configurable: true,
+      value: requestFullscreen,
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Enter fullscreen' }))
+
+    expect(requestFullscreen).toHaveBeenCalledTimes(1)
+  })
+
   it('shows skip intro only inside the configured intro window', async () => {
     const { container } = render(
       <QueryClientProvider client={createTestQueryClient()}>

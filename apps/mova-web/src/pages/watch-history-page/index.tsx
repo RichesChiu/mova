@@ -1,11 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link, useOutletContext } from 'react-router-dom'
+import { useOutletContext } from 'react-router-dom'
 import { listWatchHistory } from '../../api/client'
 import type { MediaItem, WatchHistoryItem } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
-import { useI18n, type Translate } from '../../i18n'
-import { formatDateTime } from '../../lib/format'
-import { mediaItemPrimaryPath } from '../../lib/media-routes'
+import {
+  ContinueWatchingCard,
+  ContinueWatchingCardSkeleton,
+} from '../../components/continue-watching-card'
+import { type Translate, useI18n } from '../../i18n'
+import { mediaItemDetailPath, mediaItemPrimaryPath } from '../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
@@ -48,51 +51,40 @@ const WatchHistoryCard = ({ item }: { item: WatchHistoryItem }) => {
   const { l } = useI18n()
   const mediaItem = item.media_item
   const history = item.watch_history
-  const title = titleForMediaItem(mediaItem, l)
+  const seasonNumber = typeof item.season_number === 'number' ? item.season_number : null
+  const episodeNumber = typeof item.episode_number === 'number' ? item.episode_number : null
+  const hasEpisodeContext = seasonNumber !== null && episodeNumber !== null
+  const title = item.episode_title?.trim() || titleForMediaItem(mediaItem, l)
   const mediaTypeLabel = formatLibraryMediaTypeLabel(mediaItem.media_type, l)
-  const metaLabel = mediaItem.year ? `${mediaTypeLabel} · ${mediaItem.year}` : mediaTypeLabel
-  const watchedAt = formatDateTime(history.last_watched_at)
-  const percent = progressPercent(history.position_seconds, history.duration_seconds)
-  const progressLabel = history.is_finished
-    ? l('Watched')
-    : l('{{count}}% watched', { count: percent })
+  const metaLabel = hasEpisodeContext
+    ? `S${String(seasonNumber).padStart(2, '0')} · E${String(episodeNumber).padStart(2, '0')}`
+    : mediaItem.year
+      ? `${mediaTypeLabel} · ${mediaItem.year}`
+      : mediaTypeLabel
+  const percent = history.is_finished
+    ? 100
+    : progressPercent(history.position_seconds, history.duration_seconds)
+  const href = hasEpisodeContext
+    ? `${mediaItemDetailPath(mediaItem.id)}?season=${seasonNumber}`
+    : mediaItemPrimaryPath(mediaItem)
 
   return (
-    <Link className="watch-history-card" to={mediaItemPrimaryPath(mediaItem)}>
-      <span className="watch-history-card__poster">
-        {mediaItem.poster_path ? (
-          <img alt={`${title} poster`} loading="lazy" src={mediaItem.poster_path} />
-        ) : (
-          <span className="watch-history-card__placeholder">{mediaTypeLabel}</span>
-        )}
-        <span className="watch-history-card__badge">{progressLabel}</span>
-      </span>
-
-      <span className="watch-history-card__body">
-        <strong title={title}>{title}</strong>
-        <em>{metaLabel}</em>
-        <small title={watchedAt}>{l('Last watched {{value}}', { value: watchedAt })}</small>
-      </span>
-
-      {!history.is_finished ? (
-        <span aria-hidden="true" className="watch-history-card__progress">
-          <span style={{ width: `${percent}%` }} />
-        </span>
-      ) : null}
-    </Link>
+    <ContinueWatchingCard
+      item={{
+        artworkAlt: l('{{title}} poster', { title }),
+        artworkSrc: hasEpisodeContext
+          ? (item.episode_poster_path ?? mediaItem.poster_path)
+          : mediaItem.poster_path,
+        href,
+        id: history.id,
+        metaLabel,
+        placeholderLabel: hasEpisodeContext ? `${seasonNumber}-${episodeNumber}` : mediaTypeLabel,
+        progressPercent: percent,
+        title,
+      }}
+    />
   )
 }
-
-const WatchHistorySkeleton = () => (
-  <div aria-hidden="true" className="watch-history-card watch-history-card--loading">
-    <span className="watch-history-card__poster skeleton-shimmer" />
-    <span className="watch-history-card__body">
-      <span className="watch-history-card__line watch-history-card__line--title skeleton-shimmer" />
-      <span className="watch-history-card__line watch-history-card__line--meta skeleton-shimmer" />
-      <span className="watch-history-card__line watch-history-card__line--time skeleton-shimmer" />
-    </span>
-  </div>
-)
 
 export const WatchHistoryPage = () => {
   const { formatNumber, l } = useI18n()
@@ -129,7 +121,7 @@ export const WatchHistoryPage = () => {
           {shouldShowSkeleton ? (
             <div className="watch-history-page__grid">
               {WATCH_HISTORY_SKELETON_KEYS.map((key) => (
-                <WatchHistorySkeleton key={key} />
+                <ContinueWatchingCardSkeleton key={key} label={l('Movies')} />
               ))}
             </div>
           ) : null}

@@ -1,5 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  type CSSProperties,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import {
   flushMediaItemPlaybackProgress,
   getMediaItemPlaybackProgress,
@@ -27,8 +35,20 @@ import {
   buildPlaybackInteractionWarningMessage,
 } from '../../lib/player-feedback'
 import { usePresenceTransition } from '../../lib/use-presence-transition'
+import {
+  AudioTrackIcon,
+  EpisodeSwitchIcon,
+  FullscreenIcon,
+  PauseIcon,
+  PlayIcon,
+  SeekBackIcon,
+  SeekForwardIcon,
+  SpeakerIcon,
+  SubtitleIcon,
+} from './player-icons'
 
 const PROGRESS_SYNC_INTERVAL_SECONDS = 5
+const PLAYER_CONTROLS_IDLE_HIDE_MS = 1_400
 const PLAYBACK_PROGRESS_SAVE_ERROR = () =>
   translateCurrent('Playback progress could not be saved. We will retry on the next sync.')
 const SUBTITLE_LOAD_ERROR = () =>
@@ -81,6 +101,17 @@ const isInteractiveKeyboardTarget = (target: EventTarget | null) => {
   )
 }
 
+const releasePointerButtonFocus = (event: ReactPointerEvent<HTMLElement>) => {
+  if (!(event.target instanceof Element)) {
+    return
+  }
+
+  const button = event.target.closest('button')
+  if (button instanceof HTMLButtonElement && event.currentTarget.contains(button)) {
+    button.blur()
+  }
+}
+
 const formatVideoMeta = (file: MediaFile) => {
   const parts = [file.container?.toUpperCase()]
 
@@ -93,276 +124,6 @@ const formatVideoMeta = (file: MediaFile) => {
   }
 
   return parts.filter(Boolean).join(' · ')
-}
-
-const SpeakerIcon = ({ muted, volume }: { muted: boolean; volume: number }) => {
-  if (muted || volume === 0) {
-    return (
-      <svg
-        aria-hidden="true"
-        className="player-control-button__glyph"
-        fill="none"
-        viewBox="0 0 24 24"
-      >
-        <path
-          d="M5 10H8L12 6V18L8 14H5V10Z"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="1.8"
-        />
-        <path
-          d="M16 9L20 15"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="1.8"
-        />
-        <path
-          d="M20 9L16 15"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="1.8"
-        />
-      </svg>
-    )
-  }
-
-  return (
-    <svg
-      aria-hidden="true"
-      className="player-control-button__glyph"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M5 10H8L12 6V18L8 14H5V10Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M15.5 9.5C16.3 10.1 16.8 11.01 16.8 12C16.8 12.99 16.3 13.9 15.5 14.5"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-      {volume >= 0.5 ? (
-        <path
-          d="M18.3 7C19.72 8.24 20.6 10.05 20.6 12C20.6 13.95 19.72 15.76 18.3 17"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="1.8"
-        />
-      ) : null}
-    </svg>
-  )
-}
-
-const FullscreenIcon = () => {
-  return (
-    <svg
-      aria-hidden="true"
-      className="player-control-button__glyph"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M9 4H5V8"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M15 4H19V8"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M9 20H5V16"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M15 20H19V16"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  )
-}
-
-const PlayIcon = () => {
-  return (
-    <svg
-      aria-hidden="true"
-      className="player-control-button__glyph"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M8 6.5L17 12L8 17.5V6.5Z"
-        fill="currentColor"
-        stroke="currentColor"
-        strokeLinejoin="round"
-        strokeWidth="1.2"
-      />
-    </svg>
-  )
-}
-
-const PauseIcon = () => {
-  return (
-    <svg
-      aria-hidden="true"
-      className="player-control-button__glyph"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <path d="M8.5 6.5V17.5" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" />
-      <path d="M15.5 6.5V17.5" stroke="currentColor" strokeLinecap="round" strokeWidth="2.2" />
-    </svg>
-  )
-}
-
-const SeekBackIcon = () => {
-  return (
-    <svg
-      aria-hidden="true"
-      className="player-control-button__glyph"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M11 7L6 12L11 17"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.9"
-      />
-      <path
-        d="M18 7L13 12L18 17"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.9"
-      />
-    </svg>
-  )
-}
-
-const SeekForwardIcon = () => {
-  return (
-    <svg
-      aria-hidden="true"
-      className="player-control-button__glyph"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M13 7L18 12L13 17"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.9"
-      />
-      <path
-        d="M6 7L11 12L6 17"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.9"
-      />
-    </svg>
-  )
-}
-
-const SubtitleIcon = () => {
-  return (
-    <svg
-      aria-hidden="true"
-      className="player-control-button__glyph"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <rect height="12" rx="2.5" stroke="currentColor" strokeWidth="1.8" width="18" x="3" y="6" />
-      <path d="M7 11H11" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-      <path d="M7 14H14" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-      <path
-        d="M16.5 11.5L18 13L16.5 14.5"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  )
-}
-
-const AudioTrackIcon = () => {
-  return (
-    <svg
-      aria-hidden="true"
-      className="player-control-button__glyph"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M5 10H8L12 6V18L8 14H5V10Z"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M15.5 9.5C16.3 10.1 16.8 11.01 16.8 12C16.8 12.99 16.3 13.9 15.5 14.5"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M18.3 7C19.72 8.24 20.6 10.05 20.6 12C20.6 13.95 19.72 15.76 18.3 17"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  )
-}
-
-const EpisodeSwitchIcon = () => {
-  return (
-    <svg
-      aria-hidden="true"
-      className="player-control-button__glyph"
-      fill="none"
-      viewBox="0 0 24 24"
-    >
-      <rect height="14" rx="2.5" stroke="currentColor" strokeWidth="1.8" width="18" x="3" y="5" />
-      <path d="M7 9H15" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-      <path d="M7 12.5H13" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-      <path
-        d="M16.5 12L18.5 14L16.5 16"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  )
 }
 
 const normalizeSubtitleTrackLanguage = (language: string | null | undefined) =>
@@ -470,6 +231,7 @@ export const MediaPlayerPanel = ({
   variant = 'panel',
 }: MediaPlayerPanelProps) => {
   const queryClient = useQueryClient()
+  const isImmersive = variant === 'immersive'
   const stageRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const episodeMenuRef = useRef<HTMLDivElement | null>(null)
@@ -477,6 +239,7 @@ export const MediaPlayerPanel = ({
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedMediaFileRef = useRef<MediaFile | null>(null)
   const audioTrackNoticeTimeoutRef = useRef<number | null>(null)
+  const playerControlsHideTimeoutRef = useRef<number | null>(null)
   const pendingAudioTrackSwitchRef = useRef<{
     label: string
     target: number | null
@@ -508,12 +271,80 @@ export const MediaPlayerPanel = ({
   const [isEpisodeMenuOpen, setIsEpisodeMenuOpen] = useState(false)
   const [isAudioMenuOpen, setIsAudioMenuOpen] = useState(false)
   const [isSubtitleMenuOpen, setIsSubtitleMenuOpen] = useState(false)
+  const [arePlayerControlsVisible, setArePlayerControlsVisible] = useState(false)
   const episodeMenuPresence = usePresenceTransition(isEpisodeMenuOpen, 140)
   const audioMenuPresence = usePresenceTransition(isAudioMenuOpen, 140)
   const subtitleMenuPresence = usePresenceTransition(isSubtitleMenuOpen, 140)
   const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<number | null>(null)
   const [selectedSubtitleId, setSelectedSubtitleId] = useState<number | null>(null)
   const [hasSkippedIntro, setHasSkippedIntro] = useState(false)
+  const arePlayerControlsPinned = isEpisodeMenuOpen || isAudioMenuOpen || isSubtitleMenuOpen
+
+  const clearPlayerControlsHideTimeout = useCallback(() => {
+    if (playerControlsHideTimeoutRef.current === null) {
+      return
+    }
+
+    window.clearTimeout(playerControlsHideTimeoutRef.current)
+    playerControlsHideTimeoutRef.current = null
+  }, [])
+
+  const schedulePlayerControlsHide = useCallback(() => {
+    clearPlayerControlsHideTimeout()
+
+    if (!isImmersive || arePlayerControlsPinned) {
+      return
+    }
+
+    playerControlsHideTimeoutRef.current = window.setTimeout(() => {
+      playerControlsHideTimeoutRef.current = null
+      setArePlayerControlsVisible(false)
+    }, PLAYER_CONTROLS_IDLE_HIDE_MS)
+  }, [arePlayerControlsPinned, clearPlayerControlsHideTimeout, isImmersive])
+
+  const revealPlayerControls = useCallback(() => {
+    if (!isImmersive) {
+      return
+    }
+
+    setArePlayerControlsVisible(true)
+    schedulePlayerControlsHide()
+  }, [isImmersive, schedulePlayerControlsHide])
+
+  useEffect(() => {
+    if (!isImmersive) {
+      clearPlayerControlsHideTimeout()
+      return
+    }
+
+    const handleMouseMove = () => revealPlayerControls()
+    window.addEventListener('mousemove', handleMouseMove)
+    revealPlayerControls()
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      clearPlayerControlsHideTimeout()
+    }
+  }, [clearPlayerControlsHideTimeout, isImmersive, revealPlayerControls])
+
+  useEffect(() => {
+    if (!isImmersive) {
+      return
+    }
+
+    if (arePlayerControlsPinned) {
+      clearPlayerControlsHideTimeout()
+      setArePlayerControlsVisible(true)
+      return
+    }
+
+    schedulePlayerControlsHide()
+  }, [
+    arePlayerControlsPinned,
+    clearPlayerControlsHideTimeout,
+    isImmersive,
+    schedulePlayerControlsHide,
+  ])
 
   const syncEpisodeOutlinePlaybackProgress = ({
     duration_seconds,
@@ -907,7 +738,15 @@ export const MediaPlayerPanel = ({
       }
     }
     const handleFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement === stageRef.current)
+      const stage = stageRef.current
+      const fullscreenElement = document.fullscreenElement
+      setIsFullscreen(
+        Boolean(
+          stage &&
+            fullscreenElement &&
+            (fullscreenElement === stage || fullscreenElement.contains(stage)),
+        ),
+      )
     }
 
     syncVolumeState()
@@ -1277,7 +1116,6 @@ export const MediaPlayerPanel = ({
     setIsAudioMenuOpen(false)
   }
 
-  const isImmersive = variant === 'immersive'
   const seekMax = Math.max(0, durationSeconds ?? selectedMediaFileDuration ?? 0)
   const playedProgressPercent = seekMax > 0 ? Math.min(100, (positionSeconds / seekMax) * 100) : 0
   const bufferedProgressPercent =
@@ -1415,7 +1253,12 @@ export const MediaPlayerPanel = ({
       return
     }
 
-    if (document.fullscreenElement === stage) {
+    const fullscreenTarget = stage.closest<HTMLElement>('.player-screen') ?? stage
+
+    if (
+      document.fullscreenElement === fullscreenTarget ||
+      document.fullscreenElement?.contains(stage)
+    ) {
       try {
         await document.exitFullscreen()
         setInteractionWarning(null)
@@ -1425,13 +1268,16 @@ export const MediaPlayerPanel = ({
       return
     }
 
-    if (typeof stage.requestFullscreen !== 'function' || document.fullscreenEnabled === false) {
+    if (
+      typeof fullscreenTarget.requestFullscreen !== 'function' ||
+      document.fullscreenEnabled === false
+    ) {
       setInteractionWarning(buildFullscreenWarningMessage())
       return
     }
 
     try {
-      await stage.requestFullscreen()
+      await fullscreenTarget.requestFullscreen()
       setInteractionWarning(null)
     } catch (error) {
       setInteractionWarning(buildFullscreenWarningMessage(error))
@@ -1453,14 +1299,10 @@ export const MediaPlayerPanel = ({
       ) : null}
 
       {statePlaybackErrorMessages.length > 0 ? (
-        <div
-          aria-live="assertive"
-          className="player-panel__state-center"
-          role="alert"
-        >
+        <div aria-live="assertive" className="player-panel__state-center" role="alert">
           <div className="player-panel__status-stack player-panel__status-stack--centered">
-            {statePlaybackErrorMessages.map((message, index) => (
-              <p className="callout callout--danger" key={`${message}-${index}`}>
+            {statePlaybackErrorMessages.map((message) => (
+              <p className="callout callout--danger" key={message}>
                 {message}
               </p>
             ))}
@@ -1484,7 +1326,7 @@ export const MediaPlayerPanel = ({
               : 'player-panel__content'
           }
         >
-          <div className="player-stage" ref={stageRef}>
+          <div className="player-stage" onPointerUp={releasePointerButtonFocus} ref={stageRef}>
             <div className="player-stage__media">
               {isImmersive && shouldShowTopOverlay ? (
                 <div className="player-panel__overlay">
@@ -1527,8 +1369,8 @@ export const MediaPlayerPanel = ({
 
               {centeredPlaybackErrorMessages.length > 0 ? (
                 <PlayerPanelCenteredStatus>
-                  {centeredPlaybackErrorMessages.map((message, index) => (
-                    <p className="callout callout--danger" key={`${message}-${index}`}>
+                  {centeredPlaybackErrorMessages.map((message) => (
+                    <p className="callout callout--danger" key={message}>
                       {message}
                     </p>
                   ))}
@@ -1578,7 +1420,13 @@ export const MediaPlayerPanel = ({
             </div>
 
             {isImmersive ? (
-              <div className="player-stage__controls">
+              <div
+                className={
+                  arePlayerControlsVisible
+                    ? 'player-stage__controls player-stage__controls--visible'
+                    : 'player-stage__controls'
+                }
+              >
                 {nextEpisode && onSelectEpisode ? (
                   <div className="player-stage__timeline-actions">
                     <button
@@ -1610,7 +1458,7 @@ export const MediaPlayerPanel = ({
 
                 <div className="player-stage__control-row">
                   <div className="player-toolbar-cluster">
-                    <div className="player-toolbar-pill">
+                    <div className="player-toolbar-pill player-toolbar-pill--primary">
                       <button
                         aria-label={
                           isPlaying
@@ -1625,7 +1473,7 @@ export const MediaPlayerPanel = ({
                       </button>
                       <button
                         aria-label={translateCurrent('Seek backward 10 seconds')}
-                        className="player-control-button player-control-button--icon player-control-button--toolbar"
+                        className="player-control-button player-control-button--icon player-control-button--toolbar player-control-button--seek"
                         onClick={() => seekBy(-10)}
                         title={translateCurrent('Back 10 seconds')}
                         type="button"
@@ -1634,16 +1482,41 @@ export const MediaPlayerPanel = ({
                       </button>
                       <button
                         aria-label={translateCurrent('Seek forward 10 seconds')}
-                        className="player-control-button player-control-button--icon player-control-button--toolbar"
+                        className="player-control-button player-control-button--icon player-control-button--toolbar player-control-button--seek"
                         onClick={() => seekBy(10)}
                         title={translateCurrent('Forward 10 seconds')}
                         type="button"
                       >
                         <SeekForwardIcon />
                       </button>
-                    </div>
-
-                    <div className="player-toolbar-pill player-toolbar-pill--time">
+                      <div className="player-volume-control">
+                        <button
+                          aria-label={translateCurrent('Adjust volume')}
+                          className="player-control-button player-control-button--icon player-control-button--toolbar"
+                          type="button"
+                          title={
+                            selectedAudioTrack
+                              ? translateCurrent('Selected audio: {{name}}', {
+                                  name: formatAudioTrackLabel(selectedAudioTrack),
+                                })
+                              : translateCurrent('Adjust volume')
+                          }
+                        >
+                          <SpeakerIcon muted={isMuted} volume={volume} />
+                        </button>
+                        <div className="player-volume-control__slider">
+                          <input
+                            aria-label={translateCurrent('Adjust volume')}
+                            className="player-range player-range--volume-inline"
+                            max={1}
+                            min={0}
+                            onChange={(event) => changeVolume(Number(event.target.value))}
+                            step={0.05}
+                            type="range"
+                            value={isMuted ? 0 : volume}
+                          />
+                        </div>
+                      </div>
                       <span className="player-stage__time">
                         {formatDuration(positionSeconds)} / {formatDuration(durationSeconds)}
                       </span>
@@ -1651,7 +1524,7 @@ export const MediaPlayerPanel = ({
                   </div>
 
                   <div className="player-toolbar-cluster player-toolbar-cluster--right">
-                    <div className="player-toolbar-pill">
+                    <div className="player-toolbar-pill player-toolbar-pill--tools">
                       {episodeSwitchOptions.length > 0 && onSelectEpisode ? (
                         <div
                           className={
@@ -1895,34 +1768,6 @@ export const MediaPlayerPanel = ({
                         ) : null}
                       </div>
 
-                      <div className="player-volume-control">
-                        <button
-                          aria-label={translateCurrent('Adjust volume')}
-                          className="player-control-button player-control-button--icon player-control-button--toolbar"
-                          type="button"
-                          title={
-                            selectedAudioTrack
-                              ? translateCurrent('Selected audio: {{name}}', {
-                                  name: formatAudioTrackLabel(selectedAudioTrack),
-                                })
-                              : translateCurrent('Adjust volume')
-                          }
-                        >
-                          <SpeakerIcon muted={isMuted} volume={volume} />
-                        </button>
-                        <div className="player-volume-control__slider">
-                          <input
-                            aria-label={translateCurrent('Adjust volume')}
-                            className="player-range player-range--volume-inline"
-                            max={1}
-                            min={0}
-                            onChange={(event) => changeVolume(Number(event.target.value))}
-                            step={0.05}
-                            type="range"
-                            value={isMuted ? 0 : volume}
-                          />
-                        </div>
-                      </div>
                       <button
                         aria-label={
                           isFullscreen

@@ -65,7 +65,7 @@ const RecentlyAddedMediaCard = ({ item }: { item: MediaItem }) => {
   return (
     <Link className="recently-added-card" to={mediaItemPrimaryPath(item)}>
       <RecentlyAddedArtwork
-        alt={`${title} poster`}
+        alt={l('{{title}} poster', { title })}
         className="recently-added-card__artwork"
         placeholderLabel={mediaTypeLabel}
         src={item.poster_path}

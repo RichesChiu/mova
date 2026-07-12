@@ -81,13 +81,11 @@
   background: var(--player-chrome-button-background);
   color: var(--text);
   transition:
-    transform 160ms ease,
     background 160ms ease,
     color 160ms ease;
 }
 
 .player-screen__back:hover {
-  transform: translateX(-1px);
   background: var(--player-chrome-button-hover-background);
   color: var(--accent-strong);
 }
@@ -146,18 +144,11 @@
 .player-screen:has(.player-screen__hotspot--bottom:hover) .player-screen__chrome,
 .player-screen:has(.player-panel__overlay:hover) .player-screen__chrome,
 .player-screen:has(.player-panel__overlay:focus-within) .player-screen__chrome,
+.player-screen:has(.player-stage__controls--visible) .player-screen__chrome,
 .player-screen:has(.player-screen__chrome:hover) .player-screen__chrome,
 .player-screen:has(.player-screen__chrome:focus-within) .player-screen__chrome,
 .player-screen:has(.player-stage__controls:hover) .player-screen__chrome,
-.player-screen:has(.player-stage__controls:focus-within) .player-screen__chrome,
-.player-screen:has(.player-screen__hotspot--top:hover) .player-stage__controls,
-.player-screen:has(.player-screen__hotspot--bottom:hover) .player-stage__controls,
-.player-screen:has(.player-panel__overlay:hover) .player-stage__controls,
-.player-screen:has(.player-panel__overlay:focus-within) .player-stage__controls,
-.player-screen:has(.player-screen__chrome:hover) .player-stage__controls,
-.player-screen:has(.player-screen__chrome:focus-within) .player-stage__controls,
-.player-screen:has(.player-stage__controls:hover) .player-stage__controls,
-.player-screen:has(.player-stage__controls:focus-within) .player-stage__controls {
+.player-screen:has(.player-stage__controls:focus-within) .player-screen__chrome {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);

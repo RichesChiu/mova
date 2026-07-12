@@ -112,7 +112,7 @@ const LibraryDetailMediaTile = ({ item }: { item: MediaItem }) => {
   return (
     <Link className="library-detail-tile" to={mediaItemPrimaryPath(item)}>
       <LibraryDetailTileArtwork
-        alt={`${title} poster`}
+        alt={l('{{title}} poster', { title })}
         placeholderLabel={mediaTypeLabel}
         src={item.poster_path}
       />
@@ -135,7 +135,7 @@ const LibraryDetailScanTile = ({ item }: { item: ScanRuntimeItem }) => {
   return (
     <div aria-live="polite" className="library-detail-tile library-detail-tile--scanning">
       <LibraryDetailTileArtwork
-        alt={`${item.title} poster`}
+        alt={l('{{title}} poster', { title: item.title })}
         placeholderLabel={placeholderLabel}
         src={item.poster_path}
       >

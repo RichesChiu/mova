@@ -67,9 +67,30 @@ pub async fn list_watch_history(
             wh.started_at,
             wh.last_watched_at,
             wh.ended_at,
-            wh.completed_at
+            wh.completed_at,
+            s.season_number,
+            e.episode_number,
+            case
+                when watched_mi.media_type = 'episode' then coalesce(nullif(e.title, ''), nullif(watched_mi.title, ''))
+                else null
+            end as episode_title,
+            case
+                when watched_mi.media_type = 'episode' then watched_mi.overview
+                else null
+            end as episode_overview,
+            case
+                when watched_mi.media_type = 'episode' then watched_mi.poster_path
+                else null
+            end as episode_poster_path,
+            case
+                when watched_mi.media_type = 'episode' then watched_mi.backdrop_path
+                else null
+            end as episode_backdrop_path
         from watch_history wh
-        join media_items mi on mi.id = wh.media_item_id
+        join media_items watched_mi on watched_mi.id = wh.media_item_id
+        left join episodes e on e.media_item_id = wh.media_item_id
+        left join seasons s on s.id = e.season_id
+        join media_items mi on mi.id = coalesce(e.series_id, wh.media_item_id)
         where wh.user_id = $1
         order by wh.last_watched_at desc, wh.id desc
         limit $2
@@ -254,5 +275,11 @@ fn map_watch_history_item_row(row: PgRow) -> WatchHistoryItem {
             ended_at: row.get("ended_at"),
             completed_at: row.get("completed_at"),
         },
+        season_number: row.get("season_number"),
+        episode_number: row.get("episode_number"),
+        episode_title: row.get("episode_title"),
+        episode_overview: row.get("episode_overview"),
+        episode_poster_path: row.get("episode_poster_path"),
+        episode_backdrop_path: row.get("episode_backdrop_path"),
     }
 }

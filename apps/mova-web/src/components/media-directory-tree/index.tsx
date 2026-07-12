@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ServerMediaDirectoryNode } from '../../api/types'
+import { useI18n } from '../../i18n'
 
 interface MediaDirectoryTreeProps {
   tree: ServerMediaDirectoryNode
@@ -43,6 +44,7 @@ const MediaDirectoryTreeNode = ({
   onToggle,
   selectedPath,
 }: MediaDirectoryTreeNodeProps) => {
+  const { l } = useI18n()
   const hasChildren = node.children.length > 0
   const isExpanded = expandedPaths.has(node.path)
   const isSelected = node.path === selectedPath
@@ -56,7 +58,11 @@ const MediaDirectoryTreeNode = ({
         {hasChildren ? (
           <button
             aria-expanded={isExpanded}
-            aria-label={isExpanded ? `Collapse ${node.name}` : `Expand ${node.name}`}
+            aria-label={
+              isExpanded
+                ? l('Collapse {{name}}', { name: node.name })
+                : l('Expand {{name}}', { name: node.name })
+            }
             className="media-tree__toggle"
             onClick={() => onToggle(node.path)}
             type="button"

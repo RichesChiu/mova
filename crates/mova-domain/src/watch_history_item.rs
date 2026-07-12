@@ -5,4 +5,10 @@ use crate::{MediaItem, WatchHistory};
 pub struct WatchHistoryItem {
     pub media_item: MediaItem,
     pub watch_history: WatchHistory,
+    pub season_number: Option<i32>,
+    pub episode_number: Option<i32>,
+    pub episode_title: Option<String>,
+    pub episode_overview: Option<String>,
+    pub episode_poster_path: Option<String>,
+    pub episode_backdrop_path: Option<String>,
 }

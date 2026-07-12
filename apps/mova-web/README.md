@@ -84,7 +84,7 @@ src/
 | `/media-items/:mediaItemId/play` | `src/pages/media-player-page/index.tsx` | 沉浸式播放器页。负责装配播放器标题、副标题、片头跳过区间、集切换选项和“下一集”目标，并把实际播放行为交给 `MediaPlayerPanel`；播放器写入进度后会同步更新剧集 outline 缓存，这样返回详情页时已完成状态和集卡进度条能立刻跟上。 | `getMediaItemPlaybackHeader`、`getMediaItemEpisodeOutline` |
 | `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。复用通用 dashboard 左右布局，右侧收成单块资料面板，展示用户名、昵称、角色标签，并把昵称编辑、改密、界面语言和 `dark / light` 主题偏好都放进同一个资料面板；语言切换会即时驱动界面文案在英文 / 中文之间切换，语言和主题偏好都会保存在当前浏览器。 | `updateOwnProfile`、`changeOwnPassword`、`AppShell` 提供的 `currentUser`、`lib/preferences.ts`、`src/i18n/` |
 | `/settings` | `src/pages/settings-page/index.tsx` | 管理员设置视图。桌面端复用首页 dashboard shell，只切换右侧内容区，不再作为独立设置页面渲染；设置视图不显示全局搜索框，媒体库管理卡片使用紧凑的响应式网格，宽屏和常规屏幕最多一行 4 个，收窄后切换为 3 / 2 / 1 列，而不是横向滚动 rail 或撑满整行的宽卡；承接用户增删改查、媒体库创建、扫描、删除和基础配置编辑；首个初始化管理员会作为 `Primary Admin` 管理普通管理员，普通管理员则只允许管理成员账号和媒体库；危险操作会走统一确认弹窗。手动扫描按钮的触发态只绑定当前媒体库，不把一个库的 pending 状态扩散到其他库卡片。 | `listUsers`、`createUser`、`updateUser`、`deleteUser`、`createLibrary`、`updateLibrary`、`scanLibrary`、`deleteLibrary`、`getLibrary` |
-| `/watch-history` | `src/pages/watch-history-page/index.tsx` | 最近观看页。复用通用 dashboard 左右布局，左侧时钟导航项会进入这个真实页面；页面按后端观看历史倒序展示当前用户最近观看过的媒体，重复媒体只保留最近一次会话，卡片显示海报、类型、年份、最近观看时间和观看进度；没有历史时显示空状态。 | `listWatchHistory` |
+| `/watch-history` | `src/pages/watch-history-page/index.tsx` | 最近观看页。复用通用 dashboard 左右布局，左侧时钟导航项会进入这个真实页面；页面按后端观看历史倒序展示当前用户最近观看过的媒体，重复电影或系列只保留最近一次会话。页面与首页复用同一个继续观看卡片组件，剧集卡片显示剧集标题、季集编号、剧集图片和观看进度；没有历史时显示空状态。 | `listWatchHistory` |
 
 几个页面内还有“页面级子模块”，但它们不算独立路由：
 
@@ -109,10 +109,12 @@ src/
 
 | 组件 | 文件 | 作用 | 主要使用位置 |
 | --- | --- | --- | --- |
-| `MediaCard` / `MediaCardSkeleton` / `MediaCardScanPlaceholder` | `components/media-card/index.tsx` | 统一的媒体卡片、骨架卡和扫描中占位卡；扫描态会尽量保持与最终卡片一致的占位尺寸，减少同步完成时的跳动，标题和扫描文案也会固定在更稳定的单行/单层布局里，避免首页库卡与媒体卡被长文案撑高。扫描中电影通常按文件展示，剧集则优先按系列目录组展示；后端 `scan.item.updated` 带回 `overview` 会先更新对应扫描卡，图片则等浏览器 `load` 成功后再从占位淡入，加载失败继续保持占位，避免出现 broken image；当单个扫描条目 `completed` 后，前端会立即刷新该库媒体列表、首页最近添加聚合和库详情计数，让真实卡片也按条目逐个进入页面；完成态占位卡会显示“更新卡片中”并把进度停在 96%，避免真实卡片和海报尚未 refetch 完成前出现“同步中 100%”的误导；媒体库页会把 `skipped` / `unmatched` / `failed` 且没有简介、海报、背景图或远端 id 的条目放在 Other，已有可展示元数据的条目仍按本地 `media_type` 展示；分区内隐藏重复的类型标签。 | 首页、媒体库页 |
 | `EpisodeCard` / `EpisodeCardSkeleton` | `components/episode-card/index.tsx` | 统一的剧集卡片，支持可播放/不可播放状态和播放进度条。 | 媒体详情页 |
+| `MediaItemEpisodesSection` / `MediaItemCastSection` | `pages/media-item-page/media-item-sections.tsx` | 承接详情页的季集轨道、扫描占位和演员列表，避免查询编排与大块展示结构堆在页面入口。 | 媒体详情页 |
+| `MediaItemSourceFilesSection` | `pages/media-item-page/source-files-section.tsx` | 独立加载和展示当前资源的音轨、字幕与视频技术信息，并在切换资源时重置局部选择状态。 | 媒体详情页 |
 | `ScrollableRail` | `components/scrollable-rail/index.tsx` | 横向滚动容器，支持浏览器原生横向滚动、左右按钮和提示文案，不再拦截竖向滚轮模拟横滑。 | 首页 rail、剧集页、演员区 |
 | `MediaPlayerPanel` | `components/media-player-panel/index.tsx` | 真正的播放器核心组件，负责媒体源、字幕、音轨切换、播放进度、缓冲态、错误分类、非阻塞字幕/自动播放/全屏降级和集切换；进入播放页后会在元数据就绪时自动起播，并支持空格键切换播放/暂停；当当前剧集存在片头区间时会显示 `Skip Intro`，有下一集资源时会在时间轴上方右下角给出常驻 `Next Episode` 入口，并在倒数 30 秒再显示一次更明显的下一集提示；音轨菜单也会给出当前选中状态、切换中提示和更友好的加载/失败文案；播放器会优先等可播放文件列表返回，播放进度查询不会再把整页长期卡在 `Loading player…`。 | `MediaPlayerPage` |
+| 播放器图标组件 | `components/media-player-panel/player-icons.tsx` | 集中维护播放、暂停、快进、音量、字幕、音轨、集切换和全屏图标，避免播放器状态组件继续承载静态 SVG 结构。 | `MediaPlayerPanel` |
 
 ### 4.3 管理与编辑
 
@@ -134,7 +136,6 @@ src/
 | --- | --- | --- | --- |
 | `SectionHelp` | `components/section-help/index.tsx` | 节标题上的轻量 tooltip 帮助说明；tooltip 本体会通过 portal 挂到根级浮层，避免被卡片或容器裁掉。 | 需要补帮助说明的 section 标题 |
 | `StatusPill` | `components/status-pill/index.tsx` | 把 `success / failed / neutral` 等文本状态渲染成统一 pill。 | 状态展示区 |
-| `MediaTypeTag` | `components/media-type-tag/index.tsx` | 把 `movie / series / episode` 渲染成更轻量的标签样式，避免视觉上像可点击按钮。 | 媒体卡、详情页等类型展示区 |
 
 ## 5. 数据层与共享工具
 

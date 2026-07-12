@@ -258,7 +258,7 @@ export const MetadataMatchPanel = ({
                             {result.poster_path ? (
                               <img alt={result.title} loading="lazy" src={result.poster_path} />
                             ) : (
-                              <div className="media-card__placeholder">
+                              <div className="artwork-placeholder">
                                 <span>{formatMediaTypeLabel(mediaType, l)}</span>
                               </div>
                             )}

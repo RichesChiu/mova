@@ -1492,12 +1492,17 @@
 - `watch_history.ended_at`：会话结束时间；未结束时为空
 - `watch_history.completed_at`：本次会话明确看完时的时间；未看完时为空
 - `watch_history.is_finished`：是否在该次观看会话内看完
+- `media_item`：卡片展示入口；电影返回电影本身，剧集观看记录返回所属系列
+- `season_number`、`episode_number`：剧集观看记录对应的季、集编号；电影为空
+- `episode_title`、`episode_overview`：剧集观看记录对应的剧集标题和简介；电影为空
+- `episode_poster_path`、`episode_backdrop_path`：剧集观看记录对应的公开图片路径；电影为空
 
 说明：
 - 这是独立于 `playback_progress` 的历史表，一条记录代表一次观看会话
 - 同一用户、同一文件在短时间内连续上报会复用同一条历史，避免被播放心跳刷出大量碎片记录
 - 如果间隔较久后重新开始观看，同一文件会新开一条历史记录
 - 历史记录同样按当前登录用户隔离，不会和其他用户共享
+- Web 最近观看页按 `media_item.id` 去重；由于剧集记录的 `media_item` 返回所属系列，同一系列只展示最近一次观看的剧集卡片
 
 ## 6. 媒体流
 

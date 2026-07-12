@@ -121,7 +121,7 @@
 }
 
 .detail-hero {
-  --detail-hero-poster-height: clamp(390px, 37vw, 460px);
+  --detail-hero-poster-height: clamp(370px, 35vw, 430px);
   position: relative;
   display: grid;
   grid-template-columns:
@@ -330,9 +330,8 @@
 }
 
 .detail-hero__facts--secondary {
-  display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.9fr) minmax(0, 1fr);
-  align-items: stretch;
+  align-items: center;
+  gap: 8px;
 }
 
 .detail-hero__resource-row {
@@ -349,6 +348,14 @@
   color: var(--text-muted);
   font-size: 0.9rem;
   font-weight: 700;
+}
+
+.detail-hero__availability--title {
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  opacity: 0.68;
 }
 
 .detail-hero__season-picker {
@@ -392,10 +399,32 @@
 }
 
 .detail-hero__facts--secondary .detail-hero__fact {
-  min-height: 62px;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 0;
+  padding: 6px 10px;
+  border-radius: 999px;
+  box-shadow: var(--panel-inset);
+}
+
+.detail-hero__facts--secondary .detail-hero__fact-label {
+  flex: 0 0 auto;
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.detail-hero__facts--secondary .detail-hero__fact-label::after {
+  margin-left: 6px;
+  content: '·';
+  opacity: 0.72;
 }
 
 .detail-hero__facts--secondary .detail-hero__fact-value {
+  font-size: 0.8rem;
   line-height: 1.2;
 }
 
@@ -759,10 +788,6 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .detail-hero__facts--secondary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .media-tech-card--video {
     grid-column: 1 / -1;
   }
@@ -779,10 +804,6 @@
 
   .detail-hero__poster-column {
     max-width: 240px;
-  }
-
-  .detail-hero__facts--secondary {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .media-tech-card__header--with-select {

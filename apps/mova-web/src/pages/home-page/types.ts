@@ -16,19 +16,6 @@ export interface HomeLibraryModuleData {
   scanRuntime: LibraryScanRuntime
 }
 
-export interface ContinueWatchingCardData {
-  artworkAlt: string
-  artworkSrc: string | null
-  description: string | null
-  href: string
-  id: number
-  metaLabel: string | null
-  placeholderLabel: string
-  progressPercent: number
-  status: 'idle' | 'progress' | 'complete'
-  title: string
-}
-
 export type ContinueWatchingOutlineMap = Map<number, EpisodeOutline | null>
 
 export type { ContinueWatchingItem }

@@ -452,6 +452,12 @@ pub struct WatchHistoryResponse {
 pub struct WatchHistoryItemResponse {
     pub media_item: MediaItemResponse,
     pub watch_history: WatchHistoryResponse,
+    pub season_number: Option<i32>,
+    pub episode_number: Option<i32>,
+    pub episode_title: Option<String>,
+    pub episode_overview: Option<String>,
+    pub episode_poster_path: Option<String>,
+    pub episode_backdrop_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -762,9 +768,28 @@ impl WatchHistoryResponse {
 
 impl WatchHistoryItemResponse {
     pub fn from_domain(item: WatchHistoryItem, offset: UtcOffset) -> Self {
+        let episode_poster_path = public_media_item_asset_path(
+            item.watch_history.media_item_id,
+            item.episode_poster_path.as_deref(),
+            "poster",
+            item.media_item.updated_at,
+        );
+        let episode_backdrop_path = public_media_item_asset_path(
+            item.watch_history.media_item_id,
+            item.episode_backdrop_path.as_deref(),
+            "backdrop",
+            item.media_item.updated_at,
+        );
+
         Self {
             media_item: MediaItemResponse::from_domain(item.media_item, offset),
             watch_history: WatchHistoryResponse::from_domain(item.watch_history, offset),
+            season_number: item.season_number,
+            episode_number: item.episode_number,
+            episode_title: item.episode_title,
+            episode_overview: item.episode_overview,
+            episode_poster_path,
+            episode_backdrop_path,
         }
     }
 }

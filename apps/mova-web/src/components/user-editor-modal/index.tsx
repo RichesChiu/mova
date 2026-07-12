@@ -220,7 +220,7 @@ export const UserEditorModal = ({
                 autoComplete="username"
                 disabled={!isCreateMode}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder={l('viewer01')}
+                placeholder="viewer01"
                 type="text"
                 value={username}
               />

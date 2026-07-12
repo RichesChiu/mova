@@ -1,3 +1,4 @@
+import { isMockApiEnabled } from './mock-control'
 import type {
   AudioTrack,
   ContinueWatchingItem,
@@ -19,7 +20,6 @@ import type {
   UserAccount,
   WatchHistoryItem,
 } from './types'
-import { isMockApiEnabled } from './mock-control'
 
 const MOCK_NOW = '2026-06-05T14:00:00+08:00'
 
@@ -511,6 +511,12 @@ const watchHistory = (url: URL): WatchHistoryItem[] => {
     .slice(0, limit)
     .map((mediaItem, index) => ({
       media_item: mediaItem,
+      season_number: null,
+      episode_number: null,
+      episode_title: null,
+      episode_overview: null,
+      episode_poster_path: null,
+      episode_backdrop_path: null,
       watch_history: {
         id: mediaItem.id * 20,
         media_item_id: mediaItem.id,

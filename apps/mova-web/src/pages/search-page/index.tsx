@@ -162,7 +162,7 @@ export const SearchPage = () => {
                     <span className="search-card__poster">
                       {result.poster_path ? (
                         <img
-                          alt={`${result.title} poster`}
+                          alt={l('{{title}} poster', { title: result.title })}
                           loading="lazy"
                           src={result.poster_path}
                         />

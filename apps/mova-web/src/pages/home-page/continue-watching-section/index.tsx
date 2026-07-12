@@ -1,8 +1,10 @@
-import { Link } from 'react-router-dom'
+import {
+  ContinueWatchingCard,
+  type ContinueWatchingCardData,
+  ContinueWatchingCardSkeleton,
+} from '../../../components/continue-watching-card'
 import { ScrollableRail } from '../../../components/scrollable-rail'
 import { useI18n } from '../../../i18n'
-import { HomeIcon } from '../home-icons'
-import type { ContinueWatchingCardData } from '../types'
 
 interface ContinueWatchingSectionProps {
   errorMessage: string | null
@@ -11,39 +13,6 @@ interface ContinueWatchingSectionProps {
 }
 
 const HOME_CONTINUE_WATCHING_LIMIT = 6
-
-const HomeContinueCard = ({ item }: { item: ContinueWatchingCardData }) => (
-  <Link className="home-continue-card" to={item.href}>
-    <div className="home-continue-card__artwork">
-      {item.artworkSrc ? (
-        <img alt={item.artworkAlt} loading="lazy" src={item.artworkSrc} />
-      ) : (
-        <span className="home-continue-card__placeholder">{item.placeholderLabel}</span>
-      )}
-      <span aria-hidden="true" className="home-continue-card__play">
-        <HomeIcon name="play" />
-      </span>
-    </div>
-    <div className="home-continue-card__copy">
-      <strong title={item.title}>{item.title}</strong>
-      {item.metaLabel ? <span>{item.metaLabel.replace(' · ', ' ')}</span> : null}
-      <em>{item.progressPercent}%</em>
-    </div>
-    <div className="home-continue-card__progress" aria-hidden="true">
-      <span style={{ width: `${item.progressPercent}%` }} />
-    </div>
-  </Link>
-)
-
-const HomeContinueSkeleton = ({ label }: { label: string }) => (
-  <div aria-hidden="true" className="home-continue-card home-continue-card--loading">
-    <div className="home-continue-card__artwork skeleton-shimmer">
-      <span className="home-continue-card__placeholder">{label}</span>
-    </div>
-    <span className="home-continue-card__line home-continue-card__line--title skeleton-shimmer" />
-    <span className="home-continue-card__line home-continue-card__line--meta skeleton-shimmer" />
-  </div>
-)
 
 export const ContinueWatchingSection = ({
   errorMessage,
@@ -81,10 +50,10 @@ export const ContinueWatchingSection = ({
           hint={l('Scroll horizontally.')}
           viewportClassName="continue-watching-section__viewport"
         >
-          <HomeContinueSkeleton label={l('Movies')} />
-          <HomeContinueSkeleton label="S01 E03" />
-          <HomeContinueSkeleton label="S02 E01" />
-          <HomeContinueSkeleton label={l('Movies')} />
+          <ContinueWatchingCardSkeleton label={l('Movies')} />
+          <ContinueWatchingCardSkeleton label="S01 E03" />
+          <ContinueWatchingCardSkeleton label="S02 E01" />
+          <ContinueWatchingCardSkeleton label={l('Movies')} />
         </ScrollableRail>
       ) : null}
 
@@ -94,7 +63,7 @@ export const ContinueWatchingSection = ({
           viewportClassName="continue-watching-section__viewport"
         >
           {visibleItems.map((item) => (
-            <HomeContinueCard item={item} key={item.id} />
+            <ContinueWatchingCard item={item} key={item.id} />
           ))}
           {overflowCount > 0 ? (
             <div className="continue-watching-section__overflow">+{overflowCount}</div>
