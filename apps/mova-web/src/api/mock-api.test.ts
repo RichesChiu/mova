@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import type { Library, RecentlyAddedLibraryMediaItems } from './types'
 import { requestMockJson } from './mock-api'
 import { isMockApiEnabled } from './mock-control'
+import type { Library, RecentlyAddedLibraryMediaItems } from './types'
 
 const setLocation = (path: string) => {
   window.history.replaceState({}, '', path)

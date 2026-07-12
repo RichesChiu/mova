@@ -48,7 +48,7 @@ const isEpisodeContextEntry = (entry: {
   episode_number: number | null
 }) => typeof entry.season_number === 'number' && typeof entry.episode_number === 'number'
 
-const RECENTLY_ADDED_ITEM_LIMIT = 6
+const RECENTLY_ADDED_ITEM_LIMIT = 8
 const HOME_LIBRARY_ARTWORK_ITEM_LIMIT = 12
 
 export const HomePage = () => {

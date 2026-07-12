@@ -76,7 +76,7 @@ src/
 | 路由 | 页面文件 | 作用 | 主要数据来源 |
 | --- | --- | --- | --- |
 | `/login` | `src/pages/login-page/index.tsx` | 登录页和首个管理员 bootstrap 入口。根据 `bootstrap-status` 决定是“创建第一个管理员”还是普通登录。 | `getCurrentUser`、`getBootstrapStatus`、`login`、`bootstrapAdmin` |
-| `/` | `src/pages/home-page/index.tsx` | 首页。按照 Library-first 模型展示继续观看、`Your Libraries` 摘要和 `Recently Added`；通用 dashboard shell 负责左侧导航和用户区，页面自己的顶部 header 右侧提供消息入口，顶部不再显示搜索框，搜索只保留在 `/search` 页面内。左侧导航固定在视口高度内，用户入口始终贴近左下角；收起后展开入口改为左下浮动小按钮，并用慢速脉冲提示可展开。左侧导航支持收起/展开，宽度只保留短时过渡，图标方向、文字透明度和位移使用轻量动画，并把偏好保存在浏览器本地。`View all` 作为 `Your Libraries` 标题旁的轻量入口，指向真实 `/libraries` 页面，避免和页面消息入口抢空间；时钟导航项进入真实 `/watch-history` 最近观看页，不再作为指回首页的伪入口；最近添加只消费后端按库聚合接口，并按当前可见库数量请求分组，不再用单库标题排序列表拼装或固定只取 3 个库。 | `listLibraries`、`getLibrary`、`listRecentlyAddedByLibrary`、`listContinueWatching`、`getMediaItemEpisodeOutline` |
+| `/` | `src/pages/home-page/index.tsx` | 首页。按照 Library-first 模型展示继续观看、`Your Libraries` 摘要和 `Recently Added`；通用 dashboard shell 负责左侧导航和用户区，页面自己的顶部 header 右侧提供消息入口，顶部不再显示搜索框，搜索只保留在 `/search` 页面内。左侧导航固定在视口高度内，用户入口始终贴近左下角；收起后展开入口改为左下浮动小按钮，并用慢速脉冲提示可展开。左侧导航支持收起/展开，宽度只保留短时过渡，图标方向、文字透明度和位移使用轻量动画，并把偏好保存在浏览器本地。`View all` 作为 `Your Libraries` 标题旁的轻量入口，指向真实 `/libraries` 页面，避免和页面消息入口抢空间；时钟导航项和首页继续观看模块的 `View all` 都进入 `/continue`，只展示尚未完成、可以继续播放的内容；最近添加只消费后端按库聚合接口，并按当前可见库数量请求分组，不再用单库标题排序列表拼装或固定只取 3 个库。最近添加区域不使用分组外框，每组通过 `From “{library}” library` / `来自「{library}」库` 的轻量来源说明区分媒体库，媒体条目继续使用独立横向卡片。 | `listLibraries`、`getLibrary`、`listRecentlyAddedByLibrary`、`listContinueWatching`、`getMediaItemEpisodeOutline` |
 | `/search` | `src/pages/search-page/index.tsx` | 搜索结果页。复用通用 dashboard 左右布局，并在页面 header 左侧提供唯一搜索输入，右侧保留消息入口；读取 URL 中的 `q` 参数，调用全局搜索接口展示当前用户可见库下的电影、剧集和本地集条目；结果使用竖版海报卡片，图片只使用结果自身的 `poster_path`，没有图时显示明确占位。 | `globalSearch` |
 | `/libraries` | `src/pages/libraries-page/index.tsx` | 全部媒体库页。展示当前用户可见的所有库、库统计、扫描状态和最近新增海报预览；没有最近新增海报的库保持空媒体画布，不借其他字段或其他库图片兜底。 | `listLibraries`、`getLibrary`、`listRecentlyAddedByLibrary`、`scanRuntimeByLibrary` |
 | `/libraries/:libraryId` | `src/pages/library-page/index.tsx` | 单库详情页。页面 header 左侧展示真实历史返回图标、当前库名和条目总数小字，右侧保留消息入口，不再使用卡片式 hero；直开详情页时返回按钮兜底到 `/libraries`；扫描状态作为标题下方的运行提示单独展示，主体以无大边框分区展示电影/剧集列表和扫描中的占位卡；条目网格按 dense 内容处理，侧栏宽度过渡会缩短，列表 section、grid 和 tile 也做布局隔离，避免大量条目放大展开收起的重排成本。 | `getLibrary`、`listLibraryMediaItems`、`scanRuntimeByLibrary` |
@@ -84,7 +84,7 @@ src/
 | `/media-items/:mediaItemId/play` | `src/pages/media-player-page/index.tsx` | 沉浸式播放器页。负责装配播放器标题、副标题、片头跳过区间、集切换选项和“下一集”目标，并把实际播放行为交给 `MediaPlayerPanel`；播放器写入进度后会同步更新剧集 outline 缓存，这样返回详情页时已完成状态和集卡进度条能立刻跟上。 | `getMediaItemPlaybackHeader`、`getMediaItemEpisodeOutline` |
 | `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。复用通用 dashboard 左右布局，右侧收成单块资料面板，展示用户名、昵称、角色标签，并把昵称编辑、改密、界面语言和 `dark / light` 主题偏好都放进同一个资料面板；语言切换会即时驱动界面文案在英文 / 中文之间切换，语言和主题偏好都会保存在当前浏览器。 | `updateOwnProfile`、`changeOwnPassword`、`AppShell` 提供的 `currentUser`、`lib/preferences.ts`、`src/i18n/` |
 | `/settings` | `src/pages/settings-page/index.tsx` | 管理员设置视图。桌面端复用首页 dashboard shell，只切换右侧内容区，不再作为独立设置页面渲染；设置视图不显示全局搜索框，媒体库管理卡片使用紧凑的响应式网格，宽屏和常规屏幕最多一行 4 个，收窄后切换为 3 / 2 / 1 列，而不是横向滚动 rail 或撑满整行的宽卡；承接用户增删改查、媒体库创建、扫描、删除和基础配置编辑；首个初始化管理员会作为 `Primary Admin` 管理普通管理员，普通管理员则只允许管理成员账号和媒体库；危险操作会走统一确认弹窗。手动扫描按钮的触发态只绑定当前媒体库，不把一个库的 pending 状态扩散到其他库卡片。 | `listUsers`、`createUser`、`updateUser`、`deleteUser`、`createLibrary`、`updateLibrary`、`scanLibrary`、`deleteLibrary`、`getLibrary` |
-| `/watch-history` | `src/pages/watch-history-page/index.tsx` | 最近观看页。复用通用 dashboard 左右布局，左侧时钟导航项会进入这个真实页面；页面按后端观看历史倒序展示当前用户最近观看过的媒体，重复电影或系列只保留最近一次会话。页面与首页复用同一个继续观看卡片组件，剧集卡片显示剧集标题、季集编号、剧集图片和观看进度；没有历史时显示空状态。 | `listWatchHistory` |
+| `/continue` | `src/pages/continue-page/index.tsx` | 继续观看页。复用通用 dashboard 左右布局，只展示当前用户尚未完成、可以继续播放的内容，并与首页复用同一个继续观看卡片组件；剧集卡片显示剧集标题、季集编号、剧集图片和观看进度，没有可继续内容时显示空状态。 | `listContinueWatching` |
 
 几个页面内还有“页面级子模块”，但它们不算独立路由：
 
@@ -145,7 +145,7 @@ src/
 | --- | --- |
 | `api/client.ts` | 统一封装所有 HTTP 请求、mock API 开关、媒体文件流 URL、字幕流 URL，以及 API envelope 解包逻辑。 |
 | `api/mock-control.ts` | 本地 mock 的唯一开关入口。发布构建中固定禁用 mock；开发构建中才读取 `VITE_MOVA_MOCK_API`、`?mova_mock_api=1/0` 和 localStorage。 |
-| `api/mock-api.ts` | 本地 UI 评审用 mock 数据层。默认关闭；开启后覆盖首页、全局搜索、全部库页、库详情、媒体详情、继续观看、观看历史、季集大纲、演员、资源文件、字幕和音轨等读取接口，以及播放进度写入；媒体图片放在 `src/api/mock-media/`，只随开发 mock chunk 使用。创建/更新/删除库、用户、扫描、元数据替换等管理员写接口不会被 mock 成成功响应。 |
+| `api/mock-api.ts` | 本地 UI 评审用 mock 数据层。默认关闭；开启后覆盖首页、全局搜索、全部库页、库详情、媒体详情、继续观看、季集大纲、演员、资源文件、字幕和音轨等读取接口，以及播放进度写入；媒体图片放在 `src/api/mock-media/`，只随开发 mock chunk 使用。创建/更新/删除库、用户、扫描、元数据替换等管理员写接口不会被 mock 成成功响应。 |
 | `api/types.ts` | 前端所有 DTO 和请求体类型。页面和组件都依赖这里，而不是在本地重复声明接口。 |
 
 ### `src/lib/`

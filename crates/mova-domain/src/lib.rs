@@ -12,8 +12,6 @@ mod season;
 mod subtitle_file;
 mod user;
 mod user_profile;
-mod watch_history;
-mod watch_history_item;
 
 pub use audio_track::AudioTrack;
 pub use continue_watching_item::ContinueWatchingItem;
@@ -35,5 +33,3 @@ pub use season::Season;
 pub use subtitle_file::SubtitleFile;
 pub use user::{User, UserRole};
 pub use user_profile::UserProfile;
-pub use watch_history::WatchHistory;
-pub use watch_history_item::WatchHistoryItem;

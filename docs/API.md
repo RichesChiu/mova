@@ -63,7 +63,7 @@
 - TMDB provider 现在从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取；但每个媒体库仍可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。
 - 如果额外配置了可选的 `MOVA_OMDB_API_KEY`，服务端会在已拿到 `imdb_id` 的前提下补齐 `imdb_rating`；不配置时该字段保持为空，不影响扫描、入库和播放。
 - 本地海报和背景图这类图片资源，对外返回的 URL 现在会带版本参数（例如 `/api/media-items/42/poster?v=1704164645`），浏览器可以长期缓存；当媒体元数据更新时，版本参数会变化，前端会自动拿到新图。
-- 当前 pre-1.0 阶段的数据库 schema 只维护 `migrations/0001_init.sql`；本版会保存扫描本地分析版本、原生客户端 access/refresh token 设备会话，并把 TMDB / provider 返回的标题、国家、题材、制作公司、演员角色等自由文本字段按 `text` 存储，已有开发库需要重建数据库 / 重扫媒体库才能得到完整状态。
+- 当前 pre-1.0 阶段的数据库 schema 只维护 `migrations/0001_init.sql`；本版会保存扫描本地分析版本、原生客户端 access/refresh token 设备会话，并用 `playback_progress` 保存逐文件进度、用有上限的 `continue_watching` 保存当前活跃队列。TMDB / provider 返回的标题、国家、题材、制作公司、演员角色等自由文本字段按 `text` 存储；已有开发库需要重建数据库 / 重扫媒体库才能得到完整状态。
 
 ## 接口总览
 
@@ -114,7 +114,6 @@
 | `GET` | `/api/media-items/{id}/playback-progress` | 查询单条内容的最近播放进度 |
 | `PUT` | `/api/media-items/{id}/playback-progress` | 写入或更新播放进度 |
 | `GET` | `/api/playback-progress/continue-watching` | 查询继续观看列表 |
-| `GET` | `/api/watch-history` | 查询当前用户自己的观看历史 |
 | `GET` | `/api/media-files/{id}/audio-tracks` | 查询媒体文件可切换的内嵌音轨列表 |
 | `GET` | `/api/media-files/{id}/subtitles` | 查询媒体文件可切换字幕列表 |
 | `GET` | `/api/media-files/{id}/stream` | 播放媒体文件 |
@@ -734,7 +733,7 @@
 说明：
 - 删除前服务会先把该库标记为“正在删除”，阻止新的扫描请求进入
 - 如果当前库有正在执行的扫描任务，服务会先请求取消并等待它退出，再真正删除库
-- 删除库时服务会在同一事务内显式清理该库的扫描任务、授权关系、媒体条目、资源文件、字幕、音轨、季集、演员缓存、播放进度和观看历史，再删除 `libraries` 记录
+- 删除库时服务会在同一事务内显式清理该库的扫描任务、授权关系、媒体条目、资源文件、字幕、音轨、季集、演员缓存和播放进度，再删除 `libraries` 记录
 - 删除库后，服务会清理该库曾引用且不再被任何剩余媒体、季或演员记录引用的 `MOVA_CACHE_DIR/tmdb` 本地图片缓存；媒体目录里的 sidecar 图片不会被删除
 - 如果同一时间重复删除同一个库，或扫描仍在停止过程中，会返回 `409 Conflict`
 
@@ -1403,9 +1402,10 @@
 说明：
 - 播放进度按当前登录用户隔离；不同用户的观看记录、继续观看列表互不共享
 - `playback_progress` 只保留“当前最新状态”，不承担完整历史时间线
-- 每次成功写入都会同步刷新该用户的 `watch_history`
-- 当 `is_finished = false` 时，该条内容会继续出现在 `continue-watching`
-- 当 `is_finished = true` 时，该条内容会从 `continue-watching` 移除，但对应观看会话仍会保留在 `watch-history`
+- 当 `is_finished = false` 时，服务端会把电影或所属 Series upsert 到 `continue_watching`；同系列切换集数只更新原行
+- 当 `is_finished = true` 时，播放进度和完成状态仍保留，但电影或所属 Series 会从 `continue_watching` 删除
+- `continue_watching` 每个用户最多保留 20 部唯一电影或 Series，超过上限时服务端删除最旧记录
+- 客户端在用户开始播放时应立即上报一次，即使当前位置为 `0`，这样刚选中的电影或剧集会立即进入 Continue
 
 ### `GET /api/playback-progress/continue-watching`
 
@@ -1463,46 +1463,12 @@
 
 说明：
 - 只返回 `is_finished = false` 的未看完内容
-- 按最近观看时间倒序返回
+- 数据来自有上限的 `continue_watching` 活跃队列表，并按最近播放时间倒序返回
 - 电影按 `media_item` 聚合；剧集会按 `series` 聚合
 - 同一部剧无论看了哪一季哪一集，都只保留最近观看的那一集
 - 如果条目来自剧集，`season_number` / `episode_number` / `episode_title` 会标识最近观看的具体集数
 - 如果条目来自剧集，`episode_overview` / `episode_poster_path` / `episode_backdrop_path` 会返回最近观看那一集自身的描述和图片；缺失字段保持为空，不会回退到剧集图、季图或另一个集图片字段
-- 默认返回 `20` 条，最大 `100` 条
-
-### `GET /api/watch-history`
-
-作用：
-- 查询当前登录用户自己的观看历史会话列表
-
-查询参数：
-- `limit`：可选，返回条目数量上限
-
-示例：
-- `/api/watch-history`
-- `/api/watch-history?limit=50`
-
-返回：
-- `200 OK`
-- 返回 `WatchHistoryItemResponse[]`
-
-关键字段：
-- `watch_history.started_at`：本次观看会话开始时间
-- `watch_history.last_watched_at`：最后一次上报时间
-- `watch_history.ended_at`：会话结束时间；未结束时为空
-- `watch_history.completed_at`：本次会话明确看完时的时间；未看完时为空
-- `watch_history.is_finished`：是否在该次观看会话内看完
-- `media_item`：卡片展示入口；电影返回电影本身，剧集观看记录返回所属系列
-- `season_number`、`episode_number`：剧集观看记录对应的季、集编号；电影为空
-- `episode_title`、`episode_overview`：剧集观看记录对应的剧集标题和简介；电影为空
-- `episode_poster_path`、`episode_backdrop_path`：剧集观看记录对应的公开图片路径；电影为空
-
-说明：
-- 这是独立于 `playback_progress` 的历史表，一条记录代表一次观看会话
-- 同一用户、同一文件在短时间内连续上报会复用同一条历史，避免被播放心跳刷出大量碎片记录
-- 如果间隔较久后重新开始观看，同一文件会新开一条历史记录
-- 历史记录同样按当前登录用户隔离，不会和其他用户共享
-- Web 最近观看页按 `media_item.id` 去重；由于剧集记录的 `media_item` 返回所属系列，同一系列只展示最近一次观看的剧集卡片
+- 默认返回 `20` 条，最大 `20` 条
 
 ## 6. 媒体流
 

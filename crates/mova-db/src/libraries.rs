@@ -239,6 +239,24 @@ fn library_cleanup_statements() -> [(&'static str, &'static str); 15] {
     [
         (
             r#"
+            delete from continue_watching cw
+            using media_files mf
+            where cw.media_file_id = mf.id
+              and mf.library_id = $1
+            "#,
+            "failed to delete library continue watching items by media file",
+        ),
+        (
+            r#"
+            delete from continue_watching cw
+            using media_items mi
+            where (cw.media_item_id = mi.id or cw.last_played_media_item_id = mi.id)
+              and mi.library_id = $1
+            "#,
+            "failed to delete library continue watching items by media item",
+        ),
+        (
+            r#"
             delete from playback_progress pp
             using media_files mf
             where pp.media_file_id = mf.id
@@ -254,24 +272,6 @@ fn library_cleanup_statements() -> [(&'static str, &'static str); 15] {
               and mi.library_id = $1
             "#,
             "failed to delete library playback progress by media item",
-        ),
-        (
-            r#"
-            delete from watch_history wh
-            using media_files mf
-            where wh.media_file_id = mf.id
-              and mf.library_id = $1
-            "#,
-            "failed to delete library watch history by media file",
-        ),
-        (
-            r#"
-            delete from watch_history wh
-            using media_items mi
-            where wh.media_item_id = mi.id
-              and mi.library_id = $1
-            "#,
-            "failed to delete library watch history by media item",
         ),
         (
             r#"

@@ -668,11 +668,17 @@ mod tests {
 
         sqlx::query(
             r#"
-            insert into watch_history (user_id, media_item_id, media_file_id, position_seconds)
-            values ($1, $2, $3, 60)
+            insert into continue_watching (
+                user_id,
+                media_item_id,
+                last_played_media_item_id,
+                media_file_id
+            )
+            values ($1, $2, $3, $4)
             "#,
         )
         .bind(user_id)
+        .bind(series_id)
         .bind(episode_media_item_id)
         .bind(media_file_id)
         .execute(pool)
@@ -691,7 +697,10 @@ mod tests {
                 "playback_progress",
                 "select count(*) from playback_progress",
             ),
-            ("watch_history", "select count(*) from watch_history"),
+            (
+                "continue_watching",
+                "select count(*) from continue_watching",
+            ),
             ("subtitle_files", "select count(*) from subtitle_files"),
             ("audio_tracks", "select count(*) from audio_tracks"),
             (

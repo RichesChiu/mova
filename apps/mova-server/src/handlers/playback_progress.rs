@@ -233,11 +233,11 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn finished_playback_leaves_history_but_disappears_from_continue_watching(
+    async fn finished_playback_keeps_progress_but_disappears_from_continue_watching(
         pool: sqlx::postgres::PgPool,
     ) {
         let state = build_test_state(pool.clone());
-        let (jar, user_id, media_item_id, media_file_id) = seed_playback_context(&pool).await;
+        let (jar, _user_id, media_item_id, media_file_id) = seed_playback_context(&pool).await;
 
         let Json(progress_response) = update_media_item_playback_progress(
             State(state.clone()),
@@ -246,7 +246,7 @@ mod tests {
             Path(media_item_id),
             Json(UpdatePlaybackProgressRequest {
                 media_file_id,
-                position_seconds: 300,
+                position_seconds: 0,
                 duration_seconds: Some(7200),
                 is_finished: Some(false),
             }),
@@ -254,7 +254,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(progress_response.data.position_seconds, 300);
+        assert_eq!(progress_response.data.position_seconds, 0);
         assert!(!progress_response.data.is_finished);
 
         let Json(initial_continue_watching) = list_continue_watching(
@@ -271,7 +271,7 @@ mod tests {
             initial_continue_watching.data[0]
                 .playback_progress
                 .position_seconds,
-            300
+            0
         );
 
         let Json(finished_progress_response) = update_media_item_playback_progress(
@@ -325,12 +325,213 @@ mod tests {
         .unwrap();
 
         assert!(finished_continue_watching.data.is_empty());
+    }
 
-        let history = mova_db::list_watch_history(&pool, user_id, 10)
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn continue_watching_keeps_only_the_latest_twenty_unique_movies(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let (_jar, user_id, first_media_item_id, first_media_file_id) =
+            seed_playback_context(&pool).await;
+        let library_id =
+            sqlx::query_scalar::<_, i64>("select library_id from media_items where id = $1")
+                .bind(first_media_item_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        mova_db::upsert_playback_progress(
+            &pool,
+            mova_db::UpsertPlaybackProgressParams {
+                user_id,
+                media_item_id: first_media_item_id,
+                media_file_id: first_media_file_id,
+                position_seconds: 60,
+                duration_seconds: Some(3600),
+                is_finished: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        for index in 1..=20 {
+            let media_item_id = sqlx::query_scalar::<_, i64>(
+                r#"
+                insert into media_items (library_id, media_type, title, source_title)
+                values ($1, 'movie', $2, $2)
+                returning id
+                "#,
+            )
+            .bind(library_id)
+            .bind(format!("Movie {index}"))
+            .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(history.len(), 1);
-        assert!(history[0].watch_history.completed_at.is_some());
-        assert!(history[0].watch_history.ended_at.is_some());
+            let media_file_id = sqlx::query_scalar::<_, i64>(
+                r#"
+                insert into media_files (
+                    library_id,
+                    media_item_id,
+                    file_path,
+                    container,
+                    file_size,
+                    duration_seconds
+                )
+                values ($1, $2, $3, 'mkv', 1, 3600)
+                returning id
+                "#,
+            )
+            .bind(library_id)
+            .bind(media_item_id)
+            .bind(format!("/media/movies/movie-{index}.mkv"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+            mova_db::upsert_playback_progress(
+                &pool,
+                mova_db::UpsertPlaybackProgressParams {
+                    user_id,
+                    media_item_id,
+                    media_file_id,
+                    position_seconds: 60,
+                    duration_seconds: Some(3600),
+                    is_finished: false,
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let continue_watching = mova_db::list_continue_watching(&pool, user_id, 20)
+            .await
+            .unwrap();
+
+        assert_eq!(continue_watching.len(), 20);
+        assert!(continue_watching
+            .iter()
+            .all(|item| item.media_item.id != first_media_item_id));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn continue_watching_groups_episodes_by_series_and_keeps_the_latest_episode(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let (_jar, user_id, seed_media_item_id, _seed_media_file_id) =
+            seed_playback_context(&pool).await;
+        let library_id =
+            sqlx::query_scalar::<_, i64>("select library_id from media_items where id = $1")
+                .bind(seed_media_item_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let series_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_items (library_id, media_type, title, source_title)
+            values ($1, 'series', 'Example Series', 'Example Series')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let season_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into seasons (series_id, season_number, title)
+            values ($1, 1, 'Season 1')
+            returning id
+            "#,
+        )
+        .bind(series_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let mut latest_episode_id = 0;
+
+        for episode_number in 1..=2 {
+            let episode_id = sqlx::query_scalar::<_, i64>(
+                r#"
+                insert into media_items (library_id, media_type, title, source_title)
+                values ($1, 'episode', $2, $2)
+                returning id
+                "#,
+            )
+            .bind(library_id)
+            .bind(format!("Episode {episode_number}"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            latest_episode_id = episode_id;
+            sqlx::query(
+                r#"
+                insert into episodes (
+                    media_item_id,
+                    series_id,
+                    season_id,
+                    episode_number,
+                    title
+                )
+                values ($1, $2, $3, $4, $5)
+                "#,
+            )
+            .bind(episode_id)
+            .bind(series_id)
+            .bind(season_id)
+            .bind(episode_number)
+            .bind(format!("Episode {episode_number}"))
+            .execute(&pool)
+            .await
+            .unwrap();
+            let media_file_id = sqlx::query_scalar::<_, i64>(
+                r#"
+                insert into media_files (
+                    library_id,
+                    media_item_id,
+                    file_path,
+                    container,
+                    file_size,
+                    duration_seconds
+                )
+                values ($1, $2, $3, 'mkv', 1, 3600)
+                returning id
+                "#,
+            )
+            .bind(library_id)
+            .bind(episode_id)
+            .bind(format!("/media/series/s01e{episode_number:02}.mkv"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+            mova_db::upsert_playback_progress(
+                &pool,
+                mova_db::UpsertPlaybackProgressParams {
+                    user_id,
+                    media_item_id: episode_id,
+                    media_file_id,
+                    position_seconds: episode_number * 60,
+                    duration_seconds: Some(3600),
+                    is_finished: false,
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        let continue_watching = mova_db::list_continue_watching(&pool, user_id, 10)
+            .await
+            .unwrap();
+
+        assert_eq!(continue_watching.len(), 1);
+        assert_eq!(continue_watching[0].media_item.id, series_id);
+        assert_eq!(
+            continue_watching[0].playback_progress.media_item_id,
+            latest_episode_id
+        );
+        assert_eq!(continue_watching[0].episode_number, Some(2));
+        assert_eq!(continue_watching[0].playback_progress.position_seconds, 120);
     }
 }

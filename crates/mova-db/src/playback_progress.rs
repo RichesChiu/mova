@@ -6,6 +6,8 @@ use sqlx::{
 };
 use std::collections::HashMap;
 
+const CONTINUE_WATCHING_LIMIT: i64 = 20;
+
 /// 写入或更新播放进度时需要的参数。
 #[derive(Debug, Clone)]
 pub struct UpsertPlaybackProgressParams {
@@ -17,8 +19,7 @@ pub struct UpsertPlaybackProgressParams {
     pub is_finished: bool,
 }
 
-/// 读取“继续观看”列表，电影按媒体条目聚合，剧集按 series 聚合，
-/// 每个聚合键只保留最近一次未看完的观看进度。
+/// 读取有上限的“继续观看”活跃队列。电影按自身唯一，剧集按 series 唯一。
 pub async fn list_continue_watching(
     pool: &PgPool,
     user_id: i64,
@@ -26,62 +27,6 @@ pub async fn list_continue_watching(
 ) -> Result<Vec<ContinueWatchingItem>> {
     let rows = sqlx::query(
         r#"
-        with ranked_progress as (
-            select
-                pp.id as progress_id,
-                pp.media_item_id as progress_media_item_id,
-                pp.media_file_id,
-                pp.position_seconds,
-                pp.duration_seconds,
-                pp.last_watched_at,
-                pp.is_finished,
-                coalesce(e.series_id, pp.media_item_id) as presentation_media_item_id,
-                s.season_number,
-                e.episode_number,
-                case
-                    when mi.media_type = 'episode' then coalesce(nullif(e.title, ''), nullif(mi.title, ''))
-                    else null
-                end as episode_title,
-                case
-                    when mi.media_type = 'episode' then mi.overview
-                    else null
-                end as episode_overview,
-                case
-                    when mi.media_type = 'episode' then mi.poster_path
-                    else null
-                end as episode_poster_path,
-                case
-                    when mi.media_type = 'episode' then mi.backdrop_path
-                    else null
-                end as episode_backdrop_path
-            from playback_progress pp
-            join media_items mi on mi.id = pp.media_item_id
-            left join episodes e on e.media_item_id = pp.media_item_id
-            left join seasons s on s.id = e.season_id
-            where pp.user_id = $1
-              and pp.is_finished = false
-        ),
-        -- 剧集在首页只保留一个入口，所以按 series 或电影自身做 presentation 聚合，
-        -- 然后从每组里取最近一次未看完的观看进度。
-        latest_progress as (
-            select distinct on (presentation_media_item_id)
-                progress_id,
-                progress_media_item_id,
-                media_file_id,
-                position_seconds,
-                duration_seconds,
-                last_watched_at,
-                is_finished,
-                presentation_media_item_id,
-                season_number,
-                episode_number,
-                episode_title,
-                episode_overview,
-                episode_poster_path,
-                episode_backdrop_path
-            from ranked_progress
-            order by presentation_media_item_id, last_watched_at desc, progress_id desc
-        )
         select
             mi.id,
             mi.library_id,
@@ -105,22 +50,36 @@ pub async fn list_continue_watching(
             mi.backdrop_path,
             mi.created_at,
             mi.updated_at,
-            lp.progress_id,
-            lp.progress_media_item_id,
-            lp.media_file_id,
-            lp.position_seconds,
-            lp.duration_seconds,
-            lp.last_watched_at,
-            lp.is_finished,
-            lp.season_number,
-            lp.episode_number,
-            lp.episode_title,
-            lp.episode_overview,
-            lp.episode_poster_path,
-            lp.episode_backdrop_path
-        from latest_progress lp
-        join media_items mi on mi.id = lp.presentation_media_item_id
-        order by lp.last_watched_at desc, lp.progress_id desc
+            pp.id as progress_id,
+            pp.media_item_id as progress_media_item_id,
+            pp.media_file_id,
+            pp.position_seconds,
+            pp.duration_seconds,
+            pp.last_watched_at,
+            pp.is_finished,
+            s.season_number,
+            e.episode_number,
+            case
+                when watched_mi.media_type = 'episode' then coalesce(nullif(e.title, ''), nullif(watched_mi.title, ''))
+                else null
+            end as episode_title,
+            case when watched_mi.media_type = 'episode' then watched_mi.overview else null end
+                as episode_overview,
+            case when watched_mi.media_type = 'episode' then watched_mi.poster_path else null end
+                as episode_poster_path,
+            case when watched_mi.media_type = 'episode' then watched_mi.backdrop_path else null end
+                as episode_backdrop_path
+        from continue_watching cw
+        join media_items mi on mi.id = cw.media_item_id
+        join media_items watched_mi on watched_mi.id = cw.last_played_media_item_id
+        join playback_progress pp
+          on pp.user_id = cw.user_id
+         and pp.media_file_id = cw.media_file_id
+        left join episodes e on e.media_item_id = cw.last_played_media_item_id
+        left join seasons s on s.id = e.season_id
+        where cw.user_id = $1
+          and pp.is_finished = false
+        order by cw.last_watched_at desc, cw.id desc
         limit $2
         "#,
     )
@@ -209,6 +168,10 @@ pub async fn upsert_playback_progress(
     pool: &PgPool,
     params: UpsertPlaybackProgressParams,
 ) -> Result<PlaybackProgress> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .context("failed to begin playback progress transaction")?;
     let row = sqlx::query(
         r#"
         insert into playback_progress (
@@ -243,9 +206,83 @@ pub async fn upsert_playback_progress(
     .bind(params.position_seconds)
     .bind(params.duration_seconds)
     .bind(params.is_finished)
-    .fetch_one(pool)
+    .fetch_one(&mut *transaction)
     .await
     .context("failed to upsert playback progress")?;
+
+    if params.is_finished {
+        sqlx::query(
+            r#"
+            delete from continue_watching
+            where user_id = $1
+              and media_item_id = (
+                  select coalesce(e.series_id, mi.id)
+                  from media_items mi
+                  left join episodes e on e.media_item_id = mi.id
+                  where mi.id = $2
+              )
+            "#,
+        )
+        .bind(params.user_id)
+        .bind(params.media_item_id)
+        .execute(&mut *transaction)
+        .await
+        .context("failed to remove finished item from continue watching")?;
+    } else {
+        sqlx::query(
+            r#"
+            insert into continue_watching (
+                user_id,
+                media_item_id,
+                last_played_media_item_id,
+                media_file_id,
+                last_watched_at
+            )
+            select
+                $1,
+                coalesce(e.series_id, mi.id),
+                mi.id,
+                $3,
+                now()
+            from media_items mi
+            left join episodes e on e.media_item_id = mi.id
+            where mi.id = $2
+            on conflict (user_id, media_item_id) do update
+            set last_played_media_item_id = excluded.last_played_media_item_id,
+                media_file_id = excluded.media_file_id,
+                last_watched_at = excluded.last_watched_at
+            "#,
+        )
+        .bind(params.user_id)
+        .bind(params.media_item_id)
+        .bind(params.media_file_id)
+        .execute(&mut *transaction)
+        .await
+        .context("failed to upsert continue watching item")?;
+
+        sqlx::query(
+            r#"
+            delete from continue_watching
+            where id in (
+                select id
+                from continue_watching
+                where user_id = $1
+                order by last_watched_at desc, id desc
+                offset $2
+            )
+            "#,
+        )
+        .bind(params.user_id)
+        .bind(CONTINUE_WATCHING_LIMIT)
+        .execute(&mut *transaction)
+        .await
+        .context("failed to prune continue watching items")?;
+    }
+
+    transaction
+        .commit()
+        .await
+        .context("failed to commit playback progress transaction")?;
 
     Ok(map_playback_progress_row(row))
 }

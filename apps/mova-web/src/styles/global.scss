@@ -21,6 +21,7 @@
 @use '../components/user-editor-modal/user-editor-modal';
 
 @use '../pages/home-page/home-page';
+@use '../pages/continue-page/continue-page';
 @use '../pages/library-page/library-page';
 @use '../pages/libraries-page/libraries-page';
 @use '../pages/login-page/login-page';
@@ -29,4 +30,3 @@
 @use '../pages/profile-page/profile-page';
 @use '../pages/search-page/search-page';
 @use '../pages/settings-page/settings-page';
-@use '../pages/watch-history-page/watch-history-page';

@@ -12,7 +12,6 @@ mod playback_header;
 mod playback_progress;
 mod scan_jobs;
 mod users;
-mod watch_history;
 
 pub use error::{ApplicationError, ApplicationResult, AuthTokenErrorCode};
 pub use file_sync::{reconcile_library_inventory, sync_library_filesystem_changes};
@@ -67,4 +66,3 @@ pub use users::{
     RefreshNativeClientSessionInput, ResetUserPasswordInput, UpdateOwnProfileInput,
     UpdateUserInput, UpdateUserLibraryAccessInput,
 };
-pub use watch_history::list_watch_history;

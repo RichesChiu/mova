@@ -29,7 +29,6 @@ import type {
   UpdateOwnProfileInput,
   UpdateUserInput,
   UserAccount,
-  WatchHistoryItem,
 } from './types'
 
 interface ListMediaItemsParams {
@@ -282,14 +281,6 @@ export const listContinueWatching = (limit = 12) => {
   return requestJson<ContinueWatchingItem[]>(
     withApiPrefix(`/playback-progress/continue-watching?${searchParams.toString()}`),
   )
-}
-
-export const listWatchHistory = (limit = 50) => {
-  const searchParams = new URLSearchParams({
-    limit: String(limit),
-  })
-
-  return requestJson<WatchHistoryItem[]>(withApiPrefix(`/watch-history?${searchParams.toString()}`))
 }
 
 export const getMediaItemPlaybackProgress = (mediaItemId: number) =>

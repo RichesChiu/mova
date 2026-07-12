@@ -244,7 +244,6 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       const recoveryTasks = [
         queryClient.invalidateQueries({ queryKey: ['libraries'] }),
         queryClient.invalidateQueries({ queryKey: ['continue-watching'] }),
-        queryClient.invalidateQueries({ queryKey: ['watch-history'] }),
         queryClient.invalidateQueries({ queryKey: ['home-library-detail'] }),
         queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
       ]
@@ -424,7 +423,6 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         queryClient.invalidateQueries({ queryKey: ['library-media', payload.library_id] }),
         queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
         queryClient.invalidateQueries({ queryKey: ['continue-watching'] }),
-        queryClient.invalidateQueries({ queryKey: ['watch-history'] }),
       ])
     }
 

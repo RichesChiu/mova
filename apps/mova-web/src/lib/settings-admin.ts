@@ -1,9 +1,4 @@
-import type {
-  Library,
-  LibraryDetail,
-  ScanJob,
-  UserAccount,
-} from '../api/types'
+import type { Library, LibraryDetail, ScanJob, UserAccount } from '../api/types'
 import { getCurrentInterfaceLanguage, translateCurrent } from '../i18n'
 import { formatDateTime } from './format'
 
@@ -271,7 +266,7 @@ export const buildDeletedUserCacheState = (users: UserAccount[] | undefined, use
 export const buildDeleteUserConfirmationCopy = (user: UserAccount): ConfirmActionCopy => ({
   confirmLabel: translateCurrent('Delete User'),
   description: translateCurrent(
-    'Delete "{{name}}"? This removes their access, active sessions, playback progress, and watch history records.',
+    'Delete "{{name}}"? This removes their access, active sessions, and playback progress.',
     {
       name: user.username,
     },

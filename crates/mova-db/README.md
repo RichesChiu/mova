@@ -49,8 +49,7 @@
 | `src/libraries.rs` | 媒体库 CRUD。 |
 | `src/users.rs` | 用户、密码、Web session、原生客户端 access/refresh token 设备会话、媒体库授权。 |
 | `src/scan_jobs.rs` | 扫描任务创建、运行态更新、收尾、历史查询。 |
-| `src/playback_progress.rs` | 播放进度与继续观看相关表读写。 |
-| `src/watch_history.rs` | 观看历史表读写。 |
+| `src/playback_progress.rs` | 维护逐文件播放进度，并同步维护最多 20 部电影或 Series 的活跃 Continue 队列。 |
 | `src/media_cast.rs` | 演员成员表与演员同步记录表读写；详情页按需补全后会直接持久化到这里。 |
 | `src/media_items.rs` | 媒体条目相关父模块。 |
 | `src/media_items/query.rs` | 媒体列表、详情、文件、音轨、季集、outline cache 等读侧查询，也负责按 `file_path` 读取既有 metadata 摘要、`metadata_status` 复核状态、`scan_hash` 和 `local_analysis_version`，供重扫时判断是否需要重探测或只重试 TMDB。 |
@@ -137,9 +136,6 @@
 - `get_playback_progress_for_media_item`
 - `list_continue_watching`
 - `upsert_playback_progress`
-- `create_watch_history`
-- `update_watch_history`
-- `list_watch_history`
 
 ## 6. 当前数据访问风格
 

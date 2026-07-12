@@ -206,11 +206,11 @@ export const ProfilePage = () => {
                 </div>
 
                 <div className="profile-page__row profile-page__row--setting">
-                  <span className="profile-page__label">{l('Interface Language:')}</span>
+                  <span className="profile-page__label">{l('Language')}</span>
                   <div className="profile-page__setting">
                     <div className="profile-page__select">
                       <GlassSelect
-                        ariaLabel={l('Interface Language:')}
+                        ariaLabel={l('Language')}
                         onChange={(value) => {
                           setLanguage(value)
                         }}

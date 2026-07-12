@@ -5,26 +5,20 @@
 .recently-added-list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: clamp(24px, 2.2vw, 34px);
 }
 
 .recently-added-row {
   display: grid;
-  gap: 12px;
+  gap: 11px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 13px;
-  border: 1px solid var(--recently-added-row-border);
-  border-radius: 8px;
-  background: var(--recently-added-row-background);
-  box-shadow: var(--recently-added-row-shadow);
 }
 
 .recently-added-row__header,
 .recently-added-row__cards,
-.recently-added-row__copy,
 .recently-added-card,
 .recently-added-card__body {
   min-width: 0;
@@ -33,16 +27,9 @@
 .recently-added-row__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  min-height: 20px;
 }
 
-.recently-added-row__copy {
-  display: grid;
-  gap: 3px;
-}
-
-.recently-added-row__copy strong,
 .recently-added-card__body strong {
   overflow: hidden;
   color: var(--text);
@@ -51,14 +38,9 @@
   white-space: nowrap;
 }
 
-.recently-added-row__copy strong {
-  font-size: 1.02rem;
-}
-
 .recently-added-card__body span {
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 0.72rem;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -72,11 +54,11 @@
 
 .recently-added-card {
   display: grid;
-  grid-template-columns: clamp(54px, 4.8vw, 64px) minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  min-height: 92px;
-  padding: 8px;
+  grid-template-columns: clamp(72px, 7vw, 130px) minmax(0, 1fr);
+  align-items: stretch;
+  gap: clamp(10px, 1vw, 16px);
+  min-height: 124px;
+  padding: clamp(8px, 0.75vw, 12px);
   border: 1px solid var(--recently-added-card-border);
   border-radius: 8px;
   background: var(--recently-added-card-background);
@@ -129,17 +111,21 @@
 
 .recently-added-card__body {
   display: grid;
-  align-content: center;
-  gap: 4px;
+  align-content: start;
+  gap: 6px;
+  padding-block: 3px;
 }
 
 .recently-added-card__body strong {
-  font-size: 0.9rem;
-  line-height: 1.18;
+  font-size: clamp(0.88rem, 0.92vw, 1.04rem);
+  line-height: 1.22;
 }
 
 .recently-added-card__body span {
-  font-size: 0.73rem;
+  font-size: 0.72rem;
+  font-weight: 720;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .recently-added-card__body p {
@@ -147,37 +133,30 @@
   overflow: hidden;
   margin: 0;
   color: var(--text-dim);
-  font-size: 0.72rem;
-  line-height: 1.35;
+  font-size: clamp(0.72rem, 0.76vw, 0.84rem);
+  line-height: 1.42;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 5;
 }
 
-.recently-added-row__action {
-  flex: 0 0 auto;
+.recently-added-row__source {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  max-width: 100%;
   color: var(--text-dim);
-  font-size: 0.72rem;
-  font-weight: 720;
-  line-height: 1.2;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 48%, transparent);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 4px;
+  font-size: 0.78rem;
+  font-weight: 760;
+  letter-spacing: 0.025em;
+  line-height: 1.35;
+  text-decoration: none;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  transition:
-    color 160ms ease,
-    text-decoration-color 160ms ease;
+  transition: color 160ms ease;
 }
 
-.recently-added-row__action:hover {
+.recently-added-row__source:hover {
   color: var(--accent-strong);
-  text-decoration-color: currentColor;
-}
-
-.recently-added-row__action--loading {
-  width: 70px;
-  height: 0.72rem;
-  border-radius: 999px;
 }
 
 .recently-added-row__line,
@@ -224,6 +203,6 @@
 
 @media (min-width: 1420px) {
   .recently-added-row__cards {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }

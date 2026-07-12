@@ -118,7 +118,7 @@ describe('useServerEvents', () => {
     eventSource.emit('open')
 
     await waitFor(() => {
-      expect(invalidateQueriesSpy).toHaveBeenCalledTimes(7)
+      expect(invalidateQueriesSpy).toHaveBeenCalledTimes(6)
     })
 
     const invalidatedQueryKeys = invalidateQueriesSpy.mock.calls.map(([filters]) =>
@@ -129,7 +129,6 @@ describe('useServerEvents', () => {
       expect.arrayContaining([
         JSON.stringify(['libraries']),
         JSON.stringify(['continue-watching']),
-        JSON.stringify(['watch-history']),
         JSON.stringify(['home-library-detail']),
         JSON.stringify(['recently-added-by-library']),
         JSON.stringify(['library', 7]),
@@ -311,7 +310,7 @@ describe('useServerEvents', () => {
     })
 
     await waitFor(() => {
-      expect(invalidateQueriesSpy).toHaveBeenCalledTimes(6)
+      expect(invalidateQueriesSpy).toHaveBeenCalledTimes(5)
     })
 
     const invalidatedQueryKeys = invalidateQueriesSpy.mock.calls.map(([filters]) =>
@@ -325,7 +324,6 @@ describe('useServerEvents', () => {
         JSON.stringify(['library-media', 7]),
         JSON.stringify(['recently-added-by-library']),
         JSON.stringify(['continue-watching']),
-        JSON.stringify(['watch-history']),
       ]),
     )
   })

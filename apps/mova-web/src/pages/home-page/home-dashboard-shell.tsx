@@ -9,7 +9,7 @@ import { HomeIcon, type HomeIconName } from './home-icons'
 const homeNavItems = [
   { icon: 'home', label: 'Home', to: '/' },
   { icon: 'libraries', label: 'Libraries', to: '/libraries' },
-  { icon: 'clock', label: 'Recently Watched', to: '/watch-history' },
+  { icon: 'clock', label: 'Continue', to: '/continue' },
   { icon: 'search', label: 'Search', to: '/search' },
   { icon: 'settings', label: 'Settings', to: '/settings' },
 ] as const satisfies ReadonlyArray<{
@@ -53,8 +53,8 @@ const isNavItemActive = (label: string, pathname: string) => {
     return pathname === '/search'
   }
 
-  if (label === 'Recently Watched') {
-    return pathname === '/watch-history'
+  if (label === 'Continue') {
+    return pathname === '/continue'
   }
 
   return false
@@ -84,6 +84,7 @@ export const HomeDashboardShell = ({
   const userInitial = getUserInitial(currentUser)
   const isAdmin = canManageServer(currentUser)
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: route changes must reapply auto-collapse.
   useEffect(() => {
     if (autoCollapseSidebar) {
       setIsSidebarCollapsed(true)

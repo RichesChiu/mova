@@ -1,7 +1,15 @@
-use crate::{routes, state::AppState};
-use axum::Router;
+use crate::{
+    response::{with_status, ApiJson},
+    routes,
+    state::AppState,
+};
+use axum::{http::StatusCode, Router};
 use std::path::PathBuf;
 use tower_http::services::{ServeDir, ServeFile};
+
+async fn api_not_found() -> (StatusCode, ApiJson<()>) {
+    with_status(StatusCode::NOT_FOUND, "api route not found", ())
+}
 
 /// 组装顶层路由，把不同业务模块的子路由合并到一个应用入口上。
 pub fn build_router(state: AppState, web_dist_dir: Option<PathBuf>) -> Router {
@@ -18,7 +26,7 @@ pub fn build_router(state: AppState, web_dist_dir: Option<PathBuf>) -> Router {
         .merge(routes::seasons())
         .merge(routes::playback_progress())
         .merge(routes::users())
-        .merge(routes::watch_history());
+        .fallback(api_not_found);
 
     let app = Router::new().nest("/api", api_router);
 

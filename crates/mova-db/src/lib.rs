@@ -5,7 +5,6 @@ mod playback_progress;
 mod pool;
 mod scan_jobs;
 mod users;
-mod watch_history;
 
 pub use libraries::{
     create_library, delete_library, get_library, list_libraries, list_library_artwork_paths,
@@ -61,8 +60,4 @@ pub use users::{
     touch_native_client_session, update_user, update_user_nickname, update_user_password,
     CreateNativeClientSessionParams, CreateSessionParams, CreateUserParams,
     NativeClientSessionUser, UpdateUserParams, UsedNativeRefreshToken, UserAuthenticationRecord,
-};
-pub use watch_history::{
-    create_watch_history, get_latest_open_watch_history, list_watch_history, update_watch_history,
-    CreateWatchHistoryParams, UpdateWatchHistoryParams,
 };

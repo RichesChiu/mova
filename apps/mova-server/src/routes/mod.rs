@@ -10,7 +10,6 @@ mod seasons;
 mod server;
 mod subtitle_files;
 mod users;
-mod watch_history;
 
 use axum::Router;
 
@@ -65,8 +64,4 @@ pub fn playback_progress() -> Router<crate::state::AppState> {
 
 pub fn users() -> Router<crate::state::AppState> {
     users::router()
-}
-
-pub fn watch_history() -> Router<crate::state::AppState> {
-    watch_history::router()
 }

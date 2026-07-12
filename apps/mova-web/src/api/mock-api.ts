@@ -18,7 +18,6 @@ import type {
   Season,
   SubtitleFile,
   UserAccount,
-  WatchHistoryItem,
 } from './types'
 
 const MOCK_NOW = '2026-06-05T14:00:00+08:00'
@@ -53,8 +52,7 @@ const mockBackdropPaths = [
 ] as const
 
 const mockPosterPath = (id: number) => mockPosterPaths[Math.abs(id) % mockPosterPaths.length]
-const mockBackdropPath = (id: number) =>
-  mockBackdropPaths[Math.abs(id) % mockBackdropPaths.length]
+const mockBackdropPath = (id: number) => mockBackdropPaths[Math.abs(id) % mockBackdropPaths.length]
 
 const createLibrary = (id: number, name: string): Library => ({
   id,
@@ -137,11 +135,23 @@ const mockMediaItems = [
   createMediaItem({ id: 25, libraryId: 2, title: 'Aster World' }),
   createMediaItem({ id: 31, libraryId: 3, mediaType: 'movie', title: 'River House', year: 2024 }),
   createMediaItem({ id: 32, libraryId: 3, mediaType: 'movie', title: 'Golden Summer', year: 2021 }),
-  createMediaItem({ id: 33, libraryId: 3, mediaType: 'movie', title: 'The Small Road', year: 2020 }),
+  createMediaItem({
+    id: 33,
+    libraryId: 3,
+    mediaType: 'movie',
+    title: 'The Small Road',
+    year: 2020,
+  }),
   createMediaItem({ id: 34, libraryId: 3, mediaType: 'movie', title: 'Home Again', year: 2022 }),
   createMediaItem({ id: 41, libraryId: 4, mediaType: 'movie', title: 'Frozen Roads', year: 2019 }),
   createMediaItem({ id: 51, libraryId: 5, mediaType: 'series', title: 'Tiny Orbit', year: 2026 }),
-  createMediaItem({ id: 61, libraryId: 6, mediaType: 'movie', title: 'The Old Harbor', year: 1988 }),
+  createMediaItem({
+    id: 61,
+    libraryId: 6,
+    mediaType: 'movie',
+    title: 'The Old Harbor',
+    year: 1988,
+  }),
 ]
 
 const mockCurrentUser: UserAccount = {
@@ -212,7 +222,12 @@ const listLibraryMediaItems = (libraryId: number, url: URL): MediaItemListRespon
       if (item.library_id !== libraryId) {
         return false
       }
-      if (query && !`${item.title} ${item.source_title} ${item.original_title ?? ''}`.toLowerCase().includes(query)) {
+      if (
+        query &&
+        !`${item.title} ${item.source_title} ${item.original_title ?? ''}`
+          .toLowerCase()
+          .includes(query)
+      ) {
         return false
       }
       return Number.isFinite(year) ? item.year === year : true
@@ -294,7 +309,9 @@ const globalSearch = (url: URL): GlobalSearchResult[] => {
       episodeOutline(series.id).seasons.flatMap((season) =>
         season.episodes
           .filter((episode) =>
-            `${episode.title} ${episode.overview ?? ''} ${series.title}`.toLowerCase().includes(query),
+            `${episode.title} ${episode.overview ?? ''} ${series.title}`
+              .toLowerCase()
+              .includes(query),
           )
           .map((episode) => ({
             kind: 'episode',
@@ -464,9 +481,27 @@ const playbackHeader = (mediaItem: MediaItem): MediaItemPlaybackHeader => ({
 })
 
 const mockCast: MediaCastMember[] = [
-  { person_id: 1, sort_order: 1, name: 'Mira Stone', character_name: 'Captain', profile_path: null },
-  { person_id: 2, sort_order: 2, name: 'Leon Vale', character_name: 'Navigator', profile_path: null },
-  { person_id: 3, sort_order: 3, name: 'Ada Cross', character_name: 'Archivist', profile_path: null },
+  {
+    person_id: 1,
+    sort_order: 1,
+    name: 'Mira Stone',
+    character_name: 'Captain',
+    profile_path: null,
+  },
+  {
+    person_id: 2,
+    sort_order: 2,
+    name: 'Leon Vale',
+    character_name: 'Navigator',
+    profile_path: null,
+  },
+  {
+    person_id: 3,
+    sort_order: 3,
+    name: 'Ada Cross',
+    character_name: 'Archivist',
+    profile_path: null,
+  },
 ]
 
 const audioTracks: AudioTrack[] = [
@@ -505,33 +540,6 @@ const subtitles: SubtitleFile[] = [
   },
 ]
 
-const watchHistory = (url: URL): WatchHistoryItem[] => {
-  const limit = Math.max(1, Number(url.searchParams.get('limit') ?? 50))
-  return sortedMediaItems(mockMediaItems)
-    .slice(0, limit)
-    .map((mediaItem, index) => ({
-      media_item: mediaItem,
-      season_number: null,
-      episode_number: null,
-      episode_title: null,
-      episode_overview: null,
-      episode_poster_path: null,
-      episode_backdrop_path: null,
-      watch_history: {
-        id: mediaItem.id * 20,
-        media_item_id: mediaItem.id,
-        media_file_id: mediaItem.id * 100,
-        position_seconds: 1200 + index * 180,
-        duration_seconds: 3600,
-        started_at: MOCK_NOW,
-        last_watched_at: MOCK_NOW,
-        ended_at: null,
-        completed_at: null,
-        is_finished: false,
-      },
-    }))
-}
-
 const playbackProgressFromUpdate = (mediaItemId: number, init?: RequestInit): PlaybackProgress => {
   const baseProgress = playbackProgress(mediaItemId)
   if (typeof init?.body !== 'string') {
@@ -552,7 +560,8 @@ const playbackProgressFromUpdate = (mediaItemId: number, init?: RequestInit): Pl
       typeof input.duration_seconds === 'number'
         ? input.duration_seconds
         : baseProgress.duration_seconds,
-    is_finished: typeof input.is_finished === 'boolean' ? input.is_finished : baseProgress.is_finished,
+    is_finished:
+      typeof input.is_finished === 'boolean' ? input.is_finished : baseProgress.is_finished,
   }
 }
 
@@ -599,10 +608,6 @@ export const requestMockJson = async <T>(
   if (pathname === '/playback-progress/continue-watching') {
     return mockResult(continueWatching(url) as T)
   }
-  if (pathname === '/watch-history') {
-    return mockResult(watchHistory(url) as T)
-  }
-
   const libraryMediaMatch = pathname.match(/^\/libraries\/(\d+)\/media-items$/)
   if (libraryMediaMatch) {
     return mockResult(listLibraryMediaItems(Number(libraryMediaMatch[1]), url) as T)

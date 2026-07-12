@@ -421,14 +421,6 @@
     radial-gradient(circle at 86% 18%, var(--mova-color-rgba-201-215-255-a16), transparent 36%),
     linear-gradient(135deg, var(--mova-color-rgba-22-29-41-a94), var(--mova-color-rgba-10-15-24-a98));
 
-  --recently-added-row-border: color-mix(in srgb, var(--floating-border) 78%, transparent);
-  --recently-added-row-background:
-    linear-gradient(180deg, color-mix(in srgb, var(--color-white) 5%, transparent), transparent 42%),
-    color-mix(in srgb, var(--floating-surface) 86%, var(--mova-color-rgba-19-34-50-a44));
-  --recently-added-row-shadow:
-    var(--panel-inset),
-    0 14px 34px color-mix(in srgb, var(--color-black) 22%, transparent),
-    0 3px 12px color-mix(in srgb, var(--mova-color-hex-0a2033) 24%, transparent);
   --recently-added-card-border: color-mix(in srgb, var(--floating-border) 76%, transparent);
   --recently-added-card-background:
     linear-gradient(180deg, color-mix(in srgb, var(--color-white) 4%, transparent), transparent 54%),
@@ -838,14 +830,6 @@
     radial-gradient(circle at 90% 18%, var(--mova-color-rgba-128-181-222-a24), transparent 36%),
     linear-gradient(135deg, var(--mova-color-rgba-250-253-255-a82), var(--mova-color-rgba-224-236-252-a68) 52%, var(--mova-color-rgba-239-245-252-a78));
 
-  --recently-added-row-border: var(--mova-color-rgba-255-255-255-a66);
-  --recently-added-row-background:
-    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a72), var(--mova-color-rgba-238-246-255-a5) 58%),
-    var(--mova-color-rgba-234-243-255-a62);
-  --recently-added-row-shadow:
-    var(--panel-inset),
-    0 14px 34px var(--mova-color-rgba-125-150-190-a12),
-    0 3px 12px var(--mova-color-rgba-112-139-181-a08);
   --recently-added-card-border: color-mix(in srgb, var(--floating-border) 84%, var(--mova-color-rgba-141-161-194-a16));
   --recently-added-card-background:
     linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a54), transparent 58%),

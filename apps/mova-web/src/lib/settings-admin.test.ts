@@ -139,7 +139,7 @@ describe('settings admin helpers', () => {
     expect(buildDeleteUserConfirmationCopy(viewer)).toEqual({
       confirmLabel: 'Delete User',
       description:
-        'Delete "viewer01"? This removes their access, active sessions, playback progress, and watch history records.',
+        'Delete "viewer01"? This removes their access, active sessions, and playback progress.',
       title: 'Delete user',
     })
   })

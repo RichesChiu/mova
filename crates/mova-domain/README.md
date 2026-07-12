@@ -37,8 +37,6 @@
 | `src/episode.rs` | `Episode` |
 | `src/scan_job.rs` | `ScanJob` |
 | `src/playback_progress.rs` | `PlaybackProgress` |
-| `src/watch_history.rs` | `WatchHistory` |
-| `src/watch_history_item.rs` | `WatchHistoryItem` |
 | `src/continue_watching_item.rs` | `ContinueWatchingItem` |
 | `src/media_cast_member.rs` | `MediaCastMember` |
 | `src/user.rs` | `User`、`UserRole`，其中 `User` 会同时承载登录用户名和用于前端展示的昵称。 |
@@ -58,8 +56,6 @@
 - `Episode`
 - `ScanJob`
 - `PlaybackProgress`
-- `WatchHistory`
-- `WatchHistoryItem`
 - `ContinueWatchingItem`
 - `MediaCastMember`
 - `User`
@@ -92,8 +88,8 @@
 - `MediaItem` / `MediaFile` / `AudioTrack`
   - 一个负责逻辑上的媒体条目，一个负责物理文件与播放链路，`AudioTrack` 负责补齐单个媒体文件的内嵌音轨建模。`MediaItem` 同时暴露 `metadata_status`、`metadata_failure_reason` 和 `remote_media_type`，让前端明确区分已匹配、待复核、失败和跳过，而不是用 TMDB ID 是否为空做隐式判断。
 
-- `PlaybackProgress` / `WatchHistory`
-  - 一个表达“当前最新进度”，一个表达“观看会话历史”。
+- `PlaybackProgress` / `ContinueWatchingItem`
+  - 前者表达逐文件当前进度，后者表达有上限的活跃 Continue 队列中聚合后的电影或 Series 卡片。
 
 如果要看这些模型被怎样读写：
 

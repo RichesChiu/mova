@@ -157,7 +157,7 @@
 - `library.deleted`
 - `media_item.metadata.updated`
 
-删除媒体库时，服务会先阻止新的扫描进入并等待当前扫描退出；删除事务会显式清理该库的媒体关系表、授权关系、扫描任务、播放进度和观看历史。事务完成后，服务会删除该库曾引用且已经没有任何剩余记录引用的 `MOVA_CACHE_DIR/tmdb` 图片缓存文件，媒体目录里的 sidecar 图片不会被自动删除。
+删除媒体库时，服务会先阻止新的扫描进入并等待当前扫描退出；删除事务会显式清理该库的媒体关系表、授权关系、扫描任务和播放进度。事务完成后，服务会删除该库曾引用且已经没有任何剩余记录引用的 `MOVA_CACHE_DIR/tmdb` 图片缓存文件，媒体目录里的 sidecar 图片不会被自动删除。
 
 其中 `scan.job.updated` 在发现文件阶段会先节流并合并进度写库 / 广播，避免大库扫描时按文件数量打满 SSE；发现阶段结束仍会强制写入最终文件数。扫描随后进入 `analyzing` 阶段：先只用文件名和路径做浅层解析与扫描展示聚合，不读取 sidecar、不调用 `ffprobe`、不访问 TMDB；聚合完成后再按组逐个做完整本地分析，包括 sidecar、`ffprobe`、音轨字幕和资源技术标签。每个组完成完整本地分析后都会立即写入数据库并通过 `scan.item.updated stage=discovered` 推给前端，然后才处理下一组。这样库详情页可以逐组出现稳定卡片，而不是等整库探测结束后一次性出现。随后进入 `enriching` 阶段按聚合组串行访问 TMDB。同一剧集组只做一次剧集 metadata 查询，拿到 TMDB 标题和剧集级海报后应用到组内所有集；本地 artwork 会按层级保存，`S01E01-poster` 这类文件专属图只属于单集，`poster/fanart` 这类通用图才可作为剧集容器图，扫描进度和落库都不会再用单集截图兜底剧集或季图；图片字段缺失时保持为空，不会用同条目的另一个图片字段、其它层级图片、搜索结果图片或默认语言图片补齐；本地分析或待远端复核的写库不会用空 artwork 覆盖已有剧集 / 季 / 集图片，只有 `metadata_status = matched` 的最终元数据写入才会把远端确认缺失的图片字段清空；同一 TMDB 影片下的电影资源会按 `provider_item_id` 归并到一个 movie item，详情页再作为多个资源版本切换；旧条目即使已有海报和简介，只要缺少 TMDB provider 绑定，也会继续请求 TMDB 拿到 provider id 后再合并多版本；每个组完成后立即覆盖写库并推送更新。事件会携带当前可用的 `year`、`overview` 和 `metadata_status`；`poster_path` / `backdrop_path` 只在服务端确认是浏览器可访问 URL 时才带出，避免缓存完成前让前端加载本地路径或失效远端图。当 `stage = completed` 时，该组已经完成远端 metadata / 海报覆盖写库，Web 端会立即重拉该库媒体列表、首页按库最新添加和库详情计数，让真实媒体卡也跟着逐个更新。剧集远端查询会先从文件名解析 `SxxExx` 前的剧名和年份；如果季目录结构明确，服务端会从季目录上一级提取干净剧名和年份作为补充搜索线索，覆盖类似 `Taxi.Driver.S01E01.mkv`、`Study Group S01E01 - 第 1 集.mkv`、`The.BeautyS01E01.mkv` 的场景。中文元数据库里，如果季目录上一级或无季目录时的直接父级目录提供中文剧名，会优先把中文剧名作为 TMDB 查询候选，再回退到英文文件名；这会覆盖 `莎拉的真伪人生(2026)/The.Art.of.Sarah.S01E01.mkv` 这类平铺剧集目录。已经入库但标题仍是英文、且路径里能识别中文剧名的 matched 剧集条目，也会在后续扫描中重新进入 metadata 流程，避免英文文件名先命中导致卡片标题长期偏英文。没有本地季集号的文件会先做 TMDB movie / tv 类型确认，远端更像剧集但本地无季集号、或远端没有命中时会写入明确的 `metadata_status` / `metadata_failure_reason` 并保留为前端 Other 复核项；TMDB 请求错误会写入 `failed / metadata_provider_error` 并在后续手动扫描中重试；TMDB 未启用时则标记为 `skipped`，不阻断本地媒体展示。所有事件都会先经过 `is_visible_to(&UserProfile)` 做库级可见性过滤，再转换成 SSE。
 
@@ -165,7 +165,7 @@
 
 ## 5. 路由与 feature 划分
 
-当前后端有 12 个 route module，都由 `app.rs` 合并后统一挂到 `/api` 下：
+当前后端有 11 个 route module，都由 `app.rs` 合并后统一挂到 `/api` 下：
 
 - `routes/health.rs`
 - `routes/auth.rs`
@@ -178,7 +178,6 @@
 - `routes/media_files.rs`
 - `routes/subtitle_files.rs`
 - `routes/playback_progress.rs`
-- `routes/watch_history.rs`
 
 如果 `config.web_dist_dir` 存在，`app.rs` 还会把前端构建产物作为 fallback 静态文件托管。
 
@@ -205,8 +204,7 @@
   - `routes/media_files.rs`
   - `routes/subtitle_files.rs`
   - `routes/playback_progress.rs`
-  - `routes/watch_history.rs`
-  - 文件流、音轨、字幕、继续观看、观看历史、播放进度
+  - 文件流、音轨、字幕、继续观看、播放进度
 
 接口路径、请求体、响应字段和权限语义统一以 [`../../docs/API.md`](../../docs/API.md) 为准。  
 `mova-server/README.md` 不再重复维护逐个接口的 Method / Path 说明，只保留“这些 feature 在代码里落在哪、调用链怎么走”。

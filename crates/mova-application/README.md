@@ -76,7 +76,6 @@
 | `src/media_classification.rs` | 媒体库类型和电影/剧集归类辅助逻辑。 |
 | `src/playback_header.rs` | 播放器页头部信息查询。 |
 | `src/playback_progress.rs` | 单条播放进度、继续观看和播放进度写入。 |
-| `src/watch_history.rs` | 当前用户观看历史查询。 |
 
 ## 5. 主要导出能力
 
@@ -144,7 +143,6 @@
 - `get_playback_progress_for_media_item`
 - `update_playback_progress_for_media_item`
 - `list_continue_watching`
-- `list_watch_history`
 
 ## 6. 当前最关键的几条业务链
 
@@ -211,8 +209,8 @@
 `update_playback_progress_for_media_item`
 
 - 按用户维度更新 `playback_progress`
-- 同步维护 `watch_history`
-- 保证“继续观看”和“历史记录”两条读链可以复用这份状态
+- 未完成播放会按电影或 Series upsert `continue_watching`，同系列切集只更新一个活跃条目
+- `continue_watching` 每个用户最多保留 20 条；已完成内容保留进度和完成标记，但从活跃队列删除
 
 ## 7. 适合在这里继续放什么
 

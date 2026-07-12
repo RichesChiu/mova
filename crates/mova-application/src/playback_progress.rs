@@ -1,13 +1,12 @@
 use crate::{
     error::{ApplicationError, ApplicationResult},
     media_items::{get_media_file, get_media_item},
-    watch_history::{record_watch_history_for_media_item, RecordWatchHistoryInput},
 };
 use mova_domain::{ContinueWatchingItem, PlaybackProgress};
 use sqlx::postgres::PgPool;
 
 const DEFAULT_CONTINUE_WATCHING_LIMIT: i64 = 20;
-const MAX_CONTINUE_WATCHING_LIMIT: i64 = 100;
+const MAX_CONTINUE_WATCHING_LIMIT: i64 = 20;
 
 /// 更新播放进度时使用的命令对象。
 #[derive(Debug, Clone)]
@@ -74,7 +73,7 @@ pub async fn update_playback_progress_for_media_item(
             input.position_seconds.min(duration_seconds)
         });
 
-    let progress = mova_db::upsert_playback_progress(
+    mova_db::upsert_playback_progress(
         pool,
         mova_db::UpsertPlaybackProgressParams {
             user_id,
@@ -86,22 +85,7 @@ pub async fn update_playback_progress_for_media_item(
         },
     )
     .await
-    .map_err(ApplicationError::from)?;
-
-    record_watch_history_for_media_item(
-        pool,
-        user_id,
-        media_item_id,
-        RecordWatchHistoryInput {
-            media_file_id: input.media_file_id,
-            position_seconds,
-            duration_seconds: input.duration_seconds,
-            is_finished: input.is_finished,
-        },
-    )
-    .await?;
-
-    Ok(progress)
+    .map_err(ApplicationError::from)
 }
 
 fn validate_progress_seconds(field_name: &str, seconds: i32) -> ApplicationResult<()> {
@@ -155,7 +139,7 @@ mod tests {
 
     #[test]
     fn normalize_continue_watching_limit_caps_large_value() {
-        assert_eq!(normalize_continue_watching_limit(Some(999)).unwrap(), 100);
+        assert_eq!(normalize_continue_watching_limit(Some(999)).unwrap(), 20);
     }
 
     #[test]

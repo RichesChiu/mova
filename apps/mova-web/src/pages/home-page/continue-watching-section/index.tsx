@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import {
   ContinueWatchingCard,
   type ContinueWatchingCardData,
@@ -36,9 +37,9 @@ export const ContinueWatchingSection = ({
           <h3>{l('Continue Watching')}</h3>
         </div>
         {items.length > 0 ? (
-          <span className="catalog-block__inline-action catalog-block__inline-action--static">
+          <Link className="catalog-block__inline-action" to="/continue">
             {l('View all')}
-          </span>
+          </Link>
         ) : null}
       </div>
 

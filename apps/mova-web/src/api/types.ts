@@ -275,30 +275,6 @@ export interface ContinueWatchingItem {
   episode_backdrop_path: string | null
 }
 
-export interface WatchHistory {
-  id: number
-  media_item_id: number
-  media_file_id: number
-  position_seconds: number
-  duration_seconds: number | null
-  started_at: string
-  last_watched_at: string
-  ended_at: string | null
-  completed_at: string | null
-  is_finished: boolean
-}
-
-export interface WatchHistoryItem {
-  media_item: MediaItem
-  watch_history: WatchHistory
-  season_number: number | null
-  episode_number: number | null
-  episode_title: string | null
-  episode_overview: string | null
-  episode_poster_path: string | null
-  episode_backdrop_path: string | null
-}
-
 export interface CreateLibraryInput {
   name: string
   description?: string

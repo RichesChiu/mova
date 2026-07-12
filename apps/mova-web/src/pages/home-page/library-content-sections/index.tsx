@@ -19,6 +19,8 @@ const RECENTLY_ADDED_POSTER_SKELETON_KEYS = [
   'poster-d',
   'poster-e',
   'poster-f',
+  'poster-g',
+  'poster-h',
 ] as const
 
 const RecentlyAddedArtwork = ({
@@ -71,8 +73,8 @@ const RecentlyAddedMediaCard = ({ item }: { item: MediaItem }) => {
         src={item.poster_path}
       />
       <div className="recently-added-card__body">
-        <strong title={title}>{title}</strong>
         <span>{metaLabel}</span>
+        <strong title={title}>{title}</strong>
         {overview ? <p title={overview}>{overview}</p> : null}
       </div>
     </Link>
@@ -83,13 +85,10 @@ const RecentlyAddedRowSkeleton = ({ index }: { index: number }) => {
   return (
     <section aria-hidden="true" className="recently-added-row">
       <div className="recently-added-row__header">
-        <div className="recently-added-row__copy">
-          <span className="recently-added-row__line recently-added-row__line--title skeleton-shimmer" />
-        </div>
-        <span className="recently-added-row__action recently-added-row__action--loading skeleton-shimmer" />
+        <span className="recently-added-row__line recently-added-row__line--title skeleton-shimmer" />
       </div>
       <div className="recently-added-row__cards">
-        {RECENTLY_ADDED_POSTER_SKELETON_KEYS.slice(0, index === 0 ? 6 : 4).map((key) => (
+        {RECENTLY_ADDED_POSTER_SKELETON_KEYS.slice(0, index === 0 ? 8 : 4).map((key) => (
           <span className="recently-added-card recently-added-card--loading" key={key}>
             <span className="recently-added-card__artwork skeleton-shimmer" />
             <span className="recently-added-card__body">
@@ -141,14 +140,8 @@ export const LibraryContentSections = ({
           {groups.map((group) => (
             <section className="recently-added-row" key={group.library.id}>
               <div className="recently-added-row__header">
-                <div className="recently-added-row__copy">
-                  <strong>{group.library.name}</strong>
-                </div>
-                <Link
-                  className="recently-added-row__action"
-                  to={`/libraries/${group.library.id}`}
-                >
-                  {l('View Library')}
+                <Link className="recently-added-row__source" to={`/libraries/${group.library.id}`}>
+                  {l('From “{{name}}” library', { name: group.library.name })}
                 </Link>
               </div>
 

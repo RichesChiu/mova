@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useOutletContext } from 'react-router-dom'
-import { listWatchHistory } from '../../api/client'
-import type { MediaItem, WatchHistoryItem } from '../../api/types'
+import { listContinueWatching } from '../../api/client'
+import type { ContinueWatchingItem, MediaItem } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import {
   ContinueWatchingCard,
@@ -13,14 +13,14 @@ import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 
-const WATCH_HISTORY_LIMIT = 120
-const WATCH_HISTORY_SKELETON_KEYS = [
-  'history-a',
-  'history-b',
-  'history-c',
-  'history-d',
-  'history-e',
-  'history-f',
+const CONTINUE_PAGE_LIMIT = 20
+const CONTINUE_PAGE_SKELETON_KEYS = [
+  'continue-a',
+  'continue-b',
+  'continue-c',
+  'continue-d',
+  'continue-e',
+  'continue-f',
 ] as const
 
 const progressPercent = (position: number, duration: number | null) => {
@@ -34,23 +34,10 @@ const progressPercent = (position: number, duration: number | null) => {
 const titleForMediaItem = (item: MediaItem, l: Translate) =>
   item.title.trim() || item.source_title.trim() || l('Untitled')
 
-const dedupeWatchHistoryItems = (items: WatchHistoryItem[]) => {
-  const seenMediaItemIds = new Set<number>()
-
-  return items.filter((item) => {
-    if (seenMediaItemIds.has(item.media_item.id)) {
-      return false
-    }
-
-    seenMediaItemIds.add(item.media_item.id)
-    return true
-  })
-}
-
-const WatchHistoryCard = ({ item }: { item: WatchHistoryItem }) => {
+const ContinuePageCard = ({ item }: { item: ContinueWatchingItem }) => {
   const { l } = useI18n()
   const mediaItem = item.media_item
-  const history = item.watch_history
+  const progress = item.playback_progress
   const seasonNumber = typeof item.season_number === 'number' ? item.season_number : null
   const episodeNumber = typeof item.episode_number === 'number' ? item.episode_number : null
   const hasEpisodeContext = seasonNumber !== null && episodeNumber !== null
@@ -61,9 +48,6 @@ const WatchHistoryCard = ({ item }: { item: WatchHistoryItem }) => {
     : mediaItem.year
       ? `${mediaTypeLabel} · ${mediaItem.year}`
       : mediaTypeLabel
-  const percent = history.is_finished
-    ? 100
-    : progressPercent(history.position_seconds, history.duration_seconds)
   const href = hasEpisodeContext
     ? `${mediaItemDetailPath(mediaItem.id)}?season=${seasonNumber}`
     : mediaItemPrimaryPath(mediaItem)
@@ -76,67 +60,68 @@ const WatchHistoryCard = ({ item }: { item: WatchHistoryItem }) => {
           ? (item.episode_poster_path ?? mediaItem.poster_path)
           : mediaItem.poster_path,
         href,
-        id: history.id,
+        id: progress.id,
         metaLabel,
         placeholderLabel: hasEpisodeContext ? `${seasonNumber}-${episodeNumber}` : mediaTypeLabel,
-        progressPercent: percent,
+        progressPercent: progressPercent(progress.position_seconds, progress.duration_seconds),
         title,
       }}
     />
   )
 }
 
-export const WatchHistoryPage = () => {
+export const ContinuePage = () => {
   const { formatNumber, l } = useI18n()
   const { currentUser } = useOutletContext<AppShellOutletContext>()
-  const watchHistoryQuery = useQuery({
-    queryKey: ['watch-history', WATCH_HISTORY_LIMIT],
-    queryFn: () => listWatchHistory(WATCH_HISTORY_LIMIT),
+  const continueWatchingQuery = useQuery({
+    queryKey: ['continue-watching', CONTINUE_PAGE_LIMIT],
+    queryFn: () => listContinueWatching(CONTINUE_PAGE_LIMIT),
   })
-  const rawItems = watchHistoryQuery.data ?? []
-  const items = dedupeWatchHistoryItems(rawItems)
-  const shouldShowSkeleton = watchHistoryQuery.isLoading && items.length === 0
+  const items = continueWatchingQuery.data ?? []
+  const shouldShowSkeleton = continueWatchingQuery.isLoading && items.length === 0
 
   return (
-    <HomeDashboardShell ariaLabel={l('Recently Watched')} currentUser={currentUser}>
-      <div className="home-dashboard__content home-dashboard__content--watch-history">
+    <HomeDashboardShell ariaLabel={l('Continue')} currentUser={currentUser}>
+      <div className="home-dashboard__content home-dashboard__content--continue">
         <DashboardPageHeader>
-          <h2>{l('Recently Watched')}</h2>
-          {!watchHistoryQuery.isLoading && !watchHistoryQuery.isError ? (
+          <h2>{l('Continue')}</h2>
+          {!continueWatchingQuery.isLoading && !continueWatchingQuery.isError ? (
             <span className="home-dashboard-page-header__meta">
               {l('{{count}} items', { count: formatNumber(items.length) })}
             </span>
           ) : null}
         </DashboardPageHeader>
 
-        <section className="catalog-block watch-history-page">
-          {watchHistoryQuery.isError ? (
+        <section className="catalog-block continue-page">
+          {continueWatchingQuery.isError ? (
             <p className="callout callout--danger">
-              {watchHistoryQuery.error instanceof Error
-                ? watchHistoryQuery.error.message
-                : l('Failed to load watch history')}
+              {continueWatchingQuery.error instanceof Error
+                ? continueWatchingQuery.error.message
+                : l('Failed to load continue watching list')}
             </p>
           ) : null}
 
           {shouldShowSkeleton ? (
-            <div className="watch-history-page__grid">
-              {WATCH_HISTORY_SKELETON_KEYS.map((key) => (
+            <div className="continue-page__grid">
+              {CONTINUE_PAGE_SKELETON_KEYS.map((key) => (
                 <ContinueWatchingCardSkeleton key={key} label={l('Movies')} />
               ))}
             </div>
           ) : null}
 
-          {!watchHistoryQuery.isLoading && !watchHistoryQuery.isError && items.length === 0 ? (
-            <section className="empty-panel watch-history-page__empty">
-              <h3>{l('No recently watched media yet.')}</h3>
+          {!continueWatchingQuery.isLoading &&
+          !continueWatchingQuery.isError &&
+          items.length === 0 ? (
+            <section className="empty-panel continue-page__empty">
+              <h3>{l('Nothing to continue yet.')}</h3>
               <p className="muted">{l('Start watching something and it will appear here.')}</p>
             </section>
           ) : null}
 
           {items.length > 0 ? (
-            <div className="watch-history-page__grid">
+            <div className="continue-page__grid">
               {items.map((item) => (
-                <WatchHistoryCard item={item} key={item.watch_history.id} />
+                <ContinuePageCard item={item} key={item.playback_progress.id} />
               ))}
             </div>
           ) : null}

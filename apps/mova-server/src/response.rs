@@ -5,8 +5,7 @@ use mova_application::{
 };
 use mova_domain::{
     AudioTrack, ContinueWatchingItem, Episode, Library, LibraryDetail, MediaCastMember, MediaFile,
-    MediaItem, PlaybackProgress, ScanJob, Season, SubtitleFile, UserProfile, WatchHistory,
-    WatchHistoryItem,
+    MediaItem, PlaybackProgress, ScanJob, Season, SubtitleFile, UserProfile,
 };
 use serde::Serialize;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
@@ -435,32 +434,6 @@ pub struct ContinueWatchingItemResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub struct WatchHistoryResponse {
-    pub id: i64,
-    pub media_item_id: i64,
-    pub media_file_id: i64,
-    pub position_seconds: i32,
-    pub duration_seconds: Option<i32>,
-    pub started_at: String,
-    pub last_watched_at: String,
-    pub ended_at: Option<String>,
-    pub completed_at: Option<String>,
-    pub is_finished: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct WatchHistoryItemResponse {
-    pub media_item: MediaItemResponse,
-    pub watch_history: WatchHistoryResponse,
-    pub season_number: Option<i32>,
-    pub episode_number: Option<i32>,
-    pub episode_title: Option<String>,
-    pub episode_overview: Option<String>,
-    pub episode_poster_path: Option<String>,
-    pub episode_backdrop_path: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
 pub struct UserResponse {
     pub id: i64,
     pub username: String,
@@ -743,53 +716,6 @@ impl TokenLoginResponse {
             refresh_token: session.refresh_token,
             refresh_token_expires_at: format_datetime(session.refresh_token_expires_at, offset),
             user: UserResponse::from_domain(session.user, offset),
-        }
-    }
-}
-
-impl WatchHistoryResponse {
-    pub fn from_domain(history: WatchHistory, offset: UtcOffset) -> Self {
-        Self {
-            id: history.id,
-            media_item_id: history.media_item_id,
-            media_file_id: history.media_file_id,
-            position_seconds: history.position_seconds,
-            duration_seconds: history.duration_seconds,
-            started_at: format_datetime(history.started_at, offset),
-            last_watched_at: format_datetime(history.last_watched_at, offset),
-            ended_at: history.ended_at.map(|value| format_datetime(value, offset)),
-            completed_at: history
-                .completed_at
-                .map(|value| format_datetime(value, offset)),
-            is_finished: history.completed_at.is_some(),
-        }
-    }
-}
-
-impl WatchHistoryItemResponse {
-    pub fn from_domain(item: WatchHistoryItem, offset: UtcOffset) -> Self {
-        let episode_poster_path = public_media_item_asset_path(
-            item.watch_history.media_item_id,
-            item.episode_poster_path.as_deref(),
-            "poster",
-            item.media_item.updated_at,
-        );
-        let episode_backdrop_path = public_media_item_asset_path(
-            item.watch_history.media_item_id,
-            item.episode_backdrop_path.as_deref(),
-            "backdrop",
-            item.media_item.updated_at,
-        );
-
-        Self {
-            media_item: MediaItemResponse::from_domain(item.media_item, offset),
-            watch_history: WatchHistoryResponse::from_domain(item.watch_history, offset),
-            season_number: item.season_number,
-            episode_number: item.episode_number,
-            episode_title: item.episode_title,
-            episode_overview: item.episode_overview,
-            episode_poster_path,
-            episode_backdrop_path,
         }
     }
 }

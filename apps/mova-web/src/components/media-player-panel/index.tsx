@@ -250,6 +250,7 @@ export const MediaPlayerPanel = ({
   const shouldHonorStartModeRef = useRef(startMode === 'from-start')
   const shouldAutoplayOnLoadRef = useRef(true)
   const pendingPlaybackRestoreRef = useRef<PendingPlaybackRestore | null>(null)
+  const continueRegistrationKeyRef = useRef<string | null>(null)
   const lastReportedSecondsRef = useRef(-1)
   const hasSubmittedProgressRef = useRef(false)
   const syncPlaybackProgressRef = useRef<(force?: boolean, isFinished?: boolean) => void>(() => {})
@@ -829,6 +830,42 @@ export const MediaPlayerPanel = ({
     })
   }
 
+  useEffect(() => {
+    if (
+      !selectedMediaFile ||
+      selectedMediaFile.media_item_id !== mediaItemId ||
+      playbackProgressQuery.isLoading
+    ) {
+      return
+    }
+
+    const registrationKey = `${mediaItemId}:${selectedMediaFile.id}`
+    if (continueRegistrationKeyRef.current === registrationKey) {
+      return
+    }
+
+    continueRegistrationKeyRef.current = registrationKey
+    const savedProgress = playbackProgressQuery.data
+    const canResumeSelectedFile =
+      savedProgress?.media_file_id === selectedMediaFile.id && !savedProgress.is_finished
+
+    // Opening a selected movie or episode must enter Continue immediately without losing its resume point.
+    playbackProgressMutation.mutate({
+      media_file_id: selectedMediaFile.id,
+      position_seconds: canResumeSelectedFile ? savedProgress.position_seconds : 0,
+      duration_seconds: canResumeSelectedFile
+        ? (savedProgress.duration_seconds ?? selectedMediaFile.duration_seconds ?? undefined)
+        : (selectedMediaFile.duration_seconds ?? undefined),
+      is_finished: false,
+    })
+  }, [
+    mediaItemId,
+    playbackProgressMutation.mutate,
+    playbackProgressQuery.data,
+    playbackProgressQuery.isLoading,
+    selectedMediaFile,
+  ])
+
   flushPlaybackProgressRef.current = () => {
     const snapshot = measurePlaybackProgress()
     if (
@@ -874,7 +911,6 @@ export const MediaPlayerPanel = ({
 
       if (hasSubmittedProgressRef.current) {
         void queryClient.invalidateQueries({ queryKey: ['continue-watching'] })
-        void queryClient.invalidateQueries({ queryKey: ['watch-history'] })
         void queryClient.invalidateQueries({
           queryKey: ['media-item-playback-progress', mediaItemId],
         })
