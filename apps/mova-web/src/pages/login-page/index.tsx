@@ -100,7 +100,7 @@ export const LoginPage = () => {
 
         <form className="stack" onSubmit={handleSubmit}>
           <label className="field">
-            <span>{l('Username')}</span>
+            <span>{l('Account')}</span>
             <input
               autoComplete="username"
               maxLength={USER_ACCOUNT_MAX_LENGTH}

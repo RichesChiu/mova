@@ -20,6 +20,8 @@ The project aims to keep the media-server experience simple and dependable: moun
 
 The Web home page is library-first: it shows continue watching, a short `Your Libraries` summary, and the latest eight added media items grouped by every visible non-empty library, without a default time-window cutoff or a front-end merge of per-library title-sorted lists. Home, Continue, library detail, and server-management sections use the same empty-state panel with context-specific copy when their datasets are empty. Dashboard routes share a left navigation rail that stays anchored to the viewport, with the profile entry at the lower edge and a small lower-left expand handle when collapsed. The rail's `Continue` entry opens a dedicated page containing the bounded active Continue queue; the home section links to the same page through `View all`. Playback progress remains the per-file state source, while the queue keeps at most 20 unique movies or series and removes an entry when it is marked finished.
 
+The Web interface defaults to Simplified Chinese on first initialization or when no valid language preference exists. A language explicitly selected in profile settings remains stored in the current browser.
+
 Native clients authenticate with opaque short-lived access tokens plus rotating refresh tokens. Business APIs only accept the access token in `Authorization: Bearer ...`; refresh tokens are stored server-side as hashes, can be revoked per device session, and are used only through `/api/auth/refresh`.
 
 Login account identifiers can be regular usernames or email-form strings up to 254 characters. Mova treats them as exact account identifiers and does not verify email ownership or send email.

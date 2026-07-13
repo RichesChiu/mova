@@ -7,7 +7,7 @@ export const INTERFACE_LANGUAGES = {
 
 export type InterfaceLanguage = (typeof INTERFACE_LANGUAGES)[keyof typeof INTERFACE_LANGUAGES]
 
-export const DEFAULT_INTERFACE_LANGUAGE: InterfaceLanguage = INTERFACE_LANGUAGES.english
+export const DEFAULT_INTERFACE_LANGUAGE: InterfaceLanguage = INTERFACE_LANGUAGES.chinese
 
 const STORAGE_KEYS = {
   interfaceLanguage: 'mova.interfaceLanguage',
@@ -46,8 +46,13 @@ export const normalizeThemePreference = (value: string | null | undefined): Them
 
 export const normalizeInterfaceLanguagePreference = (
   value: string | null | undefined,
-): InterfaceLanguage =>
-  value === INTERFACE_LANGUAGES.chinese ? INTERFACE_LANGUAGES.chinese : DEFAULT_INTERFACE_LANGUAGE
+): InterfaceLanguage => {
+  if (value === INTERFACE_LANGUAGES.english || value === INTERFACE_LANGUAGES.chinese) {
+    return value
+  }
+
+  return DEFAULT_INTERFACE_LANGUAGE
+}
 
 export const readStoredThemePreference = () =>
   normalizeThemePreference(readPreference(STORAGE_KEYS.theme))

@@ -25,6 +25,10 @@ describe('preferences helpers', () => {
     expect(normalizeInterfaceLanguagePreference('ja-JP')).toBe(DEFAULT_INTERFACE_LANGUAGE)
   })
 
+  it('uses Chinese when no interface language has been selected', () => {
+    expect(readStoredInterfaceLanguagePreference()).toBe(INTERFACE_LANGUAGES.chinese)
+  })
+
   it('persists and applies the selected theme', () => {
     expect(setThemePreference(THEMES.frost)).toBe(THEMES.frost)
     expect(readStoredThemePreference()).toBe(THEMES.frost)
@@ -33,11 +37,11 @@ describe('preferences helpers', () => {
   })
 
   it('persists and applies the selected interface language', () => {
-    expect(setInterfaceLanguagePreference(INTERFACE_LANGUAGES.chinese)).toBe(
-      INTERFACE_LANGUAGES.chinese,
+    expect(setInterfaceLanguagePreference(INTERFACE_LANGUAGES.english)).toBe(
+      INTERFACE_LANGUAGES.english,
     )
-    expect(readStoredInterfaceLanguagePreference()).toBe(INTERFACE_LANGUAGES.chinese)
-    expect(document.documentElement.lang).toBe(INTERFACE_LANGUAGES.chinese)
+    expect(readStoredInterfaceLanguagePreference()).toBe(INTERFACE_LANGUAGES.english)
+    expect(document.documentElement.lang).toBe(INTERFACE_LANGUAGES.english)
   })
 
   it('bootstraps both preferences from storage on app start', () => {

@@ -114,7 +114,7 @@ export const ProfilePage = () => {
             <section className="catalog-block profile-page__panel">
               <div className="profile-page__details">
                 <div className="profile-page__row">
-                  <span className="profile-page__label">{l('Username:')}</span>
+                  <span className="profile-page__label">{l('Account:')}</span>
                   <strong className="profile-page__value">{currentUser.username}</strong>
                 </div>
 
