@@ -15,11 +15,11 @@ export interface AppShellOutletContext {
 }
 
 const readDevMockApiEnabled = import.meta.env.DEV
-  ? async () => {
+  ? async (_locationSearch: string) => {
       const { isMockApiEnabled } = await import('../../api/mock-control')
       return isMockApiEnabled()
     }
-  : async () => false
+  : async (_locationSearch: string) => false
 
 export const AppShell = () => {
   const { l } = useI18n()
@@ -52,7 +52,7 @@ export const AppShell = () => {
   useEffect(() => {
     let isActive = true
 
-    void readDevMockApiEnabled().then((mockApiEnabled) => {
+    void readDevMockApiEnabled(location.search).then((mockApiEnabled) => {
       if (isActive) {
         setIsDevMockApiEnabled(mockApiEnabled)
       }

@@ -4,13 +4,23 @@ import { Link, useNavigate, useOutletContext, useSearchParams } from 'react-rout
 import { globalSearch } from '../../api/client'
 import type { GlobalSearchResult, MediaType } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
-import { useI18n, type Translate } from '../../i18n'
+import { type Translate, useI18n } from '../../i18n'
 import { mediaTypePrimaryPath } from '../../lib/media-routes'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 import { HomeIcon } from '../home-page/home-icons'
 
 const SEARCH_RESULTS_LIMIT = 48
+const SEARCH_LOADING_PLACEHOLDER_KEYS = [
+  'search-loading-1',
+  'search-loading-2',
+  'search-loading-3',
+  'search-loading-4',
+  'search-loading-5',
+  'search-loading-6',
+  'search-loading-7',
+  'search-loading-8',
+] as const
 
 const formatEpisodeIndex = (seasonNumber: number | null, episodeNumber: number | null) => {
   if (typeof seasonNumber !== 'number' || typeof episodeNumber !== 'number') {
@@ -87,7 +97,7 @@ export const SearchPage = () => {
     <HomeDashboardShell ariaLabel={l('Search')} currentUser={currentUser}>
       <div className="home-dashboard__content home-dashboard__content--search">
         <DashboardPageHeader className="search-page__top">
-          <form className="search-page__form" onSubmit={submitSearch} role="search">
+          <form className="search-page__form" onSubmit={submitSearch}>
             <input
               aria-label={l('Search media in your libraries…')}
               autoComplete="off"
@@ -121,9 +131,9 @@ export const SearchPage = () => {
               <p>{l('Start a search to see matching movies, series, and episodes.')}</p>
             </div>
           ) : searchQuery.isLoading ? (
-            <div aria-label={l('Searching…')} className="search-page__grid">
-              {Array.from({ length: 8 }, (_value, index) => (
-                <div aria-hidden="true" className="search-card search-card--loading" key={index}>
+            <div aria-label={l('Searching…')} className="search-page__grid" role="status">
+              {SEARCH_LOADING_PLACEHOLDER_KEYS.map((key) => (
+                <div aria-hidden="true" className="search-card search-card--loading" key={key}>
                   <span className="search-card__poster search-card__poster--loading skeleton-shimmer" />
                   <span className="search-card__line search-card__line--title skeleton-shimmer" />
                   <span className="search-card__line search-card__line--meta skeleton-shimmer" />
