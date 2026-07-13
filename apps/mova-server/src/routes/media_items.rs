@@ -26,10 +26,6 @@ pub fn router() -> Router<crate::state::AppState> {
             get(handlers::media_items::list_media_item_files),
         )
         .route(
-            "/media-items/{id}/seasons",
-            get(handlers::media_items::list_media_item_seasons),
-        )
-        .route(
             "/media-items/{id}/episode-outline",
             get(handlers::media_items::get_media_item_episode_outline),
         )

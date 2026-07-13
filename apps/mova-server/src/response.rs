@@ -4,8 +4,8 @@ use mova_application::{
     SeriesEpisodeOutline, SeriesEpisodeOutlineEpisode, SeriesEpisodeOutlineSeason,
 };
 use mova_domain::{
-    AudioTrack, ContinueWatchingItem, Episode, Library, LibraryDetail, MediaCastMember, MediaFile,
-    MediaItem, PlaybackProgress, ScanJob, Season, SubtitleFile, UserProfile,
+    AudioTrack, ContinueWatchingItem, Library, LibraryDetail, MediaCastMember, MediaFile,
+    MediaItem, PlaybackProgress, ScanJob, SubtitleFile, UserProfile,
 };
 use serde::Serialize;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
@@ -231,39 +231,6 @@ pub struct RecentlyAddedLibraryMediaItemsResponse {
     pub library: LibraryResponse,
     pub items: Vec<MediaItemResponse>,
     pub total: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SeasonResponse {
-    pub id: i64,
-    pub series_id: i64,
-    pub season_number: i32,
-    pub title: Option<String>,
-    pub overview: Option<String>,
-    pub poster_path: Option<String>,
-    pub backdrop_path: Option<String>,
-    pub intro_start_seconds: Option<i32>,
-    pub intro_end_seconds: Option<i32>,
-    pub episode_count: i64,
-    pub created_at: String,
-    pub updated_at: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct EpisodeResponse {
-    pub id: i64,
-    pub media_item_id: i64,
-    pub series_id: i64,
-    pub season_id: i64,
-    pub episode_number: i32,
-    pub title: String,
-    pub overview: Option<String>,
-    pub poster_path: Option<String>,
-    pub backdrop_path: Option<String>,
-    pub intro_start_seconds: Option<i32>,
-    pub intro_end_seconds: Option<i32>,
-    pub created_at: String,
-    pub updated_at: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -716,65 +683,6 @@ impl TokenLoginResponse {
             refresh_token: session.refresh_token,
             refresh_token_expires_at: format_datetime(session.refresh_token_expires_at, offset),
             user: UserResponse::from_domain(session.user, offset),
-        }
-    }
-}
-
-impl SeasonResponse {
-    pub fn from_domain(season: Season, offset: UtcOffset) -> Self {
-        Self {
-            id: season.id,
-            series_id: season.series_id,
-            season_number: season.season_number,
-            title: season.title,
-            overview: season.overview,
-            poster_path: public_season_asset_path(
-                season.id,
-                season.poster_path.as_deref(),
-                "poster",
-                season.updated_at,
-            ),
-            backdrop_path: public_season_asset_path(
-                season.id,
-                season.backdrop_path.as_deref(),
-                "backdrop",
-                season.updated_at,
-            ),
-            intro_start_seconds: season.intro_start_seconds,
-            intro_end_seconds: season.intro_end_seconds,
-            episode_count: season.episode_count,
-            created_at: format_datetime(season.created_at, offset),
-            updated_at: format_datetime(season.updated_at, offset),
-        }
-    }
-}
-
-impl EpisodeResponse {
-    pub fn from_domain(episode: Episode, offset: UtcOffset) -> Self {
-        Self {
-            id: episode.id,
-            media_item_id: episode.media_item_id,
-            series_id: episode.series_id,
-            season_id: episode.season_id,
-            episode_number: episode.episode_number,
-            title: episode.title,
-            overview: episode.overview,
-            poster_path: public_media_item_asset_path(
-                episode.media_item_id,
-                episode.poster_path.as_deref(),
-                "poster",
-                episode.updated_at,
-            ),
-            backdrop_path: public_media_item_asset_path(
-                episode.media_item_id,
-                episode.backdrop_path.as_deref(),
-                "backdrop",
-                episode.updated_at,
-            ),
-            intro_start_seconds: episode.intro_start_seconds,
-            intro_end_seconds: episode.intro_end_seconds,
-            created_at: format_datetime(episode.created_at, offset),
-            updated_at: format_datetime(episode.updated_at, offset),
         }
     }
 }

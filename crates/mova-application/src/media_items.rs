@@ -8,7 +8,7 @@ use crate::{
     metadata::{MetadataLookup, MetadataProvider, RemoteSeriesEpisodeOutline},
 };
 use mova_domain::{
-    AudioTrack, Episode, Library, MediaFile, MediaItem, PlaybackProgress, Season, SubtitleFile,
+    AudioTrack, Library, MediaFile, MediaItem, PlaybackProgress, Season, SubtitleFile,
     METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED, METADATA_STATUS_MATCHED,
     METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE,
     REMOTE_MEDIA_TYPE_SERIES,
@@ -358,42 +358,11 @@ pub async fn get_audio_track(pool: &PgPool, audio_track_id: i64) -> ApplicationR
         })
 }
 
-pub async fn list_seasons_for_series(
-    pool: &PgPool,
-    series_id: i64,
-) -> ApplicationResult<Vec<Season>> {
-    let media_item = get_media_item(pool, series_id).await?;
-    if !media_item.media_type.eq_ignore_ascii_case("series") {
-        return Err(ApplicationError::Validation(format!(
-            "media item {} is not a series",
-            series_id
-        )));
-    }
-
-    mova_db::list_seasons_for_series(pool, series_id)
-        .await
-        .map_err(ApplicationError::from)
-}
-
 pub async fn get_season(pool: &PgPool, season_id: i64) -> ApplicationResult<Season> {
     mova_db::get_season(pool, season_id)
         .await
         .map_err(ApplicationError::from)?
         .ok_or_else(|| ApplicationError::NotFound(format!("season not found: {}", season_id)))
-}
-
-pub async fn list_episodes_for_season(
-    pool: &PgPool,
-    season_id: i64,
-) -> ApplicationResult<Vec<Episode>> {
-    mova_db::get_season(pool, season_id)
-        .await
-        .map_err(ApplicationError::from)?
-        .ok_or_else(|| ApplicationError::NotFound(format!("season not found: {}", season_id)))?;
-
-    mova_db::list_episodes_for_season(pool, season_id)
-        .await
-        .map_err(ApplicationError::from)
 }
 
 pub async fn series_episode_outline_for_media_item(

@@ -85,7 +85,7 @@
 | `PATCH` | `/api/users/{id}` | 更新用户基础信息（管理员） |
 | `DELETE` | `/api/users/{id}` | 删除用户（管理员） |
 | `PUT` | `/api/users/{id}/password` | 管理员重置指定用户密码 |
-| `PUT` | `/api/users/{id}/library-access` | 更新普通用户的媒体库访问范围（管理员） |
+| `GET` | `/api/server/media-tree` | 查询服务端当前可用于建库的媒体文件夹树 |
 | `GET` | `/api/libraries` | 查询媒体库列表 |
 | `GET` | `/api/libraries/recently-added` | 查询按库分组的最新添加内容 |
 | `POST` | `/api/libraries` | 创建媒体库 |
@@ -101,14 +101,12 @@
 | `GET` | `/api/media-items/{id}/cast` | 查询单个媒体条目的演员列表 |
 | `GET` | `/api/media-items/{id}/playback-header` | 查询播放器页头部信息 |
 | `GET` | `/api/media-items/{id}/files` | 查询媒体条目关联文件列表 |
-| `GET` | `/api/media-items/{id}/seasons` | 查询某个剧集条目的季列表 |
 | `GET` | `/api/media-items/{id}/episode-outline` | 查询剧集全集大纲并标记本地可用集 |
 | `GET` | `/api/media-items/{id}/metadata-search` | 手动搜索单条媒体的候选元数据（管理员） |
 | `POST` | `/api/media-items/{id}/metadata-match` | 选择候选结果并替换当前媒体元数据（管理员） |
 | `POST` | `/api/media-items/{id}/refresh-metadata` | 手动重拉单个媒体条目元数据 |
 | `GET` | `/api/media-items/{id}/poster` | 读取媒体条目海报图 |
 | `GET` | `/api/media-items/{id}/backdrop` | 读取媒体条目背景图 |
-| `GET` | `/api/seasons/{id}/episodes` | 查询某一季下的集列表 |
 | `GET` | `/api/seasons/{id}/poster` | 读取某一季海报图 |
 | `GET` | `/api/seasons/{id}/backdrop` | 读取某一季背景图 |
 | `GET` | `/api/media-items/{id}/playback-progress` | 查询单条内容的最近播放进度 |
@@ -475,6 +473,7 @@
 
 字段说明：
 - 所有字段都可选，不传表示保持原值
+- `library_ids` 是更新 `viewer` 媒体库访问范围的唯一字段；传入数组会整体替换原授权，不传则保持原值
 - `library_ids` 只对 `viewer` 生效；更新为 `admin` 时会自动清空库授权
 
 关键约束：
@@ -499,7 +498,8 @@
 - 主管理员本身不能通过该接口被删除
 
 返回：
-- `204 No Content`
+- `200 OK`
+- 返回统一 envelope，`message` 为 `user deleted`，`data` 为 `null`
 
 ### `PUT /api/users/{id}/password`
 
@@ -520,25 +520,52 @@
 - 重置成功后，该用户现有 Web session 和原生客户端 access/refresh token 会话会全部失效
 - 只有主管理员可以重置普通管理员密码
 
-### `PUT /api/users/{id}/library-access`
+## 3. 服务器媒体目录
+
+### `GET /api/server/media-tree`
 
 作用：
-- 更新某个普通用户的媒体库授权范围
+- 查询服务端当前挂载到容器内 `/media` 的递归文件夹树，供创建媒体库时选择 `root_path`
 
-请求体：
+权限：
+- 仅 `admin`
+
+返回：
+- `200 OK`
+- `/media` 存在且为目录时，返回根节点 `MediaDirectoryNodeResponse`
+- `/media` 不存在或不是目录时，`data` 返回 `null`
 
 ```json
 {
-  "library_ids": [1, 2]
+  "name": "media",
+  "path": "/media",
+  "children": [
+    {
+      "name": "movies",
+      "path": "/media/movies",
+      "children": []
+    },
+    {
+      "name": "series",
+      "path": "/media/series",
+      "children": []
+    }
+  ]
 }
 ```
 
-说明：
-- 对 `admin` 调用时会被忽略，管理员仍然默认拥有全部媒体库权限
-- 普通管理员仍然可以管理 `viewer` 的媒体库授权
-- 普通管理员不能通过该接口修改任何管理员的库授权
+字段说明：
+- `name`：当前文件夹名称
+- `path`：容器内绝对路径，可直接作为 `POST /api/libraries` 的 `root_path`
+- `children`：子文件夹节点；接口只返回文件夹，不返回普通文件
 
-## 3. 媒体库
+说明：
+- 宿主机媒体根目录由服务端配置文件中的 `MOVA_MEDIA_ROOT` 配置，并挂载到容器内 `/media`
+- 返回树的根节点 `path` 表示客户端当前可见的服务端根目录
+- 服务端递归读取全部子文件夹，并按名称排序
+- 客户端不得把本机文件系统路径作为服务端 `root_path`
+
+## 4. 媒体库
 
 ### `GET /api/libraries`
 
@@ -560,7 +587,6 @@
 - `id`：媒体库 ID
 - `name`：媒体库名称
 - `description`：媒体库描述，可为空
-- `library_type`：兼容性响应字段，当前新建媒体库固定为 `mixed`，前端不再要求用户选择库类型
 - `metadata_language`：该媒体库扫描和 TMDB 补全时使用的语言，当前支持 `zh-CN` / `en-US`
 - `root_path`：扫描根目录
 - `is_enabled`：是否启用
@@ -667,7 +693,6 @@
 
 关键校验：
 - 名称不能为空
-- 类型不能为空
 - 路径不能为空
 - 路径必须存在且必须是目录
 
@@ -730,7 +755,8 @@
 - 清理误建库或错误路径配置
 
 返回：
-- 删除成功时返回 `204 No Content`
+- 删除成功时返回 `200 OK`
+- 返回统一 envelope，`message` 为 `library deleted`，`data` 为 `null`
 
 说明：
 - 删除前服务会先把该库标记为“正在删除”，阻止新的扫描请求进入
@@ -915,7 +941,7 @@
 - `poster_path` / `backdrop_path`：只来自该搜索结果自身记录；没有值时保持 `null`，不会使用其他层级图片兜底
 - `season_number` / `episode_number`：只有集条目有值
 
-## 4. 媒体条目
+## 5. 媒体条目
 
 ### `GET /api/media-items/{id}`
 
@@ -1073,52 +1099,13 @@
 - 如果服务运行环境里安装了 `ffprobe`，扫描时会尽量填充时长、编码、分辨率、码率和 `technical_tags`
 - `technical_tags` 是文件维度字段；同一个电影或单集有多个版本时，每个 `media_file` 可以返回不同标签
 - 如果没有安装 `ffprobe`，或者文件探测失败，这些字段会保持为空，但不会阻断扫描
-- 如果这个条目是 `series`，这里通常返回空列表；请改用 `/api/media-items/{id}/seasons`
-
-### `GET /api/media-items/{id}/seasons`
-
-作用：
-- 查询某个剧集条目下的季列表
-
-路径参数：
-- `id`：`series media_item_id`
-
-返回：
-- `200 OK`
-- 返回 `SeasonResponse[]`
-
-说明：
-- 只有 `media_type = series` 的条目适用
-- 每条季记录会带 `episode_count`
-- `overview` 为该季简介（若已从 sidecar/TMDB 补齐）
-- 现在会返回 `intro_start_seconds` / `intro_end_seconds`，可作为该季默认片头区间
-- 现在会返回 `poster_path` / `backdrop_path`：
-  - 本地文件会映射成 `/api/seasons/{id}/poster` 或 `/api/seasons/{id}/backdrop`
-  - 远程图片（例如 TMDB）保持原始 URL
-
-### `GET /api/seasons/{id}/episodes`
-
-作用：
-- 查询某一季下的集列表
-
-路径参数：
-- `id`：`season_id`
-
-返回：
-- `200 OK`
-- 返回 `EpisodeResponse[]`
-
-说明：
-- 返回的是该季下的聚合集列表
-- `media_item_id` 可继续用于详情、文件列表、播放进度和播放接口
-- `overview` 为该集简介（来自本地 sidecar 或 TMDB）
-- 现在会返回 `intro_start_seconds` / `intro_end_seconds`，可用于覆盖季级默认片头区间
-- 每集记录会返回 `poster_path` / `backdrop_path`；只使用集自身图片，集 poster 可用于集列表卡片，缺失时保持为空，不再用 backdrop、季图或剧图兜底
+- 如果这个条目是 `series`，这里通常返回空列表；季集层级和本地可用性统一改用 `/api/media-items/{id}/episode-outline`
 
 ### `GET /api/media-items/{id}/episode-outline`
 
 作用：
 - 查询剧集“全集大纲 + 本地可用性”
+- 这是客户端读取季、集层级的唯一接口，替代分开查询季列表和单季集列表的旧设计
 
 路径参数：
 - `id`：`series media_item_id`
@@ -1336,7 +1323,7 @@
 - 如果 `backdrop_path` 是远程 URL，前端应直接使用 URL，不需要再请求本接口
 - 如果该季没有背景图，返回 `404 Not Found`
 
-## 5. 播放进度
+## 6. 播放进度
 
 ### `GET /api/media-items/{id}/playback-progress`
 
@@ -1472,7 +1459,7 @@
 - 如果条目来自剧集，`episode_overview` / `episode_poster_path` / `episode_backdrop_path` 会返回最近观看那一集自身的描述和图片；缺失字段保持为空，不会回退到剧集图、季图或另一个集图片字段
 - 默认返回 `20` 条，最大 `20` 条
 
-## 6. 媒体流
+## 7. 媒体流
 
 ### `GET /api/media-files/{id}/audio-tracks`
 
@@ -1619,7 +1606,7 @@
 - 浏览器播放器可能会自己使用
 - 如果请求的是某条音轨变体，服务端会先确保对应缓存变体已经准备好
 
-## 7. ID 关系说明
+## 8. ID 关系说明
 
 当前前端最容易混淆的是这三个 ID：
 
@@ -1652,7 +1639,7 @@
 5. 如需音轨菜单，先调 `GET /api/media-files/{media_file_id}/audio-tracks`
 6. 如需字幕菜单，再调 `GET /api/media-files/{media_file_id}/subtitles`
 7. 选中字轨后，用 `subtitle_file_id` 请求 `/api/subtitle-files/{subtitle_file_id}/stream`
-5. 播放时：
+8. 播放时：
    - 默认音轨：`<video src="/api/media-files/{media_file_id}/stream" />`
    - 切换音轨后：`<video src="/api/media-files/{media_file_id}/stream?audio_track_id={audio_track_id}" />`
    - `PUT /api/media-items/{media_item_id}/playback-progress`

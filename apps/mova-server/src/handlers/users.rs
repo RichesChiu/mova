@@ -22,11 +22,6 @@ pub struct CreateUserRequest {
     pub library_ids: Option<Vec<i64>>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct UpdateUserLibraryAccessRequest {
-    pub library_ids: Vec<i64>,
-}
-
 #[derive(Debug, Deserialize, Default)]
 pub struct UpdateUserRequest {
     pub username: Option<String>,
@@ -114,29 +109,6 @@ pub async fn update_user(
     Ok(ok(UserResponse::from_domain(user, state.api_time_offset)))
 }
 
-pub async fn update_user_library_access(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
-    Path(user_id): Path<i64>,
-    Json(request): Json<UpdateUserLibraryAccessRequest>,
-) -> Result<ApiJson<UserResponse>, ApiError> {
-    let current_user = require_admin(&state, &headers, &jar).await?;
-
-    let user = mova_application::replace_user_library_access(
-        &state.db,
-        current_user.user.id,
-        user_id,
-        mova_application::UpdateUserLibraryAccessInput {
-            library_ids: request.library_ids,
-        },
-    )
-    .await
-    .map_err(ApiError::from)?;
-
-    Ok(ok(UserResponse::from_domain(user, state.api_time_offset)))
-}
-
 pub async fn reset_user_password(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -177,10 +149,7 @@ pub async fn delete_user(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        delete_user, update_user, update_user_library_access, UpdateUserLibraryAccessRequest,
-        UpdateUserRequest,
-    };
+    use super::{delete_user, update_user, UpdateUserRequest};
     use crate::{
         auth::{attach_session_cookie, SESSION_TTL},
         error::ApiError,
@@ -381,7 +350,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn update_user_library_access_replaces_the_viewer_scope(pool: sqlx::postgres::PgPool) {
+    async fn update_user_replaces_the_viewer_library_scope(pool: sqlx::postgres::PgPool) {
         let state = build_test_state(pool.clone());
         let first_library_id = seed_library(&pool, "Movies").await;
         let second_library_id = seed_library(&pool, "Series").await;
@@ -402,13 +371,14 @@ mod tests {
         )
         .await;
 
-        let Json(response) = update_user_library_access(
+        let Json(response) = update_user(
             State(state),
             HeaderMap::new(),
             admin_jar,
             Path(viewer_id),
-            Json(UpdateUserLibraryAccessRequest {
-                library_ids: vec![second_library_id],
+            Json(UpdateUserRequest {
+                library_ids: Some(vec![second_library_id]),
+                ..UpdateUserRequest::default()
             }),
         )
         .await

@@ -29,11 +29,6 @@ pub struct CreateUserInput {
     pub library_ids: Vec<i64>,
 }
 
-#[derive(Debug, Clone)]
-pub struct UpdateUserLibraryAccessInput {
-    pub library_ids: Vec<i64>,
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct UpdateUserInput {
     pub username: Option<String>,
@@ -431,32 +426,6 @@ pub async fn create_user(
     .map_err(map_user_write_error)?;
 
     enrich_user_profile(pool, created).await
-}
-
-pub async fn replace_user_library_access(
-    pool: &PgPool,
-    actor_user_id: i64,
-    user_id: i64,
-    input: UpdateUserLibraryAccessInput,
-) -> ApplicationResult<UserProfile> {
-    let existing = get_user(pool, user_id).await?;
-    validate_admin_scope_for_target(pool, actor_user_id, &existing).await?;
-    if existing.user.role.is_admin() {
-        return Ok(existing);
-    }
-
-    let library_ids = normalize_library_ids(input.library_ids);
-    validate_library_access(pool, existing.user.role, &library_ids).await?;
-
-    let updated_library_ids = mova_db::replace_user_library_access(pool, user_id, &library_ids)
-        .await
-        .map_err(ApplicationError::from)?;
-
-    Ok(UserProfile {
-        user: existing.user,
-        is_primary_admin: existing.is_primary_admin,
-        library_ids: updated_library_ids,
-    })
 }
 
 pub async fn update_user(

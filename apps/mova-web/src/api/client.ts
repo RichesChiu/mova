@@ -6,7 +6,6 @@ import type {
   ContinueWatchingItem,
   CreateLibraryInput,
   CreateUserInput,
-  Episode,
   EpisodeOutline,
   GlobalSearchResult,
   Library,
@@ -22,7 +21,6 @@ import type {
   PlaybackProgress,
   RecentlyAddedLibraryMediaItems,
   ScanJob,
-  Season,
   ServerMediaDirectoryNode,
   SubtitleFile,
   UpdateLibraryInput,
@@ -371,14 +369,8 @@ export const listMediaFileSubtitles = (mediaFileId: number) =>
 export const listMediaFileAudioTracks = (mediaFileId: number) =>
   requestJson<AudioTrack[]>(withApiPrefix(`/media-files/${mediaFileId}/audio-tracks`))
 
-export const listMediaItemSeasons = (mediaItemId: number) =>
-  requestJson<Season[]>(withApiPrefix(`/media-items/${mediaItemId}/seasons`))
-
 export const getMediaItemEpisodeOutline = (mediaItemId: number) =>
   requestJson<EpisodeOutline>(withApiPrefix(`/media-items/${mediaItemId}/episode-outline`))
-
-export const listSeasonEpisodes = (seasonId: number) =>
-  requestJson<Episode[]>(withApiPrefix(`/seasons/${seasonId}/episodes`))
 
 export const refreshMediaItemMetadata = (mediaItemId: number) =>
   requestJson<MediaItem>(withApiPrefix(`/media-items/${mediaItemId}/refresh-metadata`), {

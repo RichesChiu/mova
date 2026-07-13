@@ -165,7 +165,7 @@
 
 ## 5. 路由与 feature 划分
 
-当前后端有 11 个 route module，都由 `app.rs` 合并后统一挂到 `/api` 下：
+当前后端有 12 个 route module，都由 `app.rs` 合并后统一挂到 `/api` 下：
 
 - `routes/health.rs`
 - `routes/auth.rs`
@@ -173,6 +173,7 @@
 - `routes/libraries.rs`
 - `routes/server.rs`
 - `routes/realtime.rs`
+- `routes/search.rs`
 - `routes/media_items.rs`
 - `routes/seasons.rs`
 - `routes/media_files.rs`
@@ -188,7 +189,7 @@
   - bootstrap、登录、登出、当前用户、当前用户改密/改昵称
 - 用户管理
   - `routes/users.rs`
-  - 管理员创建、更新、删除用户，重置密码，更新成员媒体库授权
+  - 管理员创建、更新、删除用户和重置密码；成员媒体库授权统一通过用户更新接口的 `library_ids` 字段整体替换
 - 媒体库与扫描
   - `routes/libraries.rs`
   - 媒体库 CRUD、媒体条目列表、按库最新添加聚合、扫描历史、触发扫描
@@ -199,7 +200,7 @@
 - 媒体详情与元数据
   - `routes/media_items.rs`
   - `routes/seasons.rs`
-  - 单条媒体详情、演员、剧集大纲、季/集列表、海报背景图、手动 metadata 操作；演员列表会在详情页请求时按需拉取并直接写库，不再在扫库阶段预取
+  - 单条媒体详情、演员、统一剧集大纲、季海报背景图、手动 metadata 操作；季集层级只由 `episode-outline` 返回，演员列表会在详情页请求时按需拉取并直接写库，不再在扫库阶段预取
 - 播放链路
   - `routes/media_files.rs`
   - `routes/subtitle_files.rs`

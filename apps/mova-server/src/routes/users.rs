@@ -12,10 +12,6 @@ pub fn router() -> Router<crate::state::AppState> {
             axum::routing::patch(handlers::users::update_user).delete(handlers::users::delete_user),
         )
         .route(
-            "/users/{id}/library-access",
-            axum::routing::put(handlers::users::update_user_library_access),
-        )
-        .route(
             "/users/{id}/password",
             axum::routing::put(handlers::users::reset_user_password),
         )

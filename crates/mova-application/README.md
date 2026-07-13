@@ -107,7 +107,6 @@
 - `create_user`
 - `update_user`
 - `delete_user`
-- `replace_user_library_access`
 - `reset_user_password`
 
 ### 扫描与同步
@@ -126,8 +125,6 @@
 - `list_media_items_for_library`
 - `list_media_files_for_media_item`
 - `list_audio_tracks_for_media_file`
-- `list_seasons_for_series`
-- `list_episodes_for_season`
 - `series_episode_outline_for_media_item`
 - `get_audio_track`
 - `refresh_media_item_metadata`

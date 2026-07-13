@@ -93,7 +93,6 @@
 - `revoke_native_client_session`
 - `revoke_native_client_session_by_refresh_token_hash`
 - `revoke_native_client_sessions_for_user`
-- `replace_user_library_access`
 - `update_user_password`
 
 ### 扫描任务

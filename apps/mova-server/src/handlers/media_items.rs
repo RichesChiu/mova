@@ -4,7 +4,7 @@ use crate::realtime::RealtimeEvent;
 use crate::response::{
     ok, ApiJson, MediaCastMemberResponse, MediaFileResponse, MediaItemDetailResponse,
     MediaItemPlaybackHeaderResponse, MediaItemResponse, MetadataMatchCandidateResponse,
-    SeasonResponse, SeriesEpisodeOutlineResponse,
+    SeriesEpisodeOutlineResponse,
 };
 use crate::state::AppState;
 use axum::{
@@ -105,25 +105,6 @@ pub async fn list_media_item_files(
     Ok(ok(media_files
         .into_iter()
         .map(|media_file| MediaFileResponse::from_domain(media_file, state.api_time_offset))
-        .collect()))
-}
-
-/// 查询某个剧集媒体条目下的季列表。
-pub async fn list_media_item_seasons(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
-    Path(media_item_id): Path<i64>,
-) -> Result<ApiJson<Vec<SeasonResponse>>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
-    require_media_item_access(&state, &user, media_item_id).await?;
-    let seasons = mova_application::list_seasons_for_series(&state.db, media_item_id)
-        .await
-        .map_err(ApiError::from)?;
-
-    Ok(ok(seasons
-        .into_iter()
-        .map(|season| SeasonResponse::from_domain(season, state.api_time_offset))
         .collect()))
 }
 

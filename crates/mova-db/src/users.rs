@@ -342,31 +342,6 @@ pub async fn update_user_nickname(
     })
 }
 
-pub async fn replace_user_library_access(
-    pool: &PgPool,
-    user_id: i64,
-    library_ids: &[i64],
-) -> Result<Vec<i64>> {
-    let mut tx = pool
-        .begin()
-        .await
-        .context("failed to start user access update transaction")?;
-
-    sqlx::query("delete from user_library_access where user_id = $1")
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await
-        .context("failed to clear existing user library access")?;
-
-    write_user_library_access(&mut tx, user_id, library_ids).await?;
-
-    tx.commit()
-        .await
-        .context("failed to commit user access update transaction")?;
-
-    Ok(library_ids.to_vec())
-}
-
 pub async fn update_user_password(pool: &PgPool, user_id: i64, password_hash: &str) -> Result<()> {
     sqlx::query(
         r#"

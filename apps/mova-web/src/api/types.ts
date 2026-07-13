@@ -134,37 +134,6 @@ export interface GlobalSearchResult {
   episode_number: number | null
 }
 
-export interface Season {
-  id: number
-  series_id: number
-  season_number: number
-  title: string | null
-  overview: string | null
-  poster_path: string | null
-  backdrop_path: string | null
-  intro_start_seconds: number | null
-  intro_end_seconds: number | null
-  episode_count: number
-  created_at: string
-  updated_at: string
-}
-
-export interface Episode {
-  id: number
-  media_item_id: number
-  series_id: number
-  season_id: number
-  episode_number: number
-  title: string
-  overview: string | null
-  poster_path: string | null
-  backdrop_path: string | null
-  intro_start_seconds: number | null
-  intro_end_seconds: number | null
-  created_at: string
-  updated_at: string
-}
-
 export interface EpisodeOutline {
   seasons: EpisodeOutlineSeason[]
 }

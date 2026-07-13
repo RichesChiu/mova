@@ -1,6 +1,5 @@
 use crate::auth::{require_season_access, require_user};
 use crate::error::ApiError;
-use crate::response::{ok, ApiJson, EpisodeResponse};
 use crate::state::AppState;
 use axum::{
     body::Body,
@@ -14,25 +13,6 @@ use axum_extra::extract::cookie::CookieJar;
 use std::{io::ErrorKind, path::Path as FsPath};
 
 const ARTWORK_CACHE_CONTROL: &str = "private, max-age=31536000, immutable";
-
-/// 查询某一季下的集列表。
-pub async fn list_season_episodes(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
-    Path(season_id): Path<i64>,
-) -> Result<ApiJson<Vec<EpisodeResponse>>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
-    require_season_access(&state, &user, season_id).await?;
-    let episodes = mova_application::list_episodes_for_season(&state.db, season_id)
-        .await
-        .map_err(ApiError::from)?;
-
-    Ok(ok(episodes
-        .into_iter()
-        .map(|episode| EpisodeResponse::from_domain(episode, state.api_time_offset))
-        .collect()))
-}
 
 /// 返回某一季的封面图内容。
 pub async fn get_season_poster(

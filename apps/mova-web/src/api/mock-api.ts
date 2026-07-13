@@ -2,7 +2,6 @@ import { isMockApiEnabled } from './mock-control'
 import type {
   AudioTrack,
   ContinueWatchingItem,
-  Episode,
   EpisodeOutline,
   GlobalSearchResult,
   Library,
@@ -15,7 +14,6 @@ import type {
   MediaItemPlaybackHeader,
   PlaybackProgress,
   RecentlyAddedLibraryMediaItems,
-  Season,
   SubtitleFile,
   UserAccount,
 } from './types'
@@ -418,55 +416,6 @@ const episodeOutline = (mediaItemId: number): EpisodeOutline => ({
   })),
 })
 
-const seasonsForMediaItem = (mediaItemId: number): Season[] =>
-  episodeOutline(mediaItemId).seasons.map((season) => {
-    if (season.season_id === null) {
-      throw new Error(`Mock season ${season.season_number} for media item ${mediaItemId} has no id`)
-    }
-
-    return {
-      id: season.season_id,
-      series_id: mediaItemId,
-      season_number: season.season_number,
-      title: season.title,
-      overview: season.overview,
-      poster_path: season.poster_path,
-      backdrop_path: null,
-      intro_start_seconds: season.intro_start_seconds,
-      intro_end_seconds: season.intro_end_seconds,
-      episode_count: season.episodes.length,
-      created_at: MOCK_NOW,
-      updated_at: MOCK_NOW,
-    }
-  })
-
-const episodesForSeason = (seasonId: number): Episode[] | null => {
-  const mediaItemId = Math.floor(seasonId / 10)
-  const outlineSeason = episodeOutline(mediaItemId).seasons.find(
-    (season) => season.season_id === seasonId,
-  )
-
-  if (!outlineSeason) {
-    return null
-  }
-
-  return outlineSeason.episodes.map((episode, index) => ({
-    id: seasonId * 100 + index,
-    media_item_id: mediaItemId,
-    series_id: mediaItemId,
-    season_id: seasonId,
-    episode_number: episode.episode_number,
-    title: episode.title,
-    overview: episode.overview,
-    poster_path: episode.poster_path,
-    backdrop_path: episode.backdrop_path,
-    intro_start_seconds: episode.intro_start_seconds,
-    intro_end_seconds: episode.intro_end_seconds,
-    created_at: MOCK_NOW,
-    updated_at: MOCK_NOW,
-  }))
-}
-
 const playbackHeader = (mediaItem: MediaItem): MediaItemPlaybackHeader => ({
   media_item_id: mediaItem.id,
   library_id: mediaItem.library_id,
@@ -636,20 +585,11 @@ export const requestMockJson = async <T>(
   if (mediaItem && pathname === `/media-items/${mediaItemId}/playback-header`) {
     return mockResult(playbackHeader(mediaItem) as T)
   }
-  if (mediaItem && pathname === `/media-items/${mediaItemId}/seasons`) {
-    return mockResult(seasonsForMediaItem(mediaItem.id) as T)
-  }
   if (mediaItem && pathname === `/media-items/${mediaItemId}/episode-outline`) {
     return mockResult(episodeOutline(mediaItem.id) as T)
   }
   if (mediaItem && pathname === `/media-items/${mediaItemId}/metadata-search`) {
     return mockResult([] as T)
-  }
-
-  const seasonMatch = pathname.match(/^\/seasons\/(\d+)\/episodes$/)
-  if (seasonMatch) {
-    const episodes = episodesForSeason(Number(seasonMatch[1]))
-    return episodes ? mockResult(episodes as T) : null
   }
 
   if (/^\/media-files\/\d+\/audio-tracks$/.test(pathname)) {

@@ -25,9 +25,9 @@ pub use media_cast::{
 pub use media_classification::{LIBRARY_TYPE_MIXED, LIBRARY_TYPE_MOVIE, LIBRARY_TYPE_SERIES};
 pub use media_items::{
     get_audio_track, get_media_file, get_media_item, get_season, get_subtitle_file, global_search,
-    list_audio_tracks_for_media_file, list_episodes_for_season, list_media_files_for_media_item,
+    list_audio_tracks_for_media_file, list_media_files_for_media_item,
     list_media_items_for_library, list_recently_added_media_items_by_library,
-    list_seasons_for_series, list_subtitle_files_for_media_file, refresh_media_item_metadata,
+    list_subtitle_files_for_media_file, refresh_media_item_metadata,
     series_episode_outline_for_media_item, GlobalSearchInput, GlobalSearchResult,
     ListMediaItemsForLibraryInput, ListMediaItemsForLibraryOutput, ListRecentlyAddedByLibraryInput,
     RecentlyAddedLibraryMediaItems, SeriesEpisodeOutline, SeriesEpisodeOutlineEpisode,
@@ -60,9 +60,9 @@ pub use users::{
     bootstrap_admin, bootstrap_required, change_own_password, create_user, delete_user, get_user,
     get_user_by_native_access_token, get_user_by_session_token, list_users, login,
     login_native_client, logout, logout_native_client_access_token,
-    logout_native_client_refresh_token, refresh_native_client_session, replace_user_library_access,
-    reset_user_password, update_own_profile, update_user, AuthSession, BootstrapAdminInput,
-    ChangeOwnPasswordInput, CreateUserInput, LoginInput, NativeAuthSession, NativeClientLoginInput,
+    logout_native_client_refresh_token, refresh_native_client_session, reset_user_password,
+    update_own_profile, update_user, AuthSession, BootstrapAdminInput, ChangeOwnPasswordInput,
+    CreateUserInput, LoginInput, NativeAuthSession, NativeClientLoginInput,
     RefreshNativeClientSessionInput, ResetUserPasswordInput, UpdateOwnProfileInput,
-    UpdateUserInput, UpdateUserLibraryAccessInput,
+    UpdateUserInput,
 };
