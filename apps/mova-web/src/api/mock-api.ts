@@ -14,6 +14,7 @@ import type {
   MediaItemPlaybackHeader,
   PlaybackProgress,
   RecentlyAddedLibraryMediaItems,
+  ServerMediaDirectoryNode,
   SubtitleFile,
   UserAccount,
 } from './types'
@@ -71,6 +72,29 @@ const mockLibraries = [
   createLibrary(5, 'Kids'),
   createLibrary(6, 'Classics'),
 ]
+
+const mockServerMediaTree: ServerMediaDirectoryNode = {
+  name: 'media',
+  path: '/media',
+  children: [
+    {
+      name: 'Movies',
+      path: '/media/Movies',
+      children: [
+        { name: 'Chinese', path: '/media/Movies/Chinese', children: [] },
+        { name: 'International', path: '/media/Movies/International', children: [] },
+      ],
+    },
+    {
+      name: 'Series',
+      path: '/media/Series',
+      children: [
+        { name: 'Animation', path: '/media/Series/Animation', children: [] },
+        { name: 'Documentary', path: '/media/Series/Documentary', children: [] },
+      ],
+    },
+  ],
+}
 
 const libraryCounts = new Map<number, { media: number; movies: number; series: number }>([
   [1, { media: 1248, movies: 248, series: 732 }],
@@ -547,6 +571,9 @@ export const requestMockJson = async <T>(
   }
   if (pathname === '/libraries') {
     return mockResult(mockLibraries as T)
+  }
+  if (pathname === '/server/media-tree') {
+    return mockResult(mockServerMediaTree as T)
   }
   if (pathname === '/libraries/recently-added') {
     return mockResult(recentlyAddedByLibrary(url) as T)

@@ -12,6 +12,8 @@
   --accent-soft: var(--mova-color-noir-accent-soft);
   --danger: var(--mova-color-noir-danger);
   --danger-soft: var(--mova-color-noir-danger-soft);
+  --warning: var(--mova-color-hex-ffd676);
+  --warning-soft: var(--mova-color-rgba-255-214-117-a14);
 
   --body-background: var(--mova-color-noir-canvas);
   --body-glow-primary: var(--mova-color-rgba-18-24-36-a12);
@@ -593,6 +595,8 @@
   --accent-soft: var(--mova-color-frost-accent-soft);
   --danger: var(--mova-color-frost-danger);
   --danger-soft: var(--mova-color-frost-danger-soft);
+  --warning: var(--mova-color-hex-92400e);
+  --warning-soft: var(--mova-color-rgba-245-158-11-a16);
 
   --body-background:
     radial-gradient(circle at 12% 10%, var(--mova-color-rgba-255-255-255-a9), transparent 22%),

@@ -156,6 +156,11 @@ const zhCN: Record<string, string> = {
   'Metadata Language': '元数据语言',
   'Root Path': '根路径',
   Selected: '已选择',
+  'No folder selected yet.': '尚未选择文件夹。',
+  'Expand folders to browse, then choose the exact folder to scan.':
+    '展开文件夹继续浏览，然后选择需要扫描的准确目录。',
+  'The media root is selected. This library will scan every folder below it.':
+    '当前选择的是媒体根目录，创建后将扫描其下的所有文件夹。',
   'Reading the in-container `/media` tree…': '正在读取容器内 `/media` 目录树…',
   'Failed to read directories. Check the Docker volume mapping.':
     '读取目录失败，请检查 Docker 卷挂载。',

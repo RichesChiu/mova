@@ -63,7 +63,7 @@ export const CreateLibraryModal = ({
 
       <div
         aria-modal="true"
-        className="create-library-modal__surface glass-modal-surface"
+        className="create-library-modal__surface glass-modal-surface scrollbar-thin"
         role="dialog"
       >
         <div className="create-library-modal__header">

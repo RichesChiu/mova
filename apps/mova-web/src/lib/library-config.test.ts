@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { Library } from '../api/types'
+import type { Library, ServerMediaDirectoryNode } from '../api/types'
 import {
   buildLibraryEditorDraft,
   buildLibraryUpdateInput,
   hasLibraryConfigChanges,
+  retainValidLibraryRootPath,
 } from './library-config'
 
 const library: Library = {
@@ -15,6 +16,18 @@ const library: Library = {
   is_enabled: true,
   created_at: '2026-04-07T00:00:00Z',
   updated_at: '2026-04-07T00:00:00Z',
+}
+
+const mediaTree: ServerMediaDirectoryNode = {
+  name: 'media',
+  path: '/media',
+  children: [
+    {
+      name: 'movies',
+      path: '/media/movies',
+      children: [],
+    },
+  ],
 }
 
 describe('library config helpers', () => {
@@ -49,5 +62,11 @@ describe('library config helpers', () => {
         metadataLanguage: 'en-US',
       }),
     ).toBe(true)
+  })
+
+  it('does not select the media root until the user chooses a directory', () => {
+    expect(retainValidLibraryRootPath(mediaTree, '')).toBe('')
+    expect(retainValidLibraryRootPath(mediaTree, '/media/movies')).toBe('/media/movies')
+    expect(retainValidLibraryRootPath(mediaTree, '/media/missing')).toBe('')
   })
 })

@@ -48,13 +48,17 @@ const MediaDirectoryTreeNode = ({
   const hasChildren = node.children.length > 0
   const isExpanded = expandedPaths.has(node.path)
   const isSelected = node.path === selectedPath
+  const rowClassName = [
+    'media-tree__row',
+    isExpanded ? 'media-tree__row--expanded' : '',
+    isSelected ? 'media-tree__row--selected' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   return (
     <li className="media-tree__item">
-      <div
-        className={isSelected ? 'media-tree__row media-tree__row--selected' : 'media-tree__row'}
-        style={{ paddingLeft: `${depth * 16 + 6}px` }}
-      >
+      <div className={rowClassName} style={{ paddingLeft: `${depth * 16 + 6}px` }}>
         {hasChildren ? (
           <button
             aria-expanded={isExpanded}
@@ -91,6 +95,7 @@ const MediaDirectoryTreeNode = ({
         )}
 
         <button
+          aria-pressed={isSelected}
           className="media-tree__button"
           onClick={() => onSelect(node.path)}
           title={node.path}
@@ -131,7 +136,7 @@ const MediaDirectoryTreeNode = ({
 }
 
 export const MediaDirectoryTree = ({ tree, selectedPath, onSelect }: MediaDirectoryTreeProps) => {
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set([tree.path]))
 
   useEffect(() => {
     // 选中项变化后，自动展开它所在的父路径，避免树切换后选中节点被折叠藏起来。

@@ -1,9 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useState } from 'react'
 import { getServerMediaTree } from '../../api/client'
-import type { CreateLibraryInput, ServerMediaDirectoryNode } from '../../api/types'
+import type { CreateLibraryInput } from '../../api/types'
 import { useI18n } from '../../i18n'
-import { LIBRARY_DESCRIPTION_MAX_LENGTH } from '../../lib/library-config'
+import {
+  LIBRARY_DESCRIPTION_MAX_LENGTH,
+  retainValidLibraryRootPath,
+} from '../../lib/library-config'
 import { GlassSelect, type GlassSelectOption } from '../glass-select'
 import { MediaDirectoryTree } from '../media-directory-tree'
 import { SectionHelp } from '../section-help'
@@ -12,14 +15,6 @@ interface CreateLibraryFormProps {
   error: string | null
   isSubmitting: boolean
   onSubmit: (input: CreateLibraryInput) => Promise<unknown>
-}
-
-const treeContainsPath = (node: ServerMediaDirectoryNode, path: string): boolean => {
-  if (node.path === path) {
-    return true
-  }
-
-  return node.children.some((child) => treeContainsPath(child, path))
 }
 
 export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibraryFormProps) => {
@@ -34,18 +29,8 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
   })
 
   useEffect(() => {
-    const mediaTree = mediaTreeQuery.data
-    if (!mediaTree) {
-      if (rootPath.length > 0) {
-        setRootPath('')
-      }
-      return
-    }
-
-    if (!treeContainsPath(mediaTree, rootPath)) {
-      setRootPath(mediaTree.path)
-    }
-  }, [mediaTreeQuery.data, rootPath])
+    setRootPath((current) => retainValidLibraryRootPath(mediaTreeQuery.data ?? null, current))
+  }, [mediaTreeQuery.data])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -125,8 +110,21 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
             <div className="media-tree">
               <div className="media-tree__selected">
                 <span className="media-tree__selected-label">{l('Selected')}</span>
-                <code>{rootPath}</code>
+                {rootPath ? (
+                  <code>{rootPath}</code>
+                ) : (
+                  <span className="media-tree__selected-empty">{l('No folder selected yet.')}</span>
+                )}
+                {rootPath === mediaTree.path ? (
+                  <span className="media-tree__selected-warning">
+                    {l('The media root is selected. This library will scan every folder below it.')}
+                  </span>
+                ) : null}
               </div>
+
+              <p className="media-tree__instruction">
+                {l('Expand folders to browse, then choose the exact folder to scan.')}
+              </p>
 
               <MediaDirectoryTree onSelect={setRootPath} selectedPath={rootPath} tree={mediaTree} />
             </div>

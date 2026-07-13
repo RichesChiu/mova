@@ -9,11 +9,10 @@
 
 .media-tree__selected {
   display: grid;
-  gap: 4px;
-  padding: 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--input-border) 74%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--input-background) 80%, transparent);
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 4px;
 }
 
 .media-tree__selected-label {
@@ -28,6 +27,43 @@
   color: var(--accent-strong);
   font-size: 0.85rem;
   word-break: break-all;
+}
+
+.media-tree__selected-empty,
+.media-tree__instruction {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.media-tree__selected-warning {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: fit-content;
+  padding: 4px 7px;
+  border-radius: 8px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.media-tree__selected-warning::before {
+  content: '';
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  margin-top: 0.45em;
+  border-radius: 999px;
+  background: var(--warning);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--warning) 42%, transparent);
+}
+
+.media-tree__instruction {
+  margin: 0 2px 2px;
+  line-height: 1.45;
 }
 
 .media-tree__list {
@@ -50,21 +86,42 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 4px;
-  min-height: 30px;
-  padding: 1px 0;
-  border-radius: 8px;
-  transition: background 140ms ease;
+  gap: 6px;
+  min-height: 38px;
+  padding: 2px 4px 2px 0;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.media-tree__row:hover,
+.media-tree__row:focus-within {
+  border-color: color-mix(in srgb, var(--input-focus-border) 48%, transparent);
+  background: color-mix(in srgb, var(--button-primary-background) 13%, transparent);
+}
+
+.media-tree__row--expanded {
+  background: color-mix(in srgb, var(--button-primary-background) 8%, transparent);
 }
 
 .media-tree__row--selected {
-  background: color-mix(in srgb, var(--button-primary-background) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--input-focus-border));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 28%, transparent), transparent 78%),
+    color-mix(in srgb, var(--accent) 18%, var(--button-primary-background));
+  box-shadow:
+    inset 3px 0 0 var(--accent-strong),
+    inset 0 1px 0 color-mix(in srgb, var(--color-white) 10%, transparent),
+    0 8px 22px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .media-tree__toggle,
 .media-tree__leaf-spacer {
-  width: 20px;
-  height: 20px;
+  width: 32px;
+  height: 28px;
   flex: 0 0 auto;
 }
 
@@ -73,23 +130,31 @@
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 6px;
-  background: transparent;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--button-background) 72%, transparent);
   color: var(--text-muted);
   transition:
     background 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
+    color 160ms ease;
 }
 
 .media-tree__toggle:hover {
-  background: color-mix(in srgb, var(--button-primary-background) 14%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--button-background));
   color: var(--accent-strong);
 }
 
+.media-tree__toggle:focus-visible {
+  outline: 2px solid var(--input-focus-border);
+  outline-offset: 1px;
+}
+
+.media-tree__button:focus-visible {
+  outline: 0;
+}
+
 .media-tree__toggle-icon {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   transition: transform 160ms ease;
 }
 
@@ -98,26 +163,19 @@
 }
 
 .media-tree__button {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   width: 100%;
   border: 0;
   border-radius: 8px;
   background: transparent;
-  padding: 6px 8px;
+  padding: 7px 8px;
   text-align: left;
   transition:
     background 160ms ease,
-    transform 160ms ease;
-}
-
-.media-tree__button:hover {
-  background: color-mix(in srgb, var(--button-primary-background) 10%, transparent);
-}
-
-.media-tree__row--selected .media-tree__button {
-  background: color-mix(in srgb, var(--button-primary-background) 14%, transparent);
+    color 160ms ease;
 }
 
 .media-tree__folder-icon {
@@ -135,8 +193,32 @@
 }
 
 .media-tree__name {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text);
   font-size: 0.88rem;
   font-weight: 600;
   line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-tree__row--selected .media-tree__folder-icon,
+.media-tree__row--selected .media-tree__name {
+  color: var(--accent-strong);
+}
+
+.media-tree__row--selected .media-tree__name {
+  font-weight: 800;
+}
+
+.media-tree__row--selected:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 82%, var(--accent-strong));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 34%, transparent), transparent 82%),
+    color-mix(in srgb, var(--accent) 22%, var(--button-primary-background));
+  box-shadow:
+    inset 3px 0 0 var(--accent-strong),
+    inset 0 1px 0 color-mix(in srgb, var(--color-white) 12%, transparent),
+    0 8px 22px color-mix(in srgb, var(--accent) 20%, transparent);
 }
