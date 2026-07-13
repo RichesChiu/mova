@@ -52,10 +52,10 @@ export const UserEditorModal = ({
     () =>
       currentUserIsPrimaryAdmin
         ? [
-            { label: l('Member'), value: 'viewer' },
+            { label: l('Standard User'), value: 'viewer' },
             { label: l('Administrator'), value: 'admin' },
           ]
-        : [{ label: l('Member'), value: 'viewer' }],
+        : [{ label: l('Standard User'), value: 'viewer' }],
     [currentUserIsPrimaryAdmin, l],
   )
   const sortedLibraries = useMemo(
@@ -277,7 +277,7 @@ export const UserEditorModal = ({
               {isEditingSelf
                 ? l('You cannot change your own enabled state here.')
                 : user?.is_primary_admin
-                  ? l('Primary Admin stays enabled here.')
+                  ? l('System Administrator stays enabled here.')
                   : l('This account cannot be enabled or disabled from this dialog.')}
             </p>
           )}

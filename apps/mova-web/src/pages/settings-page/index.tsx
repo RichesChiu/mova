@@ -36,6 +36,7 @@ import {
   getScanStatusTone,
 } from '../../lib/settings-admin'
 import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
+import { getUserRolePresentation } from '../../lib/user-role'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 
@@ -413,11 +414,7 @@ export const SettingsPage = () => {
                 ? users.map((user) => {
                     const displayName = getUserDisplayName(user)
                     const showUsername = displayName !== user.username
-                    const roleLabel = user.is_primary_admin
-                      ? l('Primary Admin')
-                      : user.role === 'admin'
-                        ? l('Administrator')
-                        : l('Member')
+                    const rolePresentation = getUserRolePresentation(user)
                     const canManageThisUser = user.role === 'viewer' || canManageAdminAccounts
                     const canEditUser =
                       canManageThisUser && user.id !== currentUser.id && !user.is_primary_admin
@@ -436,7 +433,10 @@ export const SettingsPage = () => {
                               <strong>{displayName}</strong>
                               {showUsername ? <p className="muted">@{user.username}</p> : null}
                               <div className="settings-user-card__identity-meta">
-                                <StatusPill status={roleLabel} />
+                                <StatusPill
+                                  status={l(rolePresentation.label)}
+                                  tone={rolePresentation.tone}
+                                />
                                 {user.id === currentUser.id ? (
                                   <span className="settings-user-card__self-badge">{l('You')}</span>
                                 ) : null}

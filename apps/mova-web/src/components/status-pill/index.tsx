@@ -1,19 +1,10 @@
+export type StatusPillTone = 'admin' | 'system-admin' | 'user'
+
 interface StatusPillProps {
   status: string
+  tone: StatusPillTone
 }
 
-export const StatusPill = ({ status }: StatusPillProps) => {
-  const normalized = status.toLowerCase()
-  const className =
-    normalized === 'primary admin'
-      ? 'status-pill status-pill--primary-admin'
-      : normalized === 'administrator' || normalized === 'admin' || normalized === '管理员'
-        ? 'status-pill status-pill--admin'
-        : normalized === 'success'
-          ? 'status-pill status-pill--success'
-          : normalized === 'failed'
-            ? 'status-pill status-pill--danger'
-            : 'status-pill status-pill--neutral'
-
-  return <span className={className}>{status}</span>
-}
+export const StatusPill = ({ status, tone }: StatusPillProps) => (
+  <span className={`status-pill status-pill--${tone}`}>{status}</span>
+)

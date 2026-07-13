@@ -99,22 +99,38 @@
   --tooltip-shadow:
     var(--panel-inset),
     0 18px 36px var(--mova-color-rgba-0-0-0-a26);
-  --status-primary-admin-border: color-mix(in srgb, var(--mova-color-hex-ffd15a) 48%, transparent);
-  --status-primary-admin-background:
+  --status-system-admin-border: color-mix(in srgb, var(--mova-color-hex-ffd15a) 48%, transparent);
+  --status-system-admin-background:
     linear-gradient(180deg, var(--mova-color-rgba-255-209-90-a2), var(--mova-color-rgba-255-209-90-a1)),
     color-mix(in srgb, var(--panel-background-soft) 82%, transparent);
-  --status-primary-admin-shadow:
+  --status-system-admin-shadow:
     inset 0 1px 0 var(--mova-color-rgba-255-255-255-a14),
     0 10px 24px var(--mova-color-rgba-255-191-64-a14);
-  --status-primary-admin-text: var(--mova-color-hex-ffdb82);
-  --status-admin-border: color-mix(in srgb, var(--mova-color-hex-d8e0ef) 44%, transparent);
+  --status-system-admin-text: var(--mova-color-hex-ffdb82);
+  --status-admin-border: color-mix(in srgb, var(--danger) 46%, transparent);
   --status-admin-background:
-    linear-gradient(180deg, var(--mova-color-rgba-216-224-239-a16), var(--mova-color-rgba-216-224-239-a08)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--danger) 18%, transparent),
+      color-mix(in srgb, var(--danger) 8%, transparent)
+    ),
     color-mix(in srgb, var(--panel-background-soft) 82%, transparent);
   --status-admin-shadow:
     inset 0 1px 0 var(--mova-color-rgba-255-255-255-a12),
-    0 10px 22px var(--mova-color-rgba-160-176-204-a12);
-  --status-admin-text: var(--mova-color-hex-dde6f7);
+    0 10px 22px color-mix(in srgb, var(--danger) 14%, transparent);
+  --status-admin-text: var(--danger);
+  --status-user-border: color-mix(in srgb, var(--accent) 46%, transparent);
+  --status-user-background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 20%, transparent),
+      color-mix(in srgb, var(--accent) 9%, transparent)
+    ),
+    color-mix(in srgb, var(--panel-background-soft) 82%, transparent);
+  --status-user-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a12),
+    0 10px 22px color-mix(in srgb, var(--accent) 16%, transparent);
+  --status-user-text: var(--accent-strong);
   --identity-badge-border: color-mix(in srgb, var(--floating-border) 90%, transparent);
   --identity-badge-background:
     radial-gradient(circle at 30% 24%, var(--mova-color-rgba-162-197-255-a3), transparent 42%),
@@ -495,14 +511,6 @@
   --settings-scan-muted-border: transparent;
   --settings-scan-muted-background: var(--mova-color-rgba-255-255-255-a08);
   --settings-scan-muted-text: var(--text-soft);
-  --settings-primary-admin-border: var(--mova-color-rgba-255-209-90-a48);
-  --settings-primary-admin-background:
-    linear-gradient(180deg, var(--mova-color-rgba-255-209-90-a2), var(--mova-color-rgba-255-209-90-a1)),
-    color-mix(in srgb, var(--panel-background-soft) 82%, transparent);
-  --settings-primary-admin-shadow:
-    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a14),
-    0 10px 24px var(--mova-color-rgba-255-191-64-a14);
-  --settings-primary-admin-text: var(--mova-color-hex-ffdb82);
   --settings-switch-off-background: linear-gradient(135deg, var(--mova-color-rgba-63-33-33-a42), var(--mova-color-rgba-28-16-16-a56));
   --settings-switch-track-shadow:
     inset 0 1px 0 var(--mova-color-rgba-255-255-255-a05),
@@ -675,22 +683,38 @@
   --tooltip-shadow:
     var(--panel-inset),
     0 18px 36px var(--mova-color-rgba-104-129-172-a18);
-  --status-primary-admin-border: var(--mova-color-rgba-180-111-18-a32);
-  --status-primary-admin-background:
+  --status-system-admin-border: var(--mova-color-rgba-180-111-18-a32);
+  --status-system-admin-background:
     linear-gradient(180deg, var(--mova-color-rgba-255-205-110-a36), var(--mova-color-rgba-255-232-177-a22)),
     var(--mova-color-rgba-255-249-235-a76);
-  --status-primary-admin-shadow:
+  --status-system-admin-shadow:
     inset 0 1px 0 var(--mova-color-rgba-255-255-255-a74),
     0 10px 22px var(--mova-color-rgba-176-110-24-a12);
-  --status-primary-admin-text: var(--mova-color-hex-7c3e07);
-  --status-admin-border: var(--mova-color-rgba-100-126-174-a28);
+  --status-system-admin-text: var(--mova-color-hex-7c3e07);
+  --status-admin-border: color-mix(in srgb, var(--danger) 34%, transparent);
   --status-admin-background:
-    linear-gradient(180deg, var(--mova-color-rgba-232-241-255-a62), var(--mova-color-rgba-218-230-248-a42)),
-    var(--mova-color-rgba-245-249-255-a66);
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--danger) 15%, transparent),
+      color-mix(in srgb, var(--danger) 7%, transparent)
+    ),
+    var(--mova-color-rgba-255-255-255-a54);
   --status-admin-shadow:
     inset 0 1px 0 var(--mova-color-rgba-255-255-255-a72),
-    0 10px 22px var(--mova-color-rgba-104-129-172-a1);
-  --status-admin-text: var(--mova-color-hex-34486f);
+    0 10px 22px color-mix(in srgb, var(--danger) 12%, transparent);
+  --status-admin-text: var(--danger);
+  --status-user-border: color-mix(in srgb, var(--accent) 34%, transparent);
+  --status-user-background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 18%, transparent),
+      color-mix(in srgb, var(--accent) 8%, transparent)
+    ),
+    var(--mova-color-rgba-255-255-255-a54);
+  --status-user-shadow:
+    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a72),
+    0 10px 22px color-mix(in srgb, var(--accent) 12%, transparent);
+  --status-user-text: var(--accent-strong);
   --identity-badge-border: var(--mova-color-rgba-255-255-255-a62);
   --identity-badge-background:
     radial-gradient(circle at 30% 24%, var(--mova-color-rgba-103-151-220-a28), transparent 42%),
@@ -897,15 +921,6 @@
   --settings-scan-muted-border: var(--mova-color-rgba-113-128-151-a2);
   --settings-scan-muted-background: var(--mova-color-rgba-113-128-151-a12);
   --settings-scan-muted-text: var(--text-muted);
-  --settings-primary-admin-border: var(--mova-color-rgba-180-111-18-a32);
-  --settings-primary-admin-background:
-    linear-gradient(180deg, var(--mova-color-rgba-255-205-110-a36), var(--mova-color-rgba-255-232-177-a22)),
-    var(--mova-color-rgba-255-249-235-a76);
-  --settings-primary-admin-shadow:
-    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a74),
-    0 10px 22px var(--mova-color-rgba-176-110-24-a12);
-  --settings-primary-admin-text: var(--mova-color-hex-7c3e07);
-
   --hero-background:
     linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a88), var(--mova-color-rgba-247-251-255-a7)),
     var(--mova-color-rgba-255-255-255-a54);

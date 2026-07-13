@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { UserAccount } from '../../api/types'
 import { useI18n } from '../../i18n'
 import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
+import { getUserRolePresentation } from '../../lib/user-role'
 import { canManageServer } from '../../lib/viewer'
 import { HomeIcon, type HomeIconName } from './home-icons'
 
@@ -163,7 +164,7 @@ export const HomeDashboardShell = ({
           </span>
           <span className="home-sidebar__user-copy">
             <strong>{displayName}</strong>
-            <em>{currentUser.role === 'admin' ? l('Administrator') : l('Member')}</em>
+            <em>{l(getUserRolePresentation(currentUser).label)}</em>
           </span>
           <span aria-hidden="true" className="home-sidebar__user-arrow">
             <HomeIcon name="chevronRight" />

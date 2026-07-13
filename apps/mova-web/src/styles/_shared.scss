@@ -380,11 +380,11 @@
   color: var(--accent-strong);
 }
 
-.status-pill--primary-admin {
-  border-color: var(--status-primary-admin-border);
-  background: var(--status-primary-admin-background);
-  box-shadow: var(--status-primary-admin-shadow);
-  color: var(--status-primary-admin-text);
+.status-pill--system-admin {
+  border-color: var(--status-system-admin-border);
+  background: var(--status-system-admin-background);
+  box-shadow: var(--status-system-admin-shadow);
+  color: var(--status-system-admin-text);
 }
 
 .status-pill--admin {
@@ -392,6 +392,13 @@
   background: var(--status-admin-background);
   box-shadow: var(--status-admin-shadow);
   color: var(--status-admin-text);
+}
+
+.status-pill--user {
+  border-color: var(--status-user-border);
+  background: var(--status-user-background);
+  box-shadow: var(--status-user-shadow);
+  color: var(--status-user-text);
 }
 
 .status-pill--danger {

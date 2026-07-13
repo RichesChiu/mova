@@ -15,6 +15,7 @@ import {
 } from '../../lib/preferences'
 import { THEMES } from '../../lib/theme'
 import { getUserDisplayName } from '../../lib/user-identity'
+import { getUserRolePresentation } from '../../lib/user-role'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 
@@ -31,11 +32,7 @@ export const ProfilePage = () => {
     tone: FeedbackDialogTone
   } | null>(null)
   const nicknameInputRef = useRef<HTMLInputElement | null>(null)
-  const roleLabel = currentUser.is_primary_admin
-    ? l('Primary Admin')
-    : currentUser.role === 'admin'
-      ? l('Administrator')
-      : l('Member')
+  const rolePresentation = getUserRolePresentation(currentUser)
   const nickname = getUserDisplayName(currentUser)
   const interfaceLanguageOptions: GlassSelectOption[] = [
     { label: l('English'), value: INTERFACE_LANGUAGES.english },
@@ -202,11 +199,11 @@ export const ProfilePage = () => {
 
                 <div className="profile-page__row">
                   <span className="profile-page__label">{l('Role:')}</span>
-                  <StatusPill status={roleLabel} />
+                  <StatusPill status={l(rolePresentation.label)} tone={rolePresentation.tone} />
                 </div>
 
                 <div className="profile-page__row profile-page__row--setting">
-                  <span className="profile-page__label">{l('Language')}</span>
+                  <span className="profile-page__label">{l('Language:')}</span>
                   <div className="profile-page__setting">
                     <div className="profile-page__select">
                       <GlassSelect

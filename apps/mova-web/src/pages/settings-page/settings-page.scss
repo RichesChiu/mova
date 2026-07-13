@@ -326,13 +326,6 @@
   overflow: visible;
 }
 
-.settings-user-card__identity-meta .status-pill--primary-admin {
-  border-color: var(--settings-primary-admin-border);
-  background: var(--settings-primary-admin-background);
-  box-shadow: var(--settings-primary-admin-shadow);
-  color: var(--settings-primary-admin-text);
-}
-
 .settings-user-card__avatar {
   display: grid;
   place-items: center;
