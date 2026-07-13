@@ -68,7 +68,6 @@ export const CreateLibraryModal = ({
       >
         <div className="create-library-modal__header">
           <div>
-            <p className="eyebrow">{l('Library Management')}</p>
             <h3>{l('Create Library')}</h3>
           </div>
 

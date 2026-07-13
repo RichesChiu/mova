@@ -10,6 +10,7 @@ import {
   hasFailedLibraryScan,
   isLibraryScanActive,
 } from '../../components/app-shell/scan-runtime'
+import { EmptyState } from '../../components/empty-state'
 import { useI18n } from '../../i18n'
 import { cssBackgroundImage } from '../../lib/css'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
@@ -73,9 +74,10 @@ export const LibrariesPage = () => {
               ))}
             </div>
           ) : libraries.length === 0 ? (
-            <div className="catalog-block__empty">
-              <p className="muted">{l('No libraries yet.')}</p>
-            </div>
+            <EmptyState
+              description={l('Create a library in Server Settings to start organizing your media.')}
+              title={l('No libraries yet.')}
+            />
           ) : (
             <div className="libraries-page__grid">
               {libraries.map((library, index) => {

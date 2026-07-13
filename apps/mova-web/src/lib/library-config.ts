@@ -1,5 +1,7 @@
 import type { Library, UpdateLibraryInput } from '../api/types'
 
+export const LIBRARY_DESCRIPTION_MAX_LENGTH = 100
+
 export interface LibraryEditorDraft {
   description: string
   metadataLanguage: string

@@ -446,6 +446,10 @@
   resize: vertical;
 }
 
+.field .library-description-input {
+  resize: none;
+}
+
 .field select {
   appearance: none;
 }

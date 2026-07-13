@@ -6,6 +6,7 @@ import {
   buildLibraryEditorDraft,
   buildLibraryUpdateInput,
   hasLibraryConfigChanges,
+  LIBRARY_DESCRIPTION_MAX_LENGTH,
 } from '../../lib/library-config'
 import { usePresenceTransition } from '../../lib/use-presence-transition'
 import { GlassSelect, type GlassSelectOption } from '../glass-select'
@@ -189,6 +190,8 @@ export const LibraryEditorModal = ({
           <label className="field">
             <span>{l('Description')}</span>
             <textarea
+              className="library-description-input"
+              maxLength={LIBRARY_DESCRIPTION_MAX_LENGTH}
               onChange={(event) => setDescription(event.target.value)}
               placeholder={l('What is this library for?')}
               rows={4}

@@ -1,0 +1,47 @@
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 132px;
+  padding: clamp(24px, 3vw, 38px) clamp(18px, 2.4vw, 30px);
+  border: 1px dashed color-mix(in srgb, var(--button-primary-border) 72%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel-background-soft) 88%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--panel-rim-highlight) 78%, transparent);
+  text-align: center;
+}
+
+.empty-state__copy {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  max-width: 620px;
+}
+
+.empty-state__copy h3,
+.empty-state__copy p {
+  margin: 0;
+}
+
+.empty-state__copy h3 {
+  color: var(--text);
+  font-size: 0.98rem;
+  font-weight: 760;
+  line-height: 1.3;
+}
+
+.empty-state__copy p {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.empty-state__action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

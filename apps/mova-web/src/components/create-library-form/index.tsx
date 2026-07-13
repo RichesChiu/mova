@@ -3,6 +3,7 @@ import { type FormEvent, useEffect, useState } from 'react'
 import { getServerMediaTree } from '../../api/client'
 import type { CreateLibraryInput, ServerMediaDirectoryNode } from '../../api/types'
 import { useI18n } from '../../i18n'
+import { LIBRARY_DESCRIPTION_MAX_LENGTH } from '../../lib/library-config'
 import { GlassSelect, type GlassSelectOption } from '../glass-select'
 import { MediaDirectoryTree } from '../media-directory-tree'
 import { SectionHelp } from '../section-help'
@@ -89,6 +90,8 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
       <label className="field">
         <span>{l('Description')}</span>
         <textarea
+          className="library-description-input"
+          maxLength={LIBRARY_DESCRIPTION_MAX_LENGTH}
           onChange={(event) => setDescription(event.target.value)}
           placeholder={l('What is this library for?')}
           rows={3}

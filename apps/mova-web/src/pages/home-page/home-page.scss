@@ -88,6 +88,7 @@
 
 .home-sidebar__brand {
   flex: 1 1 auto;
+  height: 34px;
   gap: 10px;
   min-width: 0;
   color: var(--text);
@@ -98,6 +99,7 @@
 }
 
 .home-sidebar__brand img {
+  display: block;
   flex: 0 0 auto;
   width: 28px;
   height: 28px;
@@ -116,7 +118,9 @@
 }
 
 .home-sidebar__brand span {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
   max-width: 86px;
   overflow: hidden;
   background: var(--home-brand-text-background);
@@ -133,6 +137,7 @@
 
 .home-sidebar__toggle {
   position: relative;
+  align-self: center;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
@@ -163,6 +168,7 @@
 }
 
 .home-sidebar__toggle svg {
+  display: block;
   width: 16px;
   height: 16px;
   transform: rotate(180deg);

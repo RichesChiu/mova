@@ -15,6 +15,7 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 const MIN_PASSWORD_LENGTH: usize = 8;
+const MAX_USERNAME_LENGTH: usize = 254;
 const MAX_NICKNAME_LENGTH: usize = 128;
 const NATIVE_TOKEN_BYTES: usize = 32;
 
@@ -636,6 +637,13 @@ fn normalize_username(value: String) -> ApplicationResult<String> {
         ));
     }
 
+    if value.chars().count() > MAX_USERNAME_LENGTH {
+        return Err(ApplicationError::Validation(format!(
+            "username must be at most {} characters long",
+            MAX_USERNAME_LENGTH
+        )));
+    }
+
     Ok(value)
 }
 
@@ -1017,7 +1025,7 @@ fn is_unique_violation(error: &SqlxError) -> bool {
 mod tests {
     use super::{
         enabled_admin_is_removed, normalize_library_ids, normalize_nickname, normalize_user_role,
-        validate_self_user_management, UpdateUserInput,
+        normalize_username, validate_self_user_management, UpdateUserInput, MAX_USERNAME_LENGTH,
     };
     use crate::error::ApplicationError;
     use mova_domain::UserRole;
@@ -1048,6 +1056,13 @@ mod tests {
             normalize_nickname(Some("   ".to_string()), "viewer01").unwrap(),
             "viewer01"
         );
+    }
+
+    #[test]
+    fn normalize_username_rejects_values_over_the_account_limit() {
+        let error = normalize_username("a".repeat(MAX_USERNAME_LENGTH + 1)).unwrap_err();
+
+        assert!(matches!(error, ApplicationError::Validation(_)));
     }
 
     #[test]

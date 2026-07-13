@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { MediaItem, RecentlyAddedLibraryMediaItems } from '../../../api/types'
+import { EmptyState } from '../../../components/empty-state'
 import { useI18n } from '../../../i18n'
 import { mediaItemPrimaryPath } from '../../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../../lib/media-type-label'
@@ -130,9 +131,10 @@ export const LibraryContentSections = ({
       ) : null}
 
       {!isLoading && !errorMessage && groups.length === 0 ? (
-        <div className="catalog-block__empty">
-          <p className="muted">{l('No recently added media yet.')}</p>
-        </div>
+        <EmptyState
+          description={l('Newly scanned media will appear here.')}
+          title={l('No recently added media yet.')}
+        />
       ) : null}
 
       {groups.length > 0 ? (

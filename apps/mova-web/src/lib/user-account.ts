@@ -1,0 +1,1 @@
+export const USER_ACCOUNT_MAX_LENGTH = 254

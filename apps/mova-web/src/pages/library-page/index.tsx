@@ -7,19 +7,20 @@ import type { AppShellOutletContext } from '../../components/app-shell'
 import type { ScanRuntimeItem } from '../../components/app-shell/scan-runtime'
 import {
   formatFailedScanCopy,
-  formatScanJobStatusCopy,
   formatScanItemCardProgressLabel,
   formatScanItemCardSummary,
   formatScanItemMeta,
+  formatScanJobStatusCopy,
   getEffectiveScanJob,
   getLibraryScanRuntime,
-  getScanJobProgressPercent,
   getScanItemCardProgressPercent,
+  getScanJobProgressPercent,
   getScanRuntimeItems,
   hasFailedLibraryScan,
   isLibraryScanActive,
   shouldShowScanPlaceholder,
 } from '../../components/app-shell/scan-runtime'
+import { EmptyState } from '../../components/empty-state'
 import { useI18n } from '../../i18n'
 import {
   filterLibraryMediaItemsForScanRuntime,
@@ -398,10 +399,10 @@ export const LibraryPage = () => {
           mediaItems.length === 0 &&
           visibleScanItems.length === 0 &&
           !isScanning ? (
-            <section className="empty-panel library-detail-empty">
-              <h3>{l('No items available yet')}</h3>
-              <p className="muted">{l('This library does not have any visible items yet.')}</p>
-            </section>
+            <EmptyState
+              description={l('This library does not have any visible items yet.')}
+              title={l('No items available yet')}
+            />
           ) : null}
 
           {shouldShowMediaSkeleton ? (

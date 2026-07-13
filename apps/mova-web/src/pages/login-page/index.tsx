@@ -9,6 +9,7 @@ import {
   login,
 } from '../../api/client'
 import { useI18n } from '../../i18n'
+import { USER_ACCOUNT_MAX_LENGTH } from '../../lib/user-account'
 
 export const LoginPage = () => {
   const { l } = useI18n()
@@ -102,8 +103,10 @@ export const LoginPage = () => {
             <span>{l('Username')}</span>
             <input
               autoComplete="username"
+              maxLength={USER_ACCOUNT_MAX_LENGTH}
               onChange={(event) => setUsername(event.target.value)}
               placeholder="admin"
+              spellCheck={false}
               type="text"
               value={username}
             />

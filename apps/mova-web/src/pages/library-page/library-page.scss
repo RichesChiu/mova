@@ -4,8 +4,7 @@
 }
 
 .library-detail-header,
-.library-detail-section,
-.library-detail-empty {
+.library-detail-section {
   border-radius: 8px;
 }
 
@@ -288,10 +287,6 @@
 
 .library-detail-tile--loading {
   cursor: progress;
-}
-
-.library-detail-empty {
-  padding: 18px;
 }
 
 @media (min-width: 520px) {

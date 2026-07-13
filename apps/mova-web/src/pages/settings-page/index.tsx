@@ -16,6 +16,7 @@ import type { CreateLibraryInput, Library, LibraryDetail, UserAccount } from '..
 import type { AppShellOutletContext } from '../../components/app-shell'
 import { ConfirmActionModal } from '../../components/confirm-action-modal'
 import { CreateLibraryModal } from '../../components/create-library-modal'
+import { EmptyState } from '../../components/empty-state'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { StatusPill } from '../../components/status-pill'
 import { UserEditorModal } from '../../components/user-editor-modal'
@@ -362,7 +363,7 @@ export const SettingsPage = () => {
                 <h3>{l('User Management')}</h3>
               </div>
               <button
-                className="button button--primary button--toolbar"
+                className="button button--toolbar settings-section__create-button"
                 onClick={() => setIsCreateUserOpen(true)}
                 type="button"
               >
@@ -394,6 +395,13 @@ export const SettingsPage = () => {
 
             <div className="settings-user-list">
               {shouldShowUserSkeleton ? <p className="muted">{l('Loading users…')}</p> : null}
+
+              {!shouldShowUserSkeleton && !usersQuery.isError && users.length === 0 ? (
+                <EmptyState
+                  description={l('Create a user to grant access to this server.')}
+                  title={l('No users yet.')}
+                />
+              ) : null}
 
               {shouldShowUserSkeleton
                 ? USER_SKELETON_KEYS.slice(0, USER_SKELETON_COUNT).map((key) => (
@@ -537,7 +545,7 @@ export const SettingsPage = () => {
                 <h3>{l('Library Management')}</h3>
               </div>
               <button
-                className="button button--primary button--toolbar"
+                className="button button--toolbar settings-section__create-button"
                 onClick={() => setIsCreateLibraryOpen(true)}
                 type="button"
               >
@@ -677,7 +685,12 @@ export const SettingsPage = () => {
                       )
                     })}
               </div>
-            ) : null}
+            ) : (
+              <EmptyState
+                description={l('Create a library to start scanning and organizing media.')}
+                title={l('No libraries yet.')}
+              />
+            )}
           </section>
         </div>
       </HomeDashboardShell>

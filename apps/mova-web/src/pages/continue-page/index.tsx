@@ -7,6 +7,7 @@ import {
   ContinueWatchingCard,
   ContinueWatchingCardSkeleton,
 } from '../../components/continue-watching-card'
+import { EmptyState } from '../../components/empty-state'
 import { type Translate, useI18n } from '../../i18n'
 import { mediaItemDetailPath, mediaItemPrimaryPath } from '../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
@@ -112,10 +113,10 @@ export const ContinuePage = () => {
           {!continueWatchingQuery.isLoading &&
           !continueWatchingQuery.isError &&
           items.length === 0 ? (
-            <section className="empty-panel continue-page__empty">
-              <h3>{l('Nothing to continue yet.')}</h3>
-              <p className="muted">{l('Start watching something and it will appear here.')}</p>
-            </section>
+            <EmptyState
+              description={l('Start watching something and it will appear here.')}
+              title={l('Nothing to continue yet.')}
+            />
           ) : null}
 
           {items.length > 0 ? (

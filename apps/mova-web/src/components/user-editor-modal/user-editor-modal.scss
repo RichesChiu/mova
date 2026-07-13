@@ -26,7 +26,6 @@
 }
 
 .user-editor-modal__header,
-.user-editor-modal__identity,
 .user-editor-modal__footer {
   display: flex;
   gap: 16px;
@@ -37,12 +36,8 @@
   justify-content: space-between;
 }
 
-.user-editor-modal__identity {
-  align-items: center;
-}
-
-.user-editor-modal__identity h3 {
-  margin: 6px 0 8px;
+.user-editor-modal__header h3 {
+  margin: 0;
 }
 
 .user-editor-modal__close {
@@ -73,21 +68,6 @@
 .user-editor-modal__close-icon {
   width: 16px;
   height: 16px;
-}
-
-.user-editor-modal__avatar {
-  display: grid;
-  place-items: center;
-  width: 68px;
-  height: 68px;
-  border: 1px solid var(--identity-badge-border);
-  border-radius: 999px;
-  background: var(--identity-badge-background);
-  box-shadow: var(--panel-inset), var(--floating-shadow-strong);
-  color: var(--identity-badge-text);
-  font-size: 1.35rem;
-  font-weight: 800;
-  letter-spacing: 0.04em;
 }
 
 .user-editor-modal__grid,

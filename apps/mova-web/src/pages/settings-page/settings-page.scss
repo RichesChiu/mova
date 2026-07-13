@@ -38,6 +38,33 @@
   z-index: 1;
 }
 
+.settings-section__create-button {
+  min-height: 34px;
+  padding: 0 12px;
+  border-color: color-mix(in srgb, var(--button-border) 62%, transparent);
+  background: color-mix(in srgb, var(--button-background) 42%, transparent);
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  font-weight: 680;
+  white-space: nowrap;
+}
+
+.settings-section__create-button:not(:disabled):hover {
+  transform: none;
+  border-color: color-mix(in srgb, var(--accent) 44%, var(--button-border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--button-background));
+  box-shadow: none;
+  color: var(--accent-strong);
+}
+
+.settings-section__create-button:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 54%, var(--button-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent-strong);
+}
+
 .settings-library-card {
   align-content: end;
   min-height: 238px;
@@ -272,6 +299,10 @@
   grid-column: 1 / -1;
   justify-self: start;
   margin: 0;
+}
+
+.settings-user-list > .empty-state {
+  grid-column: 1 / -1;
 }
 
 .settings-library-list {

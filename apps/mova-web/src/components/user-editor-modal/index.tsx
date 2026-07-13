@@ -9,6 +9,7 @@ import type {
 } from '../../api/types'
 import { useI18n } from '../../i18n'
 import { usePresenceTransition } from '../../lib/use-presence-transition'
+import { USER_ACCOUNT_MAX_LENGTH } from '../../lib/user-account'
 import { GlassSelect } from '../glass-select'
 
 interface UserEditorModalProps {
@@ -24,8 +25,6 @@ interface UserEditorModalProps {
   onUpdate: (userId: number, input: UpdateUserInput) => Promise<unknown>
   user?: UserAccount | null
 }
-
-const avatarInitial = (username: string) => username.trim().charAt(0).toUpperCase() || 'U'
 
 export const UserEditorModal = ({
   currentUserId,
@@ -179,15 +178,7 @@ export const UserEditorModal = ({
         role="dialog"
       >
         <div className="user-editor-modal__header">
-          <div className="user-editor-modal__identity">
-            <div className="user-editor-modal__avatar">
-              {avatarInitial(nickname.trim() || username)}
-            </div>
-            <div>
-              <p className="eyebrow">{l('User Management')}</p>
-              <h3>{title}</h3>
-            </div>
-          </div>
+          <h3>{title}</h3>
 
           <button
             aria-label={l('Close user editor dialog')}
@@ -215,12 +206,14 @@ export const UserEditorModal = ({
         <form className="stack" onSubmit={handleSubmit}>
           <div className={gridClassName}>
             <label className="field">
-              <span>{l('Username')}</span>
+              <span>{l('Account')}</span>
               <input
                 autoComplete="username"
                 disabled={!isCreateMode}
+                maxLength={USER_ACCOUNT_MAX_LENGTH}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder="viewer01"
+                placeholder={l('Enter the account used to sign in')}
+                spellCheck={false}
                 type="text"
                 value={username}
               />
