@@ -1,13 +1,11 @@
 use crate::auth::{require_admin, require_library_access, require_user};
 use crate::error::ApiError;
-use crate::realtime::RealtimeEvent;
 use crate::response::{
     accepted, created, ok, ok_message, with_status, ApiJson, LibraryDetailResponse,
     LibraryResponse, MediaItemListResponse, RecentlyAddedLibraryMediaItemsResponse,
     ScanJobResponse,
 };
-use crate::state::{AppState, BeginDeleteError, RegisterScanError};
-use crate::sync_runtime;
+use crate::state::{AppState, BeginDeleteError};
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -143,10 +141,6 @@ pub async fn create_library(
         .await
         .map_err(ApiError::from)?;
 
-    state.realtime_hub.publish(RealtimeEvent::LibraryUpdated {
-        library_id: library.id,
-    });
-
     trigger_library_scan_after_create(&state, library.id).await;
 
     Ok(created(LibraryResponse::from_domain(
@@ -216,10 +210,6 @@ pub async fn update_library(
         trigger_library_scan_after_metadata_language_change(&state, library_id).await?;
     }
 
-    state
-        .realtime_hub
-        .publish(RealtimeEvent::LibraryUpdated { library_id });
-
     Ok(ok(LibraryResponse::from_domain(
         updated_library,
         state.api_time_offset,
@@ -266,10 +256,6 @@ pub async fn delete_library(
     mova_application::delete_library(&state.db, library_id, &state.artwork_cache_dir)
         .await
         .map_err(ApiError::from)?;
-    state
-        .realtime_hub
-        .publish(RealtimeEvent::LibraryDeleted { library_id });
-
     Ok(ok_message("library deleted", ()))
 }
 
@@ -361,19 +347,7 @@ pub async fn scan_library(
         .map_err(ApiError::from)?;
 
     if enqueue_result.created {
-        if let Err(error) = spawn_library_scan_job(&state, library_id, enqueue_result.scan_job.id) {
-            handle_scan_registration_rejected(
-                &state,
-                library_id,
-                enqueue_result.scan_job.id,
-                error,
-            )
-            .await;
-            return Err(ApiError::Conflict(format!(
-                "library {} is being deleted",
-                library_id
-            )));
-        }
+        state.background_jobs.wake();
     }
 
     let response = ScanJobResponse::from_domain(enqueue_result.scan_job, state.api_time_offset);
@@ -382,23 +356,6 @@ pub async fn scan_library(
     } else {
         with_status(StatusCode::OK, "ok", response)
     })
-}
-
-fn spawn_library_scan_job(
-    state: &AppState,
-    library_id: i64,
-    scan_job_id: i64,
-) -> Result<(), RegisterScanError> {
-    sync_runtime::spawn_library_scan_job(state, library_id, scan_job_id)
-}
-
-async fn handle_scan_registration_rejected(
-    state: &AppState,
-    library_id: i64,
-    scan_job_id: i64,
-    error: RegisterScanError,
-) {
-    sync_runtime::handle_scan_registration_rejected(state, library_id, scan_job_id, error).await;
 }
 
 async fn trigger_library_scan_after_create(state: &AppState, library_id: i64) {
@@ -418,10 +375,7 @@ async fn trigger_library_scan_after_create(state: &AppState, library_id: i64) {
         return;
     }
 
-    if let Err(error) = spawn_library_scan_job(state, library_id, enqueue_result.scan_job.id) {
-        handle_scan_registration_rejected(state, library_id, enqueue_result.scan_job.id, error)
-            .await;
-    }
+    state.background_jobs.wake();
 }
 
 async fn stop_active_library_scan_for_metadata_language_change(
@@ -457,14 +411,7 @@ async fn trigger_library_scan_after_metadata_language_change(
         return Ok(());
     }
 
-    if let Err(error) = spawn_library_scan_job(state, library_id, enqueue_result.scan_job.id) {
-        handle_scan_registration_rejected(state, library_id, enqueue_result.scan_job.id, error)
-            .await;
-        return Err(ApiError::Conflict(format!(
-            "library {} could not start its metadata language rescan",
-            library_id
-        )));
-    }
+    state.background_jobs.wake();
 
     Ok(())
 }
@@ -478,8 +425,9 @@ mod tests {
     use crate::{
         auth::{attach_session_cookie, SESSION_TTL},
         error::ApiError,
-        realtime::RealtimeEvent,
-        state::{AppState, RealtimeHub, ScanRegistry},
+        state::{
+            AppState, BackgroundJobNotifier, RealtimeDispatcherHandle, RealtimeHub, ScanRegistry,
+        },
     };
     use axum::{
         extract::{Path, State},
@@ -494,7 +442,6 @@ mod tests {
         sync::{atomic::Ordering, Arc},
     };
     use time::{OffsetDateTime, UtcOffset};
-    use tokio::time::{timeout, Duration};
 
     fn build_test_state(pool: sqlx::postgres::PgPool) -> AppState {
         AppState {
@@ -504,6 +451,8 @@ mod tests {
             metadata_provider: Arc::new(NullMetadataProvider),
             scan_registry: ScanRegistry::default(),
             realtime_hub: RealtimeHub::default(),
+            realtime_dispatcher: RealtimeDispatcherHandle::default(),
+            background_jobs: BackgroundJobNotifier::default(),
         }
     }
 
@@ -881,7 +830,6 @@ mod tests {
         let (_viewer_id, _viewer_jar) = seed_viewer_session(&pool, vec![library_id]).await;
         seed_scan_job(&pool, library_id).await;
         seed_library_media_graph(&pool, library_id, admin_id).await;
-        let mut realtime_rx = state.realtime_hub.subscribe();
         let active_scan = state.scan_registry.register_scan(library_id, 42).unwrap();
         let cancellation_flag = active_scan.cancellation_flag();
         let finish_state = state.clone();
@@ -909,16 +857,6 @@ mod tests {
             .is_none());
         assert_library_media_graph_removed(&pool).await;
         assert!(state.scan_registry.active_scan(library_id).is_none());
-
-        let event = timeout(Duration::from_secs(1), realtime_rx.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(matches!(
-            event,
-            RealtimeEvent::LibraryDeleted { library_id: event_library_id }
-                if event_library_id == library_id
-        ));
     }
 
     #[sqlx::test(migrations = "../../migrations")]

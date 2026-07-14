@@ -114,6 +114,31 @@ export interface RecentlyAddedLibraryMediaItems {
   total: number
 }
 
+export interface HomeLibrary {
+  library: LibraryDetail
+  preview_items: MediaItem[]
+}
+
+export interface HomeRealtimeState {
+  server_epoch: string
+  resources: Record<string, number>
+}
+
+export interface HomeResponse {
+  current_user: UserAccount
+  libraries: HomeLibrary[]
+  recently_added: RecentlyAddedLibraryMediaItems[]
+  continue_watching: ContinueWatchingItem[]
+  realtime: HomeRealtimeState
+}
+
+export interface RealtimeState {
+  protocol_version: number
+  server_epoch: string
+  resources: Record<string, number>
+  active_scans: ScanJob[]
+}
+
 export type GlobalSearchResultKind = 'media_item' | 'episode' | string
 
 export interface GlobalSearchResult {

@@ -1,5 +1,6 @@
 mod error;
 mod file_sync;
+mod home;
 mod intro_detection;
 mod libraries;
 mod media_cast;
@@ -15,6 +16,7 @@ mod users;
 
 pub use error::{ApplicationError, ApplicationResult, AuthTokenErrorCode};
 pub use file_sync::{reconcile_library_inventory, sync_library_filesystem_changes};
+pub use home::{get_home_snapshot, HomeLibrarySnapshot, HomeSnapshot};
 pub use libraries::{
     create_library, delete_library, get_library, get_library_detail, list_libraries,
     prepare_library_metadata_rescan, update_library, CreateLibraryInput, UpdateLibraryInput,

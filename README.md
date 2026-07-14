@@ -28,6 +28,8 @@ Server Settings keeps library cards aligned with an ellipsized single-line title
 
 Native clients authenticate with opaque short-lived access tokens plus rotating refresh tokens. Business APIs only accept the access token in `Authorization: Bearer ...`; refresh tokens are stored server-side as hashes, can be revoked per device session, and are used only through `/api/auth/refresh`.
 
+Home and realtime synchronization are shared across Web, macOS, and iOS. `GET /api/home` returns a bounded home snapshot instead of making clients download every library catalog, while PostgreSQL-backed resource revisions provide durable change state. SSE only delivers batched invalidation hints and transient scan progress; clients recover after reconnect or foreground resume through `GET /api/realtime/state` and refresh only resources whose revisions changed. Library scans are stored as durable PostgreSQL background jobs and claimed by a bounded worker pool, so an HTTP request never owns the scan lifetime and pending work can resume after a server restart.
+
 Login account identifiers can be regular usernames or email-form strings up to 254 characters. Mova treats them as exact account identifiers and does not verify email ownership or send email.
 
 For UI review on machines with very small local libraries, the Web app also has an explicit development-only mock API switch. It is documented in [apps/mova-web/README.md](apps/mova-web/README.md) and is off by default, so real API errors are not hidden by mock data.
@@ -58,6 +60,7 @@ Common configuration:
 MOVA_MEDIA_ROOT=/absolute/path/to/media
 MOVA_TMDB_ACCESS_TOKEN=
 MOVA_OMDB_API_KEY=
+MOVA_WORKER_CONCURRENCY=2
 HTTP_PROXY=
 HTTPS_PROXY=
 ```
@@ -65,6 +68,7 @@ HTTPS_PROXY=
 - `MOVA_MEDIA_ROOT` is required and is mounted read-only into the container at `/media`.
 - `MOVA_TMDB_ACCESS_TOKEN` is optional. Scanning, importing, and playback still work without it.
 - `MOVA_OMDB_API_KEY` is optional and is used to fill IMDb ratings when an `imdb_id` is available.
+- `MOVA_WORKER_CONCURRENCY` controls the bounded in-process background worker pool and defaults to `2`.
 
 ### Start
 
@@ -79,10 +83,10 @@ Default endpoints:
 
 After startup, Mova creates two runtime folders:
 
-- `data/postgres/`: PostgreSQL database files for libraries, users, metadata, and playback progress.
+- `data/postgres/`: PostgreSQL database files for libraries, users, metadata, playback progress, durable background jobs, and realtime resource revisions.
 - `data/cache/`: cached artwork and generated media assets. Deleting a library also removes its unshared TMDB artwork cache files.
 
-During the current pre-1.0 MVP preview stage, database schema changes can require rebuilding `data/postgres/`. Schema changes are still applied directly through `migrations/0001_init.sql`, so development databases may need to be rebuilt after pulling schema updates.
+During the current pre-1.0 MVP preview stage, database schema changes can require rebuilding `data/postgres/`. This realtime/background-job revision changes `migrations/0001_init.sql` directly, so an existing database is not upgraded in place: reset `data/postgres/`, initialize it again, and rescan media libraries.
 
 Your media folder is mounted read-only. Mova does not modify your original media files.
 

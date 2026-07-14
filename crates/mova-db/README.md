@@ -48,7 +48,9 @@
 | `src/pool.rs` | `DatabaseSettings`、`connect`、`migrate`、`ping`。 |
 | `src/libraries.rs` | 媒体库配置读写与删除前 artwork 引用查询；媒体库不再持久化启用/禁用状态；元数据语言变化时还会把该库全部媒体条目标记为 `pending`，确保下一次扫描覆盖全库远端元数据。 |
 | `src/users.rs` | 用户、密码、Web session、原生客户端 access/refresh token 设备会话、媒体库授权。 |
-| `src/scan_jobs.rs` | 扫描任务创建、运行态更新、收尾、历史查询。 |
+| `src/scan_jobs.rs` | 扫描任务创建、持久化 phase、运行态更新、收尾、历史查询；入队时和 `background_jobs` 在同一事务中写入。 |
+| `src/background_jobs.rs` | PostgreSQL 后台任务的 `SKIP LOCKED` 领取、租约续期、完成和延迟重试。 |
+| `src/realtime.rs` | 读取稳定 `server_epoch`、资源 revisions 和当前用户可见的活跃扫描。 |
 | `src/playback_progress.rs` | 维护逐文件播放进度，并同步维护最多 20 部电影或 Series 的活跃 Continue 队列。 |
 | `src/media_cast.rs` | 演员成员表与演员同步记录表读写；详情页按需补全后会直接持久化到这里。 |
 | `src/media_items.rs` | 媒体条目相关父模块。 |
@@ -71,6 +73,7 @@
 - `update_library`
 - `delete_library`
 - `list_libraries`
+- `list_library_details`
 - `get_library`
 
 ### 用户与会话
@@ -100,16 +103,30 @@
 - `enqueue_scan_job`
 - `create_scan_job`
 - `mark_scan_job_running`
+- `update_scan_job_phase`
 - `update_scan_job_progress`
 - `finalize_scan_job`
 - `list_scan_jobs_for_library`
 - `get_scan_job`
 - `get_latest_scan_job_for_library`
-- `fail_incomplete_scan_jobs`
+
+### 后台任务
+
+- `claim_background_job`
+- `renew_background_job_lease`
+- `complete_background_job`
+- `retry_or_fail_background_job`
+
+### Realtime 状态
+
+- `get_realtime_server_epoch`
+- `list_realtime_revisions`
+- `list_active_scan_jobs`
 
 ### 媒体浏览与同步
 
 - `list_media_items_for_library`
+- `list_media_item_previews_by_library`
 - `list_recently_added_media_items_by_library`
 - `get_media_item`
 - `get_media_file`
@@ -149,8 +166,9 @@
 ## 7. 当前值得注意的点
 
 - 仓库仍处于 pre-1.0 阶段，用户确认正式 MVP 前 migration 保持在根目录 [`../../migrations/0001_init.sql`](../../migrations/0001_init.sql)。
-- 这个阶段 schema 变更默认要求重建数据库 / 重置数据目录，不新增后续 migration 兼容旧库；当前 schema 已删除 `libraries.is_enabled` 并包含 `media_files.local_analysis_version`，旧开发库需要重建后才能与当前查询和扫描逻辑一致。
-- `mova-server` 启动时会直接调用这里的 `connect / migrate / ping / fail_incomplete_scan_jobs`。
+- 这个阶段 schema 变更默认要求重建数据库 / 重置数据目录，不新增后续 migration 兼容旧库；当前 schema 包含 `background_jobs`、`realtime_system_state` 和 `realtime_revisions`，旧开发库不能平滑升级，需要重置后重新扫描。
+- 业务表 mutation trigger 会在同一事务内调用 `mova_bump_realtime_revision` 并发送 PostgreSQL `NOTIFY`；revision 是可靠状态，NOTIFY 只用于唤醒 dispatcher。
+- `mova-server` 启动时会直接调用这里的 `connect / migrate / ping`，未完成后台任务通过租约过期后重新领取，不再在启动时批量标记失败。
 - `mova-application` 的大部分业务用例都会在这里落到最终 SQL。
 
 如果要看谁在调用这些持久层函数：

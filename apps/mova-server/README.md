@@ -12,14 +12,14 @@
 
 | 文件 | 作用 |
 | --- | --- |
-| `src/main.rs` | 进程入口。负责加载环境变量、初始化 tracing、连接数据库、执行 migration、恢复中断扫描、准备缓存目录、创建 `AppState`，并启动 Axum 服务。 |
-| `src/config.rs` | 读取 `MOVA_HTTP_HOST`、`MOVA_HTTP_PORT`、`MOVA_TIMEZONE`、`MOVA_CACHE_DIR`、`MOVA_WEB_DIST_DIR` 等运行时配置。 |
+| `src/main.rs` | 进程入口。负责加载环境变量、初始化 tracing、连接数据库、执行 migration、启动 realtime dispatcher 与后台 worker 池、准备缓存目录、创建 `AppState`，并启动 Axum 服务。 |
+| `src/config.rs` | 读取 `MOVA_HTTP_HOST`、`MOVA_HTTP_PORT`、`MOVA_TIMEZONE`、`MOVA_CACHE_DIR`、`MOVA_WEB_DIST_DIR`、`MOVA_WORKER_CONCURRENCY` 等运行时配置。 |
 | `src/metadata_provider_config.rs` | 解析元数据 provider 相关环境变量，并交给 `mova-application` 构建具体 provider；当前会处理 TMDB token、可选的 OMDb key，以及对应的 base URL。 |
 | `src/app.rs` | 组装顶层 `Router`，把所有子路由统一挂到 `/api` 下，并在有前端构建产物时托管静态文件。 |
-| `src/state.rs` | 定义 `AppState`、进程内扫描注册表以及 SSE 事件总线。 |
+| `src/state.rs` | 定义 `AppState`、进程内扫描租约注册表、后台任务唤醒器以及 realtime 依赖。 |
 | `src/auth.rs` | 公用鉴权与访问控制助手，包括 Web session cookie、原生客户端 Bearer access token、`require_user`、`require_admin`、媒体库/媒体项/媒体文件访问校验。 |
-| `src/sync_runtime.rs` | 后台扫描入队、扫描任务执行和扫描事件广播的运行时逻辑。 |
-| `src/realtime.rs` | SSE 事件总线与事件枚举，负责把扫描、媒体库和元数据变更转换成 `EventSource` 可消费的数据。 |
+| `src/sync_runtime.rs` | PostgreSQL 后台任务 worker 池、扫描任务领取/续租/重试和扫描执行运行时。 |
+| `src/realtime.rs` | PostgreSQL revision 监听、服务端批量 dispatcher、有界 SSE 最后一跳和事件可见性过滤。 |
 | `src/response.rs` | 把领域对象映射成 API response DTO，并统一包裹 JSON envelope。 |
 | `src/error.rs` | 统一的 `ApiError` 和 HTTP 错误响应映射。 |
 
@@ -32,10 +32,10 @@
 3. `AppConfig::from_env()` 读取运行时配置
 4. `mova_db::connect()` 建立数据库连接
 5. `mova_db::migrate()` 执行 migration
-6. `mova_db::fail_incomplete_scan_jobs()` 把上次异常中断的扫描标记为失败
-7. `mova_db::ping()` 做数据库连通性检查
-8. 创建缓存目录 `cache_dir`
-9. `mova_application::build_metadata_provider()` 初始化元数据 provider
+6. `mova_db::ping()` 做数据库连通性检查
+7. 创建缓存目录 `cache_dir`
+8. `mova_application::build_metadata_provider()` 初始化元数据 provider
+9. 启动 PostgreSQL revision listener、`RealtimeDispatcher` 和由 `MOVA_WORKER_CONCURRENCY` 控制的扫描 worker 池
 10. 构建 `AppState`
 11. `app::build_router()` 组装路由
 12. `axum::serve()` 开始监听 HTTP
@@ -53,7 +53,7 @@
 - 字幕流直接做本地缓存和 `ffmpeg` 转换
 - 剧集片头自动检测会在扫描阶段调用 Python 脚本，并由脚本内部继续调用 `ffmpeg`
 - `/server/media-tree` 直接读取容器内 `/media` 目录树
-- `/events` 直接从 `RealtimeHub` 订阅 SSE 事件
+- `/realtime/events` 从 `RealtimeHub` 订阅已经批量合并并按权限过滤的 SSE 消息
 
 ### 2.1 目录职责
 
@@ -104,11 +104,13 @@
 - `metadata_provider: Arc<dyn mova_application::MetadataProvider>`
 - `scan_registry: ScanRegistry`
 - `realtime_hub: RealtimeHub`
+- `realtime_dispatcher: RealtimeDispatcherHandle`
+- `background_job_notifier: BackgroundJobNotifier`
 
 其中两个注册表很重要：
 
 - `ScanRegistry`
-  - 跟踪当前活跃扫描
+  - 跟踪当前进程实际持有租约的活跃扫描
   - 跟踪“正在删除”的媒体库
   - 提供取消扫描和等待扫描结束的能力
 
@@ -134,9 +136,11 @@
 
 这是当前后端里最重要的运行时模块之一，主要负责：
 
-- `enqueue_background_scan()`：后台扫描入队
-- `spawn_library_scan_job()`：真正启动扫描执行，并把扫描事件转成 SSE 广播
-- `handle_scan_registration_rejected()`：扫描注册冲突或删库冲突时做兜底收尾
+- HTTP handler 只把扫描任务与 `background_jobs` 记录在同一数据库事务里入队，然后唤醒 worker，不直接 `tokio::spawn` 扫描。
+- worker 使用 `FOR UPDATE SKIP LOCKED` 领取任务，写入有时限的数据库租约，并在执行期间续租。
+- worker 默认并发为 2，可通过 `MOVA_WORKER_CONCURRENCY` 调整；同一媒体库在进程内仍只允许一个活跃执行者。
+- 执行失败按任务 attempts 和延迟重试；进程退出后未完成任务保留在 PostgreSQL，租约到期后可再次领取。
+- 扫描事件交给 `RealtimeDispatcher` 合并，避免原始条目事件直接打满所有 SSE 连接。
 
 当前这里的同步策略已经改成“首次自动扫描 + 后续手动扫描”：
 
@@ -147,23 +151,22 @@
 
 ### `src/realtime.rs`
 
-`RealtimeHub` 使用 `tokio::sync::broadcast` 维护一个进程内 SSE 事件总线。  
-当前事件类型包括：
+可靠实时状态保存在 PostgreSQL `realtime_revisions`，业务写入事务通过 trigger 同步增加对应 resource revision，并使用 `LISTEN/NOTIFY` 唤醒当前实例的 `RealtimeDispatcher`。SSE 不再传最终业务对象，只发送以下协议消息：
 
-- `scan.job.updated`
-- `scan.job.finished`
-- `scan.item.updated`
-- `library.updated`
-- `library.deleted`
-- `media_item.metadata.updated`
+- `resources.changed`：普通资源最多每 500ms 合并；继续观看最多每 1 秒合并，标记已看完立即发送。
+- `scan.progress`：按扫描任务和 `item_key` latest-wins 合并，最多每 200ms 一批。
+- `scan.finished`：立即发送，不等待防抖窗口。
+- `session.invalidated`：用户权限或登录态失效后立即发送并关闭连接。
+
+`RealtimeHub` 仍使用 `tokio::sync::broadcast`，但只作为单进程的有界最后一跳。客户端落后时服务发送 `resync.required` 并关闭连接，客户端通过 `GET /api/realtime/state` 比对持久化 revision 后恢复。`GET /api/home` 同时返回首页快照对应的 revisions，三端可以把它作为已应用基线。
 
 删除媒体库时，服务会先阻止新的扫描进入并等待当前扫描退出；删除事务会显式清理该库的媒体关系表、授权关系、扫描任务和播放进度。事务完成后，服务会删除该库曾引用且已经没有任何剩余记录引用的 `MOVA_CACHE_DIR/tmdb` 图片缓存文件，媒体目录里的 sidecar 图片不会被自动删除。
 
-其中 `scan.job.updated` 在发现文件阶段会先节流并合并进度写库 / 广播，避免大库扫描时按文件数量打满 SSE；发现阶段结束仍会强制写入最终文件数。扫描随后进入 `analyzing` 阶段：先只用文件名和路径做浅层解析与扫描展示聚合，不读取 sidecar、不调用 `ffprobe`、不访问 TMDB；聚合完成后再按组逐个做完整本地分析，包括 sidecar、`ffprobe`、音轨字幕和资源技术标签。每个组完成本地分析后立即以 `metadata_status = pending` 写入数据库，并通过 `scan.item.updated stage=discovered` 推给前端。这个阶段的电影 / 剧集类型只是本地结构猜测，Web 会按猜测类型展示扫描卡，不会提前放入 Other。
+扫描在发现文件阶段会先节流并合并进度写库；发现阶段结束仍会强制写入最终文件数。扫描随后进入 `analyzing` 阶段：先只用文件名和路径做浅层解析与扫描展示聚合，不读取 sidecar、不调用 `ffprobe`、不访问 TMDB；聚合完成后再按组逐个做完整本地分析，包括 sidecar、`ffprobe`、音轨字幕和资源技术标签。每个组完成本地分析后立即以 `metadata_status = pending` 写入数据库，并通过批量 `scan.progress` 的 `items` 推给前端。这个阶段的电影 / 剧集类型只是本地结构猜测，Web 会按猜测类型展示扫描卡，不会提前放入 Other。
 
 随后进入 `enriching` 阶段按聚合组串行访问 TMDB。电影和剧集猜测都会通过 movie / tv 搜索结果确认；两种候选同时存在时优先验证本地结构对应的类型，只有该类型没有合格候选时才把另一类型判为冲突。本地剧集结构只命中同名电影、或本地电影猜测只命中同名剧集时，不跨类型改写，而是完成为 `unmatched / remote_type_mismatch` 并进入 Other。远端完全未命中、类型检测失败或 TMDB 未启用的条目，也只会在 `stage = completed` 后进入 Other。TMDB 请求错误会写入 `failed / metadata_provider_error` 并在后续手动扫描中重试；中断遗留的 `pending` 同样会在后续扫描中重试。
 
-同一剧集组只做一次剧集 metadata 查询，再把 TMDB 标题和剧集级海报应用到组内所有集；同一 TMDB 影片下的电影资源按 `provider_item_id` 归并为一个 movie item，详情页作为多个资源版本切换。图片字段只写当前层级、当前字段自己的图，不用单集截图、其它层级图片、搜索结果图片或另一个图片字段兜底；`pending` 写库不会清空既有 artwork，只有最终 `matched` 写入才允许清理远端确认缺失的图片。事件会携带当前可用的 `year`、`overview`、`metadata_status` 和 `remote_media_type`，`poster_path` / `backdrop_path` 只在确认浏览器可访问时返回；Web 只在 `stage = completed` 且远端类型为空或与本地结构冲突时把扫描卡放入 Other，远端类型一致的 metadata 失败仍留在对应类型分区。`stage = completed` 后 Web 会立即重拉该库媒体列表、首页按库最新添加和库详情计数。剧集查询仍优先使用文件名中 `SxxExx` 前的剧名和年份，明确季目录会补充上一级的干净剧名，中文元数据库还会优先尝试可识别的中文剧名。所有事件都会先经过 `is_visible_to(&UserProfile)` 做库级可见性过滤，再转换成 SSE。
+同一剧集组只做一次剧集 metadata 查询，再把 TMDB 标题和剧集级海报应用到组内所有集；同一 TMDB 影片下的电影资源按 `provider_item_id` 归并为一个 movie item，详情页作为多个资源版本切换。图片字段只写当前层级、当前字段自己的图，不用单集截图、其它层级图片、搜索结果图片或另一个图片字段兜底；`pending` 写库不会清空既有 artwork，只有最终 `matched` 写入才允许清理远端确认缺失的图片。临时扫描 item 会携带当前可用的 `year`、`overview`、`metadata_status` 和 `remote_media_type`，`poster_path` / `backdrop_path` 只在确认浏览器可访问时返回；Web 只在 `stage = completed` 且远端类型为空或与本地结构冲突时把扫描卡放入 Other，远端类型一致的 metadata 失败仍留在对应类型分区。`stage = completed` 后媒体写入事务会增加对应 `library:{id}:catalog` revision，客户端按资源失效通知刷新该库和轻量首页。剧集查询仍优先使用文件名中 `SxxExx` 前的剧名和年份，明确季目录会补充上一级的干净剧名，中文元数据库还会优先尝试可识别的中文剧名。所有事件都会按 server/admin/library/user scope 做可见性过滤，再转换成 SSE。
 
 另外，扫描现在先做轻量文件清单和同路径 `scan_hash` / `local_analysis_version` 比对；已匹配且未变化、已经有 TMDB 绑定的路径不会重新跑拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存或数据库 upsert。新增、变更或本地分析版本过期的路径会先进入浅层聚合，再按组完整探测和 upsert。文件指纹与本地分析版本都未变化但未匹配成功、缺少 TMDB provider 绑定、旧状态是 `skipped` 但当前已启用 TMDB、按前端 Other 规则需要复核、或仍保留远端图片 URL 的路径，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时可从数据库恢复上次本地分析结果，跳过拆名、sidecar、`ffprobe`，只逐组串行补 metadata/海报、立即 upsert，然后继续处理下一组。自动 metadata 选择保持保守；更宽松的候选复核交给手动搜索 / 替换元数据。缺失路径会在最后统一删除。
 
@@ -171,9 +174,10 @@
 
 ## 5. 路由与 feature 划分
 
-当前后端有 12 个 route module，都由 `app.rs` 合并后统一挂到 `/api` 下：
+当前后端有 13 个 route module，都由 `app.rs` 合并后统一挂到 `/api` 下：
 
 - `routes/health.rs`
+- `routes/home.rs`
 - `routes/auth.rs`
 - `routes/users.rs`
 - `routes/libraries.rs`
@@ -202,7 +206,7 @@
 - 运行时与实时事件
   - `routes/server.rs`
   - `routes/realtime.rs`
-  - 容器内 `/media` 目录树、SSE 事件流
+  - 容器内 `/media` 目录树、持久化 realtime state、SSE 失效通知和临时扫描进度
 - 媒体详情与元数据
   - `routes/media_items.rs`
   - `routes/seasons.rs`
@@ -232,15 +236,15 @@ Web 端：
 
 ### 6.2 建库与配置更新链路
 
-`routes/libraries.rs` -> `handlers::libraries::{create_library, update_library}` -> `mova_application::{create_library, update_library}` -> `realtime.rs`
+`routes/libraries.rs` -> `handlers::libraries::{create_library, update_library}` -> `mova_application::{create_library, update_library}` -> PostgreSQL resource revision trigger
 
 ### 6.3 手动扫描链路
 
-`routes/libraries.rs` -> `handlers::libraries::scan_library` -> `mova_application::enqueue_library_scan` -> `sync_runtime::spawn_library_scan_job` -> `mova_application::execute_scan_job_with_cancellation` -> `RealtimeHub`
+`routes/libraries.rs` -> `handlers::libraries::scan_library` -> `mova_application::enqueue_library_scan` -> `background_jobs` -> worker claim/lease -> `mova_application::execute_scan_job_with_cancellation` -> `RealtimeDispatcher`
 
 ### 6.4 SSE 链路
 
-`sync_runtime.rs` / `handlers::libraries.rs` / `handlers::media_items.rs` 发布 `RealtimeEvent` -> `state.realtime_hub` -> `handlers::realtime::events` -> 浏览器 `EventSource`
+业务事务增加 `realtime_revisions` -> PostgreSQL `NOTIFY` -> `RealtimeDispatcher` 批量合并 -> `state.realtime_hub` -> `handlers::realtime::events` -> Web / macOS / iOS 客户端。断线恢复走 `handlers::realtime::state`，首页首屏走 `handlers::home::get_home`。
 
 ### 6.5 播放链路
 

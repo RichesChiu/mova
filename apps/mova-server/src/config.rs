@@ -19,6 +19,7 @@ pub struct AppConfig {
     pub cache_dir: PathBuf,
     pub web_dist_dir: Option<PathBuf>,
     pub metadata_provider: MetadataProviderConfig,
+    pub worker_concurrency: usize,
 }
 
 impl AppConfig {
@@ -38,6 +39,11 @@ impl AppConfig {
             cache_dir: cache_dir_from_env()?,
             web_dist_dir: web_dist_dir_from_env()?,
             metadata_provider: metadata_provider_config::metadata_provider_config_from_env()?,
+            worker_concurrency: env::var("MOVA_WORKER_CONCURRENCY")
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+                .filter(|value| *value > 0)
+                .unwrap_or(2),
         })
     }
 

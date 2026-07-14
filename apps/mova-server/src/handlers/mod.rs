@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod health;
+pub mod home;
 pub mod libraries;
 pub mod media_files;
 pub mod media_items;

@@ -29,6 +29,7 @@ pub async fn create_scan_job(pool: &PgPool, params: CreateScanJobParams) -> Resu
             id,
             library_id,
             status,
+            phase,
             total_files,
             scanned_files,
             created_at,
@@ -81,6 +82,7 @@ pub async fn enqueue_scan_job(
             id,
             library_id,
             status,
+            phase,
             total_files,
             scanned_files,
             created_at,
@@ -93,6 +95,31 @@ pub async fn enqueue_scan_job(
     .fetch_one(&mut *tx)
     .await
     .context("failed to create scan job")?;
+
+    let scan_job_id: i64 = row.get("id");
+    sqlx::query(
+        r#"
+        insert into background_jobs (
+            job_type,
+            related_scan_job_id,
+            payload,
+            status,
+            max_attempts
+        )
+        values (
+            'library.scan',
+            $2,
+            jsonb_build_object('library_id', $1, 'scan_job_id', $2),
+            'pending',
+            3
+        )
+        "#,
+    )
+    .bind(params.library_id)
+    .bind(scan_job_id)
+    .execute(&mut *tx)
+    .await
+    .context("failed to enqueue library scan background job")?;
 
     tx.commit()
         .await
@@ -111,6 +138,7 @@ pub async fn mark_scan_job_running(pool: &PgPool, scan_job_id: i64) -> Result<Op
         r#"
         update scan_jobs
         set status = 'running',
+            phase = 'initializing',
             started_at = coalesce(started_at, now()),
             finished_at = null,
             error_message = null
@@ -119,6 +147,7 @@ pub async fn mark_scan_job_running(pool: &PgPool, scan_job_id: i64) -> Result<Op
             id,
             library_id,
             status,
+            phase,
             total_files,
             scanned_files,
             created_at,
@@ -153,6 +182,7 @@ pub async fn update_scan_job_progress(
             id,
             library_id,
             status,
+            phase,
             total_files,
             scanned_files,
             created_at,
@@ -171,24 +201,37 @@ pub async fn update_scan_job_progress(
     Ok(row.map(map_scan_job_row))
 }
 
-/// 服务启动时把中断留下的 pending/running 任务统一标记成 failed。
-/// 当前扫描任务在 API 进程内执行，重启后不会自动恢复，因此需要显式清理这些悬空任务。
-pub async fn fail_incomplete_scan_jobs(pool: &PgPool, error_message: &str) -> Result<u64> {
-    let result = sqlx::query(
+/// 持久化扫描阶段，供重连后的 active scan 状态恢复。
+pub async fn update_scan_job_phase(
+    pool: &PgPool,
+    scan_job_id: i64,
+    phase: &str,
+) -> Result<Option<ScanJob>> {
+    let row = sqlx::query(
         r#"
         update scan_jobs
-        set status = 'failed',
-            finished_at = now(),
-            error_message = $1
-        where status in ('pending', 'running')
+        set phase = $2
+        where id = $1
+        returning
+            id,
+            library_id,
+            status,
+            phase,
+            total_files,
+            scanned_files,
+            created_at,
+            started_at,
+            finished_at,
+            error_message
         "#,
     )
-    .bind(error_message)
-    .execute(pool)
+    .bind(scan_job_id)
+    .bind(phase)
+    .fetch_optional(pool)
     .await
-    .context("failed to mark incomplete scan jobs as failed")?;
+    .context("failed to update scan job phase")?;
 
-    Ok(result.rows_affected())
+    Ok(row.map(map_scan_job_row))
 }
 
 /// 统一更新任务的终态信息，成功和失败都走这里。
@@ -205,6 +248,7 @@ pub async fn finalize_scan_job(
         r#"
         update scan_jobs
         set status = $2,
+            phase = 'finished',
             total_files = $3,
             scanned_files = $4,
             finished_at = now(),
@@ -214,6 +258,7 @@ pub async fn finalize_scan_job(
             id,
             library_id,
             status,
+            phase,
             total_files,
             scanned_files,
             created_at,
@@ -242,6 +287,7 @@ pub async fn list_scan_jobs_for_library(pool: &PgPool, library_id: i64) -> Resul
             id,
             library_id,
             status,
+            phase,
             total_files,
             scanned_files,
             created_at,
@@ -272,6 +318,7 @@ pub async fn get_latest_scan_job_for_library(
             id,
             library_id,
             status,
+            phase,
             total_files,
             scanned_files,
             created_at,
@@ -300,6 +347,7 @@ pub async fn get_scan_job(pool: &PgPool, scan_job_id: i64) -> Result<Option<Scan
             id,
             library_id,
             status,
+            phase,
             total_files,
             scanned_files,
             created_at,
@@ -328,6 +376,7 @@ async fn get_active_scan_job_for_library_tx(
             id,
             library_id,
             status,
+            phase,
             total_files,
             scanned_files,
             created_at,
@@ -354,6 +403,7 @@ fn map_scan_job_row(row: PgRow) -> ScanJob {
         id: row.get("id"),
         library_id: row.get("library_id"),
         status: row.get("status"),
+        phase: row.get("phase"),
         total_files: row.get("total_files"),
         scanned_files: row.get("scanned_files"),
         created_at: row.get("created_at"),

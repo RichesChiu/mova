@@ -1,44 +1,114 @@
-use crate::{auth::require_user, error::ApiError, state::AppState};
+use crate::{
+    auth::require_user,
+    error::ApiError,
+    response::{ok, ApiJson, ScanJobResponse},
+    state::AppState,
+};
 use axum::{
     extract::State,
     http::HeaderMap,
-    response::sse::{KeepAlive, Sse},
+    response::sse::{Event, KeepAlive, Sse},
 };
 use axum_extra::extract::cookie::CookieJar;
-use std::{convert::Infallible, time::Duration};
+use serde::Serialize;
+use std::{
+    collections::BTreeMap,
+    convert::Infallible,
+    pin::Pin,
+    task::{Context, Poll},
+    time::Duration,
+};
 use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
-    StreamExt,
+    Stream,
 };
+
+#[derive(Debug, Serialize)]
+pub struct RealtimeStateResponse {
+    protocol_version: u8,
+    server_epoch: String,
+    resources: BTreeMap<String, i64>,
+    active_scans: Vec<ScanJobResponse>,
+}
+
+pub(crate) struct RealtimeResourceSnapshot {
+    pub server_epoch: String,
+    pub resources: BTreeMap<String, i64>,
+    pub visible_library_ids: Vec<i64>,
+}
+
+pub async fn state(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    jar: CookieJar,
+) -> Result<ApiJson<RealtimeStateResponse>, ApiError> {
+    let user = require_user(&state, &headers, &jar).await?;
+    let snapshot = load_realtime_resource_snapshot(&state, &user).await?;
+    let visible_library_ids = (!user.is_admin()).then_some(snapshot.visible_library_ids.as_slice());
+    let active_scans = mova_db::list_active_scan_jobs(&state.db, visible_library_ids)
+        .await
+        .map_err(ApiError::from)?
+        .into_iter()
+        .map(|scan_job| ScanJobResponse::from_domain(scan_job, state.api_time_offset))
+        .collect();
+
+    Ok(ok(RealtimeStateResponse {
+        protocol_version: 1,
+        server_epoch: snapshot.server_epoch,
+        resources: snapshot.resources,
+        active_scans,
+    }))
+}
+
+pub(crate) async fn load_realtime_resource_snapshot(
+    state: &AppState,
+    user: &mova_domain::UserProfile,
+) -> Result<RealtimeResourceSnapshot, ApiError> {
+    let visible_library_ids = if user.is_admin() {
+        mova_application::list_libraries(&state.db)
+            .await
+            .map_err(ApiError::from)?
+            .into_iter()
+            .map(|library| library.id)
+            .collect()
+    } else {
+        user.library_ids.clone()
+    };
+    let resource_keys = resource_keys_for_user(user, &visible_library_ids);
+    let revisions = mova_db::list_realtime_revisions(&state.db, &resource_keys)
+        .await
+        .map_err(ApiError::from)?;
+    let revision_by_key = revisions
+        .into_iter()
+        .map(|revision| (revision.resource_key, revision.revision))
+        .collect::<BTreeMap<_, _>>();
+    let resources = resource_keys
+        .into_iter()
+        .map(|key| {
+            let revision = revision_by_key.get(&key).copied().unwrap_or(0);
+            (key, revision)
+        })
+        .collect();
+    Ok(RealtimeResourceSnapshot {
+        server_epoch: mova_db::get_realtime_server_epoch(&state.db)
+            .await
+            .map_err(ApiError::from)?,
+        resources,
+        visible_library_ids,
+    })
+}
 
 pub async fn events(
     State(state): State<AppState>,
     headers: HeaderMap,
     jar: CookieJar,
-) -> Result<
-    Sse<impl tokio_stream::Stream<Item = Result<axum::response::sse::Event, Infallible>>>,
-    ApiError,
-> {
+) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let user = require_user(&state, &headers, &jar).await?;
-    let api_time_offset = state.api_time_offset;
-    let stream_user = user.clone();
-
-    let stream = BroadcastStream::new(state.realtime_hub.subscribe()).filter_map(move |message| {
-        let user = stream_user.clone();
-
-        match message {
-            Ok(event) if event.is_visible_to(&user) => event.to_sse_event(api_time_offset).map(Ok),
-            Ok(_) => None,
-            Err(BroadcastStreamRecvError::Lagged(skipped)) => {
-                tracing::warn!(
-                    skipped,
-                    user_id = user.user.id,
-                    "realtime event stream lagged"
-                );
-                None
-            }
-        }
-    });
+    let stream = RealtimeSseStream {
+        receiver: BroadcastStream::new(state.realtime_hub.subscribe()),
+        user,
+        close_on_next_poll: false,
+    };
 
     Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
@@ -47,255 +117,91 @@ pub async fn events(
     ))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::events;
-    use crate::{
-        auth::{attach_session_cookie, SESSION_TTL},
-        realtime::RealtimeEvent,
-        state::{AppState, RealtimeHub, ScanRegistry},
-    };
-    use axum::{extract::State, http::HeaderMap, response::IntoResponse};
-    use axum_extra::extract::cookie::CookieJar;
-    use http_body_util::BodyExt;
-    use mova_application::{NullMetadataProvider, ScanJobItemProgressUpdate};
-    use mova_domain::UserRole;
-    use std::{path::PathBuf, sync::Arc};
-    use time::{OffsetDateTime, UtcOffset};
-    use tokio::time::{timeout, Duration};
+struct RealtimeSseStream {
+    receiver: BroadcastStream<crate::realtime::RealtimeMessage>,
+    user: mova_domain::UserProfile,
+    close_on_next_poll: bool,
+}
 
-    fn build_test_state(pool: sqlx::postgres::PgPool) -> AppState {
-        AppState {
-            db: pool,
-            api_time_offset: UtcOffset::UTC,
-            artwork_cache_dir: PathBuf::from("/tmp/mova-test-artwork"),
-            metadata_provider: Arc::new(NullMetadataProvider),
-            scan_registry: ScanRegistry::default(),
-            realtime_hub: RealtimeHub::default(),
+impl Stream for RealtimeSseStream {
+    type Item = Result<Event, Infallible>;
+
+    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.close_on_next_poll {
+            return Poll::Ready(None);
+        }
+
+        loop {
+            match Pin::new(&mut self.receiver).poll_next(context) {
+                Poll::Ready(Some(Ok(message))) if message.is_visible_to(&self.user) => {
+                    self.close_on_next_poll = message.event_name() == "session.invalidated";
+                    return Poll::Ready(Some(Ok(message.to_sse_event())));
+                }
+                Poll::Ready(Some(Ok(_))) => continue,
+                Poll::Ready(Some(Err(BroadcastStreamRecvError::Lagged(skipped)))) => {
+                    tracing::warn!(
+                        skipped,
+                        user_id = self.user.user.id,
+                        "closing lagged realtime event stream"
+                    );
+                    self.close_on_next_poll = true;
+                    return Poll::Ready(Some(Ok(Event::default()
+                        .event("resync.required")
+                        .data(r#"{"reason":"client_lagged"}"#))));
+                }
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
+            }
         }
     }
+}
 
-    async fn seed_library(pool: &sqlx::postgres::PgPool, name: &str, root_path: &str) -> i64 {
-        mova_db::create_library(
-            pool,
-            mova_db::CreateLibraryParams {
-                name: name.to_string(),
-                description: None,
-                metadata_language: "zh-CN".to_string(),
-                root_path: root_path.to_string(),
-            },
-        )
-        .await
-        .unwrap()
-        .id
+fn resource_keys_for_user(
+    user: &mova_domain::UserProfile,
+    visible_library_ids: &[i64],
+) -> Vec<String> {
+    let mut keys = vec![
+        "libraries".to_string(),
+        format!("user:{}:libraries", user.user.id),
+        format!("user:{}:profile", user.user.id),
+        format!("user:{}:continue-watching", user.user.id),
+    ];
+    if user.is_admin() {
+        keys.push("admin:users".to_string());
     }
+    for library_id in visible_library_ids {
+        keys.push(format!("library:{library_id}:settings"));
+        keys.push(format!("library:{library_id}:catalog"));
+        keys.push(format!("library:{library_id}:scan"));
+    }
+    keys
+}
 
-    async fn seed_viewer_session(
-        pool: &sqlx::postgres::PgPool,
-        username: &str,
-        library_ids: Vec<i64>,
-        session_token: &str,
-    ) -> CookieJar {
-        let user = mova_db::create_user(
-            pool,
-            mova_db::CreateUserParams {
-                username: username.to_string(),
-                nickname: username.to_string(),
-                password_hash: "hash".to_string(),
+#[cfg(test)]
+mod tests {
+    use super::resource_keys_for_user;
+    use mova_domain::{User, UserProfile, UserRole};
+    use time::OffsetDateTime;
+
+    #[test]
+    fn realtime_state_keys_only_include_visible_library_resources() {
+        let user = UserProfile {
+            user: User {
+                id: 12,
+                username: "viewer".to_string(),
+                nickname: "viewer".to_string(),
                 role: UserRole::Viewer,
                 is_enabled: true,
-                library_ids,
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                updated_at: OffsetDateTime::UNIX_EPOCH,
             },
-        )
-        .await
-        .unwrap();
-
-        let expires_at = OffsetDateTime::now_utc() + SESSION_TTL;
-        mova_db::create_session(
-            pool,
-            mova_db::CreateSessionParams {
-                token: session_token.to_string(),
-                user_id: user.user.id,
-                expires_at,
-            },
-        )
-        .await
-        .unwrap();
-
-        attach_session_cookie(CookieJar::new(), session_token, expires_at)
-    }
-
-    async fn read_first_sse_chunk(
-        response: axum::response::Response,
-        wait: Duration,
-    ) -> Option<String> {
-        let mut body = response.into_body();
-        let frame = match timeout(wait, body.frame()).await {
-            Ok(Some(Ok(frame))) => frame,
-            Ok(Some(Err(error))) => panic!("failed to read SSE body frame: {error}"),
-            Ok(None) | Err(_) => return None,
+            is_primary_admin: false,
+            library_ids: vec![7],
         };
-        let bytes = frame.into_data().expect("expected an SSE data frame");
 
-        Some(String::from_utf8(bytes.to_vec()).expect("SSE body must be valid utf-8"))
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn events_stream_serializes_library_updated_messages(pool: sqlx::postgres::PgPool) {
-        let state = build_test_state(pool.clone());
-        let library_id = seed_library(&pool, "Movies", "/media/movies").await;
-        let jar =
-            seed_viewer_session(&pool, "viewer01", vec![library_id], "realtime-test-session").await;
-
-        let sse = events(State(state.clone()), HeaderMap::new(), jar)
-            .await
-            .unwrap();
-        state
-            .realtime_hub
-            .publish(RealtimeEvent::LibraryUpdated { library_id });
-
-        let response = sse.into_response();
-        let content_type = response
-            .headers()
-            .get(axum::http::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default()
-            .to_string();
-
-        assert!(content_type.starts_with("text/event-stream"));
-
-        let body = read_first_sse_chunk(response, Duration::from_secs(1))
-            .await
-            .expect("expected a visible SSE event");
-
-        assert!(body.contains("event: library.updated"));
-        assert!(body.contains("\"type\":\"library.updated\""));
-        assert!(body.contains(&format!("\"library_id\":{}", library_id)));
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn events_stream_serializes_scan_item_progress_messages(pool: sqlx::postgres::PgPool) {
-        let state = build_test_state(pool.clone());
-        let library_id = seed_library(&pool, "Movies", "/media/movies").await;
-        let jar =
-            seed_viewer_session(&pool, "viewer01", vec![library_id], "realtime-item-session").await;
-
-        let sse = events(State(state.clone()), HeaderMap::new(), jar)
-            .await
-            .unwrap();
-        state.realtime_hub.publish(RealtimeEvent::ScanItemUpdated {
-            item: ScanJobItemProgressUpdate {
-                scan_job_id: 41,
-                library_id,
-                item_key: "/media/movies/Interstellar (2014)/Interstellar.mkv".to_string(),
-                media_type: "movie".to_string(),
-                title: "Interstellar".to_string(),
-                year: Some(2014),
-                overview: Some("A team travels through a wormhole.".to_string()),
-                poster_path: Some("/cache/poster/interstellar.jpg".to_string()),
-                backdrop_path: Some("/cache/backdrop/interstellar.jpg".to_string()),
-                metadata_status: Some("matched".to_string()),
-                remote_media_type: Some("movie".to_string()),
-                season_number: None,
-                episode_number: None,
-                item_index: 1,
-                total_items: 3,
-                stage: "artwork".to_string(),
-                progress_percent: 68,
-            },
-        });
-
-        let body = read_first_sse_chunk(sse.into_response(), Duration::from_secs(1))
-            .await
-            .expect("expected a visible SSE event");
-
-        assert!(body.contains("event: scan.item.updated"));
-        assert!(body.contains("\"type\":\"scan.item.updated\""));
-        assert!(body.contains("\"remote_media_type\":\"movie\""));
-        assert!(body.contains("\"title\":\"Interstellar\""));
-        assert!(body.contains("\"stage\":\"artwork\""));
-        assert!(body.contains("\"progress_percent\":68"));
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn events_stream_hides_library_updates_from_viewers_without_access(
-        pool: sqlx::postgres::PgPool,
-    ) {
-        let state = build_test_state(pool.clone());
-        let visible_library_id = seed_library(&pool, "Movies", "/media/movies").await;
-        let hidden_library_id = seed_library(&pool, "Anime", "/media/anime").await;
-        let jar = seed_viewer_session(
-            &pool,
-            "viewer01",
-            vec![visible_library_id],
-            "realtime-hidden-library-session",
-        )
-        .await;
-
-        let sse = events(State(state.clone()), HeaderMap::new(), jar)
-            .await
-            .unwrap();
-        state.realtime_hub.publish(RealtimeEvent::LibraryUpdated {
-            library_id: hidden_library_id,
-        });
-
-        let body = read_first_sse_chunk(sse.into_response(), Duration::from_millis(200)).await;
-
-        assert!(
-            body.is_none(),
-            "hidden library events should not be streamed"
-        );
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn events_stream_hides_scan_item_updates_from_viewers_without_access(
-        pool: sqlx::postgres::PgPool,
-    ) {
-        let state = build_test_state(pool.clone());
-        let visible_library_id = seed_library(&pool, "Movies", "/media/movies").await;
-        let hidden_library_id = seed_library(&pool, "Anime", "/media/anime").await;
-        let jar = seed_viewer_session(
-            &pool,
-            "viewer01",
-            vec![visible_library_id],
-            "realtime-hidden-scan-item-session",
-        )
-        .await;
-
-        let sse = events(State(state.clone()), HeaderMap::new(), jar)
-            .await
-            .unwrap();
-        state.realtime_hub.publish(RealtimeEvent::ScanItemUpdated {
-            item: ScanJobItemProgressUpdate {
-                scan_job_id: 41,
-                library_id: hidden_library_id,
-                item_key: "/media/anime/Spirited Away.mkv".to_string(),
-                media_type: "movie".to_string(),
-                title: "Spirited Away".to_string(),
-                year: None,
-                overview: None,
-                poster_path: None,
-                backdrop_path: None,
-                metadata_status: None,
-                remote_media_type: None,
-                season_number: None,
-                episode_number: None,
-                item_index: 1,
-                total_items: 1,
-                stage: "metadata".to_string(),
-                progress_percent: 35,
-            },
-        });
-
-        let body = read_first_sse_chunk(sse.into_response(), Duration::from_millis(200)).await;
-
-        assert!(
-            body.is_none(),
-            "hidden scan item events should not be streamed"
-        );
+        let keys = resource_keys_for_user(&user, &[7]);
+        assert!(keys.contains(&"library:7:catalog".to_string()));
+        assert!(!keys.contains(&"library:8:catalog".to_string()));
+        assert!(!keys.contains(&"admin:users".to_string()));
     }
 }

@@ -47,6 +47,13 @@ impl From<mova_application::ApplicationError> for ApiError {
     }
 }
 
+impl From<anyhow::Error> for ApiError {
+    fn from(error: anyhow::Error) -> Self {
+        tracing::error!(error = ?error, "database request failed");
+        Self::Internal
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, code, message) = match self {

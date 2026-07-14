@@ -14,7 +14,7 @@
   - Web 端继续使用 session cookie
   - 原生客户端使用 `Authorization: Bearer <access_token>` 访问业务接口，`access_token` 和 `refresh_token` 通过 `POST /api/auth/token-login` 获取；`refresh_token` 只能调用 `POST /api/auth/refresh`，不能访问普通业务接口
   - 管理类接口（用户管理、建库、删库、触发扫描、服务器根目录等）要求 `admin`
-  - `GET /api/events` 返回 `text/event-stream`，不使用统一 JSON envelope
+  - `GET /api/realtime/events` 返回 `text/event-stream`，不使用统一 JSON envelope
 - 成功格式：
 
 ```json
@@ -63,7 +63,7 @@
 - TMDB provider 现在从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取；但每个媒体库仍可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。
 - 如果额外配置了可选的 `MOVA_OMDB_API_KEY`，服务端会在已拿到 `imdb_id` 的前提下补齐 `imdb_rating`；不配置时该字段保持为空，不影响扫描、入库和播放。
 - 本地海报和背景图这类图片资源，对外返回的 URL 现在会带版本参数（例如 `/api/media-items/42/poster?v=1704164645`），浏览器可以长期缓存；当媒体元数据更新时，版本参数会变化，前端会自动拿到新图。
-- 当前 pre-1.0 阶段的数据库 schema 只维护 `migrations/0001_init.sql`；本版已删除 `libraries.is_enabled`，会保存扫描本地分析版本、原生客户端 access/refresh token 设备会话，并用 `playback_progress` 保存逐文件进度、用有上限的 `continue_watching` 保存当前活跃队列。TMDB / provider 返回的标题、国家、题材、制作公司、演员角色等自由文本字段按 `text` 存储；已有开发库需要重建数据库 / 重扫媒体库才能与当前结构和完整状态一致。
+- 当前 pre-1.0 阶段的数据库 schema 只维护 `migrations/0001_init.sql`；本版已删除 `libraries.is_enabled`，会保存扫描本地分析版本、原生客户端 access/refresh token 设备会话，并用 `playback_progress` 保存逐文件进度、用有上限的 `continue_watching` 保存当前活跃队列。后台扫描通过 PostgreSQL `background_jobs` 持久化，资源版本通过 `realtime_revisions` 持久化；TMDB / provider 返回的标题、国家、题材、制作公司、演员角色等自由文本字段按 `text` 存储。已有开发库需要重建数据库 / 重置数据目录并重新扫描媒体库，旧 migration 不会被平滑升级。
 
 ## 接口总览
 
@@ -78,7 +78,9 @@
 | `POST` | `/api/auth/logout` | 登出 |
 | `GET` | `/api/auth/me` | 查询当前用户 |
 | `PATCH` | `/api/auth/me` | 更新当前用户昵称 |
-| `GET` | `/api/events` | 订阅服务端实时事件流（SSE） |
+| `GET` | `/api/home` | 查询当前用户的轻量首页快照 |
+| `GET` | `/api/realtime/state` | 查询当前可见资源版本和活跃扫描 |
+| `GET` | `/api/realtime/events` | 订阅资源失效与临时扫描进度（SSE） |
 | `PUT` | `/api/auth/password` | 当前用户修改自己的密码 |
 | `GET` | `/api/users` | 查询用户列表（管理员） |
 | `POST` | `/api/users` | 创建用户（管理员） |
@@ -333,71 +335,129 @@
 - 成功后会直接返回更新后的当前用户对象
 - 支持 cookie 和 Bearer token 两种登录态
 
-### `GET /api/events`
+### `GET /api/home`
 
 作用：
-- 订阅服务端实时事件流，用于把扫描任务状态变化、媒体库更新和元数据变更主动推送给在线客户端
+- 一次返回当前用户首页需要的有界快照，避免 Web、macOS 和 iOS 为首页逐库分页拉取完整媒体目录。
+
+返回：
+- `current_user`：当前用户。
+- `libraries`：当前用户可见媒体库的详情摘要，每个库的 `preview_items` 最多 16 条。
+- `recently_added`：按库分组的最新添加内容，每个库最多 8 条。
+- `continue_watching`：当前用户未看完的继续观看队列，最多 20 条。
+- `realtime`：本次快照对应的 `server_epoch` 和当前可见资源 `resources` revisions。
 
 说明：
-- 需要登录态
-- 支持 cookie 和 Bearer token 两种登录态
-- 返回类型为 `text/event-stream`
-- 事件本身更适合作为“资源已变化”的通知；客户端收到后，应按事件类型重新拉对应 HTTP 接口，而不是把 SSE 负载直接当成最终页面数据
-- 当前服务端只推送连接建立之后的新事件；客户端断线后应自动重连，并在重连成功后主动补一轮关键查询，避免断开期间漏掉一次刷新
-- 扫描文件发现阶段的 `scan.job.updated` 进度会做服务端节流与合并，客户端应把它当成近实时进度，不要依赖每个文件都会对应一条 SSE
-- 已经成功匹配、同路径文件指纹未变化、本地分析版本未变化、且已有 TMDB 绑定的条目不会再次发出 `scan.item.updated`；该事件只覆盖本轮新增、删除后重建、移动改名后新增、大小 / 修改时间变化、本地分析版本过期、仍需重试匹配、缺少 TMDB provider 绑定、仍需把远端图片 URL 缓存成本地文件、或按前端 Other 规则需要复核的资源
-- 当前已实现事件：
-  - `scan.job.updated`
-  - `scan.job.finished`
-  - `scan.item.updated`
-  - `library.updated`
-  - `library.deleted`
-  - `media_item.metadata.updated`
-- `scan.job.updated` / `scan.job.finished` 里的 `scan_job` 目前会额外带一个可选 `phase` 字段，当前会使用：
-  - `discovering`：正在发现文件
-  - `analyzing`：正在做浅层文件名聚合，并按扫描组逐个完成 sidecar / `ffprobe` / 字幕音轨等本地分析，不访问 TMDB
-  - `enriching`：正在补全元数据和图片
-  - `syncing`：正在写入媒体库
-  - `finished`：任务已结束
-- `scan.item.updated` 用于扫描中的条目级提示；服务端会先对变化路径做浅层文件名 / 路径解析并建立稳定扫描组，随后按组逐个做完整本地分析、写库并推送 `stage = discovered`。如果同路径文件指纹和本地分析版本都未变化但仍需补 TMDB，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时可复用数据库里的上次本地分析结果，不重新拆名、sidecar 或 `ffprobe`；随后才按聚合组串行访问 TMDB，同一剧集组只做一次剧集 metadata 查询并应用到组内所有集，同一个 `item_key` 会在后续元数据、图片和完成写库后持续更新，当前结构如下：
+- 进入具体媒体库后再使用 `GET /api/libraries/{id}/media-items` 分页加载完整目录。
+- 客户端可以直接把 `realtime.resources` 作为已应用 revision 基线，避免紧接着收到重复失效通知后再次刷新首页。
+
+### `GET /api/realtime/state`
+
+作用：
+- 返回当前客户端有权看到的持久化资源版本和活跃扫描，用于首次登录、SSE 重连、App 回到前台或收到 `resync.required` 后恢复状态。
+
+典型返回：
 
 ```json
 {
-  "type": "scan.item.updated",
-  "item": {
-    "scan_job_id": 41,
-    "library_id": 7,
-    "item_key": "series-title:arcane",
-    "media_type": "series",
-    "title": "Arcane",
-    "year": 2021,
-    "overview": "Two sisters fight from opposite sides of a divided city.",
-    "poster_path": null,
-    "backdrop_path": null,
-    "metadata_status": "matched",
-    "remote_media_type": "series",
-    "season_number": null,
-    "episode_number": null,
-    "item_index": 12,
-    "total_items": 240,
-    "stage": "artwork",
-    "progress_percent": 76
-  }
+  "protocol_version": 1,
+  "server_epoch": "019f...",
+  "resources": {
+    "libraries": 14,
+    "library:7:settings": 3,
+    "library:7:catalog": 128,
+    "library:7:scan": 9,
+    "user:12:continue-watching": 39,
+    "user:12:profile": 2
+  },
+  "active_scans": []
 }
 ```
 
-字段说明：
-- `item_key`：当前扫描条目的稳定键；电影和无法确认剧名的本地文件直接使用文件路径，文件名里能确认剧名的剧集会使用 `series-title:*` 或明确季目录树下的 `series-folder:*` 键，避免前端在扫描中先看到一集一集、或多季年份不同导致被打散
-- `year` / `overview` / `poster_path` / `backdrop_path`：当前条目的临时展示信息；metadata 或 artwork 阶段会先补齐标题和简介，图片字段只返回当前条目自身且服务端确认浏览器可访问的图，否则保持 `null`，不会用其它图片字段或其它层级图片兜底
-- `metadata_status`：当前条目的元数据状态；`pending` 表示已完成本地分析、正在等待远端类型和 metadata 确认，扫描卡仍按本地猜测进入 Movies / Series；`matched` 表示已命中远端 metadata
-- `remote_media_type`：TMDB 已确认的远端类型，当前为 `movie` / `series` 或 `null`。只有 `stage = completed` 且远端类型仍为空、或与本地结构冲突的条目进入 Other；远端类型已经确认且与本地结构一致时，即使后续 metadata 请求失败，仍保留在对应 Movies / Series 分区
-- `item_index` / `total_items`：当前条目在整批扫描里的位置，用于前端估算总进度
-- `stage`：当前条目处理阶段，当前会使用 `discovered` / `metadata` / `artwork` / `completed`
-- `progress_percent`：当前条目自身的粗粒度进度百分比，便于前端直接驱动占位卡进度条
-- 前端可以把同一个 `item_key` 当成一张临时扫描卡：发现文件或目录组时先渲染出来，后续收到新事件后只更新这张卡；图片需要等 `load` 成功后再从占位切换，避免缓存完成前出现 broken image
-- `stage = discovered` 表示该扫描组已经完成完整本地分析并写入媒体库；扫描组会逐个触发这个阶段，而不是等待整库本地分析全部完成。这个阶段的空图片只表示远端元数据尚未完成，不会清空已有剧集 / 季 / 集 artwork。`stage = completed` 表示该条目已经完成 metadata / 海报覆盖写库，只有此时的 `matched` 结果才能确认清空远端缺失的图片字段。客户端应在这些事件后重拉该库的媒体列表、首页按库最新添加聚合和库详情计数，让真实媒体卡先出现、再按聚合组逐个更新海报
-- 当某个远端元数据请求出错但扫描继续时，服务端会把该扫描组写成 `metadata_status = failed`、`metadata_failure_reason = metadata_provider_error`，并在后续手动扫描中重试；不会再静默回退成“看似成功”的本地数据
+说明：
+- `server_epoch` 在当前数据库生命周期内保持稳定；数据库重建后会变化。客户端发现 epoch 变化时应丢弃本地 revision 基线并重新同步。
+- `resources` 只包含当前用户有权访问的资源；尚未变化过的资源 revision 为 `0`。
+- `active_scans` 返回当前仍为 `pending` 或 `running` 的扫描任务。扫描 `phase` 会持久化，不依赖 SSE 临时状态恢复。
 
+### `GET /api/realtime/events`
+
+作用：
+- 订阅资源失效通知与临时扫描进度。SSE 不承载最终业务数据，也不保证客户端收到每一条临时进度。
+
+说明：
+- 需要登录态，支持 cookie 和 Bearer access token。
+- 返回类型为 `text/event-stream`，服务端每 15 秒发送 keep-alive。
+- 服务端只推送连接建立之后的新事件，不回放历史；客户端重连后必须先调用 `GET /api/realtime/state` 做 revision 差异同步。
+- 资源变更由数据库事务同步增加 `realtime_revisions`，即使 SSE 丢失或服务重启，revision 仍可恢复。
+- 普通资源最多每 500ms 合并一批；继续观看默认最多每 1 秒合并一批，标记已看完会立即通知。
+- 扫描进度按 `(scan_job_id, item_key)` latest-wins 合并，最多每 200ms 发送一批；`scan.finished` 立即发送。
+- SSE 最后一跳使用有界队列。客户端明显落后时服务端发送一次 `resync.required` 后关闭连接，客户端应重新获取 state 并重连。
+- 资源和事件按 server/admin/library/user scope 过滤；权限变化或会话撤销会发送 `session.invalidated` 并关闭当前连接。
+
+#### `resources.changed`
+
+```text
+event: resources.changed
+data: {"version":1,"changes":[{"resource":"library:7:catalog","revision":128}]}
+```
+
+客户端只在服务端 revision 大于本地已应用 revision 时刷新对应资源；重复事件和乱序旧事件应忽略。当前资源键包括：
+- `libraries`
+- `library:{id}:settings`
+- `library:{id}:catalog`
+- `library:{id}:scan`
+- `user:{id}:libraries`
+- `user:{id}:profile`
+- `user:{id}:continue-watching`
+- `admin:users`
+
+#### `scan.progress` / `scan.finished`
+
+```text
+event: scan.progress
+data: {
+  "version": 1,
+  "scan_job": {
+    "id": 41,
+    "library_id": 7,
+    "status": "running",
+    "phase": "enriching",
+    "total_files": 240,
+    "scanned_files": 52
+  },
+  "items": [
+    {
+      "scan_job_id": 41,
+      "library_id": 7,
+      "item_key": "series-title:arcane",
+      "media_type": "series",
+      "title": "Arcane",
+      "item_index": 52,
+      "total_items": 240,
+      "stage": "artwork",
+      "progress_percent": 76
+    }
+  ]
+}
+```
+
+- `scan.progress` 是可丢失的临时 UI 状态，同一 `item_key` 只保留最新值。
+- `scan.finished` 使用相同 payload，表示任务已经结束；客户端随后通过对应的 catalog revision 拉取最终数据。
+- 扫描 phase 使用 `initializing` / `discovering` / `analyzing` / `enriching` / `syncing` / `finished`。
+- 条目 stage 使用 `discovered` / `metadata` / `artwork` / `completed`。
+
+#### 恢复与会话事件
+
+```text
+event: resync.required
+data: {"reason":"client_lagged"}
+
+event: session.invalidated
+data: {"reason":"authorization_changed"}
+```
+
+- 收到 `resync.required` 后重新获取 realtime state，只刷新 revision 不一致的资源。
+- 收到 `session.invalidated` 后停止实时连接并重新建立登录态。
 ### `PUT /api/auth/password`
 
 作用：
@@ -737,7 +797,7 @@
 - `description`：媒体库描述，可为空
 - `media_count`：当前库中的媒体数量
 - `last_scan`：最近一次扫描摘要，没有时为 `null`
-- `last_scan.phase`：当前 HTTP 查询里通常为 `null`；实时扫描阶段会通过 `GET /api/events` 的 `scan.job.*` 事件补齐
+- `last_scan.phase`：持久化的最近扫描阶段，当前使用 `initializing` / `discovering` / `analyzing` / `enriching` / `syncing` / `finished`；服务重启后仍可通过 HTTP 恢复
 
 ### `DELETE /api/libraries/{id}`
 
@@ -875,7 +935,7 @@
 
 关键字段：
 - `status`：`pending` / `running` / `success` / `failed`
-- `phase`：当前 HTTP 查询里通常为 `null`；实时扫描阶段会通过 `scan.job.updated` / `scan.job.finished` 填充
+- `phase`：持久化的当前扫描阶段，使用 `initializing` / `discovering` / `analyzing` / `enriching` / `syncing` / `finished`
 - `scanned_files`：当前已发现文件数
 - `total_files`：当前已知总文件数
 - `error_message`：失败原因；现在会直接带阶段上下文，例如：
@@ -902,7 +962,7 @@
 
 说明：
 - 当前库如果已经有 `pending` 或 `running` 任务，不会重复启动第二个扫描
-- 扫描在后台执行，前端应拿返回的 `scan_job.id` 去轮询 `/api/libraries/{id}/scan-jobs/{scan_job_id}`
+- 扫描请求会和 PostgreSQL `background_jobs` 后台任务在同一事务内持久化；服务重启后 worker 会重新领取未完成任务，不再把所有中断任务直接标记失败。客户端可以通过 `/api/libraries/{id}/scan-jobs/{scan_job_id}` 查询，也可以通过 realtime state 和临时扫描事件展示进度
 - 当前扫描会按 `(library_id, file_path)` 做增量同步：同路径文件原地更新，缺失路径删除，改名或移动会表现成旧路径删除加新路径新增
 - 已经成功匹配的路径会先按文件大小和修改时间生成稳定指纹；同路径指纹一致、本地分析版本一致、且已有 TMDB 绑定时会跳过拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存和数据库 upsert，只保留现有数据。新增、变化或本地分析版本过期的路径会先做浅层文件名聚合，再按扫描组逐个完整探测、写库并推送。`unmatched` / `failed`、缺少 TMDB provider 绑定、旧状态是 `skipped` 但当前已启用 TMDB、按前端 Other 规则需要复核、或仍保存远端图片 URL 的条目仍会在后续手动扫描中重试；如果这些条目的文件指纹和本地分析版本未变化，服务端仍用当前文件名 / 路径做浅层聚合，再复用已入库的本地分析结果，仅重试 TMDB 和图片缓存。电影补全拿到相同 TMDB `provider_item_id` 后会合并为同一个 `media_item`，详情页通过资源版本切换展示多个本地文件。自动候选选择保持保守；更宽松的候选复核交给手动搜索 / 替换元数据。如果当前没有启用 metadata provider，`skipped` 条目也可按指纹和本地分析版本跳过
 - 现在只有手动扫描会驱动这套库存对齐与元数据补全链路；新增、删除、改名和移动都会在手动扫描时收敛出来

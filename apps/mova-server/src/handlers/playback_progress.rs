@@ -90,6 +90,13 @@ pub async fn update_media_item_playback_progress(
     .await
     .map_err(ApiError::from)?;
 
+    if progress.is_finished {
+        state
+            .realtime_dispatcher
+            .publish_resource_immediately(format!("user:{}:continue-watching", user.user.id))
+            .await;
+    }
+
     Ok(ok(PlaybackProgressResponse::from_domain(
         progress,
         state.api_time_offset,
@@ -104,7 +111,9 @@ mod tests {
     };
     use crate::{
         auth::{attach_session_cookie, SESSION_TTL},
-        state::{AppState, RealtimeHub, ScanRegistry},
+        state::{
+            AppState, BackgroundJobNotifier, RealtimeDispatcherHandle, RealtimeHub, ScanRegistry,
+        },
     };
     use axum::{
         extract::{Path, Query, State},
@@ -125,6 +134,8 @@ mod tests {
             metadata_provider: Arc::new(NullMetadataProvider),
             scan_registry: ScanRegistry::default(),
             realtime_hub: RealtimeHub::default(),
+            realtime_dispatcher: RealtimeDispatcherHandle::default(),
+            background_jobs: BackgroundJobNotifier::default(),
         }
     }
 

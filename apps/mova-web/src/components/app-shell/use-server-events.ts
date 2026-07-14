@@ -1,44 +1,31 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
-import { getLibrary } from '../../api/client'
-import type { LibraryDetail, ScanJob } from '../../api/types'
+import { getRealtimeState } from '../../api/client'
+import type { HomeResponse, RealtimeState, ScanJob } from '../../api/types'
 import type { ScanRuntimeByLibrary, ScanRuntimeItem } from './scan-runtime'
 
-const SERVER_EVENTS_URL = '/api/events'
+const SERVER_EVENTS_URL = '/api/realtime/events'
 const MAX_SCAN_RUNTIME_ITEMS_PER_LIBRARY = 40
 
-type ScanJobRealtimeEvent =
-  | {
-      type: 'scan.job.updated'
-      scan_job: ScanJob
-    }
-  | {
-      type: 'scan.job.finished'
-      scan_job: ScanJob
-    }
-  | {
-      type: 'scan.item.updated'
-      item: ScanRuntimeItem
-    }
-  | {
-      type: 'library.updated'
-      library_id: number
-    }
-  | {
-      type: 'library.deleted'
-      library_id: number
-    }
-  | {
-      type: 'media_item.metadata.updated'
-      library_id: number
-      media_item_id: number
-    }
+interface ResourceChange {
+  resource: string
+  revision: number
+}
+
+interface ResourcesChangedPayload {
+  version: number
+  changes: ResourceChange[]
+}
+
+interface ScanProgressPayload {
+  version: number
+  scan_job: ScanJob
+  items: ScanRuntimeItem[]
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
-
-const isNumber = (value: unknown): value is number => typeof value === 'number'
 
 const isScanJob = (value: unknown): value is ScanJob =>
   isRecord(value) &&
@@ -47,11 +34,7 @@ const isScanJob = (value: unknown): value is ScanJob =>
   typeof value.status === 'string' &&
   (typeof value.phase === 'string' || value.phase === null || value.phase === undefined) &&
   typeof value.total_files === 'number' &&
-  typeof value.scanned_files === 'number' &&
-  typeof value.created_at === 'string' &&
-  (typeof value.started_at === 'string' || value.started_at === null) &&
-  (typeof value.finished_at === 'string' || value.finished_at === null) &&
-  (typeof value.error_message === 'string' || value.error_message === null)
+  typeof value.scanned_files === 'number'
 
 const isScanRuntimeItem = (value: unknown): value is ScanRuntimeItem =>
   isRecord(value) &&
@@ -60,141 +43,98 @@ const isScanRuntimeItem = (value: unknown): value is ScanRuntimeItem =>
   typeof value.item_key === 'string' &&
   typeof value.media_type === 'string' &&
   typeof value.title === 'string' &&
-  (typeof value.year === 'number' || value.year === null) &&
-  (typeof value.overview === 'string' || value.overview === null) &&
-  (typeof value.poster_path === 'string' || value.poster_path === null) &&
-  (typeof value.backdrop_path === 'string' || value.backdrop_path === null) &&
-  (typeof value.metadata_status === 'string' || value.metadata_status === null) &&
-  (typeof value.remote_media_type === 'string' || value.remote_media_type === null) &&
-  (typeof value.season_number === 'number' || value.season_number === null) &&
-  (typeof value.episode_number === 'number' || value.episode_number === null) &&
   typeof value.item_index === 'number' &&
   typeof value.total_items === 'number' &&
   typeof value.stage === 'string' &&
   typeof value.progress_percent === 'number'
 
-const parseRealtimeEvent = (raw: string): ScanJobRealtimeEvent | null => {
+const parseResourcesChanged = (raw: string): ResourcesChangedPayload | null => {
   try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!isRecord(parsed)) {
+    const value: unknown = JSON.parse(raw)
+    if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.changes)) {
       return null
     }
-
-    if (parsed.type === 'scan.job.updated' && isScanJob(parsed.scan_job)) {
-      return {
-        type: 'scan.job.updated',
-        scan_job: parsed.scan_job,
-      }
-    }
-
-    if (parsed.type === 'scan.job.finished' && isScanJob(parsed.scan_job)) {
-      return {
-        type: 'scan.job.finished',
-        scan_job: parsed.scan_job,
-      }
-    }
-
-    if (parsed.type === 'scan.item.updated' && isScanRuntimeItem(parsed.item)) {
-      return {
-        type: 'scan.item.updated',
-        item: parsed.item,
-      }
-    }
-
-    if (parsed.type === 'library.updated' && isNumber(parsed.library_id)) {
-      return {
-        type: 'library.updated',
-        library_id: parsed.library_id,
-      }
-    }
-
-    if (parsed.type === 'library.deleted' && isNumber(parsed.library_id)) {
-      return {
-        type: 'library.deleted',
-        library_id: parsed.library_id,
-      }
-    }
-
-    if (
-      parsed.type === 'media_item.metadata.updated' &&
-      isNumber(parsed.library_id) &&
-      isNumber(parsed.media_item_id)
-    ) {
-      return {
-        type: 'media_item.metadata.updated',
-        library_id: parsed.library_id,
-        media_item_id: parsed.media_item_id,
-      }
-    }
-
-    return null
+    const changes = value.changes.filter(
+      (change): change is ResourceChange =>
+        isRecord(change) &&
+        typeof change.resource === 'string' &&
+        typeof change.revision === 'number',
+    )
+    return { version: 1, changes }
   } catch {
     return null
   }
 }
 
-const patchLibraryLastScan = (current: LibraryDetail | undefined, scanJob: ScanJob) => {
-  if (!current) {
-    return current
-  }
-
-  return {
-    ...current,
-    last_scan: scanJob,
+const parseScanProgress = (raw: string): ScanProgressPayload | null => {
+  try {
+    const value: unknown = JSON.parse(raw)
+    if (
+      !isRecord(value) ||
+      value.version !== 1 ||
+      !isScanJob(value.scan_job) ||
+      !Array.isArray(value.items)
+    ) {
+      return null
+    }
+    return {
+      version: 1,
+      scan_job: value.scan_job,
+      items: value.items.filter(isScanRuntimeItem),
+    }
+  } catch {
+    return null
   }
 }
 
-const removeLibraryScanRuntime = (
-  current: ScanRuntimeByLibrary,
-  libraryId: number,
-): ScanRuntimeByLibrary => {
-  if (!(libraryId in current)) {
-    return current
+const mergeScanRuntimeItems = (
+  current: ScanRuntimeItem[],
+  incoming: ScanRuntimeItem[],
+  scanJobId: number,
+) => {
+  const latestByKey = new Map(
+    current.filter((item) => item.scan_job_id === scanJobId).map((item) => [item.item_key, item]),
+  )
+  for (const item of incoming) {
+    latestByKey.set(item.item_key, item)
   }
-
-  const next = { ...current }
-  delete next[libraryId]
-  return next
+  return [...latestByKey.values()]
+    .sort((left, right) => right.item_index - left.item_index)
+    .slice(0, MAX_SCAN_RUNTIME_ITEMS_PER_LIBRARY)
 }
 
-const replaceLibraryScanRuntime = (
+const applyScanPayload = (
   current: ScanRuntimeByLibrary,
-  libraryId: number,
-  item: ScanRuntimeItem,
-): ScanRuntimeByLibrary => {
-  const previousRuntime = current[libraryId]
-  const previousItems = previousRuntime?.items ?? []
-  const nextItems = [
-    item,
-    ...previousItems.filter(
-      (entry) => entry.scan_job_id === item.scan_job_id && entry.item_key !== item.item_key,
+  payload: ScanProgressPayload,
+): ScanRuntimeByLibrary => ({
+  ...current,
+  [payload.scan_job.library_id]: {
+    scanJob: payload.scan_job,
+    items: mergeScanRuntimeItems(
+      current[payload.scan_job.library_id]?.items ?? [],
+      payload.items,
+      payload.scan_job.id,
     ),
-  ].slice(0, MAX_SCAN_RUNTIME_ITEMS_PER_LIBRARY)
+  },
+})
 
-  return {
-    ...current,
-    [libraryId]: {
-      items: nextItems,
-      scanJob: previousRuntime?.scanJob ?? null,
-    },
+const buildActiveScanRuntime = (state: RealtimeState): ScanRuntimeByLibrary =>
+  Object.fromEntries(
+    state.active_scans.map((scanJob) => [
+      scanJob.library_id,
+      {
+        scanJob,
+        items: [],
+      },
+    ]),
+  )
+
+const libraryResource = (resource: string) => {
+  const match = /^library:(\d+):(settings|catalog|scan)$/.exec(resource)
+  if (!match) {
+    return null
   }
-}
-
-const replaceLibraryScanJob = (
-  current: ScanRuntimeByLibrary,
-  libraryId: number,
-  scanJob: ScanJob,
-): ScanRuntimeByLibrary => {
-  const currentRuntime = current[libraryId]
-  const nextItems = currentRuntime?.items.filter((item) => item.scan_job_id === scanJob.id) ?? []
-
-  return {
-    ...current,
-    [libraryId]: {
-      items: nextItems,
-      scanJob,
-    },
-  }
+  return { id: Number(match[1]), kind: match[2] }
 }
 
 export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
@@ -202,8 +142,10 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
   const location = useLocation()
   const navigate = useNavigate()
   const pathnameRef = useRef(location.pathname)
-  const hasOpenedRef = useRef(false)
-  const shouldRecoverRef = useRef(false)
+  const serverEpochRef = useRef<string | null>(null)
+  const appliedRevisionsRef = useRef(new Map<string, number>())
+  const requestedRevisionsRef = useRef(new Map<string, number>())
+  const inFlightResourcesRef = useRef(new Set<string>())
   const [scanRuntimeByLibrary, setScanRuntimeByLibrary] = useState<ScanRuntimeByLibrary>({})
 
   useEffect(() => {
@@ -213,245 +155,217 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
   useEffect(() => {
     if (!enabled || typeof EventSource === 'undefined') {
       setScanRuntimeByLibrary({})
+      serverEpochRef.current = null
+      appliedRevisionsRef.current.clear()
+      requestedRevisionsRef.current.clear()
+      inFlightResourcesRef.current.clear()
       return
     }
 
+    let disposed = false
     const eventSource = new EventSource(SERVER_EVENTS_URL)
 
-    const syncLibraryDetail = async (libraryId: number) => {
-      const detail = await queryClient.fetchQuery({
-        queryKey: ['home-library-detail', libraryId],
-        queryFn: () => getLibrary(libraryId),
-      })
+    const invalidateResource = async (resource: string) => {
+      const tasks: Promise<unknown>[] = []
+      const library = libraryResource(resource)
 
-      queryClient.setQueryData(['library', libraryId], detail)
-      return detail
+      if (resource === 'libraries' || resource.endsWith(':libraries')) {
+        tasks.push(
+          queryClient.invalidateQueries({ queryKey: ['libraries'] }),
+          queryClient.invalidateQueries({ queryKey: ['home'] }),
+        )
+      } else if (library?.kind === 'settings') {
+        tasks.push(
+          queryClient.invalidateQueries({ queryKey: ['libraries'] }),
+          queryClient.invalidateQueries({ queryKey: ['library', library.id] }),
+          queryClient.invalidateQueries({ queryKey: ['home'] }),
+        )
+      } else if (library?.kind === 'catalog') {
+        tasks.push(
+          queryClient.invalidateQueries({ queryKey: ['library', library.id] }),
+          queryClient.invalidateQueries({ queryKey: ['library-media', library.id] }),
+          queryClient.invalidateQueries({ queryKey: ['home'] }),
+        )
+
+        const mediaMatch = matchPath('/media-items/:mediaItemId', pathnameRef.current)
+        const mediaItemId = Number(mediaMatch?.params.mediaItemId)
+        if (Number.isFinite(mediaItemId)) {
+          tasks.push(
+            queryClient.invalidateQueries({ queryKey: ['media-item', mediaItemId] }),
+            queryClient.invalidateQueries({ queryKey: ['media-episode-outline', mediaItemId] }),
+          )
+        }
+      } else if (library?.kind === 'scan') {
+        tasks.push(
+          queryClient.invalidateQueries({ queryKey: ['library', library.id] }),
+          queryClient.invalidateQueries({ queryKey: ['home'] }),
+        )
+      } else if (resource.endsWith(':continue-watching')) {
+        tasks.push(
+          queryClient.invalidateQueries({ queryKey: ['continue-watching'] }),
+          queryClient.invalidateQueries({ queryKey: ['home'] }),
+        )
+      } else if (resource.endsWith(':profile')) {
+        tasks.push(
+          queryClient.invalidateQueries({ queryKey: ['current-user'] }),
+          queryClient.invalidateQueries({ queryKey: ['home'] }),
+        )
+      } else if (resource === 'admin:users') {
+        tasks.push(queryClient.invalidateQueries({ queryKey: ['users'] }))
+      } else {
+        tasks.push(queryClient.invalidateQueries({ queryKey: ['home'] }))
+      }
+
+      await Promise.all(tasks)
     }
 
-    const recoverQueriesAfterReconnect = () => {
-      const activeLibraryMatch = matchPath('/libraries/:libraryId', pathnameRef.current)
-      const activeMediaItemMatch = matchPath('/media-items/:mediaItemId', pathnameRef.current)
-      const activeLibraryId =
-        activeLibraryMatch?.params.libraryId !== undefined
-          ? Number(activeLibraryMatch.params.libraryId)
-          : Number.NaN
-      const activeMediaItemId =
-        activeMediaItemMatch?.params.mediaItemId !== undefined
-          ? Number(activeMediaItemMatch.params.mediaItemId)
-          : Number.NaN
-
-      setScanRuntimeByLibrary({})
-
-      const recoveryTasks = [
-        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
-        queryClient.invalidateQueries({ queryKey: ['continue-watching'] }),
-        queryClient.invalidateQueries({ queryKey: ['home-library-detail'] }),
-        queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
-      ]
-
-      if (Number.isFinite(activeLibraryId)) {
-        recoveryTasks.push(
-          queryClient.invalidateQueries({ queryKey: ['library', activeLibraryId] }),
-          queryClient.invalidateQueries({ queryKey: ['library-media', activeLibraryId] }),
-        )
+    const queueResourceRefresh = (resource: string, revision: number) => {
+      if (revision <= (appliedRevisionsRef.current.get(resource) ?? 0)) {
+        return
+      }
+      requestedRevisionsRef.current.set(
+        resource,
+        Math.max(revision, requestedRevisionsRef.current.get(resource) ?? 0),
+      )
+      if (inFlightResourcesRef.current.has(resource)) {
+        return
       }
 
-      if (Number.isFinite(activeMediaItemId)) {
-        recoveryTasks.push(
-          queryClient.invalidateQueries({ queryKey: ['media-item', activeMediaItemId] }),
-          queryClient.invalidateQueries({ queryKey: ['media-episode-outline', activeMediaItemId] }),
-          queryClient.invalidateQueries({
-            queryKey: ['media-item-playback-progress', activeMediaItemId],
-          }),
-        )
+      inFlightResourcesRef.current.add(resource)
+      const run = async () => {
+        while (!disposed) {
+          const targetRevision = requestedRevisionsRef.current.get(resource) ?? 0
+          try {
+            await invalidateResource(resource)
+            appliedRevisionsRef.current.set(resource, targetRevision)
+          } catch {
+            return
+          }
+          if ((requestedRevisionsRef.current.get(resource) ?? 0) <= targetRevision) {
+            return
+          }
+        }
       }
 
-      void Promise.all(recoveryTasks)
+      void run().finally(() => {
+        inFlightResourcesRef.current.delete(resource)
+      })
+    }
+
+    const reconcileState = async () => {
+      if (serverEpochRef.current === null) {
+        await queryClient.refetchQueries({ queryKey: ['home'], type: 'active' })
+      }
+      const state = await getRealtimeState()
+      if (disposed || state.protocol_version !== 1) {
+        return
+      }
+
+      setScanRuntimeByLibrary(buildActiveScanRuntime(state))
+      const homeSnapshot = queryClient.getQueryData<HomeResponse>(['home'])
+      if (serverEpochRef.current === null && homeSnapshot?.realtime) {
+        serverEpochRef.current = homeSnapshot.realtime.server_epoch
+        appliedRevisionsRef.current = new Map(Object.entries(homeSnapshot.realtime.resources))
+      }
+      const firstSnapshot = serverEpochRef.current === null
+      const epochChanged = !firstSnapshot && serverEpochRef.current !== state.server_epoch
+      serverEpochRef.current = state.server_epoch
+
+      if (epochChanged) {
+        requestedRevisionsRef.current.clear()
+        appliedRevisionsRef.current.clear()
+        await queryClient.invalidateQueries()
+        if (!disposed) {
+          appliedRevisionsRef.current = new Map(Object.entries(state.resources))
+        }
+        return
+      }
+
+      for (const [resource, revision] of Object.entries(state.resources)) {
+        if (firstSnapshot) {
+          appliedRevisionsRef.current.set(resource, revision)
+        } else if (epochChanged || revision > (appliedRevisionsRef.current.get(resource) ?? 0)) {
+          queueResourceRefresh(resource, revision)
+        }
+      }
     }
 
     const handleOpen = () => {
-      if (!hasOpenedRef.current) {
-        hasOpenedRef.current = true
-        shouldRecoverRef.current = false
-        return
-      }
-
-      if (!shouldRecoverRef.current) {
-        return
-      }
-
-      shouldRecoverRef.current = false
-      recoverQueriesAfterReconnect()
+      void reconcileState()
     }
 
-    const handleError = () => {
-      shouldRecoverRef.current = true
-    }
-
-    const handleScanJobUpdated = (event: MessageEvent<string>) => {
-      const payload = parseRealtimeEvent(event.data)
-      if (!payload || payload.type !== 'scan.job.updated') {
+    const handleResourcesChanged = (event: MessageEvent<string>) => {
+      const payload = parseResourcesChanged(event.data)
+      if (!payload) {
         return
       }
+      for (const change of payload.changes) {
+        queueResourceRefresh(change.resource, change.revision)
+      }
+    }
 
-      queryClient.setQueryData<LibraryDetail | undefined>(
-        ['library', payload.scan_job.library_id],
-        (current) => patchLibraryLastScan(current, payload.scan_job),
-      )
-      queryClient.setQueryData<LibraryDetail | undefined>(
-        ['home-library-detail', payload.scan_job.library_id],
-        (current) => patchLibraryLastScan(current, payload.scan_job),
-      )
-      setScanRuntimeByLibrary((current) =>
-        replaceLibraryScanJob(current, payload.scan_job.library_id, payload.scan_job),
+    const handleScanProgress = (event: MessageEvent<string>) => {
+      const payload = parseScanProgress(event.data)
+      if (!payload) {
+        return
+      }
+      setScanRuntimeByLibrary((current) => applyScanPayload(current, payload))
+      queryClient.setQueryData(['library', payload.scan_job.library_id], (current: unknown) =>
+        isRecord(current) ? { ...current, last_scan: payload.scan_job } : current,
       )
     }
 
-    const handleScanJobFinished = (event: MessageEvent<string>) => {
-      const payload = parseRealtimeEvent(event.data)
-      if (!payload || payload.type !== 'scan.job.finished') {
+    const handleScanFinished = (event: MessageEvent<string>) => {
+      handleScanProgress(event)
+      const payload = parseScanProgress(event.data)
+      if (!payload) {
         return
       }
+      window.setTimeout(() => {
+        if (disposed) {
+          return
+        }
+        setScanRuntimeByLibrary((current) => {
+          if (current[payload.scan_job.library_id]?.scanJob?.id !== payload.scan_job.id) {
+            return current
+          }
+          const next = { ...current }
+          delete next[payload.scan_job.library_id]
+          return next
+        })
+      }, 1_500)
+    }
 
-      queryClient.setQueryData<LibraryDetail | undefined>(
-        ['library', payload.scan_job.library_id],
-        (current) => patchLibraryLastScan(current, payload.scan_job),
-      )
-      queryClient.setQueryData<LibraryDetail | undefined>(
-        ['home-library-detail', payload.scan_job.library_id],
-        (current) => patchLibraryLastScan(current, payload.scan_job),
-      )
-      setScanRuntimeByLibrary((current) =>
-        replaceLibraryScanJob(current, payload.scan_job.library_id, payload.scan_job),
-      )
+    const handleResyncRequired = () => {
+      void reconcileState()
+    }
 
-      // 扫描结束后再统一刷新重查询，避免每条进度事件都触发一轮 HTTP refetch。
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['library', payload.scan_job.library_id] }),
-        queryClient.invalidateQueries({ queryKey: ['library-media', payload.scan_job.library_id] }),
-        queryClient.invalidateQueries({
-          queryKey: ['home-library-detail', payload.scan_job.library_id],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ['recently-added-by-library'],
-        }),
-      ]).finally(() => {
-        setScanRuntimeByLibrary((current) =>
-          removeLibraryScanRuntime(current, payload.scan_job.library_id),
-        )
+    const handleSessionInvalidated = () => {
+      eventSource.close()
+      void queryClient.invalidateQueries({ queryKey: ['current-user'] }).finally(() => {
+        navigate('/login', { replace: true })
       })
     }
 
-    const handleScanItemUpdated = (event: MessageEvent<string>) => {
-      const payload = parseRealtimeEvent(event.data)
-      if (!payload || payload.type !== 'scan.item.updated') {
-        return
-      }
-
-      setScanRuntimeByLibrary((current) =>
-        replaceLibraryScanRuntime(current, payload.item.library_id, payload.item),
-      )
-
-      if (payload.item.stage !== 'completed') {
-        return
-      }
-
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['library', payload.item.library_id] }),
-        queryClient.invalidateQueries({ queryKey: ['library-media', payload.item.library_id] }),
-        queryClient.invalidateQueries({
-          queryKey: ['home-library-detail', payload.item.library_id],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ['recently-added-by-library'],
-        }),
-      ])
-    }
-
-    const handleLibraryUpdated = (event: MessageEvent<string>) => {
-      const payload = parseRealtimeEvent(event.data)
-      if (!payload || payload.type !== 'library.updated') {
-        return
-      }
-
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
-        queryClient.invalidateQueries({ queryKey: ['library', payload.library_id] }),
-        queryClient.invalidateQueries({ queryKey: ['library-media', payload.library_id] }),
-        queryClient.invalidateQueries({ queryKey: ['home-library-detail', payload.library_id] }),
-        queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
-        syncLibraryDetail(payload.library_id).catch(() => undefined),
-      ])
-    }
-
-    const handleLibraryDeleted = (event: MessageEvent<string>) => {
-      const payload = parseRealtimeEvent(event.data)
-      if (!payload || payload.type !== 'library.deleted') {
-        return
-      }
-
-      const activeLibraryMatch = matchPath('/libraries/:libraryId', pathnameRef.current)
-      const activeLibraryId =
-        activeLibraryMatch?.params.libraryId !== undefined
-          ? Number(activeLibraryMatch.params.libraryId)
-          : Number.NaN
-
-      queryClient.removeQueries({ queryKey: ['library', payload.library_id] })
-      queryClient.removeQueries({ queryKey: ['library-media', payload.library_id] })
-      queryClient.removeQueries({ queryKey: ['home-library-detail', payload.library_id] })
-      setScanRuntimeByLibrary((current) => removeLibraryScanRuntime(current, payload.library_id))
-
-      void queryClient.invalidateQueries({ queryKey: ['libraries'] })
-      void queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] })
-
-      if (activeLibraryId === payload.library_id) {
-        window.alert('This library was deleted. Click OK to return home.')
-        navigate('/', { replace: true })
-      }
-    }
-
-    const handleMediaItemMetadataUpdated = (event: MessageEvent<string>) => {
-      const payload = parseRealtimeEvent(event.data)
-      if (!payload || payload.type !== 'media_item.metadata.updated') {
-        return
-      }
-
-      void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['media-item', payload.media_item_id] }),
-        queryClient.invalidateQueries({
-          queryKey: ['media-episode-outline', payload.media_item_id],
-        }),
-        queryClient.invalidateQueries({ queryKey: ['library-media', payload.library_id] }),
-        queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
-        queryClient.invalidateQueries({ queryKey: ['continue-watching'] }),
-      ])
-    }
-
-    eventSource.addEventListener('scan.job.updated', handleScanJobUpdated as EventListener)
-    eventSource.addEventListener('scan.job.finished', handleScanJobFinished as EventListener)
-    eventSource.addEventListener('scan.item.updated', handleScanItemUpdated as EventListener)
-    eventSource.addEventListener('library.updated', handleLibraryUpdated as EventListener)
-    eventSource.addEventListener('library.deleted', handleLibraryDeleted as EventListener)
-    eventSource.addEventListener(
-      'media_item.metadata.updated',
-      handleMediaItemMetadataUpdated as EventListener,
-    )
     eventSource.addEventListener('open', handleOpen as EventListener)
-    eventSource.addEventListener('error', handleError as EventListener)
+    eventSource.addEventListener('resources.changed', handleResourcesChanged as EventListener)
+    eventSource.addEventListener('scan.progress', handleScanProgress as EventListener)
+    eventSource.addEventListener('scan.finished', handleScanFinished as EventListener)
+    eventSource.addEventListener('resync.required', handleResyncRequired as EventListener)
+    eventSource.addEventListener('session.invalidated', handleSessionInvalidated as EventListener)
 
     return () => {
-      eventSource.removeEventListener('scan.job.updated', handleScanJobUpdated as EventListener)
-      eventSource.removeEventListener('scan.job.finished', handleScanJobFinished as EventListener)
-      eventSource.removeEventListener('scan.item.updated', handleScanItemUpdated as EventListener)
-      eventSource.removeEventListener('library.updated', handleLibraryUpdated as EventListener)
-      eventSource.removeEventListener('library.deleted', handleLibraryDeleted as EventListener)
-      eventSource.removeEventListener(
-        'media_item.metadata.updated',
-        handleMediaItemMetadataUpdated as EventListener,
-      )
-      eventSource.removeEventListener('open', handleOpen as EventListener)
-      eventSource.removeEventListener('error', handleError as EventListener)
+      disposed = true
       eventSource.close()
+      eventSource.removeEventListener('open', handleOpen as EventListener)
+      eventSource.removeEventListener('resources.changed', handleResourcesChanged as EventListener)
+      eventSource.removeEventListener('scan.progress', handleScanProgress as EventListener)
+      eventSource.removeEventListener('scan.finished', handleScanFinished as EventListener)
+      eventSource.removeEventListener('resync.required', handleResyncRequired as EventListener)
+      eventSource.removeEventListener(
+        'session.invalidated',
+        handleSessionInvalidated as EventListener,
+      )
     }
   }, [enabled, navigate, queryClient])
 

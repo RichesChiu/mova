@@ -64,6 +64,7 @@
 | 文件 | 作用 |
 | --- | --- |
 | `src/libraries.rs` | 媒体库创建、更新、删除、详情与列表。 |
+| `src/home.rs` | 通过批量数据库查询组合当前用户首页的有界快照：每库最多 16 条预览、每库最多 8 条最新添加和最多 20 条继续观看，不加载完整媒体目录，也不产生按库 N+1 查询。 |
 | `src/users.rs` | 用户创建、编辑、删除、登录、登出、bootstrap、昵称更新、密码修改、库授权。 |
 | `src/scan_jobs.rs` | 扫描任务入队、执行、进度事件、取消态和任务查询。 |
 | `src/file_sync.rs` | 手动扫库或显式路径同步时的库存对齐与增量写入。 |
@@ -89,6 +90,10 @@
 - `list_libraries`
 - `get_library`
 - `get_library_detail`
+
+### 首页
+
+- `get_home_snapshot`
 
 ### 用户与认证
 
@@ -162,7 +167,7 @@
 - 已经完整匹配、文件指纹未变化、本地分析版本未变化、且已有 TMDB 绑定的路径，不会重新跑拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存或数据库 upsert；即使 TMDB 没有可用海报，也保持稳定跳过
 - 对新增、变化、本地分析版本过期的路径先调用 `mova-scan::inspect_media_file_inventory_shallow` 做浅层文件名 / 路径解析，不读取 sidecar、不调用 `ffprobe`，只用来建立稳定的电影或剧集扫描组，避免前端先看到 `A.S01E01` 这类临时错误卡片
 - 对文件指纹和本地分析版本都未变化，但状态仍为中断遗留的 `pending`、`unmatched`、`failed`，旧状态为 `skipped` 且当前已启用 TMDB、缺少 TMDB provider 绑定、按前端 Other 规则缺少可用远端信息、仍保留远端图片 URL，或已绑定 TMDB 但展示名仍等于本地带年份占位名的路径，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时可直接从数据库恢复上次本地分析结果，跳过拆名、sidecar、`ffprobe`，只进入后续 TMDB 补全
-- 浅层聚合完成后，服务端按扫描组逐个调用完整本地分析：读取 sidecar、调用 `ffprobe`、补音轨字幕和技术标签；每个组完成后立即写入数据库并推送 `scan.item.updated stage=discovered`，然后才继续处理下一组
+- 浅层聚合完成后，服务端按扫描组逐个调用完整本地分析：读取 sidecar、调用 `ffprobe`、补音轨字幕和技术标签；每个组完成后立即写入数据库并产生临时 `ScanJobEvent::ItemUpdated`，由服务端合并进批量 `scan.progress` 后再继续处理下一组
 - 完整本地分析后的中间写库统一使用 `metadata_status = pending`；此时电影 / 剧集只代表本地结构猜测，Web 按该猜测展示扫描卡，不进入 Other。每个组完成远端确认后才收敛到最终 metadata 状态，只有最终无法确认类型或本地结构与远端类型冲突的条目进入 Other
 - 远端补全阶段才按本地聚合组串行访问 TMDB 做类型确认、metadata、海报和本地图片缓存；同一剧集组只做一次剧集 metadata 查询，再把 TMDB 标题和剧集级海报应用到组内所有集；电影会优先按 TMDB `provider_item_id` 聚合成本地多版本，避免 `Avatar: Fire and Ash` / `Avatar： Fire and Ash` 这类本地标点差异生成两个影片；如果旧条目已有海报和简介但缺少 `metadata_provider_item_id`，仍必须重新请求 TMDB 拿到 provider id 后再合并为多版本；进入补全链路的已绑定条目会优先按既有 TMDB id 精确刷新；图片字段只写入当前层级、当前字段自己的图，缺图时保持为空，不再用搜索结果图片、英文详情图片、其它层级图片或另一个图片字段兜底；中文元数据库里，如果季目录上一级或无季目录时的直接父级目录提供中文剧名，会把该中文剧名作为补充候选，覆盖 `莎拉的真伪人生(2026)/The.Art.of.Sarah.S01E01.mkv` 这类平铺剧集目录；电影仍以文件名解析出的标题和年份为主，如果直接父级目录是明确中文片名，会作为后备 TMDB 查询候选，覆盖 `过家家/Unexpected Family (2026) - 2160p ...` 这类中英文不一致的电影目录；自动候选选择保持保守，只接受标题和年份足够明确的匹配；更宽松的候选复核交给手动搜索 / 替换元数据；成功后标记 `metadata_status = matched` 并立即覆盖写库；TMDB 请求错误会标记 `metadata_status = failed` / `metadata_failure_reason = metadata_provider_error`，失败或从未成功访问过 TMDB 的条目会在后续手动扫描中重试
 - 对剧集会从文件名里的 `SxxExx` 先拆出剧名和年份做组级元数据匹配；文件名里的年份只作为匹配提示，不作为剧集身份键，所以 `The Boys (2019) - S01E01` 和 `The Boys (2020) - S02E01` 会聚合到同一剧集；`The.BeautyS01E01` 这类标题后直接跟 `SxxExx` 的文件名也会拆出剧名和季集号

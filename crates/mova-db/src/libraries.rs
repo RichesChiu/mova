@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use mova_domain::Library;
+use mova_domain::{Library, LibraryDetail, ScanJob};
 use sqlx::{
     postgres::{PgPool, PgRow},
     Row,
@@ -39,6 +39,106 @@ pub async fn list_libraries(pool: &PgPool) -> Result<Vec<Library>> {
     let libraries = rows.into_iter().map(map_library_row).collect();
 
     Ok(libraries)
+}
+
+/// 批量读取首页需要的媒体库摘要，避免首页按库重复查询统计和最近扫描。
+pub async fn list_library_details(
+    pool: &PgPool,
+    visible_library_ids: Option<&[i64]>,
+) -> Result<Vec<LibraryDetail>> {
+    if visible_library_ids.is_some_and(|ids| ids.is_empty()) {
+        return Ok(Vec::new());
+    }
+
+    let rows = sqlx::query(
+        r#"
+        select
+            l.id,
+            l.name,
+            l.description,
+            l.library_type,
+            l.metadata_language,
+            l.root_path,
+            l.created_at,
+            l.updated_at,
+            count(mi.id) filter (where mi.media_type in ('movie', 'series')) as media_count,
+            count(mi.id) filter (where mi.media_type = 'movie') as movie_count,
+            count(mi.id) filter (where mi.media_type = 'series') as series_count,
+            latest_scan.id as scan_id,
+            latest_scan.status as scan_status,
+            latest_scan.phase as scan_phase,
+            latest_scan.total_files as scan_total_files,
+            latest_scan.scanned_files as scan_scanned_files,
+            latest_scan.created_at as scan_created_at,
+            latest_scan.started_at as scan_started_at,
+            latest_scan.finished_at as scan_finished_at,
+            latest_scan.error_message as scan_error_message
+        from libraries l
+        left join media_items mi on mi.library_id = l.id
+        left join lateral (
+            select
+                id,
+                status,
+                phase,
+                total_files,
+                scanned_files,
+                created_at,
+                started_at,
+                finished_at,
+                error_message
+            from scan_jobs
+            where library_id = l.id
+            order by created_at desc, id desc
+            limit 1
+        ) latest_scan on true
+        where $1::bigint[] is null or l.id = any($1)
+        group by
+            l.id,
+            latest_scan.id,
+            latest_scan.status,
+            latest_scan.phase,
+            latest_scan.total_files,
+            latest_scan.scanned_files,
+            latest_scan.created_at,
+            latest_scan.started_at,
+            latest_scan.finished_at,
+            latest_scan.error_message
+        order by l.created_at asc, l.id asc
+        "#,
+    )
+    .bind(visible_library_ids)
+    .fetch_all(pool)
+    .await
+    .context("failed to list library details")?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let library_id = row.get("id");
+            let media_count = row.get("media_count");
+            let movie_count = row.get("movie_count");
+            let series_count = row.get("series_count");
+            let last_scan = row.get::<Option<i64>, _>("scan_id").map(|id| ScanJob {
+                id,
+                library_id,
+                status: row.get("scan_status"),
+                phase: row.get("scan_phase"),
+                total_files: row.get("scan_total_files"),
+                scanned_files: row.get("scan_scanned_files"),
+                created_at: row.get("scan_created_at"),
+                started_at: row.get("scan_started_at"),
+                finished_at: row.get("scan_finished_at"),
+                error_message: row.get("scan_error_message"),
+            });
+            LibraryDetail {
+                library: map_library_row(row),
+                media_count,
+                movie_count,
+                series_count,
+                last_scan,
+            }
+        })
+        .collect())
 }
 
 /// 按主键读取单个媒体库，供扫描和详情类接口复用。

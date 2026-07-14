@@ -10,7 +10,7 @@ use std::{
 use time::UtcOffset;
 use tokio::sync::Notify;
 
-pub use crate::realtime::RealtimeHub;
+pub use crate::realtime::{RealtimeDispatcherHandle, RealtimeHub};
 
 /// 通过 Axum state 注入到各个 handler 的共享依赖。
 #[derive(Clone)]
@@ -21,6 +21,23 @@ pub struct AppState {
     pub metadata_provider: Arc<dyn mova_application::MetadataProvider>,
     pub scan_registry: ScanRegistry,
     pub realtime_hub: RealtimeHub,
+    pub realtime_dispatcher: RealtimeDispatcherHandle,
+    pub background_jobs: BackgroundJobNotifier,
+}
+
+#[derive(Clone, Default)]
+pub struct BackgroundJobNotifier {
+    notify: Arc<Notify>,
+}
+
+impl BackgroundJobNotifier {
+    pub fn wake(&self) {
+        self.notify.notify_waiters();
+    }
+
+    pub async fn wait(&self) {
+        self.notify.notified().await;
+    }
 }
 
 /// 记录当前进程内活跃扫描任务和正在删除的媒体库。
@@ -59,6 +76,7 @@ pub enum BeginDeleteError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegisterScanError {
     DeleteInProgress,
+    AlreadyRunning,
 }
 
 pub struct DeleteGuard {
@@ -95,6 +113,9 @@ impl ScanRegistry {
         let mut inner = self.inner.lock().expect("scan registry lock poisoned");
         if inner.deleting_libraries.contains(&library_id) {
             return Err(RegisterScanError::DeleteInProgress);
+        }
+        if inner.active_scans.contains_key(&library_id) {
+            return Err(RegisterScanError::AlreadyRunning);
         }
 
         let cancel_flag = Arc::new(AtomicBool::new(false));

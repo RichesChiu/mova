@@ -12,6 +12,7 @@ use sqlx::{
     postgres::{PgPool, PgRow},
     Row,
 };
+use std::collections::HashMap;
 use time::OffsetDateTime;
 
 /// 读取某个媒体库下当前已经入库的媒体条目。
@@ -94,6 +95,95 @@ pub async fn list_media_items_for_library(
         items: rows.into_iter().map(map_media_item_row).collect(),
         total: total_row.get("total"),
     })
+}
+
+/// 批量读取多个媒体库的有界首页预览，避免首页按媒体库产生 N 次列表查询。
+pub async fn list_media_item_previews_by_library(
+    pool: &PgPool,
+    library_ids: &[i64],
+    item_limit: i64,
+) -> Result<HashMap<i64, Vec<MediaItem>>> {
+    if library_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let rows = sqlx::query(
+        r#"
+        with ranked_items as (
+            select
+                id,
+                library_id,
+                media_type,
+                title,
+                source_title,
+                original_title,
+                sort_title,
+                metadata_provider,
+                metadata_provider_item_id,
+                metadata_status,
+                metadata_failure_reason,
+                remote_media_type,
+                year,
+                imdb_rating,
+                country,
+                genres,
+                studio,
+                overview,
+                poster_path,
+                backdrop_path,
+                created_at,
+                updated_at,
+                row_number() over (
+                    partition by library_id
+                    order by lower(coalesce(nullif(title, ''), source_title)) asc, id asc
+                ) as item_rank
+            from media_items
+            where library_id = any($1)
+              and media_type in ('movie', 'series')
+        )
+        select
+            id,
+            library_id,
+            media_type,
+            title,
+            source_title,
+            original_title,
+            sort_title,
+            metadata_provider,
+            metadata_provider_item_id,
+            metadata_status,
+            metadata_failure_reason,
+            remote_media_type,
+            year,
+            imdb_rating,
+            country,
+            genres,
+            studio,
+            overview,
+            poster_path,
+            backdrop_path,
+            created_at,
+            updated_at
+        from ranked_items
+        where item_rank <= $2
+        order by library_id asc, item_rank asc
+        "#,
+    )
+    .bind(library_ids)
+    .bind(item_limit.max(1))
+    .fetch_all(pool)
+    .await
+    .context("failed to list media item previews by library")?;
+
+    let mut items_by_library = HashMap::new();
+    for row in rows {
+        let item = map_media_item_row(row);
+        items_by_library
+            .entry(item.library_id)
+            .or_insert_with(Vec::new)
+            .push(item);
+    }
+    Ok(items_by_library)
 }
 
 /// 按媒体条目的入库时间，聚合每个可见媒体库最近新增的内容。

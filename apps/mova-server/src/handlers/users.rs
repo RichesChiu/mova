@@ -153,7 +153,9 @@ mod tests {
     use crate::{
         auth::{attach_session_cookie, SESSION_TTL},
         error::ApiError,
-        state::{AppState, RealtimeHub, ScanRegistry},
+        state::{
+            AppState, BackgroundJobNotifier, RealtimeDispatcherHandle, RealtimeHub, ScanRegistry,
+        },
     };
     use axum::{
         extract::{Path, State},
@@ -174,6 +176,8 @@ mod tests {
             metadata_provider: Arc::new(NullMetadataProvider),
             scan_registry: ScanRegistry::default(),
             realtime_hub: RealtimeHub::default(),
+            realtime_dispatcher: RealtimeDispatcherHandle::default(),
+            background_jobs: BackgroundJobNotifier::default(),
         }
     }
 

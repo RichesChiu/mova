@@ -8,12 +8,12 @@ pub use query::{
     get_season, get_series_episode_outline_cache, get_subtitle_file, global_search,
     list_audio_tracks_for_media_file, list_episodes_for_season,
     list_existing_media_metadata_for_file_paths, list_library_media_file_paths,
-    list_media_files_for_media_item, list_media_items_for_library,
-    list_recently_added_media_items_by_library, list_seasons_for_series,
-    list_series_media_item_ids_for_library, list_subtitle_files_for_media_file,
-    replace_audio_tracks_for_media_file, replace_subtitle_files_for_media_file,
-    update_media_file_metadata, update_media_item_metadata, update_season_intro_markers,
-    update_series_episode_metadata, update_series_season_metadata,
+    list_media_files_for_media_item, list_media_item_previews_by_library,
+    list_media_items_for_library, list_recently_added_media_items_by_library,
+    list_seasons_for_series, list_series_media_item_ids_for_library,
+    list_subtitle_files_for_media_file, replace_audio_tracks_for_media_file,
+    replace_subtitle_files_for_media_file, update_media_file_metadata, update_media_item_metadata,
+    update_season_intro_markers, update_series_episode_metadata, update_series_season_metadata,
     upsert_series_episode_outline_cache,
 };
 pub use sync::{

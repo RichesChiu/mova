@@ -1,5 +1,6 @@
 mod auth;
 mod health;
+mod home;
 mod libraries;
 mod media_files;
 mod media_items;
@@ -16,6 +17,10 @@ use axum::Router;
 /// 注册健康检查相关路由。
 pub fn health() -> Router<crate::state::AppState> {
     health::router()
+}
+
+pub fn home() -> Router<crate::state::AppState> {
+    home::router()
 }
 
 pub fn auth() -> Router<crate::state::AppState> {

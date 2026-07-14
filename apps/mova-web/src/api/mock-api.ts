@@ -4,6 +4,7 @@ import type {
   ContinueWatchingItem,
   EpisodeOutline,
   GlobalSearchResult,
+  HomeResponse,
   Library,
   LibraryDetail,
   MediaCastMember,
@@ -567,6 +568,33 @@ export const requestMockJson = async <T>(
 
   if (pathname === '/auth/me') {
     return mockResult(mockCurrentUser as T)
+  }
+  if (pathname === '/home') {
+    const homeURL = new URL(url)
+    homeURL.searchParams.set('limit', '8')
+    const home: HomeResponse = {
+      current_user: mockCurrentUser,
+      libraries: mockLibraries.flatMap((library) => {
+        const detail = libraryDetail(library.id)
+        return detail
+          ? [
+              {
+                library: detail,
+                preview_items: mockMediaItems
+                  .filter((item) => item.library_id === library.id)
+                  .slice(0, 16),
+              },
+            ]
+          : []
+      }),
+      recently_added: recentlyAddedByLibrary(homeURL),
+      continue_watching: continueWatching(homeURL),
+      realtime: {
+        server_epoch: 'mock-server',
+        resources: {},
+      },
+    }
+    return mockResult(home as T)
   }
   if (pathname === '/libraries') {
     return mockResult(mockLibraries as T)

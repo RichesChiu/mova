@@ -1,196 +1,485 @@
 use crate::response::{ScanItemProgressResponse, ScanJobResponse};
 use axum::response::sse::Event;
-use mova_application::{ScanJobItemProgressUpdate, ScanJobProgressUpdate};
+use mova_application::{ScanJobEvent, ScanJobProgressUpdate};
 use mova_domain::UserProfile;
 use serde::Serialize;
+use sqlx::postgres::{PgListener, PgPool};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 use time::UtcOffset;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 
-const REALTIME_EVENT_BUFFER_SIZE: usize = 256;
+const REALTIME_BATCH_BUFFER_SIZE: usize = 32;
+const DISPATCH_COMMAND_BUFFER_SIZE: usize = 2_048;
+const RESOURCE_BATCH_INTERVAL: Duration = Duration::from_millis(500);
+const SCAN_PROGRESS_BATCH_INTERVAL: Duration = Duration::from_millis(200);
+const CONTINUE_WATCHING_BATCH_INTERVAL: Duration = Duration::from_secs(1);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum RealtimeVisibility {
+    Public,
+    Admin,
+    Library(i64),
+    User(i64),
+}
+
+#[derive(Debug, Clone)]
+pub struct RealtimeMessage {
+    event_name: &'static str,
+    data: Arc<str>,
+    visibility: RealtimeVisibility,
+}
+
+impl RealtimeMessage {
+    fn json<T: Serialize>(
+        event_name: &'static str,
+        payload: &T,
+        visibility: RealtimeVisibility,
+    ) -> Option<Self> {
+        serde_json::to_string(payload).ok().map(|data| Self {
+            event_name,
+            data: Arc::from(data),
+            visibility,
+        })
+    }
+
+    pub fn event_name(&self) -> &'static str {
+        self.event_name
+    }
+
+    pub fn is_visible_to(&self, user: &UserProfile) -> bool {
+        match self.visibility {
+            RealtimeVisibility::Public => true,
+            RealtimeVisibility::Admin => user.is_admin(),
+            RealtimeVisibility::Library(library_id) => user.can_access_library(library_id),
+            RealtimeVisibility::User(user_id) => user.user.id == user_id,
+        }
+    }
+
+    pub fn to_sse_event(&self) -> Event {
+        Event::default()
+            .event(self.event_name)
+            .data(self.data.as_ref())
+    }
+}
 
 #[derive(Clone)]
 pub struct RealtimeHub {
-    sender: broadcast::Sender<RealtimeEvent>,
+    sender: broadcast::Sender<RealtimeMessage>,
 }
 
 impl Default for RealtimeHub {
     fn default() -> Self {
-        let (sender, _) = broadcast::channel(REALTIME_EVENT_BUFFER_SIZE);
+        let (sender, _) = broadcast::channel(REALTIME_BATCH_BUFFER_SIZE);
         Self { sender }
     }
 }
 
 impl RealtimeHub {
-    pub fn publish(&self, event: RealtimeEvent) {
-        let _ = self.sender.send(event);
+    fn publish(&self, message: RealtimeMessage) {
+        let _ = self.sender.send(message);
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<RealtimeEvent> {
+    pub fn subscribe(&self) -> broadcast::Receiver<RealtimeMessage> {
         self.sender.subscribe()
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum RealtimeEvent {
-    ScanJobUpdated { update: ScanJobProgressUpdate },
-    ScanJobFinished { update: ScanJobProgressUpdate },
-    ScanItemUpdated { item: ScanJobItemProgressUpdate },
-    LibraryUpdated { library_id: i64 },
-    LibraryDeleted { library_id: i64 },
-    MediaItemMetadataUpdated { library_id: i64, media_item_id: i64 },
+#[derive(Clone)]
+pub struct RealtimeDispatcherHandle {
+    sender: mpsc::Sender<RealtimeCommand>,
 }
 
-impl RealtimeEvent {
-    pub fn event_name(&self) -> &'static str {
-        match self {
-            Self::ScanJobUpdated { .. } => "scan.job.updated",
-            Self::ScanJobFinished { .. } => "scan.job.finished",
-            Self::ScanItemUpdated { .. } => "scan.item.updated",
-            Self::LibraryUpdated { .. } => "library.updated",
-            Self::LibraryDeleted { .. } => "library.deleted",
-            Self::MediaItemMetadataUpdated { .. } => "media_item.metadata.updated",
+impl RealtimeDispatcherHandle {
+    pub fn publish_scan_event(&self, event: ScanJobEvent) {
+        if self
+            .sender
+            .try_send(RealtimeCommand::ScanEvent(event))
+            .is_err()
+        {
+            tracing::debug!("dropping transient scan progress because dispatcher is saturated");
         }
     }
 
-    pub fn is_visible_to(&self, user: &UserProfile) -> bool {
-        user.can_access_library(self.library_id())
+    pub async fn publish_resource_immediately(&self, resource_key: String) {
+        let _ = self
+            .sender
+            .send(RealtimeCommand::ResourceChangedImmediate(resource_key))
+            .await;
+    }
+}
+
+impl Default for RealtimeDispatcherHandle {
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::channel(1);
+        drop(receiver);
+        Self { sender }
+    }
+}
+
+pub fn start_realtime_dispatcher(
+    pool: PgPool,
+    hub: RealtimeHub,
+    api_time_offset: UtcOffset,
+) -> RealtimeDispatcherHandle {
+    let (sender, receiver) = mpsc::channel(DISPATCH_COMMAND_BUFFER_SIZE);
+    let dispatcher_sender = sender.clone();
+    let listener_pool = pool.clone();
+
+    tokio::spawn(async move {
+        run_postgres_revision_listener(listener_pool, dispatcher_sender).await;
+    });
+    tokio::spawn(async move {
+        RealtimeDispatcher::new(pool, hub, api_time_offset, receiver)
+            .run()
+            .await;
+    });
+
+    RealtimeDispatcherHandle { sender }
+}
+
+#[derive(Debug)]
+enum RealtimeCommand {
+    ResourceChanged(String),
+    ResourceChangedImmediate(String),
+    ScanEvent(ScanJobEvent),
+}
+
+#[derive(Default)]
+struct ScanProgressBatch {
+    scan_job: Option<ScanJobProgressUpdate>,
+    items: HashMap<String, mova_application::ScanJobItemProgressUpdate>,
+}
+
+struct RealtimeDispatcher {
+    pool: PgPool,
+    hub: RealtimeHub,
+    api_time_offset: UtcOffset,
+    receiver: mpsc::Receiver<RealtimeCommand>,
+    pending_resources: HashSet<String>,
+    pending_continue_watching: HashSet<String>,
+    pending_scans: HashMap<i64, ScanProgressBatch>,
+}
+
+impl RealtimeDispatcher {
+    fn new(
+        pool: PgPool,
+        hub: RealtimeHub,
+        api_time_offset: UtcOffset,
+        receiver: mpsc::Receiver<RealtimeCommand>,
+    ) -> Self {
+        Self {
+            pool,
+            hub,
+            api_time_offset,
+            receiver,
+            pending_resources: HashSet::new(),
+            pending_continue_watching: HashSet::new(),
+            pending_scans: HashMap::new(),
+        }
     }
 
-    pub fn to_sse_event(&self, api_time_offset: UtcOffset) -> Option<Event> {
-        let response = RealtimeEventResponse::from_event(self, api_time_offset);
+    async fn run(mut self) {
+        let mut resource_tick = tokio::time::interval(RESOURCE_BATCH_INTERVAL);
+        let mut scan_tick = tokio::time::interval(SCAN_PROGRESS_BATCH_INTERVAL);
+        let mut continue_watching_tick = tokio::time::interval(CONTINUE_WATCHING_BATCH_INTERVAL);
+        resource_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        scan_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        continue_watching_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-        Event::default()
-            .event(self.event_name())
-            .json_data(response)
-            .ok()
-    }
-
-    fn library_id(&self) -> i64 {
-        match self {
-            Self::ScanJobUpdated { update } | Self::ScanJobFinished { update } => {
-                update.scan_job.library_id
+        loop {
+            tokio::select! {
+                command = self.receiver.recv() => {
+                    let Some(command) = command else {
+                        break;
+                    };
+                    self.handle_command(command).await;
+                }
+                _ = resource_tick.tick() => self.flush_resource_changes().await,
+                _ = scan_tick.tick() => self.flush_scan_progress().await,
+                _ = continue_watching_tick.tick() => self.flush_continue_watching_changes().await,
             }
-            Self::ScanItemUpdated { item } => item.library_id,
-            Self::LibraryUpdated { library_id }
-            | Self::LibraryDeleted { library_id }
-            | Self::MediaItemMetadataUpdated { library_id, .. } => *library_id,
         }
+    }
+
+    async fn handle_command(&mut self, command: RealtimeCommand) {
+        match command {
+            RealtimeCommand::ResourceChanged(resource_key) => {
+                if let Some(user_id) = session_user_id(&resource_key) {
+                    self.publish_session_invalidated(user_id);
+                } else if resource_key.ends_with(":continue-watching") {
+                    self.pending_continue_watching.insert(resource_key);
+                } else {
+                    self.pending_resources.insert(resource_key);
+                }
+            }
+            RealtimeCommand::ResourceChangedImmediate(resource_key) => {
+                self.pending_continue_watching.remove(&resource_key);
+                self.flush_resource_keys(vec![resource_key]).await;
+            }
+            RealtimeCommand::ScanEvent(ScanJobEvent::Updated(update)) => {
+                let scan_job_id = update.scan_job.id;
+                self.pending_scans.entry(scan_job_id).or_default().scan_job = Some(update);
+            }
+            RealtimeCommand::ScanEvent(ScanJobEvent::ItemUpdated(item)) => {
+                self.pending_scans
+                    .entry(item.scan_job_id)
+                    .or_default()
+                    .items
+                    .insert(item.item_key.clone(), item);
+            }
+            RealtimeCommand::ScanEvent(ScanJobEvent::Finished(update)) => {
+                self.publish_scan_finished(update).await;
+            }
+        }
+    }
+
+    async fn flush_resource_changes(&mut self) {
+        if self.pending_resources.is_empty() {
+            return;
+        }
+
+        let resource_keys = self.pending_resources.drain().collect::<Vec<_>>();
+        self.flush_resource_keys(resource_keys).await;
+    }
+
+    async fn flush_continue_watching_changes(&mut self) {
+        if self.pending_continue_watching.is_empty() {
+            return;
+        }
+        let resource_keys = self.pending_continue_watching.drain().collect::<Vec<_>>();
+        self.flush_resource_keys(resource_keys).await;
+    }
+
+    async fn flush_resource_keys(&mut self, resource_keys: Vec<String>) {
+        let revisions = match mova_db::list_realtime_revisions(&self.pool, &resource_keys).await {
+            Ok(revisions) => revisions,
+            Err(error) => {
+                tracing::warn!(error = ?error, "failed to load realtime resource revisions");
+                for resource_key in resource_keys {
+                    if resource_key.ends_with(":continue-watching") {
+                        self.pending_continue_watching.insert(resource_key);
+                    } else {
+                        self.pending_resources.insert(resource_key);
+                    }
+                }
+                return;
+            }
+        };
+
+        let mut grouped: HashMap<RealtimeVisibility, Vec<ResourceRevisionResponse>> =
+            HashMap::new();
+        for revision in revisions {
+            let Some(visibility) = visibility_for_resource(&revision.resource_key) else {
+                continue;
+            };
+            grouped
+                .entry(visibility)
+                .or_default()
+                .push(ResourceRevisionResponse {
+                    resource: revision.resource_key,
+                    revision: revision.revision,
+                });
+        }
+
+        for (visibility, mut changes) in grouped {
+            changes.sort_by(|left, right| left.resource.cmp(&right.resource));
+            let payload = ResourcesChangedResponse {
+                version: 1,
+                changes,
+            };
+            if let Some(message) = RealtimeMessage::json("resources.changed", &payload, visibility)
+            {
+                self.hub.publish(message);
+            }
+        }
+    }
+
+    async fn flush_scan_progress(&mut self) {
+        let pending = std::mem::take(&mut self.pending_scans);
+        for (scan_job_id, batch) in pending {
+            self.publish_scan_batch(scan_job_id, batch, "scan.progress")
+                .await;
+        }
+    }
+
+    async fn publish_scan_finished(&mut self, update: ScanJobProgressUpdate) {
+        let scan_job_id = update.scan_job.id;
+        let mut batch = self.pending_scans.remove(&scan_job_id).unwrap_or_default();
+        batch.scan_job = Some(update);
+        self.publish_scan_batch(scan_job_id, batch, "scan.finished")
+            .await;
+    }
+
+    async fn publish_scan_batch(
+        &self,
+        scan_job_id: i64,
+        batch: ScanProgressBatch,
+        event_name: &'static str,
+    ) {
+        let update = match batch.scan_job {
+            Some(update) => update,
+            None => match mova_db::get_scan_job(&self.pool, scan_job_id).await {
+                Ok(Some(scan_job)) => ScanJobProgressUpdate {
+                    scan_job,
+                    phase: None,
+                },
+                Ok(None) => return,
+                Err(error) => {
+                    tracing::warn!(scan_job_id, error = ?error, "failed to load scan job for realtime progress");
+                    return;
+                }
+            },
+        };
+
+        let library_id = update.scan_job.library_id;
+        let mut items = batch.items.into_values().collect::<Vec<_>>();
+        items.sort_by_key(|item| item.item_index);
+        let payload = ScanProgressResponse {
+            version: 1,
+            scan_job: ScanJobResponse::from_realtime(
+                update.scan_job,
+                update.phase,
+                self.api_time_offset,
+            ),
+            items: items
+                .into_iter()
+                .map(ScanItemProgressResponse::from_domain)
+                .collect(),
+        };
+
+        if let Some(message) = RealtimeMessage::json(
+            event_name,
+            &payload,
+            RealtimeVisibility::Library(library_id),
+        ) {
+            self.hub.publish(message);
+        }
+    }
+
+    fn publish_session_invalidated(&self, user_id: i64) {
+        let payload = SessionInvalidatedResponse {
+            reason: "authorization_changed",
+        };
+        if let Some(message) = RealtimeMessage::json(
+            "session.invalidated",
+            &payload,
+            RealtimeVisibility::User(user_id),
+        ) {
+            self.hub.publish(message);
+        }
+    }
+}
+
+async fn run_postgres_revision_listener(pool: PgPool, sender: mpsc::Sender<RealtimeCommand>) {
+    loop {
+        let mut listener = match PgListener::connect_with(&pool).await {
+            Ok(listener) => listener,
+            Err(error) => {
+                tracing::warn!(error = ?error, "failed to connect realtime PostgreSQL listener");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                continue;
+            }
+        };
+
+        if let Err(error) = listener.listen("mova_realtime").await {
+            tracing::warn!(error = ?error, "failed to subscribe realtime PostgreSQL listener");
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            continue;
+        }
+
+        loop {
+            match listener.recv().await {
+                Ok(notification) => {
+                    if sender
+                        .send(RealtimeCommand::ResourceChanged(
+                            notification.payload().to_string(),
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(error = ?error, "realtime PostgreSQL listener disconnected");
+                    break;
+                }
+            }
+        }
+    }
+}
+
+fn session_user_id(resource_key: &str) -> Option<i64> {
+    resource_key.strip_prefix("session:user:")?.parse().ok()
+}
+
+fn visibility_for_resource(resource_key: &str) -> Option<RealtimeVisibility> {
+    if resource_key == "libraries" {
+        return Some(RealtimeVisibility::Public);
+    }
+    if resource_key.starts_with("admin:") {
+        return Some(RealtimeVisibility::Admin);
+    }
+
+    let mut parts = resource_key.split(':');
+    match (parts.next(), parts.next()) {
+        (Some("library"), Some(id)) => id.parse().ok().map(RealtimeVisibility::Library),
+        (Some("user"), Some(id)) => id.parse().ok().map(RealtimeVisibility::User),
+        _ => None,
     }
 }
 
 #[derive(Debug, Serialize)]
-#[serde(tag = "type")]
-enum RealtimeEventResponse {
-    #[serde(rename = "scan.job.updated")]
-    ScanJobUpdated { scan_job: ScanJobResponse },
-    #[serde(rename = "scan.job.finished")]
-    ScanJobFinished { scan_job: ScanJobResponse },
-    #[serde(rename = "scan.item.updated")]
-    ScanItemUpdated { item: ScanItemProgressResponse },
-    #[serde(rename = "library.updated")]
-    LibraryUpdated { library_id: i64 },
-    #[serde(rename = "library.deleted")]
-    LibraryDeleted { library_id: i64 },
-    #[serde(rename = "media_item.metadata.updated")]
-    MediaItemMetadataUpdated { library_id: i64, media_item_id: i64 },
+struct ResourceRevisionResponse {
+    resource: String,
+    revision: i64,
 }
 
-impl RealtimeEventResponse {
-    fn from_event(event: &RealtimeEvent, api_time_offset: UtcOffset) -> Self {
-        match event {
-            RealtimeEvent::ScanJobUpdated { update } => Self::ScanJobUpdated {
-                scan_job: ScanJobResponse::from_realtime(
-                    update.scan_job.clone(),
-                    update.phase.clone(),
-                    api_time_offset,
-                ),
-            },
-            RealtimeEvent::ScanJobFinished { update } => Self::ScanJobFinished {
-                scan_job: ScanJobResponse::from_realtime(
-                    update.scan_job.clone(),
-                    update.phase.clone(),
-                    api_time_offset,
-                ),
-            },
-            RealtimeEvent::ScanItemUpdated { item } => Self::ScanItemUpdated {
-                item: ScanItemProgressResponse::from_domain(item.clone()),
-            },
-            RealtimeEvent::LibraryUpdated { library_id } => Self::LibraryUpdated {
-                library_id: *library_id,
-            },
-            RealtimeEvent::LibraryDeleted { library_id } => Self::LibraryDeleted {
-                library_id: *library_id,
-            },
-            RealtimeEvent::MediaItemMetadataUpdated {
-                library_id,
-                media_item_id,
-            } => Self::MediaItemMetadataUpdated {
-                library_id: *library_id,
-                media_item_id: *media_item_id,
-            },
-        }
-    }
+#[derive(Debug, Serialize)]
+struct ResourcesChangedResponse {
+    version: u8,
+    changes: Vec<ResourceRevisionResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct ScanProgressResponse {
+    version: u8,
+    scan_job: ScanJobResponse,
+    items: Vec<ScanItemProgressResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct SessionInvalidatedResponse {
+    reason: &'static str,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::RealtimeEvent;
-    use mova_application::ScanJobItemProgressUpdate;
-    use mova_domain::{User, UserProfile, UserRole};
-    use time::{OffsetDateTime, UtcOffset};
+    use super::{session_user_id, visibility_for_resource, RealtimeVisibility};
 
-    fn build_user_profile(role: UserRole, library_ids: Vec<i64>) -> UserProfile {
-        UserProfile {
-            user: User {
-                id: 1,
-                username: "viewer01".to_string(),
-                nickname: "viewer01".to_string(),
-                role,
-                is_enabled: true,
-                created_at: OffsetDateTime::UNIX_EPOCH,
-                updated_at: OffsetDateTime::UNIX_EPOCH,
-            },
-            is_primary_admin: false,
-            library_ids,
-        }
+    #[test]
+    fn resource_visibility_is_derived_from_aggregate_key() {
+        assert_eq!(
+            visibility_for_resource("library:7:catalog"),
+            Some(RealtimeVisibility::Library(7))
+        );
+        assert_eq!(
+            visibility_for_resource("user:12:continue-watching"),
+            Some(RealtimeVisibility::User(12))
+        );
+        assert_eq!(
+            visibility_for_resource("admin:users"),
+            Some(RealtimeVisibility::Admin)
+        );
     }
 
     #[test]
-    fn library_updated_event_uses_library_visibility_rules() {
-        let viewer = build_user_profile(UserRole::Viewer, vec![7]);
-        let outsider = build_user_profile(UserRole::Viewer, vec![8]);
-        let event = RealtimeEvent::LibraryUpdated { library_id: 7 };
-
-        assert_eq!(event.event_name(), "library.updated");
-        assert!(event.is_visible_to(&viewer));
-        assert!(!event.is_visible_to(&outsider));
-    }
-
-    #[test]
-    fn scan_item_event_can_be_serialized_into_sse() {
-        let event = RealtimeEvent::ScanItemUpdated {
-            item: ScanJobItemProgressUpdate {
-                scan_job_id: 41,
-                library_id: 7,
-                item_key: "/media/movies/interstellar.mkv".to_string(),
-                media_type: "movie".to_string(),
-                title: "Interstellar".to_string(),
-                year: Some(2014),
-                overview: Some("A team travels through a wormhole.".to_string()),
-                poster_path: Some("/cache/poster/interstellar.jpg".to_string()),
-                backdrop_path: Some("/cache/backdrop/interstellar.jpg".to_string()),
-                metadata_status: Some("matched".to_string()),
-                remote_media_type: Some("movie".to_string()),
-                season_number: None,
-                episode_number: None,
-                item_index: 1,
-                total_items: 3,
-                stage: "metadata".to_string(),
-                progress_percent: 36,
-            },
-        };
-
-        assert_eq!(event.event_name(), "scan.item.updated");
-        assert!(event.to_sse_event(UtcOffset::UTC).is_some());
+    fn session_resource_extracts_target_user() {
+        assert_eq!(session_user_id("session:user:42"), Some(42));
+        assert_eq!(session_user_id("user:42:profile"), None);
     }
 }

@@ -7,6 +7,7 @@ pub struct ScanJob {
     pub id: i64,
     pub library_id: i64,
     pub status: String,
+    pub phase: Option<String>,
     pub total_files: i32,
     pub scanned_files: i32,
     pub created_at: OffsetDateTime,

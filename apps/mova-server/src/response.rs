@@ -8,6 +8,7 @@ use mova_domain::{
     MediaItem, PlaybackProgress, ScanJob, SubtitleFile, UserProfile,
 };
 use serde::Serialize;
+use std::collections::BTreeMap;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
 
 /// 所有 JSON 业务接口统一包裹成 code/message/data，便于前端和第三方客户端稳定消费。
@@ -229,6 +230,27 @@ pub struct RecentlyAddedLibraryMediaItemsResponse {
     pub library: LibraryResponse,
     pub items: Vec<MediaItemResponse>,
     pub total: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HomeLibraryResponse {
+    pub library: LibraryDetailResponse,
+    pub preview_items: Vec<MediaItemResponse>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HomeRealtimeStateResponse {
+    pub server_epoch: String,
+    pub resources: BTreeMap<String, i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HomeResponse {
+    pub current_user: UserResponse,
+    pub libraries: Vec<HomeLibraryResponse>,
+    pub recently_added: Vec<RecentlyAddedLibraryMediaItemsResponse>,
+    pub continue_watching: Vec<ContinueWatchingItemResponse>,
+    pub realtime: HomeRealtimeStateResponse,
 }
 
 #[derive(Debug, Serialize)]
@@ -652,6 +674,46 @@ impl RecentlyAddedLibraryMediaItemsResponse {
     }
 }
 
+impl HomeResponse {
+    pub fn from_domain(
+        snapshot: mova_application::HomeSnapshot,
+        user: UserProfile,
+        offset: UtcOffset,
+        server_epoch: String,
+        resources: BTreeMap<String, i64>,
+    ) -> Self {
+        Self {
+            current_user: UserResponse::from_domain(user, offset),
+            libraries: snapshot
+                .libraries
+                .into_iter()
+                .map(|library| HomeLibraryResponse {
+                    library: LibraryDetailResponse::from_domain(library.detail, offset),
+                    preview_items: library
+                        .preview_items
+                        .into_iter()
+                        .map(|item| MediaItemResponse::from_domain(item, offset))
+                        .collect(),
+                })
+                .collect(),
+            recently_added: snapshot
+                .recently_added
+                .into_iter()
+                .map(|group| RecentlyAddedLibraryMediaItemsResponse::from_domain(group, offset))
+                .collect(),
+            continue_watching: snapshot
+                .continue_watching
+                .into_iter()
+                .map(|item| ContinueWatchingItemResponse::from_domain(item, offset))
+                .collect(),
+            realtime: HomeRealtimeStateResponse {
+                server_epoch,
+                resources,
+            },
+        }
+    }
+}
+
 impl UserResponse {
     pub fn from_domain(user: UserProfile, offset: UtcOffset) -> Self {
         Self {
@@ -849,7 +911,8 @@ impl AudioTrackResponse {
 
 impl ScanJobResponse {
     pub fn from_domain(scan_job: ScanJob, offset: UtcOffset) -> Self {
-        Self::from_realtime(scan_job, None, offset)
+        let phase = scan_job.phase.clone();
+        Self::from_realtime(scan_job, phase, offset)
     }
 
     pub fn from_realtime(scan_job: ScanJob, phase: Option<String>, offset: UtcOffset) -> Self {
@@ -857,7 +920,7 @@ impl ScanJobResponse {
             id: scan_job.id,
             library_id: scan_job.library_id,
             status: scan_job.status,
-            phase,
+            phase: phase.or(scan_job.phase),
             total_files: scan_job.total_files,
             scanned_files: scan_job.scanned_files,
             created_at: format_datetime(scan_job.created_at, offset),
@@ -873,7 +936,7 @@ impl LibraryLastScanResponse {
         Self {
             id: scan_job.id,
             status: scan_job.status,
-            phase: None,
+            phase: scan_job.phase,
             total_files: scan_job.total_files,
             scanned_files: scan_job.scanned_files,
             created_at: format_datetime(scan_job.created_at, offset),

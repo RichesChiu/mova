@@ -3021,7 +3021,7 @@ async fn emit_scan_job_phase(
     phase: &str,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) {
-    match mova_db::get_scan_job(pool, scan_job_id).await {
+    match mova_db::update_scan_job_phase(pool, scan_job_id, phase).await {
         Ok(Some(scan_job)) => {
             event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
                 scan_job, phase,

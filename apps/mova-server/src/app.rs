@@ -16,6 +16,7 @@ pub fn build_router(state: AppState, web_dist_dir: Option<PathBuf>) -> Router {
     let api_router = Router::new()
         .merge(routes::auth())
         .merge(routes::health())
+        .merge(routes::home())
         .merge(routes::libraries())
         .merge(routes::server())
         .merge(routes::realtime())

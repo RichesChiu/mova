@@ -8,6 +8,7 @@ import type {
   CreateUserInput,
   EpisodeOutline,
   GlobalSearchResult,
+  HomeResponse,
   Library,
   LibraryDetail,
   LoginInput,
@@ -19,6 +20,7 @@ import type {
   MediaItemPlaybackHeader,
   MetadataSearchResult,
   PlaybackProgress,
+  RealtimeState,
   RecentlyAddedLibraryMediaItems,
   ScanJob,
   ServerMediaDirectoryNode,
@@ -159,6 +161,10 @@ export const logout = () =>
   })
 
 export const getCurrentUser = () => requestJson<UserAccount>(withApiPrefix('/auth/me'))
+
+export const getHome = () => requestJson<HomeResponse>(withApiPrefix('/home'))
+
+export const getRealtimeState = () => requestJson<RealtimeState>(withApiPrefix('/realtime/state'))
 
 export const updateOwnProfile = (input: UpdateOwnProfileInput) =>
   requestJson<UserAccount>(withApiPrefix('/auth/me'), {

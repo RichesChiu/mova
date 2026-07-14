@@ -1,16 +1,7 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import {
-  deleteLibrary,
-  getLibrary,
-  getMediaItemEpisodeOutline,
-  listContinueWatching,
-  listLibraryMediaItems,
-  listRecentlyAddedByLibrary,
-  scanLibrary,
-  updateLibrary,
-} from '../../api/client'
+import { deleteLibrary, getHome, scanLibrary, updateLibrary } from '../../api/client'
 import type { Library, LibraryDetail } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import { getLibraryScanRuntime } from '../../components/app-shell/scan-runtime'
@@ -20,7 +11,6 @@ import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { useI18n } from '../../i18n'
 import { getVisibleHomeLibraries } from '../../lib/home-sections'
 import { mediaItemDetailPath, mediaItemPrimaryPath } from '../../lib/media-routes'
-import { MEDIA_QUERY_GC_TIME_MS, SERIES_OUTLINE_QUERY_STALE_TIME_MS } from '../../lib/query-options'
 import {
   buildDeletedLibraryCacheState,
   buildDeleteLibraryConfirmationCopy,
@@ -44,21 +34,18 @@ const progressPercent = (position: number, duration: number | null) => {
   return Math.max(0, Math.min(100, Math.round((position / duration) * 100)))
 }
 
-const isEpisodeContextEntry = (entry: {
-  season_number: number | null
-  episode_number: number | null
-}) => typeof entry.season_number === 'number' && typeof entry.episode_number === 'number'
-
-const RECENTLY_ADDED_ITEM_LIMIT = 8
-const HOME_LIBRARY_ARTWORK_ITEM_LIMIT = 12
-
 export const HomePage = () => {
   const { l } = useI18n()
-  const { currentUser, libraries, librariesLoading, scanRuntimeByLibrary } =
-    useOutletContext<AppShellOutletContext>()
+  const { currentUser, scanRuntimeByLibrary } = useOutletContext<AppShellOutletContext>()
   const queryClient = useQueryClient()
   const [editingLibrary, setEditingLibrary] = useState<Library | null>(null)
   const [pendingDeleteLibrary, setPendingDeleteLibrary] = useState<Library | null>(null)
+  const homeQuery = useQuery({
+    queryKey: ['home'],
+    queryFn: getHome,
+  })
+  const libraries = homeQuery.data?.libraries.map((entry) => entry.library) ?? []
+  const librariesLoading = homeQuery.isLoading
   const isAdmin = canManageServer(currentUser)
 
   const scanMutation = useMutation({
@@ -89,6 +76,7 @@ export const HomePage = () => {
         queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
+        queryClient.invalidateQueries({ queryKey: ['home'] }),
       ])
     },
   })
@@ -128,6 +116,7 @@ export const HomePage = () => {
         queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
+        queryClient.invalidateQueries({ queryKey: ['home'] }),
       ])
     },
   })
@@ -150,77 +139,29 @@ export const HomePage = () => {
         queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
+        queryClient.invalidateQueries({ queryKey: ['home'] }),
       ])
     },
   })
 
-  const continueWatchingQuery = useQuery({
-    queryKey: ['continue-watching', 20],
-    queryFn: () => listContinueWatching(20),
-  })
-  const recentlyAddedQuery = useQuery({
-    enabled: !librariesLoading,
-    queryKey: ['recently-added-by-library', RECENTLY_ADDED_ITEM_LIMIT],
-    queryFn: () => listRecentlyAddedByLibrary({ limit: RECENTLY_ADDED_ITEM_LIMIT }),
-  })
-  const continueWatchingItems = continueWatchingQuery.data ?? []
+  const continueWatchingItems = homeQuery.data?.continue_watching ?? []
   const homeLibraries = getVisibleHomeLibraries(libraries)
-  const recentlyAddedGroups = recentlyAddedQuery.data ?? []
+  const recentlyAddedGroups = homeQuery.data?.recently_added ?? []
   const recentlyAddedByLibraryId = new Map(
     recentlyAddedGroups.map((group) => [group.library.id, group.items]),
   )
-  const continueWatchingSeriesIds = Array.from(
-    new Set(
-      continueWatchingItems
-        .filter((entry) => entry.media_item.media_type === 'series' && isEpisodeContextEntry(entry))
-        .map((entry) => entry.media_item.id),
-    ),
+  const homeLibraryById = new Map(
+    (homeQuery.data?.libraries ?? []).map((entry) => [entry.library.id, entry]),
   )
-  // Continue Watching collapses series into one row, so the home page loads the outline once per
-  // series and rehydrates the last watched episode from the current season/episode numbers.
-  const continueWatchingOutlineQueries = useQueries({
-    queries: continueWatchingSeriesIds.map((seriesId) => ({
-      gcTime: MEDIA_QUERY_GC_TIME_MS,
-      queryKey: ['home-continue-outline', seriesId],
-      queryFn: () => getMediaItemEpisodeOutline(seriesId),
-      staleTime: SERIES_OUTLINE_QUERY_STALE_TIME_MS,
-    })),
-  })
-  const continueWatchingOutlineBySeriesId = new Map(
-    continueWatchingSeriesIds.map((seriesId, index) => [
-      seriesId,
-      continueWatchingOutlineQueries[index]?.data ?? null,
-    ]),
-  )
-
-  const libraryDetailQueries = useQueries({
-    queries: homeLibraries.map((library) => ({
-      queryKey: ['home-library-detail', library.id],
-      queryFn: () => getLibrary(library.id),
-    })),
-  })
-  const libraryArtworkQueries = useQueries({
-    queries: homeLibraries.map((library) => ({
-      queryKey: ['library-media', library.id, 'home-artwork', HOME_LIBRARY_ARTWORK_ITEM_LIMIT],
-      queryFn: () =>
-        listLibraryMediaItems(library.id, {
-          page: 1,
-          pageSize: HOME_LIBRARY_ARTWORK_ITEM_LIMIT,
-        }),
-      staleTime: 60_000,
-    })),
-  })
-  // Build a page-level view model once and keep the three home modules purely presentational.
-  const libraryModules: HomeLibraryModuleData[] = homeLibraries.map((library, index) => ({
-    detail: libraryDetailQueries[index]?.data ?? null,
-    detailError:
-      libraryDetailQueries[index]?.error instanceof Error
-        ? libraryDetailQueries[index].error
-        : null,
-    detailLoading: libraryDetailQueries[index]?.isLoading ?? false,
+  const libraryModules: HomeLibraryModuleData[] = homeLibraries.map((library) => ({
+    detail: homeLibraryById.get(library.id)?.library ?? null,
+    detailError: homeQuery.error instanceof Error ? homeQuery.error : null,
+    detailLoading: homeQuery.isLoading,
     library,
     recentItems:
-      recentlyAddedByLibraryId.get(library.id) ?? libraryArtworkQueries[index]?.data?.items ?? [],
+      recentlyAddedByLibraryId.get(library.id) ??
+      homeLibraryById.get(library.id)?.preview_items ??
+      [],
     scanRuntime: getLibraryScanRuntime(scanRuntimeByLibrary, library.id),
   }))
   const continueWatchingCards: ContinueWatchingCardData[] = continueWatchingItems.map((entry) => {
@@ -231,24 +172,15 @@ export const HomePage = () => {
     const seasonNumber = typeof entry.season_number === 'number' ? entry.season_number : null
     const episodeNumber = typeof entry.episode_number === 'number' ? entry.episode_number : null
     const hasEpisodeContext = seasonNumber !== null && episodeNumber !== null
-    const localizedEpisode =
-      entry.media_item.media_type === 'series' && hasEpisodeContext
-        ? continueWatchingOutlineBySeriesId
-            .get(entry.media_item.id)
-            ?.seasons.find((season) => season.season_number === seasonNumber)
-            ?.episodes.find((episode) => episode.episode_number === episodeNumber)
-        : null
     const episodeLabel = hasEpisodeContext
       ? `S${String(seasonNumber).padStart(2, '0')} · E${String(episodeNumber).padStart(2, '0')}`
       : null
     const continuePath = hasEpisodeContext
       ? `${mediaItemDetailPath(entry.media_item.id)}?season=${seasonNumber}`
       : mediaItemPrimaryPath(entry.media_item)
-    const artwork = hasEpisodeContext
-      ? (localizedEpisode?.poster_path ?? entry.episode_poster_path)
-      : entry.media_item.poster_path
+    const artwork = hasEpisodeContext ? entry.episode_poster_path : entry.media_item.poster_path
     const title = hasEpisodeContext
-      ? (localizedEpisode?.title ?? entry.episode_title ?? entry.media_item.title)
+      ? (entry.episode_title ?? entry.media_item.title)
       : entry.media_item.title
     const placeholderLabel = hasEpisodeContext ? `${seasonNumber}-${episodeNumber}` : l('Movies')
 
@@ -263,14 +195,14 @@ export const HomePage = () => {
       title,
     }
   })
-  const continueWatchingErrorMessage = continueWatchingQuery.isError
-    ? continueWatchingQuery.error instanceof Error
-      ? continueWatchingQuery.error.message
+  const continueWatchingErrorMessage = homeQuery.isError
+    ? homeQuery.error instanceof Error
+      ? homeQuery.error.message
       : l('Failed to load continue watching list')
     : null
-  const recentlyAddedErrorMessage = recentlyAddedQuery.isError
-    ? recentlyAddedQuery.error instanceof Error
-      ? recentlyAddedQuery.error.message
+  const recentlyAddedErrorMessage = homeQuery.isError
+    ? homeQuery.error instanceof Error
+      ? homeQuery.error.message
       : l('Failed to load recently added media')
     : null
   const libraryActionErrorMessage = scanMutation.isError
@@ -300,7 +232,7 @@ export const HomePage = () => {
 
           <ContinueWatchingSection
             errorMessage={continueWatchingErrorMessage}
-            isLoading={continueWatchingQuery.isLoading}
+            isLoading={homeQuery.isLoading}
             items={continueWatchingCards}
           />
 
@@ -328,7 +260,7 @@ export const HomePage = () => {
           <LibraryContentSections
             errorMessage={recentlyAddedErrorMessage}
             groups={recentlyAddedGroups}
-            isLoading={recentlyAddedQuery.isLoading}
+            isLoading={homeQuery.isLoading}
           />
         </div>
       </HomeDashboardShell>

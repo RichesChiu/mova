@@ -11,7 +11,7 @@ mod state;
 mod sync_runtime;
 
 use crate::config::AppConfig;
-use mova_db::{connect, fail_incomplete_scan_jobs, migrate, ping};
+use mova_db::{connect, migrate, ping};
 use state::AppState;
 use tracing::info;
 
@@ -26,14 +26,6 @@ async fn main() -> anyhow::Result<()> {
     let pool = connect(&config.database).await?;
     migrate(&pool).await?;
     info!("database migrations applied");
-    let recovered_scan_jobs =
-        fail_incomplete_scan_jobs(&pool, "scan interrupted by server restart").await?;
-    if recovered_scan_jobs > 0 {
-        info!(
-            recovered_scan_jobs,
-            "marked interrupted scan jobs as failed"
-        );
-    }
     ping(&pool).await?;
     info!("database connection established");
     tokio::fs::create_dir_all(&config.cache_dir).await?;
@@ -45,14 +37,24 @@ async fn main() -> anyhow::Result<()> {
         "metadata provider initialized"
     );
 
+    let realtime_hub = state::RealtimeHub::default();
+    let realtime_dispatcher = realtime::start_realtime_dispatcher(
+        pool.clone(),
+        realtime_hub.clone(),
+        config.api_time.offset,
+    );
     let state = AppState {
         db: pool,
         api_time_offset: config.api_time.offset,
         artwork_cache_dir: config.cache_dir.clone(),
         metadata_provider,
         scan_registry: state::ScanRegistry::default(),
-        realtime_hub: state::RealtimeHub::default(),
+        realtime_hub,
+        realtime_dispatcher,
+        background_jobs: state::BackgroundJobNotifier::default(),
     };
+
+    sync_runtime::start_background_workers(state.clone(), config.worker_concurrency);
 
     let app = app::build_router(state, config.web_dist_dir.clone());
     let addr = config.socket_addr()?;
