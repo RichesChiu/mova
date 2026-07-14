@@ -1,0 +1,57 @@
+.hover-tooltip {
+  min-width: 0;
+}
+
+.hover-tooltip__surface {
+  position: fixed;
+  z-index: 999;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
+  border-radius: 12px;
+  background: var(--tooltip-background);
+  backdrop-filter: blur(22px) saturate(150%);
+  box-shadow: var(--tooltip-shadow);
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 560;
+  letter-spacing: normal;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  text-align: left;
+  white-space: normal;
+}
+
+.hover-tooltip__surface::before {
+  content: '';
+  position: absolute;
+  left: var(--hover-tooltip-arrow-left, 50%);
+  width: 12px;
+  height: 12px;
+  background: var(--tooltip-background);
+}
+
+.hover-tooltip__surface--top {
+  --floating-transition-origin: bottom center;
+}
+
+.hover-tooltip__surface--top::before {
+  bottom: -6px;
+  border-right: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.hover-tooltip__surface--bottom {
+  --floating-transition-origin: top center;
+}
+
+.hover-tooltip__surface--bottom::before {
+  top: -6px;
+  border-top: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
+  transform: translateX(-50%) rotate(45deg);
+}

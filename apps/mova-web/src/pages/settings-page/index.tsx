@@ -17,6 +17,7 @@ import type { AppShellOutletContext } from '../../components/app-shell'
 import { ConfirmActionModal } from '../../components/confirm-action-modal'
 import { CreateLibraryModal } from '../../components/create-library-modal'
 import { EmptyState } from '../../components/empty-state'
+import { HoverTooltip } from '../../components/hover-tooltip'
 import { LibraryActionsMenu } from '../../components/library-actions-menu'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { StatusPill } from '../../components/status-pill'
@@ -79,13 +80,14 @@ const SettingsLibraryCardSkeleton = ({ rootPathLabel }: { rootPathLabel: string 
     <div className="settings-library-card__body">
       <div className="settings-library-card__header">
         <span className="settings-library-card__line settings-library-card__line--title skeleton-shimmer" />
-        <span className="settings-library-card__button settings-library-card__button--icon skeleton-shimmer" />
+        <div className="settings-library-card__header-actions">
+          <span className="settings-library-card__line settings-library-card__line--status skeleton-shimmer" />
+          <span className="settings-library-card__button settings-library-card__button--icon skeleton-shimmer" />
+        </div>
       </div>
       <span className="settings-library-card__line settings-library-card__line--description skeleton-shimmer" />
       <span className="settings-library-card__line settings-library-card__line--description-alt skeleton-shimmer" />
       <span className="settings-library-card__line settings-library-card__line--meta skeleton-shimmer" />
-      <span className="settings-library-card__line settings-library-card__line--status skeleton-shimmer" />
-
       <div className="settings-library-card__path-block">
         <span className="settings-library-card__path-label">{rootPathLabel}</span>
         <span className="settings-library-card__path settings-library-card__path--loading skeleton-shimmer" />
@@ -564,6 +566,7 @@ export const SettingsPage = () => {
                       <SettingsLibraryCardSkeleton key={key} rootPathLabel={l('Root path')} />
                     ))
                   : libraries.map((library) => {
+                      const libraryDescription = library.description ?? l('No description')
                       const libraryDetail = libraryDetailsById.get(library.id)
                       const lastScan = libraryDetail?.last_scan ?? null
                       const lastScanStatusLabel = getScanStatusLabel(lastScan)
@@ -575,81 +578,83 @@ export const SettingsPage = () => {
                         deleteLibraryMutation.variables === library.id
                       const isScanActive =
                         lastScan?.status === 'pending' || lastScan?.status === 'running'
-                      const cardClassName = [
-                        'settings-library-card',
-                        lastScanStatusTone === 'success'
-                          ? 'settings-library-card--scan-success'
-                          : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')
-
                       return (
-                        <article className={cardClassName} key={library.id}>
+                        <article className="settings-library-card" key={library.id}>
                           <div aria-hidden="true" className="settings-library-card__backdrop">
                             <span className="settings-library-card__backdrop-glow" />
                           </div>
 
                           <div className="settings-library-card__body">
                             <div className="settings-library-card__header">
-                              <strong className="settings-library-card__title">
-                                {library.name}
-                              </strong>
-                              <LibraryActionsMenu
-                                className="settings-library-card__menu"
-                                isDeleteDisabled={
-                                  deleteLibraryMutation.isPending ||
-                                  isTriggeringScan ||
-                                  isScanActive
-                                }
-                                isDeletePending={isDeletingLibrary}
-                                isScanDisabled={isTriggeringScan || isScanActive}
-                                isScanPending={isTriggeringScan}
-                                library={library}
-                                onDeleteLibrary={(selectedLibrary) => {
-                                  deleteLibraryMutation.reset()
-                                  setPendingConfirmation({
-                                    kind: 'delete-library',
-                                    library: selectedLibrary,
-                                  })
-                                }}
-                                onEditLibrary={setEditingLibrary}
-                                onScanLibrary={(selectedLibrary) =>
-                                  scanMutation.mutate(selectedLibrary.id)
-                                }
-                              />
+                              <HoverTooltip
+                                className="settings-library-card__title-wrap"
+                                content={library.name}
+                              >
+                                <strong className="settings-library-card__title">
+                                  {library.name}
+                                </strong>
+                              </HoverTooltip>
+                              <div className="settings-library-card__header-actions">
+                                <span
+                                  className={`settings-library-card__scan-badge settings-library-card__scan-badge--${lastScanStatusTone}`}
+                                >
+                                  <span
+                                    aria-hidden="true"
+                                    className="settings-library-card__scan-dot"
+                                  />
+                                  {lastScanStatusLabel}
+                                </span>
+                                <LibraryActionsMenu
+                                  className="settings-library-card__menu"
+                                  isDeleteDisabled={
+                                    deleteLibraryMutation.isPending ||
+                                    isTriggeringScan ||
+                                    isScanActive
+                                  }
+                                  isDeletePending={isDeletingLibrary}
+                                  isScanDisabled={isTriggeringScan || isScanActive}
+                                  isScanPending={isTriggeringScan}
+                                  library={library}
+                                  onDeleteLibrary={(selectedLibrary) => {
+                                    deleteLibraryMutation.reset()
+                                    setPendingConfirmation({
+                                      kind: 'delete-library',
+                                      library: selectedLibrary,
+                                    })
+                                  }}
+                                  onEditLibrary={setEditingLibrary}
+                                  onScanLibrary={(selectedLibrary) =>
+                                    scanMutation.mutate(selectedLibrary.id)
+                                  }
+                                />
+                              </div>
                             </div>
-                            <p className="settings-library-card__description">
-                              {library.description ?? l('No description')}
-                            </p>
+                            <HoverTooltip
+                              className="settings-library-card__description-wrap"
+                              content={libraryDescription}
+                            >
+                              <p className="settings-library-card__description">
+                                {libraryDescription}
+                              </p>
+                            </HoverTooltip>
                             <p className="settings-library-card__language-note">
                               {l('Metadata language: {{language}}', {
                                 language: library.metadata_language,
                               })}
                             </p>
 
-                            <div className="settings-library-card__status-slot">
-                              <span
-                                className={`settings-library-card__scan-badge settings-library-card__scan-badge--${lastScanStatusTone}`}
-                              >
-                                <span
-                                  aria-hidden="true"
-                                  className="settings-library-card__scan-dot"
-                                />
-                                {lastScanStatusLabel}
-                              </span>
-                            </div>
-
                             <div className="settings-library-card__path-block">
                               <span className="settings-library-card__path-label">
                                 {l('Root path')}
                               </span>
-                              <code
-                                className="settings-library-card__path"
-                                title={library.root_path}
+                              <HoverTooltip
+                                className="settings-library-card__path-value"
+                                content={library.root_path}
                               >
-                                {library.root_path}
-                              </code>
+                                <code className="settings-library-card__path">
+                                  {library.root_path}
+                                </code>
+                              </HoverTooltip>
                             </div>
                           </div>
                         </article>

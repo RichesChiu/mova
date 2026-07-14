@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { resolveTooltipPosition, type TooltipPosition } from '../../lib/tooltip-position'
 import { usePresenceTransition } from '../../lib/use-presence-transition'
 
 interface SectionHelpProps {
@@ -7,13 +8,6 @@ interface SectionHelpProps {
   placement?: 'bottom' | 'top'
   title: string
   variant?: 'help' | 'notice'
-}
-
-interface TooltipPosition {
-  arrowLeft: number
-  left: number
-  placement: 'bottom' | 'top'
-  top: number
 }
 
 const TOOLTIP_GAP_PX = 12
@@ -50,42 +44,21 @@ export const SectionHelp = ({
 
       const triggerRect = trigger.getBoundingClientRect()
       const tooltipRect = tooltip.getBoundingClientRect()
-      const viewportWidth = window.innerWidth
-      const viewportHeight = window.innerHeight
 
-      const canPlaceAbove =
-        triggerRect.top >= tooltipRect.height + TOOLTIP_GAP_PX + VIEWPORT_MARGIN_PX
-      const canPlaceBelow =
-        viewportHeight - triggerRect.bottom >=
-        tooltipRect.height + TOOLTIP_GAP_PX + VIEWPORT_MARGIN_PX
-
-      const resolvedPlacement =
-        placement === 'top'
-          ? canPlaceAbove || !canPlaceBelow
-            ? 'top'
-            : 'bottom'
-          : canPlaceBelow || !canPlaceAbove
-            ? 'bottom'
-            : 'top'
-
-      const centeredLeft = triggerRect.left + triggerRect.width / 2 - tooltipRect.width / 2
-      const maxLeft = viewportWidth - tooltipRect.width - VIEWPORT_MARGIN_PX
-      const left = Math.max(VIEWPORT_MARGIN_PX, Math.min(centeredLeft, maxLeft))
-      const top =
-        resolvedPlacement === 'top'
-          ? triggerRect.top - tooltipRect.height - TOOLTIP_GAP_PX
-          : triggerRect.bottom + TOOLTIP_GAP_PX
-      const arrowLeft = Math.max(
-        18,
-        Math.min(tooltipRect.width - 18, triggerRect.left + triggerRect.width / 2 - left),
+      setTooltipPosition(
+        resolveTooltipPosition({
+          gap: TOOLTIP_GAP_PX,
+          margin: VIEWPORT_MARGIN_PX,
+          preferredPlacement: placement,
+          tooltipHeight: tooltipRect.height,
+          tooltipWidth: tooltipRect.width,
+          triggerBottom: triggerRect.bottom,
+          triggerCenterX: triggerRect.left + triggerRect.width / 2,
+          triggerTop: triggerRect.top,
+          viewportHeight: window.innerHeight,
+          viewportWidth: window.innerWidth,
+        }),
       )
-
-      setTooltipPosition({
-        arrowLeft,
-        left,
-        placement: resolvedPlacement,
-        top,
-      })
     }
 
     updatePosition()

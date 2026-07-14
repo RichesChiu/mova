@@ -66,7 +66,7 @@
 
 .settings-library-card {
   align-content: stretch;
-  min-height: 238px;
+  min-height: 210px;
   padding: 18px;
 }
 
@@ -74,14 +74,8 @@
   z-index: 5;
 }
 
-.settings-library-card--scan-success {
-  border-color: color-mix(in srgb, var(--settings-scan-success-text) 30%, var(--floating-border));
-}
-
-.settings-library-card--scan-success .settings-library-card__backdrop {
-  background:
-    radial-gradient(circle at 84% 8%, var(--settings-scan-success-background), transparent 42%),
-    var(--settings-library-card-backdrop);
+.settings-library-card:hover {
+  z-index: 5;
 }
 
 .settings-library-card__body {
@@ -96,7 +90,7 @@
 }
 
 .settings-library-card:not(.settings-library-card--loading) .settings-library-card__body {
-  grid-template-rows: auto 3em auto 28px auto;
+  grid-template-rows: auto 3em auto auto;
 }
 
 .settings-library-card__backdrop {
@@ -122,15 +116,36 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 28px;
   gap: 10px;
 }
 
+.settings-library-card__header-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.settings-library-card__title-wrap {
+  max-width: 100%;
+  flex: 0 1 auto;
+}
+
+.settings-library-card__menu {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+
 .settings-library-card__title {
+  display: block;
   min-width: 0;
+  min-height: 28px;
   color: var(--text);
   font-size: 1.2rem;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 28px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -140,11 +155,16 @@
   min-height: 3em;
   margin: 0;
   color: var(--text-muted);
+  font-size: 0.88rem;
   line-height: 1.5;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+}
+
+.settings-library-card__description-wrap {
+  min-height: 3em;
 }
 
 .settings-library-card__language-note {
@@ -156,12 +176,6 @@
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.settings-library-card__status-slot {
-  display: flex;
-  align-items: center;
-  min-height: 28px;
 }
 
 .settings-library-card__scan-badge {
@@ -195,8 +209,8 @@
 }
 
 .settings-library-card__scan-badge--success {
-  border-color: var(--settings-scan-success-border);
-  background: var(--settings-scan-success-background);
+  border-color: transparent;
+  background: transparent;
   color: var(--settings-scan-success-text);
 }
 
@@ -246,6 +260,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.settings-library-card__path-value {
+  min-width: 0;
+}
+
 
 .settings-user-list {
   display: grid;
