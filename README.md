@@ -24,6 +24,8 @@ The Web interface defaults to Simplified Chinese on first initialization or when
 
 Library editors can change only the library name, description, and TMDB metadata language; the root path remains read-only after creation. Libraries no longer have an enabled/disabled state: a newly created library always starts its initial scan, and every existing library remains available for manual scans. Changing the metadata language requires confirmation and then automatically starts a full-library metadata refresh in the selected language while reusing unchanged local probe analysis.
 
+Server Settings keeps library cards aligned with a fixed two-line description area, a compact scan-status indicator, and a single-line ellipsized root path whose full value is available on hover. Edit, scan, and delete actions share the same three-dot menu used by home library cards.
+
 Native clients authenticate with opaque short-lived access tokens plus rotating refresh tokens. Business APIs only accept the access token in `Authorization: Bearer ...`; refresh tokens are stored server-side as hashes, can be revoked per device session, and are used only through `/api/auth/refresh`.
 
 Login account identifiers can be regular usernames or email-form strings up to 254 characters. Mova treats them as exact account identifiers and does not verify email ownership or send email.

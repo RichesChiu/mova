@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { Library } from '../../../api/types'
 import {
@@ -9,6 +8,7 @@ import {
   isLibraryScanActive,
 } from '../../../components/app-shell/scan-runtime'
 import { EmptyState } from '../../../components/empty-state'
+import { LibraryActionsMenu } from '../../../components/library-actions-menu'
 import { useI18n } from '../../../i18n'
 import { cssBackgroundImage } from '../../../lib/css'
 import {
@@ -16,7 +16,6 @@ import {
   HOME_LIBRARY_LIMIT,
   shouldShowAllHomeLibraries,
 } from '../../../lib/home-sections'
-import { HomeIcon } from '../home-icons'
 import { getLibraryArtworkSrc } from '../library-artwork'
 import type { HomeLibraryModuleData } from '../types'
 
@@ -57,94 +56,6 @@ const LibrarySpotlightSkeleton = () => (
   </div>
 )
 
-const LibraryActionsMenu = ({
-  isOpen,
-  isScanDisabled,
-  isScanPending,
-  library,
-  onClose,
-  onDeleteLibrary,
-  onEditLibrary,
-  onScanLibrary,
-  onToggle,
-}: {
-  isOpen: boolean
-  isScanDisabled: boolean
-  isScanPending: boolean
-  library: Library
-  onClose: () => void
-  onDeleteLibrary: (library: Library) => void
-  onEditLibrary: (library: Library) => void
-  onScanLibrary: (library: Library) => void
-  onToggle: () => void
-}) => {
-  const { l } = useI18n()
-
-  return (
-    <div className="library-spotlight__actions" data-library-actions-menu={library.id}>
-      <button
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
-        aria-label={l('Open library actions menu')}
-        className="library-spotlight__menu"
-        onClick={onToggle}
-        type="button"
-      >
-        <span />
-        <span />
-        <span />
-      </button>
-
-      {isOpen ? (
-        <div
-          aria-label={l('Library actions')}
-          className="library-spotlight__action-menu glass-popover-surface floating-transition"
-          data-state="open"
-          role="menu"
-        >
-          <button
-            className="library-spotlight__action-menu-item"
-            onClick={() => {
-              onClose()
-              onEditLibrary(library)
-            }}
-            role="menuitem"
-            type="button"
-          >
-            <HomeIcon name="edit" />
-            <span>{l('Edit Library')}</span>
-          </button>
-          <button
-            className="library-spotlight__action-menu-item"
-            disabled={isScanDisabled}
-            onClick={() => {
-              onClose()
-              onScanLibrary(library)
-            }}
-            role="menuitem"
-            type="button"
-          >
-            <HomeIcon name="scan" />
-            <span>{isScanPending ? l('Triggering…') : l('Scan Library')}</span>
-          </button>
-          <button
-            className="library-spotlight__action-menu-item library-spotlight__action-menu-item--danger"
-            onClick={() => {
-              onClose()
-              onDeleteLibrary(library)
-            }}
-            role="menuitem"
-            type="button"
-          >
-            <HomeIcon name="trash" />
-            <span>{l('Delete Library')}</span>
-          </button>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
 export const LibrariesSection = (props: LibrariesSectionProps) => (
   <LibrariesSectionBody {...props} />
 )
@@ -161,39 +72,7 @@ const LibrariesSectionBody = ({
   totalLibraryCount,
 }: LibrariesSectionProps) => {
   const { formatNumber, l } = useI18n()
-  const [openMenuLibraryId, setOpenMenuLibraryId] = useState<number | null>(null)
   const visibleLibraryModules = getVisibleHomeLibraries(libraryModules)
-
-  useEffect(() => {
-    if (openMenuLibraryId === null) {
-      return
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (
-        event.target instanceof Element &&
-        event.target.closest(`[data-library-actions-menu="${openMenuLibraryId}"]`)
-      ) {
-        return
-      }
-
-      setOpenMenuLibraryId(null)
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpenMenuLibraryId(null)
-      }
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [openMenuLibraryId])
 
   return (
     <section className="catalog-block libraries-section">
@@ -343,19 +222,13 @@ const LibrariesSectionBody = ({
 
                     {canManageLibraries ? (
                       <LibraryActionsMenu
-                        isOpen={openMenuLibraryId === library.id}
+                        className="library-spotlight__actions"
                         isScanDisabled={isScanPending || isScanning}
                         isScanPending={isScanPending}
                         library={library}
-                        onClose={() => setOpenMenuLibraryId(null)}
                         onDeleteLibrary={onDeleteLibrary}
                         onEditLibrary={onEditLibrary}
                         onScanLibrary={onScanLibrary}
-                        onToggle={() =>
-                          setOpenMenuLibraryId((current) =>
-                            current === library.id ? null : library.id,
-                          )
-                        }
                       />
                     ) : null}
                   </article>

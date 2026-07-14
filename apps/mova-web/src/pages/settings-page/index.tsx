@@ -17,6 +17,7 @@ import type { AppShellOutletContext } from '../../components/app-shell'
 import { ConfirmActionModal } from '../../components/confirm-action-modal'
 import { CreateLibraryModal } from '../../components/create-library-modal'
 import { EmptyState } from '../../components/empty-state'
+import { LibraryActionsMenu } from '../../components/library-actions-menu'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { StatusPill } from '../../components/status-pill'
 import { UserEditorModal } from '../../components/user-editor-modal'
@@ -32,7 +33,6 @@ import {
   buildUpdatedLibraryCacheState,
   buildUpdatedUserCacheState,
   getScanStatusLabel,
-  getScanStatusSummary,
   getScanStatusTone,
 } from '../../lib/settings-admin'
 import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
@@ -84,16 +84,12 @@ const SettingsLibraryCardSkeleton = ({ rootPathLabel }: { rootPathLabel: string 
       <span className="settings-library-card__line settings-library-card__line--description skeleton-shimmer" />
       <span className="settings-library-card__line settings-library-card__line--description-alt skeleton-shimmer" />
       <span className="settings-library-card__line settings-library-card__line--meta skeleton-shimmer" />
+      <span className="settings-library-card__line settings-library-card__line--status skeleton-shimmer" />
 
       <div className="settings-library-card__path-block">
         <span className="settings-library-card__path-label">{rootPathLabel}</span>
         <span className="settings-library-card__path settings-library-card__path--loading skeleton-shimmer" />
       </div>
-    </div>
-
-    <div className="settings-library-card__actions">
-      <span className="settings-library-card__button skeleton-shimmer" />
-      <span className="settings-library-card__button skeleton-shimmer" />
     </div>
   </article>
 )
@@ -572,12 +568,24 @@ export const SettingsPage = () => {
                       const lastScan = libraryDetail?.last_scan ?? null
                       const lastScanStatusLabel = getScanStatusLabel(lastScan)
                       const lastScanStatusTone = getScanStatusTone(lastScan)
-                      const lastScanSummary = getScanStatusSummary(lastScan)
                       const isTriggeringScan =
                         scanMutation.isPending && scanMutation.variables === library.id
+                      const isDeletingLibrary =
+                        deleteLibraryMutation.isPending &&
+                        deleteLibraryMutation.variables === library.id
+                      const isScanActive =
+                        lastScan?.status === 'pending' || lastScan?.status === 'running'
+                      const cardClassName = [
+                        'settings-library-card',
+                        lastScanStatusTone === 'success'
+                          ? 'settings-library-card--scan-success'
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')
 
                       return (
-                        <article className="settings-library-card" key={library.id}>
+                        <article className={cardClassName} key={library.id}>
                           <div aria-hidden="true" className="settings-library-card__backdrop">
                             <span className="settings-library-card__backdrop-glow" />
                           </div>
@@ -587,34 +595,29 @@ export const SettingsPage = () => {
                               <strong className="settings-library-card__title">
                                 {library.name}
                               </strong>
-                              <button
-                                aria-label={l('Edit {{name}}', { name: library.name })}
-                                className="settings-library-card__edit-icon"
-                                onClick={() => setEditingLibrary(library)}
-                                type="button"
-                              >
-                                <svg
-                                  aria-hidden="true"
-                                  fill="none"
-                                  focusable="false"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path
-                                    d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
-                                    stroke="currentColor"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth="1.7"
-                                  />
-                                  <path
-                                    d="M12.75 7.05L16.95 11.25"
-                                    stroke="currentColor"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth="1.7"
-                                  />
-                                </svg>
-                              </button>
+                              <LibraryActionsMenu
+                                className="settings-library-card__menu"
+                                isDeleteDisabled={
+                                  deleteLibraryMutation.isPending ||
+                                  isTriggeringScan ||
+                                  isScanActive
+                                }
+                                isDeletePending={isDeletingLibrary}
+                                isScanDisabled={isTriggeringScan || isScanActive}
+                                isScanPending={isTriggeringScan}
+                                library={library}
+                                onDeleteLibrary={(selectedLibrary) => {
+                                  deleteLibraryMutation.reset()
+                                  setPendingConfirmation({
+                                    kind: 'delete-library',
+                                    library: selectedLibrary,
+                                  })
+                                }}
+                                onEditLibrary={setEditingLibrary}
+                                onScanLibrary={(selectedLibrary) =>
+                                  scanMutation.mutate(selectedLibrary.id)
+                                }
+                              />
                             </div>
                             <p className="settings-library-card__description">
                               {library.description ?? l('No description')}
@@ -625,61 +628,29 @@ export const SettingsPage = () => {
                               })}
                             </p>
 
-                            <div className="settings-library-card__scan">
-                              <div className="settings-library-card__scan-header">
-                                <span className="settings-library-card__path-label">
-                                  {l('Latest Scan')}
-                                </span>
-                                <span
-                                  className={`settings-library-card__scan-badge settings-library-card__scan-badge--${lastScanStatusTone}`}
-                                >
-                                  {lastScanStatusLabel}
-                                </span>
-                              </div>
-                              <p
-                                className="settings-library-card__scan-copy"
-                                title={lastScanSummary}
+                            <div className="settings-library-card__status-slot">
+                              <span
+                                className={`settings-library-card__scan-badge settings-library-card__scan-badge--${lastScanStatusTone}`}
                               >
-                                {lastScanSummary}
-                              </p>
+                                <span
+                                  aria-hidden="true"
+                                  className="settings-library-card__scan-dot"
+                                />
+                                {lastScanStatusLabel}
+                              </span>
                             </div>
 
                             <div className="settings-library-card__path-block">
                               <span className="settings-library-card__path-label">
                                 {l('Root path')}
                               </span>
-                              <code className="settings-library-card__path">
+                              <code
+                                className="settings-library-card__path"
+                                title={library.root_path}
+                              >
                                 {library.root_path}
                               </code>
                             </div>
-                          </div>
-
-                          <div className="settings-library-card__actions">
-                            <button
-                              className="button settings-library-card__scan-action"
-                              disabled={isTriggeringScan}
-                              onClick={() => scanMutation.mutate(library.id)}
-                              type="button"
-                            >
-                              {isTriggeringScan ? l('Triggering…') : l('Scan Library')}
-                            </button>
-                            <button
-                              className="button button--danger settings-library-card__delete"
-                              disabled={deleteLibraryMutation.isPending || isTriggeringScan}
-                              onClick={() => {
-                                deleteLibraryMutation.reset()
-                                setPendingConfirmation({
-                                  kind: 'delete-library',
-                                  library,
-                                })
-                              }}
-                              type="button"
-                            >
-                              {deleteLibraryMutation.isPending &&
-                              deleteLibraryMutation.variables === library.id
-                                ? l('Deleting…')
-                                : l('Delete Library')}
-                            </button>
                           </div>
                         </article>
                       )

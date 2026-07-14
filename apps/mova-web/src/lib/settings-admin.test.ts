@@ -13,7 +13,6 @@ import {
   buildUpdatedLibraryCacheState,
   buildUpdatedUserCacheState,
   getScanStatusLabel,
-  getScanStatusSummary,
   getScanStatusTone,
   getUserAvatarInitial,
   getUserLibraryAccessSummary,
@@ -253,29 +252,6 @@ describe('settings admin helpers', () => {
 
     expect(getScanStatusLabel(scanJob)).toBe('Running')
     expect(getScanStatusTone(scanJob)).toBe('running')
-    expect(getScanStatusSummary(scanJob)).toBe('Scanned 6/20 files.')
-    expect(
-      getScanStatusSummary({
-        ...scanJob,
-        total_files: 791,
-        scanned_files: 791,
-      }),
-    ).toBe('Discovered 791 files.')
-    expect(
-      getScanStatusSummary({
-        ...scanJob,
-        total_files: 0,
-        scanned_files: 169,
-      }),
-    ).toBe('Discovered 169 files.')
-    expect(getScanStatusSummary(null)).toBe('No scan has run yet.')
-    expect(
-      getScanStatusSummary({
-        ...scanJob,
-        status: 'failed',
-        error_message: 'Directory scan failed: Directory does not exist',
-      }),
-    ).toBe('Directory scan failed: Directory does not exist')
     expect(
       buildUpdatedUserCacheState([viewer], viewer.id, { ...viewer, is_enabled: false }),
     ).toEqual({

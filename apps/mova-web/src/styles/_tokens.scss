@@ -473,20 +473,6 @@
       color-mix(in srgb, var(--floating-surface-strong) 74%, transparent),
       color-mix(in srgb, var(--panel-background-strong) 96%, transparent)
     );
-  --settings-library-scan-action-border: color-mix(in srgb, var(--button-primary-border) 86%, transparent);
-  --settings-library-scan-action-background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent) 16%, transparent), transparent 58%),
-    color-mix(in srgb, var(--button-primary-background) 94%, transparent);
-  --settings-library-scan-action-text: var(--button-primary-text);
-  --settings-library-scan-action-shadow: var(--panel-inset);
-  --settings-library-scan-action-hover-border: color-mix(in srgb, var(--accent-strong) 44%, var(--button-primary-border));
-  --settings-library-scan-action-hover-background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent 56%),
-    color-mix(in srgb, var(--floating-surface-strong) 92%, transparent);
-  --settings-library-scan-action-hover-text: var(--accent-strong);
-  --settings-library-scan-action-hover-shadow:
-    var(--panel-inset),
-    0 12px 28px color-mix(in srgb, var(--accent) 16%, transparent);
   --settings-user-card-border: color-mix(in srgb, var(--floating-border) 90%, transparent);
   --settings-user-card-background:
     linear-gradient(180deg, color-mix(in srgb, var(--color-white) 7%, transparent), transparent 48%),
@@ -894,22 +880,6 @@
   --settings-user-card-shadow:
     var(--panel-inset),
     0 18px 46px var(--mova-color-rgba-121-146-188-a16);
-  --settings-library-scan-action-border: var(--mova-color-rgba-89-120-197-a38);
-  --settings-library-scan-action-background:
-    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a78), var(--mova-color-rgba-226-236-255-a68)),
-    var(--mova-color-rgba-221-234-255-a72);
-  --settings-library-scan-action-text: var(--mova-color-hex-294f9e);
-  --settings-library-scan-action-shadow:
-    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a8),
-    0 8px 18px var(--mova-color-rgba-89-120-197-a14);
-  --settings-library-scan-action-hover-border: var(--mova-color-rgba-77-109-184-a56);
-  --settings-library-scan-action-hover-background:
-    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a88), var(--mova-color-rgba-214-229-255-a76)),
-    var(--mova-color-rgba-213-228-255-a82);
-  --settings-library-scan-action-hover-text: var(--mova-color-hex-1d3f86);
-  --settings-library-scan-action-hover-shadow:
-    inset 0 1px 0 var(--mova-color-rgba-255-255-255-a86),
-    0 12px 24px var(--mova-color-rgba-89-120-197-a18);
   --settings-scan-running-border: var(--mova-color-rgba-37-99-235-a24);
   --settings-scan-running-background: var(--mova-color-rgba-37-99-235-a12);
   --settings-scan-running-text: var(--mova-color-hex-1d4ed8);

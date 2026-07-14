@@ -1,6 +1,5 @@
 import type { Library, LibraryDetail, ScanJob, UserAccount } from '../api/types'
-import { getCurrentInterfaceLanguage, translateCurrent } from '../i18n'
-import { formatDateTime } from './format'
+import { translateCurrent } from '../i18n'
 
 export interface ConfirmActionCopy {
   confirmLabel: string
@@ -57,34 +56,6 @@ export const getScanStatusTone = (scanJob: ScanJob | null | undefined) => {
     default:
       return 'muted'
   }
-}
-
-export const getScanStatusSummary = (scanJob: ScanJob | null | undefined) => {
-  if (!scanJob) {
-    return translateCurrent('No scan has run yet.')
-  }
-
-  if (scanJob.status === 'running') {
-    if (scanJob.total_files <= 0 || scanJob.scanned_files >= scanJob.total_files) {
-      return translateCurrent('Discovered {{count}} files.', {
-        count: scanJob.scanned_files,
-      })
-    }
-
-    return translateCurrent('Scanned {{scanned}}/{{total}} files.', {
-      scanned: scanJob.scanned_files,
-      total: scanJob.total_files,
-    })
-  }
-
-  if (scanJob.status === 'failed' && scanJob.error_message) {
-    return scanJob.error_message
-  }
-
-  const finishedAt = scanJob.finished_at ?? scanJob.started_at ?? scanJob.created_at
-  return translateCurrent('Last updated at {{value}}.', {
-    value: formatDateTime(finishedAt, getCurrentInterfaceLanguage()),
-  })
 }
 
 export const buildInitialScanJob = (

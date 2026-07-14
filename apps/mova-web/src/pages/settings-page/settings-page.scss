@@ -1,7 +1,6 @@
 .settings-library-list,
 .settings-library-card,
 .settings-library-card__body,
-.settings-library-card__actions,
 .settings-user-card,
 .settings-user-card__body {
   display: grid;
@@ -10,7 +9,7 @@
 
 .settings-library-card {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
   border-radius: 20px;
   background: var(--settings-library-card-background);
@@ -66,26 +65,47 @@
 }
 
 .settings-library-card {
-  align-content: end;
+  align-content: stretch;
   min-height: 238px;
   padding: 18px;
 }
 
-.settings-library-card__body,
-.settings-library-card__actions {
+.settings-library-card:focus-within {
+  z-index: 5;
+}
+
+.settings-library-card--scan-success {
+  border-color: color-mix(in srgb, var(--settings-scan-success-text) 30%, var(--floating-border));
+}
+
+.settings-library-card--scan-success .settings-library-card__backdrop {
+  background:
+    radial-gradient(circle at 84% 8%, var(--settings-scan-success-background), transparent 42%),
+    var(--settings-library-card-backdrop);
+}
+
+.settings-library-card__body {
   position: relative;
   z-index: 1;
 }
 
 .settings-library-card__body {
-  align-content: end;
+  min-width: 0;
+  align-content: start;
   gap: 10px;
+}
+
+.settings-library-card:not(.settings-library-card--loading) .settings-library-card__body {
+  grid-template-rows: auto 3em auto 28px auto;
 }
 
 .settings-library-card__backdrop {
   position: absolute;
   inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
   background: var(--settings-library-card-backdrop);
+  pointer-events: none;
 }
 
 .settings-library-card__backdrop-glow {
@@ -105,37 +125,6 @@
   gap: 10px;
 }
 
-.settings-library-card__edit-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--floating-surface) 78%, transparent);
-  color: var(--text-soft);
-  box-shadow: var(--panel-inset);
-  transition:
-    transform 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    background 160ms ease;
-}
-
-.settings-library-card__edit-icon:hover {
-  transform: translateY(-1px);
-  border-color: var(--button-primary-border);
-  background: color-mix(in srgb, var(--floating-surface-strong) 84%, transparent);
-  color: var(--accent-strong);
-}
-
-.settings-library-card__edit-icon svg {
-  width: 16px;
-  height: 16px;
-}
-
 .settings-library-card__title {
   min-width: 0;
   color: var(--text);
@@ -148,6 +137,7 @@
 }
 
 .settings-library-card__description {
+  min-height: 3em;
   margin: 0;
   color: var(--text-muted);
   line-height: 1.5;
@@ -158,28 +148,27 @@
 }
 
 .settings-library-card__language-note {
+  min-width: 0;
   margin: -2px 0 0;
+  overflow: hidden;
   color: var(--text-soft);
   font-size: 0.8rem;
   line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.settings-library-card__scan {
-  display: grid;
-  gap: 8px;
-}
-
-.settings-library-card__scan-header {
+.settings-library-card__status-slot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  min-height: 28px;
 }
 
 .settings-library-card__scan-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 7px;
   min-height: 28px;
   padding: 0 10px;
   border: 1px solid transparent;
@@ -188,6 +177,15 @@
   font-weight: 800;
   letter-spacing: 0.04em;
   line-height: 1;
+}
+
+.settings-library-card__scan-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 12%, transparent);
 }
 
 .settings-library-card__scan-badge--running {
@@ -220,19 +218,9 @@
   color: var(--settings-scan-muted-text);
 }
 
-.settings-library-card__scan-copy {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 0.82rem;
-  line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .settings-library-card__path-block {
   display: grid;
+  min-width: 0;
   gap: 6px;
 }
 
@@ -246,45 +234,17 @@
 
 .settings-library-card__path {
   display: block;
+  min-width: 0;
   padding: 10px 12px;
+  overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--floating-border) 76%, transparent);
   border-radius: 14px;
   background: color-mix(in srgb, var(--floating-surface) 68%, transparent);
   color: var(--text-muted);
   font-size: 0.8rem;
   line-height: 1.45;
-  word-break: break-all;
-}
-
-.settings-library-card__actions {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: center;
-  gap: 10px;
-}
-
-.settings-library-card__actions .button {
-  width: 100%;
-  padding-inline: 10px;
-  font-size: 0.86rem;
+  text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.settings-library-card__scan-action {
-  border-color: var(--settings-library-scan-action-border);
-  background: var(--settings-library-scan-action-background);
-  color: var(--settings-library-scan-action-text);
-  box-shadow: var(--settings-library-scan-action-shadow);
-}
-
-.settings-library-card__scan-action:not(:disabled):hover {
-  border-color: var(--settings-library-scan-action-hover-border);
-  background: var(--settings-library-scan-action-hover-background);
-  color: var(--settings-library-scan-action-hover-text);
-  box-shadow: var(--settings-library-scan-action-hover-shadow);
-}
-
-.settings-library-card__delete {
-  min-width: 0;
 }
 
 .settings-user-list {
@@ -585,8 +545,8 @@
 }
 
 .settings-library-card__button--icon {
-  width: 38px;
-  height: 38px;
+  width: 28px;
+  height: 22px;
 }
 
 .settings-library-card__line--title {
@@ -612,14 +572,14 @@
   height: 0.8rem;
 }
 
+.settings-library-card__line--status {
+  width: 74px;
+  height: 28px;
+}
+
 .settings-library-card__path--loading {
   min-height: 42px;
   color: transparent;
-}
-
-.settings-library-card__button {
-  width: 100%;
-  min-height: var(--control-height);
 }
 
 @media (max-width: 720px) {

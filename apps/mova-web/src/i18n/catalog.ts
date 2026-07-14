@@ -134,7 +134,6 @@ const zhCN: Record<string, string> = {
   'Delete {{name}}': '删除 {{name}}',
   'No description': '暂无描述',
   'Metadata language: {{language}}': '元数据语言：{{language}}',
-  'Latest Scan': '最近扫描',
   'Root path': '根路径',
   'Triggering…': '触发中…',
   'Scan Library': '扫描媒体库',
@@ -219,10 +218,6 @@ const zhCN: Record<string, string> = {
   Cancelled: '已取消',
   Pending: '等待中',
   Idle: '空闲',
-  'No scan has run yet.': '还没有运行过扫描。',
-  'Scanned {{scanned}}/{{total}} files.': '已扫描 {{scanned}}/{{total}} 个文件。',
-  'Discovered {{count}} files.': '发现 {{count}} 个文件。',
-  'Last updated at {{value}}.': '最近更新时间：{{value}}。',
   'Delete library': '删除媒体库',
   'Delete "{{name}}"? This removes the library record and scan history. Already imported media files in the filesystem will not be deleted.':
     '删除“{{name}}”吗？这会移除媒体库记录和扫描历史，但文件系统里已经导入的媒体文件不会被删除。',
