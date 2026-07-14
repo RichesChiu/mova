@@ -34,6 +34,11 @@ export const hasLibraryConfigChanges = (library: Library | null, draft: LibraryE
   )
 }
 
+export const hasLibraryMetadataLanguageChanged = (
+  library: Library | null,
+  draft: LibraryEditorDraft,
+) => Boolean(library && draft.metadataLanguage !== library.metadata_language)
+
 const mediaTreeContainsPath = (node: ServerMediaDirectoryNode, path: string): boolean => {
   if (node.path === path) {
     return true

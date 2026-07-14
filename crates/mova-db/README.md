@@ -46,7 +46,7 @@
 | 文件 | 作用 |
 | --- | --- |
 | `src/pool.rs` | `DatabaseSettings`、`connect`、`migrate`、`ping`。 |
-| `src/libraries.rs` | 媒体库 CRUD。 |
+| `src/libraries.rs` | 媒体库配置读写与删除前 artwork 引用查询；媒体库不再持久化启用/禁用状态；元数据语言变化时还会把该库全部媒体条目标记为 `pending`，确保下一次扫描覆盖全库远端元数据。 |
 | `src/users.rs` | 用户、密码、Web session、原生客户端 access/refresh token 设备会话、媒体库授权。 |
 | `src/scan_jobs.rs` | 扫描任务创建、运行态更新、收尾、历史查询。 |
 | `src/playback_progress.rs` | 维护逐文件播放进度，并同步维护最多 20 部电影或 Series 的活跃 Continue 队列。 |
@@ -149,7 +149,7 @@
 ## 7. 当前值得注意的点
 
 - 仓库仍处于 pre-1.0 阶段，用户确认正式 MVP 前 migration 保持在根目录 [`../../migrations/0001_init.sql`](../../migrations/0001_init.sql)。
-- 这个阶段 schema 变更默认要求重建数据库 / 重置数据目录，不新增后续 migration 兼容旧库；本次扫描链路新增 `media_files.local_analysis_version`，旧开发库需要重建后才能使用新的本地分析缓存跳过逻辑。
+- 这个阶段 schema 变更默认要求重建数据库 / 重置数据目录，不新增后续 migration 兼容旧库；当前 schema 已删除 `libraries.is_enabled` 并包含 `media_files.local_analysis_version`，旧开发库需要重建后才能与当前查询和扫描逻辑一致。
 - `mova-server` 启动时会直接调用这里的 `connect / migrate / ping / fail_incomplete_scan_jobs`。
 - `mova-application` 的大部分业务用例都会在这里落到最终 SQL。
 

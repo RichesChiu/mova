@@ -65,6 +65,7 @@ const isScanRuntimeItem = (value: unknown): value is ScanRuntimeItem =>
   (typeof value.poster_path === 'string' || value.poster_path === null) &&
   (typeof value.backdrop_path === 'string' || value.backdrop_path === null) &&
   (typeof value.metadata_status === 'string' || value.metadata_status === null) &&
+  (typeof value.remote_media_type === 'string' || value.remote_media_type === null) &&
   (typeof value.season_number === 'number' || value.season_number === null) &&
   (typeof value.episode_number === 'number' || value.episode_number === null) &&
   typeof value.item_index === 'number' &&

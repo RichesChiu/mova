@@ -185,7 +185,6 @@ mod tests {
                 description: None,
                 metadata_language: "zh-CN".to_string(),
                 root_path: format!("/media/{}", name.to_lowercase()),
-                is_enabled: true,
             },
         )
         .await

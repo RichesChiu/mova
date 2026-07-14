@@ -919,17 +919,18 @@ impl MetadataProvider for TmdbMetadataProvider {
         let series_match =
             select_best_match_with_rank(lookup.title.as_str(), lookup.year, &series_candidates);
 
-        match (movie_match, series_match) {
-            (Some((movie_rank, movie)), Some((series_rank, series))) => {
-                if movie_rank >= series_rank {
-                    Ok(Some(remote_movie_type_match(movie)))
-                } else {
-                    Ok(Some(remote_series_type_match(series)))
-                }
+        match select_remote_media_kind(
+            lookup.library_type.as_str(),
+            movie_match.map(|(rank, _)| rank),
+            series_match.map(|(rank, _)| rank),
+        ) {
+            Some(RemoteMediaKind::Movie) => {
+                Ok(movie_match.map(|(_, movie)| remote_movie_type_match(movie)))
             }
-            (Some((_, movie)), None) => Ok(Some(remote_movie_type_match(movie))),
-            (None, Some((_, series))) => Ok(Some(remote_series_type_match(series))),
-            (None, None) => Ok(None),
+            Some(RemoteMediaKind::Series) => {
+                Ok(series_match.map(|(_, series)| remote_series_type_match(series)))
+            }
+            None => Ok(None),
         }
     }
 }
@@ -1271,6 +1272,28 @@ struct MatchRank {
     popularity: i64,
 }
 
+fn select_remote_media_kind(
+    preferred_type: &str,
+    movie_rank: Option<MatchRank>,
+    series_rank: Option<MatchRank>,
+) -> Option<RemoteMediaKind> {
+    if preferred_type.eq_ignore_ascii_case("series") && series_rank.is_some() {
+        return Some(RemoteMediaKind::Series);
+    }
+
+    if preferred_type.eq_ignore_ascii_case("movie") && movie_rank.is_some() {
+        return Some(RemoteMediaKind::Movie);
+    }
+
+    match (movie_rank, series_rank) {
+        (Some(_), None) => Some(RemoteMediaKind::Movie),
+        (None, Some(_)) => Some(RemoteMediaKind::Series),
+        (Some(movie), Some(series)) if movie >= series => Some(RemoteMediaKind::Movie),
+        (Some(_), Some(_)) => Some(RemoteMediaKind::Series),
+        (None, None) => None,
+    }
+}
+
 fn select_best_match<'a, T>(
     query_title: &str,
     query_year: Option<i32>,
@@ -1474,10 +1497,10 @@ mod tests {
     use super::{
         apply_remote_metadata, build_metadata_provider, format_country_codes, merge_search_results,
         normalize_base_url, normalize_metadata_language, normalize_optional_value, normalize_title,
-        parse_year, pick_primary_character_name, select_best_match, MetadataLookup,
-        MetadataProviderConfig, RemoteMetadata, TmdbMetadataProvider, TmdbMetadataProviderConfig,
-        TmdbMovieDetails, TmdbMovieSearchResult, TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL,
-        TMDB_PROVIDER_NAME,
+        parse_year, pick_primary_character_name, select_best_match, select_remote_media_kind,
+        MatchRank, MetadataLookup, MetadataProviderConfig, RemoteMediaKind, RemoteMetadata,
+        TmdbMetadataProvider, TmdbMetadataProviderConfig, TmdbMovieDetails, TmdbMovieSearchResult,
+        TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL, TMDB_PROVIDER_NAME,
     };
 
     #[test]
@@ -1513,6 +1536,40 @@ mod tests {
         assert_eq!(
             normalize_metadata_language(None, "zh-CN").unwrap(),
             "zh-CN".to_string()
+        );
+    }
+
+    #[test]
+    fn remote_type_detection_prefers_the_locally_inferred_type_when_tmdb_has_both() {
+        let movie_rank = MatchRank {
+            score: 120,
+            popularity: 100,
+        };
+        let series_rank = MatchRank {
+            score: 100,
+            popularity: 80,
+        };
+
+        assert_eq!(
+            select_remote_media_kind("series", Some(movie_rank), Some(series_rank)),
+            Some(RemoteMediaKind::Series)
+        );
+        assert_eq!(
+            select_remote_media_kind("movie", Some(movie_rank), Some(series_rank)),
+            Some(RemoteMediaKind::Movie)
+        );
+    }
+
+    #[test]
+    fn remote_type_detection_returns_the_other_type_only_when_preferred_type_is_missing() {
+        let movie_rank = MatchRank {
+            score: 120,
+            popularity: 100,
+        };
+
+        assert_eq!(
+            select_remote_media_kind("series", Some(movie_rank), None),
+            Some(RemoteMediaKind::Movie)
         );
     }
 

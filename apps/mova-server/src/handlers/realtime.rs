@@ -83,7 +83,6 @@ mod tests {
                 description: None,
                 metadata_language: "zh-CN".to_string(),
                 root_path: root_path.to_string(),
-                is_enabled: true,
             },
         )
         .await
@@ -198,6 +197,7 @@ mod tests {
                 poster_path: Some("/cache/poster/interstellar.jpg".to_string()),
                 backdrop_path: Some("/cache/backdrop/interstellar.jpg".to_string()),
                 metadata_status: Some("matched".to_string()),
+                remote_media_type: Some("movie".to_string()),
                 season_number: None,
                 episode_number: None,
                 item_index: 1,
@@ -213,6 +213,7 @@ mod tests {
 
         assert!(body.contains("event: scan.item.updated"));
         assert!(body.contains("\"type\":\"scan.item.updated\""));
+        assert!(body.contains("\"remote_media_type\":\"movie\""));
         assert!(body.contains("\"title\":\"Interstellar\""));
         assert!(body.contains("\"stage\":\"artwork\""));
         assert!(body.contains("\"progress_percent\":68"));
@@ -280,6 +281,7 @@ mod tests {
                 poster_path: None,
                 backdrop_path: None,
                 metadata_status: None,
+                remote_media_type: None,
                 season_number: None,
                 episode_number: None,
                 item_index: 1,

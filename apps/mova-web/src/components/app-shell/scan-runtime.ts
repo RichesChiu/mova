@@ -13,6 +13,7 @@ export interface ScanRuntimeItem {
   poster_path: string | null
   backdrop_path: string | null
   metadata_status: string | null
+  remote_media_type: string | null
   season_number: number | null
   episode_number: number | null
   item_index: number

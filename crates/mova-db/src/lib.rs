@@ -8,7 +8,8 @@ mod users;
 
 pub use libraries::{
     create_library, delete_library, get_library, list_libraries, list_library_artwork_paths,
-    list_referenced_artwork_paths, update_library, CreateLibraryParams, UpdateLibraryParams,
+    list_referenced_artwork_paths, mark_library_media_for_metadata_rescan, update_library,
+    CreateLibraryParams, UpdateLibraryParams,
 };
 pub use media_cast::{
     delete_media_item_cast_cache, get_media_item_cast_cache, list_media_item_cast_members,

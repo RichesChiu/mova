@@ -69,7 +69,6 @@ describe('mock api switch', () => {
       requestMockJson<Library>('/api/libraries', {
         method: 'POST',
         body: JSON.stringify({
-          is_enabled: true,
           metadata_language: 'zh-CN',
           name: 'New Library',
           root_path: '/media/new-library',

@@ -12,7 +12,6 @@ pub struct CreateLibraryParams {
     pub description: Option<String>,
     pub metadata_language: String,
     pub root_path: String,
-    pub is_enabled: bool,
 }
 
 /// 更新媒体库基础配置时需要的字段。
@@ -22,14 +21,13 @@ pub struct UpdateLibraryParams {
     pub name: String,
     pub description: Option<String>,
     pub metadata_language: String,
-    pub is_enabled: bool,
 }
 
 /// 按创建时间顺序读取媒体库列表，保证接口返回顺序稳定。
 pub async fn list_libraries(pool: &PgPool) -> Result<Vec<Library>> {
     let rows = sqlx::query(
         r#"
-        select id, name, description, library_type, metadata_language, root_path, is_enabled, created_at, updated_at
+        select id, name, description, library_type, metadata_language, root_path, created_at, updated_at
         from libraries
         order by created_at asc
         "#,
@@ -47,7 +45,7 @@ pub async fn list_libraries(pool: &PgPool) -> Result<Vec<Library>> {
 pub async fn get_library(pool: &PgPool, library_id: i64) -> Result<Option<Library>> {
     let row = sqlx::query(
         r#"
-        select id, name, description, library_type, metadata_language, root_path, is_enabled, created_at, updated_at
+        select id, name, description, library_type, metadata_language, root_path, created_at, updated_at
         from libraries
         where id = $1
         "#,
@@ -64,16 +62,15 @@ pub async fn get_library(pool: &PgPool, library_id: i64) -> Result<Option<Librar
 pub async fn create_library(pool: &PgPool, params: CreateLibraryParams) -> Result<Library> {
     let row = sqlx::query(
         r#"
-        insert into libraries (name, description, library_type, metadata_language, root_path, is_enabled)
-        values ($1, $2, 'mixed', $3, $4, $5)
-        returning id, name, description, library_type, metadata_language, root_path, is_enabled, created_at, updated_at
+        insert into libraries (name, description, library_type, metadata_language, root_path)
+        values ($1, $2, 'mixed', $3, $4)
+        returning id, name, description, library_type, metadata_language, root_path, created_at, updated_at
         "#,
     )
     .bind(params.name)
     .bind(params.description)
     .bind(params.metadata_language)
     .bind(params.root_path)
-    .bind(params.is_enabled)
     .fetch_one(pool)
     .await
     .context("failed to create library")?;
@@ -89,22 +86,40 @@ pub async fn update_library(pool: &PgPool, params: UpdateLibraryParams) -> Resul
         set name = $2,
             description = $3,
             metadata_language = $4,
-            is_enabled = $5,
             updated_at = now()
         where id = $1
-        returning id, name, description, library_type, metadata_language, root_path, is_enabled, created_at, updated_at
+        returning id, name, description, library_type, metadata_language, root_path, created_at, updated_at
         "#,
     )
     .bind(params.library_id)
     .bind(params.name)
     .bind(params.description)
     .bind(params.metadata_language)
-    .bind(params.is_enabled)
     .fetch_optional(pool)
     .await
     .context("failed to update library")?;
 
     Ok(row.map(map_library_row))
+}
+
+/// 把库内所有条目标记为等待元数据重扫。
+/// 保留现有远端绑定和展示数据，让后续扫描可以按新语言精确刷新且不出现空白闪烁。
+pub async fn mark_library_media_for_metadata_rescan(pool: &PgPool, library_id: i64) -> Result<u64> {
+    let result = sqlx::query(
+        r#"
+        update media_items
+        set metadata_status = 'pending',
+            metadata_failure_reason = null,
+            updated_at = now()
+        where library_id = $1
+        "#,
+    )
+    .bind(library_id)
+    .execute(pool)
+    .await
+    .context("failed to mark library media for metadata rescan")?;
+
+    Ok(result.rows_affected())
 }
 
 /// 列出指定媒体库当前引用的所有 artwork 路径，供删除库前收集文件系统清理候选。
@@ -376,7 +391,6 @@ fn map_library_row(row: PgRow) -> Library {
         library_type: "mixed".to_string(),
         metadata_language: row.get("metadata_language"),
         root_path: row.get("root_path"),
-        is_enabled: row.get("is_enabled"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }

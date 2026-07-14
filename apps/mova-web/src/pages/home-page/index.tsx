@@ -18,6 +18,7 @@ import { ConfirmActionModal } from '../../components/confirm-action-modal'
 import type { ContinueWatchingCardData } from '../../components/continue-watching-card'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { useI18n } from '../../i18n'
+import { getVisibleHomeLibraries } from '../../lib/home-sections'
 import { mediaItemDetailPath, mediaItemPrimaryPath } from '../../lib/media-routes'
 import { MEDIA_QUERY_GC_TIME_MS, SERIES_OUTLINE_QUERY_STALE_TIME_MS } from '../../lib/query-options'
 import {
@@ -163,6 +164,7 @@ export const HomePage = () => {
     queryFn: () => listRecentlyAddedByLibrary({ limit: RECENTLY_ADDED_ITEM_LIMIT }),
   })
   const continueWatchingItems = continueWatchingQuery.data ?? []
+  const homeLibraries = getVisibleHomeLibraries(libraries)
   const recentlyAddedGroups = recentlyAddedQuery.data ?? []
   const recentlyAddedByLibraryId = new Map(
     recentlyAddedGroups.map((group) => [group.library.id, group.items]),
@@ -192,13 +194,13 @@ export const HomePage = () => {
   )
 
   const libraryDetailQueries = useQueries({
-    queries: libraries.map((library) => ({
+    queries: homeLibraries.map((library) => ({
       queryKey: ['home-library-detail', library.id],
       queryFn: () => getLibrary(library.id),
     })),
   })
   const libraryArtworkQueries = useQueries({
-    queries: libraries.map((library) => ({
+    queries: homeLibraries.map((library) => ({
       queryKey: ['library-media', library.id, 'home-artwork', HOME_LIBRARY_ARTWORK_ITEM_LIMIT],
       queryFn: () =>
         listLibraryMediaItems(library.id, {
@@ -209,7 +211,7 @@ export const HomePage = () => {
     })),
   })
   // Build a page-level view model once and keep the three home modules purely presentational.
-  const libraryModules: HomeLibraryModuleData[] = libraries.map((library, index) => ({
+  const libraryModules: HomeLibraryModuleData[] = homeLibraries.map((library, index) => ({
     detail: libraryDetailQueries[index]?.data ?? null,
     detailError:
       libraryDetailQueries[index]?.error instanceof Error
@@ -308,6 +310,7 @@ export const HomePage = () => {
             isLoading={librariesLoading}
             libraryModules={libraryModules}
             pendingScanLibraryId={scanMutation.isPending ? (scanMutation.variables ?? null) : null}
+            totalLibraryCount={libraries.length}
             onDeleteLibrary={(library) => {
               deleteLibraryMutation.reset()
               setPendingDeleteLibrary(library)

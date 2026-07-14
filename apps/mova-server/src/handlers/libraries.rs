@@ -17,7 +17,7 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use tokio::time::{timeout, Duration};
 
-const LIBRARY_DELETE_SCAN_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+const LIBRARY_SCAN_STOP_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// 创建媒体库接口接收的请求体。
 /// 这里的 root_path 对应 Plex/Jellyfin 里“这个库要扫描哪个目录”。
@@ -27,17 +27,15 @@ pub struct CreateLibraryRequest {
     pub description: Option<String>,
     pub metadata_language: Option<String>,
     pub root_path: String,
-    pub is_enabled: Option<bool>,
 }
 
 /// 更新媒体库接口接收的请求体。
-/// 支持更新名称、描述、元数据语言和启停状态。
+/// 支持更新名称、描述和元数据语言。
 #[derive(Debug, Deserialize)]
 pub struct UpdateLibraryRequest {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
     pub metadata_language: Option<String>,
-    pub is_enabled: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -139,7 +137,6 @@ pub async fn create_library(
         description: request.description,
         metadata_language: request.metadata_language,
         root_path: request.root_path,
-        is_enabled: request.is_enabled.unwrap_or(true),
     };
 
     let library = mova_application::create_library(&state.db, input)
@@ -150,9 +147,7 @@ pub async fn create_library(
         library_id: library.id,
     });
 
-    if library.is_enabled {
-        trigger_library_scan_after_create(&state, library.id).await;
-    }
+    trigger_library_scan_after_create(&state, library.id).await;
 
     Ok(created(LibraryResponse::from_domain(
         library,
@@ -179,6 +174,25 @@ pub async fn update_library(
     let previous_library = mova_application::get_library(&state.db, library_id)
         .await
         .map_err(ApiError::from)?;
+    let requested_metadata_language = request
+        .metadata_language
+        .as_ref()
+        .map(|value| {
+            mova_application::normalize_metadata_language(
+                Some(value.clone()),
+                mova_application::DEFAULT_TMDB_LANGUAGE,
+            )
+            .map_err(|error| ApiError::BadRequest(error.to_string()))
+        })
+        .transpose()?;
+    let metadata_language_will_change = requested_metadata_language
+        .as_deref()
+        .is_some_and(|language| language != previous_library.metadata_language);
+
+    if metadata_language_will_change {
+        stop_active_library_scan_for_metadata_language_change(&state, library_id).await?;
+    }
+
     let updated_library = mova_application::update_library(
         &state.db,
         library_id,
@@ -186,16 +200,20 @@ pub async fn update_library(
             name: request.name,
             description: request.description,
             metadata_language: request.metadata_language,
-            is_enabled: request.is_enabled,
         },
     )
     .await
     .map_err(ApiError::from)?;
 
-    if previous_library.is_enabled && !updated_library.is_enabled {
-        if let Some(active_scan) = state.scan_registry.active_scan(library_id) {
-            active_scan.cancel();
-        }
+    let metadata_language_changed =
+        previous_library.metadata_language != updated_library.metadata_language;
+
+    if metadata_language_changed {
+        mova_application::prepare_library_metadata_rescan(&state.db, library_id)
+            .await
+            .map_err(ApiError::from)?;
+
+        trigger_library_scan_after_metadata_language_change(&state, library_id).await?;
     }
 
     state
@@ -234,18 +252,15 @@ pub async fn delete_library(
     if let Some(active_scan) = state.scan_registry.active_scan(library_id) {
         active_scan.cancel();
 
-        timeout(
-            LIBRARY_DELETE_SCAN_WAIT_TIMEOUT,
-            active_scan.wait_finished(),
-        )
-        .await
-        .map_err(|_| {
-            ApiError::Conflict(format!(
-                "library {} is still stopping scan job {}, please retry shortly",
-                library_id,
-                active_scan.scan_job_id()
-            ))
-        })?;
+        timeout(LIBRARY_SCAN_STOP_WAIT_TIMEOUT, active_scan.wait_finished())
+            .await
+            .map_err(|_| {
+                ApiError::Conflict(format!(
+                    "library {} is still stopping scan job {}, please retry shortly",
+                    library_id,
+                    active_scan.scan_job_id()
+                ))
+            })?;
     }
 
     mova_application::delete_library(&state.db, library_id, &state.artwork_cache_dir)
@@ -409,6 +424,51 @@ async fn trigger_library_scan_after_create(state: &AppState, library_id: i64) {
     }
 }
 
+async fn stop_active_library_scan_for_metadata_language_change(
+    state: &AppState,
+    library_id: i64,
+) -> Result<(), ApiError> {
+    let Some(active_scan) = state.scan_registry.active_scan(library_id) else {
+        return Ok(());
+    };
+
+    active_scan.cancel();
+    timeout(LIBRARY_SCAN_STOP_WAIT_TIMEOUT, active_scan.wait_finished())
+        .await
+        .map_err(|_| {
+            ApiError::Conflict(format!(
+                "library {} is still stopping its active scan; metadata language was not changed",
+                library_id
+            ))
+        })?;
+
+    Ok(())
+}
+
+async fn trigger_library_scan_after_metadata_language_change(
+    state: &AppState,
+    library_id: i64,
+) -> Result<(), ApiError> {
+    let enqueue_result = mova_application::enqueue_library_scan(&state.db, library_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    if !enqueue_result.created {
+        return Ok(());
+    }
+
+    if let Err(error) = spawn_library_scan_job(state, library_id, enqueue_result.scan_job.id) {
+        handle_scan_registration_rejected(state, library_id, enqueue_result.scan_job.id, error)
+            .await;
+        return Err(ApiError::Conflict(format!(
+            "library {} could not start its metadata language rescan",
+            library_id
+        )));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -510,7 +570,7 @@ mod tests {
         )
     }
 
-    async fn seed_library(pool: &sqlx::postgres::PgPool, name: &str, is_enabled: bool) -> i64 {
+    async fn seed_library(pool: &sqlx::postgres::PgPool, name: &str) -> i64 {
         mova_db::create_library(
             pool,
             mova_db::CreateLibraryParams {
@@ -518,7 +578,6 @@ mod tests {
                 description: Some(format!("{name} description")),
                 metadata_language: "zh-CN".to_string(),
                 root_path: format!("/media/{}", name.to_lowercase()),
-                is_enabled,
             },
         )
         .await
@@ -736,7 +795,7 @@ mod tests {
     ) {
         let state = build_test_state(pool.clone());
         let (_admin_id, admin_jar) = seed_admin_session(&pool).await;
-        let library_id = seed_library(&pool, "Movies", true).await;
+        let library_id = seed_library(&pool, "Movies").await;
         let delete_guard = state.scan_registry.begin_delete(library_id).unwrap();
 
         let error = update_library(
@@ -748,7 +807,6 @@ mod tests {
                 name: Some("Renamed Movies".to_string()),
                 description: None,
                 metadata_language: None,
-                is_enabled: None,
             }),
         )
         .await
@@ -766,62 +824,50 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn update_library_disabling_it_cancels_the_active_scan_and_persists_changes(
+    async fn update_library_metadata_language_marks_all_items_pending_and_starts_scan(
         pool: sqlx::postgres::PgPool,
     ) {
         let state = build_test_state(pool.clone());
-        let (_admin_id, admin_jar) = seed_admin_session(&pool).await;
-        let library_id = seed_library(&pool, "Movies", true).await;
-        let mut realtime_rx = state.realtime_hub.subscribe();
-        let active_scan = state.scan_registry.register_scan(library_id, 42).unwrap();
-        let cancellation_flag = active_scan.cancellation_flag();
+        let (admin_id, admin_jar) = seed_admin_session(&pool).await;
+        let library_id = seed_library(&pool, "Movies").await;
+        seed_library_media_graph(&pool, library_id, admin_id).await;
 
         let Json(response) = update_library(
-            State(state.clone()),
+            State(state),
             HeaderMap::new(),
             admin_jar,
             Path(library_id),
             Json(UpdateLibraryRequest {
-                name: Some("Movies Reloaded".to_string()),
-                description: Some(Some("updated description".to_string())),
+                name: None,
+                description: None,
                 metadata_language: Some("en-US".to_string()),
-                is_enabled: Some(false),
             }),
         )
         .await
         .unwrap();
 
-        assert_eq!(response.data.id, library_id);
-        assert_eq!(response.data.name, "Movies Reloaded");
-        assert_eq!(
-            response.data.description.as_deref(),
-            Some("updated description")
-        );
         assert_eq!(response.data.metadata_language, "en-US");
-        assert!(!response.data.is_enabled);
-        assert!(cancellation_flag.load(Ordering::SeqCst));
 
-        let updated_library = mova_db::get_library(&pool, library_id)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(updated_library.name, "Movies Reloaded");
-        assert_eq!(
-            updated_library.description.as_deref(),
-            Some("updated description")
-        );
-        assert_eq!(updated_library.metadata_language, "en-US");
-        assert!(!updated_library.is_enabled);
+        let pending_count = sqlx::query_scalar::<_, i64>(
+            "select count(*) from media_items where library_id = $1 and metadata_status = 'pending'",
+        )
+        .bind(library_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let media_count =
+            sqlx::query_scalar::<_, i64>("select count(*) from media_items where library_id = $1")
+                .bind(library_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(media_count > 0);
+        assert_eq!(pending_count, media_count);
 
-        let event = timeout(Duration::from_secs(1), realtime_rx.recv())
+        let scan_jobs = mova_db::list_scan_jobs_for_library(&pool, library_id)
             .await
-            .unwrap()
             .unwrap();
-        assert!(matches!(
-            event,
-            RealtimeEvent::LibraryUpdated { library_id: event_library_id }
-                if event_library_id == library_id
-        ));
+        assert_eq!(scan_jobs.len(), 1);
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -831,7 +877,7 @@ mod tests {
     ) {
         let state = build_test_state(pool.clone());
         let (admin_id, admin_jar) = seed_admin_session(&pool).await;
-        let library_id = seed_library(&pool, "Movies", true).await;
+        let library_id = seed_library(&pool, "Movies").await;
         let (_viewer_id, _viewer_jar) = seed_viewer_session(&pool, vec![library_id]).await;
         seed_scan_job(&pool, library_id).await;
         seed_library_media_graph(&pool, library_id, admin_id).await;
@@ -881,7 +927,7 @@ mod tests {
         pool: sqlx::postgres::PgPool,
     ) {
         let state = build_test_state(pool.clone());
-        let library_id = seed_library(&pool, "Movies", true).await;
+        let library_id = seed_library(&pool, "Movies").await;
         let scan_job_id = seed_scan_job(&pool, library_id).await;
         let (_viewer_id, viewer_jar) = seed_viewer_session(&pool, vec![library_id]).await;
 

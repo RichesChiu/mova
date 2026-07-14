@@ -5,6 +5,7 @@ import { usePresenceTransition } from '../../lib/use-presence-transition'
 
 interface ConfirmActionModalProps {
   confirmLabel: string
+  confirmTone?: 'danger' | 'primary'
   description: string
   error: string | null
   isOpen: boolean
@@ -16,6 +17,7 @@ interface ConfirmActionModalProps {
 
 export const ConfirmActionModal = ({
   confirmLabel,
+  confirmTone = 'danger',
   description,
   error,
   isOpen,
@@ -85,7 +87,7 @@ export const ConfirmActionModal = ({
             {l('Cancel')}
           </button>
           <button
-            className="button button--danger"
+            className={`button button--${confirmTone}`}
             disabled={isSubmitting}
             onClick={onConfirm}
             type="button"

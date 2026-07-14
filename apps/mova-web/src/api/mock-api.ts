@@ -59,7 +59,6 @@ const createLibrary = (id: number, name: string): Library => ({
   description: null,
   metadata_language: 'zh-CN',
   root_path: `/media/${name.toLowerCase().replaceAll(' ', '-')}`,
-  is_enabled: true,
   created_at: MOCK_NOW,
   updated_at: MOCK_NOW,
 })

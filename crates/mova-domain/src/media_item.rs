@@ -2,13 +2,13 @@ use serde::Serialize;
 use time::OffsetDateTime;
 
 pub const METADATA_STATUS_MATCHED: &str = "matched";
+pub const METADATA_STATUS_PENDING: &str = "pending";
 pub const METADATA_STATUS_UNMATCHED: &str = "unmatched";
 pub const METADATA_STATUS_FAILED: &str = "failed";
 pub const METADATA_STATUS_SKIPPED: &str = "skipped";
 
 pub const METADATA_FAILURE_NO_REMOTE_MATCH: &str = "no_remote_match";
-pub const METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY: &str =
-    "remote_series_without_episode_identity";
+pub const METADATA_FAILURE_REMOTE_TYPE_MISMATCH: &str = "remote_type_mismatch";
 pub const METADATA_FAILURE_REMOTE_DETECTION_FAILED: &str = "remote_detection_failed";
 pub const METADATA_FAILURE_PROVIDER_DISABLED: &str = "metadata_provider_disabled";
 pub const METADATA_FAILURE_PROVIDER_ERROR: &str = "metadata_provider_error";

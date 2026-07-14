@@ -149,11 +149,15 @@ const zhCN: Record<string, string> = {
   'Shown in the app header': '显示在应用顶部',
   'Account enabled': '账号启用',
   'Save Changes': '保存更改',
+  'Save and scan': '保存并扫描',
   'Creating…': '创建中…',
   'Library Name': '媒体库名称',
   Description: '描述',
   'What is this library for?': '这个媒体库的用途是什么？',
   'Metadata Language': '元数据语言',
+  'Change metadata language?': '确认切换元数据语言？',
+  'Changing the metadata language from {{from}} to {{to}} will trigger a full metadata scan for this library. Continue?':
+    '将元数据语言从 {{from}} 切换为 {{to}} 会触发该媒体库的全量元数据扫描。是否继续？',
   'Root Path': '根路径',
   Selected: '已选择',
   'No folder selected yet.': '尚未选择文件夹。',
@@ -201,11 +205,6 @@ const zhCN: Record<string, string> = {
   'Root path help': '根路径说明',
   'This picker shows in-container paths. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so every /media/... path here maps to the actual library root available to the app.':
     '这里显示的是容器内路径。宿主机的 `MOVA_MEDIA_ROOT` 会挂载到容器中的 `/media`，因此这里的 `/media/...` 就是应用实际扫描使用的路径。',
-  'Libraries now detect movies and series automatically from the imported files. No manual type selection is required.':
-    '媒体库现在会根据导入文件自动识别电影和剧集，不再需要手动选择类型。',
-  'Automatic detection': '自动识别',
-  Detection: '识别方式',
-  Automatic: '自动',
   'This shows the in-container path. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so the /media/... value shown here is the real scan path used by the app.':
     '这里显示的是容器内路径。宿主机的 `MOVA_MEDIA_ROOT` 会挂载到容器中的 `/media`，因此这里显示的 `/media/...` 就是应用实际使用的扫描路径。',
   'Admin permission required.': '需要管理员权限。',

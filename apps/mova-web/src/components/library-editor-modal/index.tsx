@@ -6,9 +6,11 @@ import {
   buildLibraryEditorDraft,
   buildLibraryUpdateInput,
   hasLibraryConfigChanges,
+  hasLibraryMetadataLanguageChanged,
   LIBRARY_DESCRIPTION_MAX_LENGTH,
 } from '../../lib/library-config'
 import { usePresenceTransition } from '../../lib/use-presence-transition'
+import { ConfirmActionModal } from '../confirm-action-modal'
 import { GlassSelect, type GlassSelectOption } from '../glass-select'
 import { SectionHelp } from '../section-help'
 
@@ -38,6 +40,8 @@ export const LibraryEditorModal = ({
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [metadataLanguage, setMetadataLanguage] = useState('zh-CN')
+  const [pendingMetadataLanguageUpdate, setPendingMetadataLanguageUpdate] =
+    useState<UpdateLibraryInput | null>(null)
 
   useEffect(() => {
     if (!isOpen) {
@@ -49,6 +53,7 @@ export const LibraryEditorModal = ({
     setName(draft.name)
     setDescription(draft.description)
     setMetadataLanguage(draft.metadataLanguage)
+    setPendingMetadataLanguageUpdate(null)
   }, [isOpen, library])
 
   useEffect(() => {
@@ -57,37 +62,58 @@ export const LibraryEditorModal = ({
     }
 
     const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !pendingMetadataLanguageUpdate && !isSubmitting) {
         onClose()
       }
     }
 
-    document.body.style.overflow = 'hidden'
     window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, isSubmitting, onClose, pendingMetadataLanguageUpdate])
 
-    return () => {
-      document.body.style.overflow = previousOverflow
-      window.removeEventListener('keydown', handleKeyDown)
+  const submitUpdate = async (input: UpdateLibraryInput) => {
+    if (!library) {
+      return
     }
-  }, [isOpen, onClose])
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    try {
+      await onUpdate(library.id, input)
+      setPendingMetadataLanguageUpdate(null)
+      onClose()
+    } catch {
+      return
+    }
+  }
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
     if (!library) {
       return
     }
 
-    await onUpdate(
-      library.id,
-      buildLibraryUpdateInput({
-        name,
-        description,
-        metadataLanguage,
-      }),
-    )
-    onClose()
+    const draft = { name, description, metadataLanguage }
+    const input = buildLibraryUpdateInput(draft)
+
+    if (hasLibraryMetadataLanguageChanged(library, draft)) {
+      setPendingMetadataLanguageUpdate(input)
+      return
+    }
+
+    void submitUpdate(input)
   }
 
   const activeLibrary = library ?? visibleLibrary
@@ -107,138 +133,147 @@ export const LibraryEditorModal = ({
     { value: 'en-US', label: `${l('English')} (en-US)` },
   ]
 
-  return createPortal(
-    <div
-      className="library-editor-modal overlay-transition"
-      data-state={modalPresence.transitionState}
-    >
-      <button
-        aria-label={l('Close library editor dialog')}
-        className="library-editor-modal__backdrop glass-overlay-backdrop"
-        onClick={onClose}
-        type="button"
-      />
-
-      <div
-        aria-modal="true"
-        className="library-editor-modal__surface glass-modal-surface"
-        role="dialog"
-      >
-        <div className="library-editor-modal__header">
-          <div className="library-editor-modal__identity">
-            <div className="library-editor-modal__badge">{libraryBadge(activeLibrary)}</div>
-            <div>
-              <p className="eyebrow">{l('Library Management')}</p>
-              <h3>{l('Edit Library')}</h3>
-            </div>
-          </div>
-
+  return (
+    <>
+      {createPortal(
+        <div
+          className="library-editor-modal overlay-transition"
+          data-state={modalPresence.transitionState}
+        >
           <button
             aria-label={l('Close library editor dialog')}
-            className="library-editor-modal__close"
+            className="library-editor-modal__backdrop glass-overlay-backdrop"
+            disabled={isSubmitting || pendingMetadataLanguageUpdate !== null}
             onClick={onClose}
             type="button"
+          />
+
+          <div
+            aria-modal="true"
+            className="library-editor-modal__surface glass-modal-surface"
+            role="dialog"
           >
-            <svg
-              aria-hidden="true"
-              className="library-editor-modal__close-icon"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M6 6L18 18M18 6L6 18"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.8"
-              />
-            </svg>
-          </button>
-        </div>
+            <div className="library-editor-modal__header">
+              <div className="library-editor-modal__identity">
+                <div className="library-editor-modal__badge">{libraryBadge(activeLibrary)}</div>
+                <div>
+                  <p className="eyebrow">{l('Library Management')}</p>
+                  <h3>{l('Edit Library')}</h3>
+                </div>
+              </div>
 
-        <form className="stack" onSubmit={handleSubmit}>
-          <label className="field">
-            <span>{l('Library Name')}</span>
-            <input
-              onChange={(event) => setName(event.target.value)}
-              placeholder={l('Library Name')}
-              required
-              type="text"
-              value={name}
-            />
-          </label>
+              <button
+                aria-label={l('Close library editor dialog')}
+                className="library-editor-modal__close"
+                disabled={isSubmitting || pendingMetadataLanguageUpdate !== null}
+                onClick={onClose}
+                type="button"
+              >
+                <svg
+                  aria-hidden="true"
+                  className="library-editor-modal__close-icon"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M6 6L18 18M18 6L6 18"
+                    stroke="currentColor"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="1.8"
+                  />
+                </svg>
+              </button>
+            </div>
 
-          <div className="library-editor-modal__facts">
-            <article className="library-editor-modal__fact">
-              <div className="field__label">
-                <span className="field__label-copy">{l('Detection')}</span>
-                <SectionHelp
-                  detail={l(
-                    'Libraries now detect movies and series automatically from the imported files. No manual type selection is required.',
-                  )}
-                  title={l('Automatic detection')}
+            <form className="stack" onSubmit={handleSubmit}>
+              <label className="field">
+                <span>{l('Library Name')}</span>
+                <input
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder={l('Library Name')}
+                  required
+                  type="text"
+                  value={name}
+                />
+              </label>
+
+              <label className="field">
+                <span>{l('Description')}</span>
+                <textarea
+                  className="library-description-input"
+                  maxLength={LIBRARY_DESCRIPTION_MAX_LENGTH}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder={l('What is this library for?')}
+                  rows={4}
+                  value={description}
+                />
+              </label>
+
+              <div className="field">
+                <span>{l('Metadata Language')}</span>
+                <GlassSelect
+                  ariaLabel={l('Metadata Language')}
+                  onChange={setMetadataLanguage}
+                  options={metadataLanguageOptions}
+                  value={metadataLanguage}
                 />
               </div>
-              <strong>{l('Automatic')}</strong>
-            </article>
-            <article className="library-editor-modal__fact">
-              <span>{l('Metadata Language')}</span>
-              <strong>{metadataLanguage}</strong>
-            </article>
+
+              <div className="field">
+                <div className="field__label">
+                  <span className="field__label-copy">{l('Root Path')}</span>
+                  <SectionHelp
+                    detail={l(
+                      'This shows the in-container path. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so the /media/... value shown here is the real scan path used by the app.',
+                    )}
+                    title={l('Root path help')}
+                  />
+                </div>
+                <code className="library-editor-modal__path">{activeLibrary.root_path}</code>
+              </div>
+
+              {error ? <p className="callout callout--danger">{error}</p> : null}
+
+              <div className="library-editor-modal__footer">
+                <button className="button" onClick={onClose} type="button">
+                  {l('Cancel')}
+                </button>
+                <button
+                  className="button button--primary"
+                  disabled={isSubmitting || normalizedName.length === 0 || !hasChanges}
+                  type="submit"
+                >
+                  {isSubmitting ? l('Saving…') : l('Save Changes')}
+                </button>
+              </div>
+            </form>
           </div>
+        </div>,
+        document.body,
+      )}
 
-          <label className="field">
-            <span>{l('Description')}</span>
-            <textarea
-              className="library-description-input"
-              maxLength={LIBRARY_DESCRIPTION_MAX_LENGTH}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder={l('What is this library for?')}
-              rows={4}
-              value={description}
-            />
-          </label>
-
-          <div className="field">
-            <span>{l('Metadata Language')}</span>
-            <GlassSelect
-              ariaLabel={l('Metadata Language')}
-              onChange={setMetadataLanguage}
-              options={metadataLanguageOptions}
-              value={metadataLanguage}
-            />
-          </div>
-
-          <div className="field">
-            <div className="field__label">
-              <span className="field__label-copy">{l('Root Path')}</span>
-              <SectionHelp
-                detail={l(
-                  'This shows the in-container path. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so the /media/... value shown here is the real scan path used by the app.',
-                )}
-                title={l('Root path help')}
-              />
-            </div>
-            <code className="library-editor-modal__path">{activeLibrary.root_path}</code>
-          </div>
-
-          {error ? <p className="callout callout--danger">{error}</p> : null}
-
-          <div className="library-editor-modal__footer">
-            <button className="button" onClick={onClose} type="button">
-              {l('Cancel')}
-            </button>
-            <button
-              className="button button--primary"
-              disabled={isSubmitting || normalizedName.length === 0 || !hasChanges}
-              type="submit"
-            >
-              {isSubmitting ? l('Saving…') : l('Save Changes')}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>,
-    document.body,
+      <ConfirmActionModal
+        confirmLabel={l('Save and scan')}
+        confirmTone="primary"
+        description={l(
+          'Changing the metadata language from {{from}} to {{to}} will trigger a full metadata scan for this library. Continue?',
+          {
+            from: activeLibrary.metadata_language,
+            to: metadataLanguage,
+          },
+        )}
+        error={error}
+        isOpen={pendingMetadataLanguageUpdate !== null}
+        isSubmitting={isSubmitting}
+        onClose={() => setPendingMetadataLanguageUpdate(null)}
+        onConfirm={() => {
+          if (pendingMetadataLanguageUpdate) {
+            void submitUpdate(pendingMetadataLanguageUpdate)
+          }
+        }}
+        title={l('Change metadata language?')}
+      />
+    </>
   )
 }

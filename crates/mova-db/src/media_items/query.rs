@@ -114,7 +114,6 @@ pub async fn list_recently_added_media_items_by_library(
                 library_type,
                 metadata_language,
                 root_path,
-                is_enabled,
                 created_at,
                 updated_at
             from libraries
@@ -170,7 +169,6 @@ pub async fn list_recently_added_media_items_by_library(
             vl.library_type as library_type,
             vl.metadata_language as library_metadata_language,
             vl.root_path as library_root_path,
-            vl.is_enabled as library_is_enabled,
             vl.created_at as library_created_at,
             vl.updated_at as library_updated_at,
             lr.total as library_total,
@@ -1520,7 +1518,6 @@ fn map_recently_added_library_row(row: &PgRow) -> Library {
         library_type: row.get("library_type"),
         metadata_language: row.get("library_metadata_language"),
         root_path: row.get("library_root_path"),
-        is_enabled: row.get("library_is_enabled"),
         created_at: row.get("library_created_at"),
         updated_at: row.get("library_updated_at"),
     }

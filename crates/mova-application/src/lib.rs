@@ -17,7 +17,7 @@ pub use error::{ApplicationError, ApplicationResult, AuthTokenErrorCode};
 pub use file_sync::{reconcile_library_inventory, sync_library_filesystem_changes};
 pub use libraries::{
     create_library, delete_library, get_library, get_library_detail, list_libraries,
-    update_library, CreateLibraryInput, UpdateLibraryInput,
+    prepare_library_metadata_rescan, update_library, CreateLibraryInput, UpdateLibraryInput,
 };
 pub use media_cast::{
     ensure_media_item_cast, invalidate_media_item_cast_cache, list_media_item_cast,

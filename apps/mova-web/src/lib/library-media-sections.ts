@@ -3,14 +3,9 @@ import type { MediaItem } from '../api/types'
 export type LibraryMediaSection = 'movies' | 'series' | 'other'
 export type LibraryScanSection = LibraryMediaSection | null
 
-type EnrichmentSignalInput = {
-  backdrop_path?: string | null
-  metadata_provider_item_id?: number | null
-  original_title?: string | null
-  overview?: string | null
-  poster_path?: string | null
+type MediaSectionInput = Pick<MediaItem, 'media_type' | 'metadata_status'> & {
+  remote_media_type?: string | null
 }
-type MediaSectionInput = Pick<MediaItem, 'media_type' | 'metadata_status'> & EnrichmentSignalInput
 type MediaScanMatchInput = Pick<
   MediaItem,
   | 'media_type'
@@ -20,6 +15,7 @@ type MediaScanMatchInput = Pick<
   | 'overview'
   | 'poster_path'
   | 'backdrop_path'
+  | 'remote_media_type'
   | 'title'
   | 'source_title'
   | 'year'
@@ -31,11 +27,11 @@ type ScanSectionInput = {
   metadata_status?: string | null
   overview?: string | null
   poster_path?: string | null
+  remote_media_type?: string | null
+  stage?: string | null
   title?: string | null
   year?: number | null
 }
-
-const hasText = (value: string | null | undefined) => Boolean(value?.trim())
 
 const normalizeLibraryMediaMatchText = (value: string | null | undefined) =>
   (value ?? '')
@@ -50,17 +46,10 @@ const buildLibraryMediaMatchTexts = (
     .map((value) => normalizeLibraryMediaMatchText(value))
     .filter((value) => value.length > 0)
 
-const hasRemoteEnrichment = (item: EnrichmentSignalInput) =>
-  item.metadata_provider_item_id !== null && item.metadata_provider_item_id !== undefined
-    ? true
-    : hasText(item.original_title) || hasText(item.overview)
-
 const hasReviewStatus = (item: { metadata_status?: string | null }) =>
   item.metadata_status === 'skipped' ||
   item.metadata_status === 'unmatched' ||
   item.metadata_status === 'failed'
-
-const needsReview = (item: MediaSectionInput) => hasReviewStatus(item) && !hasRemoteEnrichment(item)
 
 const getLibraryMediaBucket = (mediaType: string) => {
   if (mediaType === 'movie') {
@@ -73,6 +62,19 @@ const getLibraryMediaBucket = (mediaType: string) => {
 
   return null
 }
+
+const hasUnconfirmedMediaType = (item: {
+  media_type: string
+  remote_media_type?: string | null
+}) => {
+  const localBucket = getLibraryMediaBucket(item.media_type)
+  const remoteBucket = getLibraryMediaBucket(item.remote_media_type ?? '')
+
+  return localBucket === null || remoteBucket === null || localBucket !== remoteBucket
+}
+
+const needsReview = (item: MediaSectionInput) =>
+  hasReviewStatus(item) && hasUnconfirmedMediaType(item)
 
 const hasCompatibleScanYear = (mediaItem: MediaScanMatchInput, scanItem: ScanSectionInput) =>
   mediaItem.year === null ||
@@ -130,7 +132,19 @@ export const getLibraryMediaSection = (item: MediaSectionInput): LibraryMediaSec
 }
 
 export const getLibraryScanSection = (item: ScanSectionInput): LibraryScanSection => {
-  if (hasReviewStatus(item) && !hasRemoteEnrichment(item)) {
+  if (item.stage && item.stage !== 'completed') {
+    if (item.media_type === 'movie') {
+      return 'movies'
+    }
+
+    if (item.media_type === 'series' || item.media_type === 'episode') {
+      return 'series'
+    }
+
+    return null
+  }
+
+  if (hasReviewStatus(item) && hasUnconfirmedMediaType(item)) {
     return 'other'
   }
 

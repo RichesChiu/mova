@@ -19,7 +19,6 @@ pub struct CreateLibraryInput {
     pub description: Option<String>,
     pub metadata_language: Option<String>,
     pub root_path: String,
-    pub is_enabled: bool,
 }
 
 /// 应用层更新媒体库时使用的命令对象。
@@ -28,7 +27,6 @@ pub struct UpdateLibraryInput {
     pub name: Option<String>,
     pub description: Option<Option<String>>,
     pub metadata_language: Option<String>,
-    pub is_enabled: Option<bool>,
 }
 
 /// 从持久层读取当前所有媒体库配置。
@@ -100,7 +98,6 @@ pub async fn create_library(
             description,
             metadata_language,
             root_path,
-            is_enabled: input.is_enabled,
         },
     )
     .await
@@ -115,11 +112,7 @@ pub async fn update_library(
 ) -> ApplicationResult<Library> {
     let existing = get_library(pool, library_id).await?;
 
-    if input.name.is_none()
-        && input.description.is_none()
-        && input.metadata_language.is_none()
-        && input.is_enabled.is_none()
-    {
+    if input.name.is_none() && input.description.is_none() && input.metadata_language.is_none() {
         return Err(ApplicationError::Validation(
             "at least one library field must be provided".to_string(),
         ));
@@ -144,12 +137,9 @@ pub async fn update_library(
         None => existing.metadata_language.clone(),
     };
 
-    let is_enabled = input.is_enabled.unwrap_or(existing.is_enabled);
-
     if name == existing.name
         && description == existing.description
         && metadata_language == existing.metadata_language
-        && is_enabled == existing.is_enabled
     {
         return Ok(existing);
     }
@@ -161,12 +151,23 @@ pub async fn update_library(
             name,
             description,
             metadata_language,
-            is_enabled,
         },
     )
     .await
     .map_err(ApplicationError::from)?
     .ok_or_else(|| ApplicationError::NotFound(format!("library not found: {}", library_id)))
+}
+
+/// 元数据语言变化后，把库内所有条目放回远端补全队列。
+/// 文件指纹未变化时，扫描仍可复用本地分析结果，但会重新请求每个条目的远端元数据。
+pub async fn prepare_library_metadata_rescan(
+    pool: &PgPool,
+    library_id: i64,
+) -> ApplicationResult<u64> {
+    get_library(pool, library_id).await?;
+    mova_db::mark_library_media_for_metadata_rescan(pool, library_id)
+        .await
+        .map_err(ApplicationError::from)
 }
 
 /// 删除媒体库。

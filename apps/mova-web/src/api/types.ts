@@ -6,7 +6,6 @@ export interface Library {
   description: string | null
   metadata_language: string
   root_path: string
-  is_enabled: boolean
   created_at: string
   updated_at: string
 }
@@ -249,14 +248,12 @@ export interface CreateLibraryInput {
   description?: string
   metadata_language: string
   root_path: string
-  is_enabled?: boolean
 }
 
 export interface UpdateLibraryInput {
   name?: string
   description?: string | null
   metadata_language?: string
-  is_enabled?: boolean
 }
 
 export interface ServerMediaDirectoryNode {

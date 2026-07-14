@@ -1161,7 +1161,6 @@ mod tests {
                 description: None,
                 metadata_language: "en-US".to_string(),
                 root_path: "/media/movies".to_string(),
-                is_enabled: true,
             },
         )
         .await
@@ -1225,7 +1224,6 @@ mod tests {
                 description: None,
                 metadata_language: "zh-CN".to_string(),
                 root_path: "/media/movies".to_string(),
-                is_enabled: true,
             },
         )
         .await
@@ -1296,7 +1294,6 @@ mod tests {
                 description: None,
                 metadata_language: "en-US".to_string(),
                 root_path: "/media/shows".to_string(),
-                is_enabled: true,
             },
         )
         .await
@@ -1371,7 +1368,6 @@ mod tests {
                 description: None,
                 metadata_language: "en-US".to_string(),
                 root_path: "/media/movies".to_string(),
-                is_enabled: true,
             },
         )
         .await

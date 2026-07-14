@@ -11,6 +11,11 @@ import {
 import { EmptyState } from '../../../components/empty-state'
 import { useI18n } from '../../../i18n'
 import { cssBackgroundImage } from '../../../lib/css'
+import {
+  getVisibleHomeLibraries,
+  HOME_LIBRARY_LIMIT,
+  shouldShowAllHomeLibraries,
+} from '../../../lib/home-sections'
 import { HomeIcon } from '../home-icons'
 import { getLibraryArtworkSrc } from '../library-artwork'
 import type { HomeLibraryModuleData } from '../types'
@@ -24,10 +29,16 @@ interface LibrariesSectionProps {
   onDeleteLibrary: (library: Library) => void
   onEditLibrary: (library: Library) => void
   onScanLibrary: (library: Library) => void
+  totalLibraryCount: number
 }
 
-const LIBRARY_SPOTLIGHT_SKELETON_COUNT = 3
-const LIBRARY_SPOTLIGHT_SKELETON_KEYS = ['library-a', 'library-b', 'library-c'] as const
+const LIBRARY_SPOTLIGHT_SKELETON_KEYS = [
+  'library-a',
+  'library-b',
+  'library-c',
+  'library-d',
+  'library-e',
+] as const
 
 const LibrarySpotlightSkeleton = () => (
   <div aria-hidden="true" className="library-spotlight library-spotlight--loading">
@@ -147,9 +158,11 @@ const LibrariesSectionBody = ({
   onDeleteLibrary,
   onEditLibrary,
   onScanLibrary,
+  totalLibraryCount,
 }: LibrariesSectionProps) => {
   const { formatNumber, l } = useI18n()
   const [openMenuLibraryId, setOpenMenuLibraryId] = useState<number | null>(null)
+  const visibleLibraryModules = getVisibleHomeLibraries(libraryModules)
 
   useEffect(() => {
     if (openMenuLibraryId === null) {
@@ -187,7 +200,7 @@ const LibrariesSectionBody = ({
       <div className="catalog-block__header">
         <div className="catalog-block__title-row">
           <h3>{l('Your Libraries')}</h3>
-          {libraryModules.length > 0 ? (
+          {shouldShowAllHomeLibraries(totalLibraryCount) ? (
             <Link className="libraries-section__title-action" to="/libraries">
               {l('View all')}
             </Link>
@@ -199,11 +212,9 @@ const LibrariesSectionBody = ({
         <>
           <p className="muted">{l('Loading libraries…')}</p>
           <div className="libraries-section__grid">
-            {LIBRARY_SPOTLIGHT_SKELETON_KEYS.slice(0, LIBRARY_SPOTLIGHT_SKELETON_COUNT).map(
-              (key) => (
-                <LibrarySpotlightSkeleton key={key} />
-              ),
-            )}
+            {LIBRARY_SPOTLIGHT_SKELETON_KEYS.slice(0, HOME_LIBRARY_LIMIT).map((key) => (
+              <LibrarySpotlightSkeleton key={key} />
+            ))}
           </div>
         </>
       ) : libraryModules.length === 0 ? (
@@ -217,7 +228,7 @@ const LibrariesSectionBody = ({
             <p className="callout callout--danger">{actionErrorMessage}</p>
           ) : null}
           <div className="libraries-section__grid">
-            {libraryModules.map(
+            {visibleLibraryModules.map(
               ({ detail, detailError, detailLoading, library, recentItems, scanRuntime }) => {
                 const mediaCount = detail?.media_count ?? 0
                 const movieCount = detail?.movie_count ?? 0

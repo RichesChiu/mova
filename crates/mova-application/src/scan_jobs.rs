@@ -11,8 +11,8 @@ use mova_domain::{Library, ScanJob};
 use mova_domain::{
     METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED,
     METADATA_FAILURE_PROVIDER_ERROR, METADATA_FAILURE_REMOTE_DETECTION_FAILED,
-    METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY, METADATA_STATUS_FAILED,
-    METADATA_STATUS_MATCHED, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
+    METADATA_FAILURE_REMOTE_TYPE_MISMATCH, METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED,
+    METADATA_STATUS_PENDING, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
     REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
 };
 use mova_scan::{
@@ -71,6 +71,7 @@ pub struct ScanJobItemProgressUpdate {
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
     pub metadata_status: Option<String>,
+    pub remote_media_type: Option<String>,
     pub season_number: Option<i32>,
     pub episode_number: Option<i32>,
     pub item_index: i32,
@@ -567,7 +568,6 @@ pub async fn execute_scan_job_with_cancellation(
         &library,
         scan_job_id,
         pending_groups,
-        metadata_provider.is_enabled(),
         cancellation_flag.clone(),
         event_listener.clone(),
     )
@@ -800,7 +800,6 @@ async fn analyze_pending_scan_groups(
     library: &Library,
     scan_job_id: i64,
     pending_groups: Vec<PendingScanGroup>,
-    metadata_provider_enabled: bool,
     cancellation_flag: Arc<AtomicBool>,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> ApplicationResult<(
@@ -819,7 +818,7 @@ async fn analyze_pending_scan_groups(
         let discovered_files = inspect_incremental_scan_files(pending_group.files).await?;
         let mut groups = group_discovered_files_for_scan(library, discovered_files);
 
-        prepare_scan_groups_for_metadata_lookup(&mut groups, metadata_provider_enabled);
+        prepare_scan_groups_for_metadata_lookup(&mut groups);
 
         for group in groups {
             let item_index = i32::try_from(discovered_groups.len() + 1).unwrap_or(i32::MAX);
@@ -843,10 +842,7 @@ async fn analyze_pending_scan_groups(
     Ok((discovered_groups, sync_outcome))
 }
 
-fn prepare_scan_groups_for_metadata_lookup(
-    groups: &mut [ScanDiscoveredGroup],
-    metadata_provider_enabled: bool,
-) {
+fn prepare_scan_groups_for_metadata_lookup(groups: &mut [ScanDiscoveredGroup]) {
     for group in groups {
         for file in &mut group.files {
             if group.presentation.media_type.eq_ignore_ascii_case("series") {
@@ -857,26 +853,10 @@ fn prepare_scan_groups_for_metadata_lookup(
                 }
             }
 
-            if metadata_provider_enabled && should_mark_file_pending_remote_retry(file) {
-                file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
-                file.metadata_failure_reason = Some(METADATA_FAILURE_NO_REMOTE_MATCH.to_string());
-            } else if file.metadata_status.is_none() {
-                file.metadata_status = Some(METADATA_STATUS_SKIPPED.to_string());
-                file.metadata_failure_reason = Some(METADATA_FAILURE_PROVIDER_DISABLED.to_string());
-            }
+            file.metadata_status = Some(METADATA_STATUS_PENDING.to_string());
+            file.metadata_failure_reason = None;
         }
     }
-}
-
-fn should_mark_file_pending_remote_retry(file: &DiscoveredMediaFile) -> bool {
-    if file.metadata_provider_item_id.is_some() {
-        return false;
-    }
-
-    !file
-        .metadata_status
-        .as_deref()
-        .is_some_and(|value| value.eq_ignore_ascii_case(METADATA_STATUS_MATCHED))
 }
 
 async fn enrich_discovered_groups(
@@ -1074,19 +1054,16 @@ async fn resolve_group_metadata_lookup_type(
     group: &ScanDiscoveredGroup,
 ) -> GroupMetadataLookupDecision {
     let presentation = &group.presentation;
-
-    if presentation.media_type.eq_ignore_ascii_case("series") {
-        return GroupMetadataLookupDecision {
-            lookup_type: Some("series"),
-            metadata_status: METADATA_STATUS_UNMATCHED,
-            metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
-            remote_media_type: Some(REMOTE_MEDIA_TYPE_SERIES),
-        };
-    }
+    let local_lookup_type = scan_presentation_lookup_type(presentation);
+    let local_remote_kind = if local_lookup_type == "series" {
+        RemoteMediaKind::Series
+    } else {
+        RemoteMediaKind::Movie
+    };
 
     if !metadata_provider.is_enabled() {
         return GroupMetadataLookupDecision {
-            lookup_type: Some("movie"),
+            lookup_type: Some(local_lookup_type),
             metadata_status: METADATA_STATUS_SKIPPED,
             metadata_failure_reason: Some(METADATA_FAILURE_PROVIDER_DISABLED),
             remote_media_type: None,
@@ -1097,20 +1074,20 @@ async fn resolve_group_metadata_lookup_type(
         return decision;
     }
 
-    let mut remote_series_match = None;
+    let mut remote_type_mismatch = None;
     let mut last_detection_error = None;
     for lookup in metadata_detection_lookups(group, metadata_language) {
         match metadata_provider.detect_media_type(&lookup).await {
-            Ok(Some(remote_match)) if remote_match.media_kind == RemoteMediaKind::Movie => {
+            Ok(Some(remote_match)) if remote_match.media_kind == local_remote_kind => {
                 return GroupMetadataLookupDecision {
-                    lookup_type: Some("movie"),
-                    metadata_status: METADATA_STATUS_UNMATCHED,
+                    lookup_type: Some(local_lookup_type),
+                    metadata_status: METADATA_STATUS_PENDING,
                     metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
-                    remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE),
+                    remote_media_type: remote_media_type_for_kind(remote_match.media_kind),
                 };
             }
             Ok(Some(remote_match)) => {
-                remote_series_match.get_or_insert((lookup, remote_match));
+                remote_type_mismatch.get_or_insert((lookup, remote_match));
             }
             Ok(None) => {}
             Err(error) => {
@@ -1119,19 +1096,20 @@ async fn resolve_group_metadata_lookup_type(
         }
     }
 
-    if let Some((lookup, remote_match)) = remote_series_match {
+    if let Some((lookup, remote_match)) = remote_type_mismatch {
         tracing::info!(
             title = %lookup.title,
             year = lookup.year,
+            local_kind = ?local_remote_kind,
             remote_kind = ?remote_match.media_kind,
             provider_item_id = remote_match.provider_item_id,
-            "remote metadata matched a tv item without local season/episode identity; keeping item for Other review"
+            "remote metadata type conflicts with local structure; keeping item for Other review"
         );
         return GroupMetadataLookupDecision {
             lookup_type: None,
             metadata_status: METADATA_STATUS_UNMATCHED,
-            metadata_failure_reason: Some(METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY),
-            remote_media_type: Some(REMOTE_MEDIA_TYPE_SERIES),
+            metadata_failure_reason: Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH),
+            remote_media_type: remote_media_type_for_kind(remote_match.media_kind),
         };
     }
 
@@ -1140,7 +1118,7 @@ async fn resolve_group_metadata_lookup_type(
             title = %lookup.title,
             year = lookup.year,
             error = ?error,
-            "failed to detect remote media type for movie-like item; keeping item for Other review"
+            "failed to confirm remote media type; keeping item for Other review"
         );
         return GroupMetadataLookupDecision {
             lookup_type: None,
@@ -1153,7 +1131,7 @@ async fn resolve_group_metadata_lookup_type(
     tracing::info!(
         title = %presentation.lookup_title,
         year = presentation.year,
-        "remote metadata did not identify movie-like item; keeping item for Other review"
+        "remote metadata did not confirm the locally inferred media type; keeping item for Other review"
     );
     GroupMetadataLookupDecision {
         lookup_type: None,
@@ -1174,26 +1152,53 @@ fn existing_bound_group_lookup_decision(
         return None;
     }
 
-    let remote_media_type = group
-        .files
-        .iter()
-        .find_map(|file| file.remote_media_type.as_deref());
-    if remote_media_type.is_some_and(|value| value.eq_ignore_ascii_case(REMOTE_MEDIA_TYPE_SERIES)) {
+    let local_lookup_type = scan_presentation_lookup_type(&group.presentation);
+    let local_remote_media_type = remote_media_type_for_lookup_type(local_lookup_type)?;
+    let existing_remote_media_type = group.files.iter().find_map(|file| {
+        file.remote_media_type
+            .as_deref()
+            .and_then(normalize_remote_media_type)
+    })?;
+
+    if !existing_remote_media_type.eq_ignore_ascii_case(local_remote_media_type) {
         return Some(GroupMetadataLookupDecision {
             lookup_type: None,
             metadata_status: METADATA_STATUS_UNMATCHED,
-            metadata_failure_reason: Some(METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY),
-            remote_media_type: Some(REMOTE_MEDIA_TYPE_SERIES),
+            metadata_failure_reason: Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH),
+            remote_media_type: Some(existing_remote_media_type),
         });
     }
 
-    if group.presentation.media_type.eq_ignore_ascii_case("movie") {
-        return Some(GroupMetadataLookupDecision {
-            lookup_type: Some("movie"),
-            metadata_status: METADATA_STATUS_UNMATCHED,
-            metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
-            remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE),
-        });
+    Some(GroupMetadataLookupDecision {
+        lookup_type: Some(local_lookup_type),
+        metadata_status: METADATA_STATUS_PENDING,
+        metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
+        remote_media_type: Some(existing_remote_media_type),
+    })
+}
+
+fn scan_presentation_lookup_type(presentation: &ScanPresentationGroup) -> &'static str {
+    if presentation.media_type.eq_ignore_ascii_case("series") {
+        "series"
+    } else {
+        "movie"
+    }
+}
+
+fn remote_media_type_for_kind(kind: RemoteMediaKind) -> Option<&'static str> {
+    match kind {
+        RemoteMediaKind::Movie => Some(REMOTE_MEDIA_TYPE_MOVIE),
+        RemoteMediaKind::Series => Some(REMOTE_MEDIA_TYPE_SERIES),
+    }
+}
+
+fn normalize_remote_media_type(value: &str) -> Option<&'static str> {
+    if value.eq_ignore_ascii_case(REMOTE_MEDIA_TYPE_MOVIE) {
+        return Some(REMOTE_MEDIA_TYPE_MOVIE);
+    }
+
+    if value.eq_ignore_ascii_case(REMOTE_MEDIA_TYPE_SERIES) {
+        return Some(REMOTE_MEDIA_TYPE_SERIES);
     }
 
     None
@@ -1204,12 +1209,14 @@ fn metadata_detection_lookups(
     metadata_language: &str,
 ) -> Vec<MetadataLookup> {
     let presentation = &group.presentation;
+    let lookup_type = scan_presentation_lookup_type(presentation);
     let mut lookups = Vec::new();
     push_metadata_detection_lookup(
         &mut lookups,
         presentation.lookup_title.clone(),
         presentation.year,
         metadata_language,
+        lookup_type,
     );
 
     let normalized_lookup_title =
@@ -1220,17 +1227,22 @@ fn metadata_detection_lookups(
             normalized_lookup_title,
             presentation.year,
             metadata_language,
+            lookup_type,
         );
     }
 
-    for file in &group.files {
-        if let Some(container_title) = localized_movie_container_title_for_path(&file.file_path) {
-            push_metadata_detection_lookup(
-                &mut lookups,
-                container_title,
-                presentation.year.or(file.year),
-                metadata_language,
-            );
+    if lookup_type == "movie" {
+        for file in &group.files {
+            if let Some(container_title) = localized_movie_container_title_for_path(&file.file_path)
+            {
+                push_metadata_detection_lookup(
+                    &mut lookups,
+                    container_title,
+                    presentation.year.or(file.year),
+                    metadata_language,
+                    lookup_type,
+                );
+            }
         }
     }
 
@@ -1242,6 +1254,7 @@ fn push_metadata_detection_lookup(
     title: String,
     year: Option<i32>,
     metadata_language: &str,
+    lookup_type: &str,
 ) {
     let title = title.trim().to_string();
     if title.is_empty() {
@@ -1258,7 +1271,7 @@ fn push_metadata_detection_lookup(
     lookups.push(MetadataLookup {
         title,
         year,
-        library_type: "mixed".to_string(),
+        library_type: lookup_type.to_string(),
         language: Some(metadata_language.to_string()),
         provider_item_id: None,
     });
@@ -1542,7 +1555,7 @@ fn should_retry_incomplete_remote_match(summary: &mova_db::ExistingMediaMetadata
 fn should_retry_review_metadata_status(summary: &mova_db::ExistingMediaMetadataSummary) -> bool {
     matches!(
         summary.metadata_status.as_str(),
-        METADATA_STATUS_UNMATCHED | METADATA_STATUS_FAILED
+        METADATA_STATUS_PENDING | METADATA_STATUS_UNMATCHED | METADATA_STATUS_FAILED
     )
 }
 
@@ -2915,6 +2928,7 @@ fn build_scan_group_progress_update(
             artwork_preview_file,
         )),
         metadata_status: preview_file.and_then(|file| file.metadata_status.clone()),
+        remote_media_type: preview_file.and_then(|file| file.remote_media_type.clone()),
         season_number: None,
         episode_number: None,
         item_index,
@@ -3036,10 +3050,10 @@ mod tests {
     use async_trait::async_trait;
     use mova_db::ExistingMediaMetadataSummary;
     use mova_domain::{
-        Library, METADATA_FAILURE_NO_REMOTE_MATCH,
-        METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY, METADATA_STATUS_FAILED,
-        METADATA_STATUS_MATCHED, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
-        REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
+        Library, METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_REMOTE_TYPE_MISMATCH,
+        METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED, METADATA_STATUS_PENDING,
+        METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE,
+        REMOTE_MEDIA_TYPE_SERIES,
     };
     use mova_scan::{
         discovered_media_file_inventory_scan_hash, discovered_media_file_scan_hash,
@@ -3188,7 +3202,6 @@ mod tests {
             library_type: library_type.to_string(),
             metadata_language: "zh-CN".to_string(),
             root_path: "/media".to_string(),
-            is_enabled: true,
             created_at: OffsetDateTime::now_utc(),
             updated_at: OffsetDateTime::now_utc(),
         }
@@ -3456,7 +3469,7 @@ mod tests {
     }
 
     #[test]
-    fn prepare_scan_groups_marks_stale_skipped_rows_as_pending_retry_when_provider_enabled() {
+    fn prepare_scan_groups_marks_rows_as_pending_before_remote_confirmation() {
         let mut file = build_discovered_file();
         file.file_path = PathBuf::from("/media/movies/狂野时代 (2025)/狂野时代.2025.mp4");
         file.season_number = None;
@@ -3472,16 +3485,13 @@ mod tests {
             files: vec![file],
         }];
 
-        super::prepare_scan_groups_for_metadata_lookup(&mut groups, true);
+        super::prepare_scan_groups_for_metadata_lookup(&mut groups);
 
         assert_eq!(
             groups[0].files[0].metadata_status.as_deref(),
-            Some(METADATA_STATUS_UNMATCHED)
+            Some(METADATA_STATUS_PENDING)
         );
-        assert_eq!(
-            groups[0].files[0].metadata_failure_reason.as_deref(),
-            Some(METADATA_FAILURE_NO_REMOTE_MATCH)
-        );
+        assert_eq!(groups[0].files[0].metadata_failure_reason, None);
     }
 
     #[test]
@@ -4386,7 +4396,7 @@ mod tests {
 
         assert_eq!(decision.lookup_type, Some("movie"));
         assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
-        assert_eq!(decision.metadata_status, METADATA_STATUS_UNMATCHED);
+        assert_eq!(decision.metadata_status, METADATA_STATUS_PENDING);
         assert_eq!(
             decision.metadata_failure_reason,
             Some(METADATA_FAILURE_NO_REMOTE_MATCH)
@@ -4418,7 +4428,7 @@ mod tests {
 
         assert_eq!(decision.lookup_type, Some("movie"));
         assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
-        assert_eq!(decision.metadata_status, METADATA_STATUS_UNMATCHED);
+        assert_eq!(decision.metadata_status, METADATA_STATUS_PENDING);
     }
 
     #[tokio::test]
@@ -4447,7 +4457,7 @@ mod tests {
 
         assert_eq!(decision.lookup_type, Some("movie"));
         assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
-        assert_eq!(decision.metadata_status, METADATA_STATUS_UNMATCHED);
+        assert_eq!(decision.metadata_status, METADATA_STATUS_PENDING);
     }
 
     #[tokio::test]
@@ -4480,7 +4490,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resolve_group_metadata_lookup_type_rejects_remote_series_without_episode_identity() {
+    async fn resolve_group_metadata_lookup_type_rechecks_binding_without_remote_type() {
+        let mut file = build_discovered_file();
+        file.file_path = PathBuf::from("movies/Paradise.2025.mkv");
+        file.title = "Paradise".to_string();
+        file.source_title = "Paradise".to_string();
+        file.year = Some(2025);
+        file.season_number = None;
+        file.episode_number = None;
+        file.episode_title = None;
+        file.metadata_provider = Some(super::TMDB_PROVIDER_NAME.to_string());
+        file.metadata_provider_item_id = Some(112470);
+        file.remote_media_type = None;
+
+        let groups =
+            super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
+        let provider = FixedDetectionProvider {
+            enabled: true,
+            detected: Some(RemoteMediaTypeMatch {
+                media_kind: RemoteMediaKind::Series,
+                provider_item_id: 112470,
+                title: "Paradise".to_string(),
+                year: Some(2025),
+            }),
+        };
+
+        let decision =
+            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
+
+        assert_eq!(decision.lookup_type, None);
+        assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_SERIES));
+        assert_eq!(decision.metadata_status, METADATA_STATUS_UNMATCHED);
+        assert_eq!(
+            decision.metadata_failure_reason,
+            Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH)
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_group_metadata_lookup_type_rejects_remote_series_for_movie_structure() {
         let mut file = build_discovered_file();
         file.file_path = PathBuf::from("tv/Paradise.2025.mkv");
         file.title = "Paradise".to_string();
@@ -4510,7 +4558,36 @@ mod tests {
         assert_eq!(decision.metadata_status, METADATA_STATUS_UNMATCHED);
         assert_eq!(
             decision.metadata_failure_reason,
-            Some(METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY)
+            Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH)
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_group_metadata_lookup_type_rejects_remote_movie_for_series_structure() {
+        let file = build_discovered_file();
+        let groups =
+            super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
+        assert_eq!(groups[0].presentation.media_type, "series");
+
+        let provider = FixedDetectionProvider {
+            enabled: true,
+            detected: Some(RemoteMediaTypeMatch {
+                media_kind: RemoteMediaKind::Movie,
+                provider_item_id: 550,
+                title: "Arcane".to_string(),
+                year: Some(2021),
+            }),
+        };
+
+        let decision =
+            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
+
+        assert_eq!(decision.lookup_type, None);
+        assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
+        assert_eq!(decision.metadata_status, METADATA_STATUS_UNMATCHED);
+        assert_eq!(
+            decision.metadata_failure_reason,
+            Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH)
         );
     }
 
@@ -4528,7 +4605,7 @@ mod tests {
         super::clear_remote_metadata_for_review(
             &mut file,
             METADATA_STATUS_UNMATCHED,
-            Some(METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY),
+            Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH),
             Some(REMOTE_MEDIA_TYPE_SERIES),
         );
 
@@ -4541,7 +4618,7 @@ mod tests {
         );
         assert_eq!(
             file.metadata_failure_reason.as_deref(),
-            Some(METADATA_FAILURE_REMOTE_SERIES_WITHOUT_EPISODE_IDENTITY)
+            Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH)
         );
         assert_eq!(
             file.remote_media_type.as_deref(),

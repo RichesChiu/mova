@@ -161,17 +161,20 @@
 - 用同路径 `media_files.scan_hash` 和 `media_files.local_analysis_version` 判断是否能跳过本地分析；后续只让新增/变化、本地分析版本过期、未完整匹配、或按前端 Other 规则需要复核的路径进入浅层解析、完整分析和 TMDB 补全
 - 已经完整匹配、文件指纹未变化、本地分析版本未变化、且已有 TMDB 绑定的路径，不会重新跑拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存或数据库 upsert；即使 TMDB 没有可用海报，也保持稳定跳过
 - 对新增、变化、本地分析版本过期的路径先调用 `mova-scan::inspect_media_file_inventory_shallow` 做浅层文件名 / 路径解析，不读取 sidecar、不调用 `ffprobe`，只用来建立稳定的电影或剧集扫描组，避免前端先看到 `A.S01E01` 这类临时错误卡片
-- 对文件指纹和本地分析版本都未变化，但 `unmatched`、`failed`、旧状态为 `skipped` 且当前已启用 TMDB、缺少 TMDB provider 绑定、按前端 Other 规则缺少可用远端信息、仍保留远端图片 URL，或已绑定 TMDB 但展示名仍等于本地带年份占位名的路径，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时可直接从数据库恢复上次本地分析结果，跳过拆名、sidecar、`ffprobe`，只进入后续 TMDB 补全
+- 对文件指纹和本地分析版本都未变化，但状态仍为中断遗留的 `pending`、`unmatched`、`failed`，旧状态为 `skipped` 且当前已启用 TMDB、缺少 TMDB provider 绑定、按前端 Other 规则缺少可用远端信息、仍保留远端图片 URL，或已绑定 TMDB 但展示名仍等于本地带年份占位名的路径，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时可直接从数据库恢复上次本地分析结果，跳过拆名、sidecar、`ffprobe`，只进入后续 TMDB 补全
 - 浅层聚合完成后，服务端按扫描组逐个调用完整本地分析：读取 sidecar、调用 `ffprobe`、补音轨字幕和技术标签；每个组完成后立即写入数据库并推送 `scan.item.updated stage=discovered`，然后才继续处理下一组
+- 完整本地分析后的中间写库统一使用 `metadata_status = pending`；此时电影 / 剧集只代表本地结构猜测，Web 按该猜测展示扫描卡，不进入 Other。每个组完成远端确认后才收敛到最终 metadata 状态，只有最终无法确认类型或本地结构与远端类型冲突的条目进入 Other
 - 远端补全阶段才按本地聚合组串行访问 TMDB 做类型确认、metadata、海报和本地图片缓存；同一剧集组只做一次剧集 metadata 查询，再把 TMDB 标题和剧集级海报应用到组内所有集；电影会优先按 TMDB `provider_item_id` 聚合成本地多版本，避免 `Avatar: Fire and Ash` / `Avatar： Fire and Ash` 这类本地标点差异生成两个影片；如果旧条目已有海报和简介但缺少 `metadata_provider_item_id`，仍必须重新请求 TMDB 拿到 provider id 后再合并为多版本；进入补全链路的已绑定条目会优先按既有 TMDB id 精确刷新；图片字段只写入当前层级、当前字段自己的图，缺图时保持为空，不再用搜索结果图片、英文详情图片、其它层级图片或另一个图片字段兜底；中文元数据库里，如果季目录上一级或无季目录时的直接父级目录提供中文剧名，会把该中文剧名作为补充候选，覆盖 `莎拉的真伪人生(2026)/The.Art.of.Sarah.S01E01.mkv` 这类平铺剧集目录；电影仍以文件名解析出的标题和年份为主，如果直接父级目录是明确中文片名，会作为后备 TMDB 查询候选，覆盖 `过家家/Unexpected Family (2026) - 2160p ...` 这类中英文不一致的电影目录；自动候选选择保持保守，只接受标题和年份足够明确的匹配；更宽松的候选复核交给手动搜索 / 替换元数据；成功后标记 `metadata_status = matched` 并立即覆盖写库；TMDB 请求错误会标记 `metadata_status = failed` / `metadata_failure_reason = metadata_provider_error`，失败或从未成功访问过 TMDB 的条目会在后续手动扫描中重试
 - 对剧集会从文件名里的 `SxxExx` 先拆出剧名和年份做组级元数据匹配；文件名里的年份只作为匹配提示，不作为剧集身份键，所以 `The Boys (2019) - S01E01` 和 `The Boys (2020) - S02E01` 会聚合到同一剧集；`The.BeautyS01E01` 这类标题后直接跟 `SxxExx` 的文件名也会拆出剧名和季集号
 - 如果文件位于明确的季目录树下，会用共同的剧集容器目录做扫描展示聚合；这能把同一剧集文件夹内不同季、不同语言文件名的资源先合成一个剧集单位
 - TMDB 补全成功前，扫描占位和本地入库条目使用本地分析出的电影或剧集名称；TMDB 补全成功后，展示标题必须使用 TMDB 返回的名称覆盖本地名称，后续本地剧集归组只更新 `source_title` / 季集结构，不要让目录名或本地解析名压住远端结果
-- 没有本地季集号的文件会先做 TMDB movie / tv 类型确认；电影类型确认也会复用中文父目录候选，旧库里已有 TMDB 绑定的电影会优先按既有绑定继续补全并修正 `metadata_status`，避免重扫后仍停留在 Other；只有远端明确匹配电影时才绑定电影 metadata，远端更像剧集但本地没有季集号、或远端匹配失败时，会写入 `metadata_status = unmatched/failed` 和明确失败原因，进入前端 Other 复核区
-- TMDB 未启用时写入 `metadata_status = skipped`，不把它当作刮削失败，前端仍按本地 `media_type` 展示
-- 每个扫描展示组会先以本地分析结果 upsert 一次；完成 metadata / 海报后会再次调用 `mova-db` 覆盖该组文件，并发出带 `poster_path` / `overview` / `metadata_status` 的 `ScanJobEvent::ItemUpdated`
+- 本地猜测为电影或剧集的扫描组都会先通过 TMDB movie / tv 搜索确认类型；当 TMDB 同时存在两种候选时优先验证本地结构对应的类型，只有该类型没有合格候选时才把另一种远端类型视为冲突。远端类型与本地结构冲突时不跨类型改写，写入 `metadata_status = unmatched` / `metadata_failure_reason = remote_type_mismatch` 并进入 Other；远端完全未命中或检测失败同样在完成阶段进入 Other
+- TMDB 未启用时完成状态写入 `metadata_status = skipped`；本地分析期间仍按猜测类型展示，完成后因为没有远端类型确认而进入 Other
+- 每个扫描展示组会先以本地分析结果 upsert 一次；完成 metadata / 海报后会再次调用 `mova-db` 覆盖该组文件，并发出带 `poster_path` / `overview` / `metadata_status` / `remote_media_type` 的 `ScanJobEvent::ItemUpdated`。远端类型已确认且与本地结构一致时，即使后续 metadata 请求失败，前端也继续按该类型展示；只有完成后远端类型仍未知或发生冲突时进入 Other
 - 剧集没有远端集剧照时不再生成视频首帧图写入海报字段；缺图保持为空，避免本地首帧覆盖后续 TMDB 海报语义
 - 最后只对缺失路径做删除 reconcile；未变化路径完全保留，不参与重探测和 upsert
+- 媒体库的 `metadata_language` 变化时，应用层会把该库全部 `media_items` 标记为 `pending`；随后自动触发的扫描会覆盖全部本地文件并按新语言重新请求远端元数据，同时继续复用指纹未变化文件的本地分析缓存，避免无意义地重复执行 sidecar / `ffprobe`
+- 媒体库不再维护启用/禁用状态；创建后始终可扫描，配置更新只包含名称、描述和元数据语言
 
 ### 片头检测
 

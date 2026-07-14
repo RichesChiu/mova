@@ -42,33 +42,46 @@ describe('library-media-sections', () => {
     ).toBe('other')
   })
 
-  it('keeps review-status items in detected sections when textual enrichment or binding is visible', () => {
+  it('keeps pending local items in their inferred sections', () => {
+    expect(
+      getLibraryMediaSection({
+        media_type: 'movie',
+        metadata_status: 'pending',
+      }),
+    ).toBe('movies')
+    expect(
+      getLibraryMediaSection({
+        media_type: 'series',
+        metadata_status: 'pending',
+      }),
+    ).toBe('series')
+  })
+
+  it('keeps final review-status items in inferred sections when remote type confirms them', () => {
     expect(
       getLibraryMediaSection({
         media_type: 'movie',
         metadata_status: 'unmatched',
-        overview: 'A remote overview from TMDB.',
-        poster_path: '/api/media-items/915/poster?v=1778470497',
+        remote_media_type: 'movie',
       }),
     ).toBe('movies')
     expect(
       getLibraryMediaSection({
         media_type: 'series',
         metadata_status: 'failed',
-        original_title: 'Liang Chen Mei Jin',
-        backdrop_path: '/api/media-items/916/backdrop?v=1778470497',
+        remote_media_type: 'series',
       }),
     ).toBe('series')
     expect(
       getLibraryMediaSection({
-        media_type: 'movie',
-        metadata_provider_item_id: 123,
+        media_type: 'episode',
         metadata_status: 'unmatched',
+        remote_media_type: 'series',
       }),
-    ).toBe('movies')
+    ).toBe('series')
   })
 
-  it('routes unmatched movie-like items into other for review', () => {
+  it('routes completed items with unknown or conflicting remote types into other', () => {
     expect(
       getLibraryMediaSection({
         media_type: 'movie',
@@ -79,6 +92,7 @@ describe('library-media-sections', () => {
       getLibraryMediaSection({
         media_type: 'series',
         metadata_status: 'failed',
+        remote_media_type: 'movie',
       }),
     ).toBe('other')
   })
@@ -107,31 +121,53 @@ describe('library-media-sections', () => {
     expect(getLibraryScanSection({ media_type: 'series', metadata_status: 'failed' })).toBe('other')
   })
 
-  it('keeps enriched scan runtime items in detected sections', () => {
+  it('keeps in-progress scan items in their locally inferred sections', () => {
     expect(
       getLibraryScanSection({
         media_type: 'movie',
         metadata_status: 'unmatched',
-        overview: 'A remote overview from TMDB.',
-        poster_path: '/api/media-items/915/poster?v=1778470497',
+        stage: 'discovered',
+      }),
+    ).toBe('movies')
+    expect(
+      getLibraryScanSection({
+        media_type: 'series',
+        metadata_status: 'failed',
+        stage: 'artwork',
+      }),
+    ).toBe('series')
+    expect(
+      getLibraryScanSection({
+        media_type: 'series',
+        metadata_status: 'unmatched',
+        stage: 'completed',
+      }),
+    ).toBe('other')
+  })
+
+  it('keeps completed scan items in inferred sections when remote type confirms them', () => {
+    expect(
+      getLibraryScanSection({
+        media_type: 'movie',
+        metadata_status: 'unmatched',
+        remote_media_type: 'movie',
+        stage: 'completed',
       }),
     ).toBe('movies')
   })
 
-  it('does not treat artwork alone as enrichment for review-status items', () => {
+  it('does not treat a final status without remote type confirmation as typed', () => {
     expect(
       getLibraryMediaSection({
         media_type: 'series',
         metadata_status: 'failed',
-        poster_path: '/api/media-items/916/poster?v=1778470497',
-        backdrop_path: '/api/media-items/916/backdrop?v=1778470497',
       }),
     ).toBe('other')
     expect(
       getLibraryScanSection({
         media_type: 'series',
         metadata_status: 'unmatched',
-        poster_path: 'https://image.tmdb.org/t/p/original/episode-still.jpg',
+        stage: 'completed',
       }),
     ).toBe('other')
   })
@@ -143,6 +179,7 @@ describe('library-media-sections', () => {
         media_type: 'series',
         metadata_provider_item_id: null,
         metadata_status: 'failed',
+        remote_media_type: null,
         title: '良陈美锦',
         source_title: '良陈美锦',
         original_title: null,
@@ -156,6 +193,7 @@ describe('library-media-sections', () => {
         media_type: 'series',
         metadata_provider_item_id: 839,
         metadata_status: 'matched',
+        remote_media_type: 'series',
         title: '月鳞绮纪',
         source_title: '月鳞绮纪',
         original_title: null,
@@ -171,6 +209,7 @@ describe('library-media-sections', () => {
         {
           media_type: 'series',
           metadata_status: 'matched',
+          remote_media_type: 'series',
           title: '良陈美锦',
           year: null,
           overview: 'Remote overview is being fetched.',
@@ -188,6 +227,7 @@ describe('library-media-sections', () => {
         media_type: 'series',
         metadata_provider_item_id: 456,
         metadata_status: 'matched',
+        remote_media_type: 'series',
         title: '良陈美锦',
         source_title: '良陈美锦',
         original_title: null,
@@ -203,6 +243,7 @@ describe('library-media-sections', () => {
         {
           media_type: 'series',
           metadata_status: 'failed',
+          remote_media_type: null,
           title: '良陈美锦',
           year: null,
           overview: null,
@@ -220,6 +261,7 @@ describe('library-media-sections', () => {
         media_type: 'movie',
         metadata_provider_item_id: null,
         metadata_status: 'failed',
+        remote_media_type: null,
         title: 'Traffic',
         source_title: 'Traffic',
         original_title: null,
@@ -233,6 +275,7 @@ describe('library-media-sections', () => {
         media_type: 'series',
         metadata_provider_item_id: null,
         metadata_status: 'failed',
+        remote_media_type: null,
         title: 'Traffic',
         source_title: 'Traffic',
         original_title: null,
@@ -248,6 +291,7 @@ describe('library-media-sections', () => {
         {
           media_type: 'series',
           metadata_status: 'matched',
+          remote_media_type: 'series',
           title: 'Traffic',
           year: 2026,
           overview: 'A different show.',

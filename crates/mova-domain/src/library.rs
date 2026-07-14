@@ -11,7 +11,6 @@ pub struct Library {
     pub library_type: String,
     pub metadata_language: String,
     pub root_path: String,
-    pub is_enabled: bool,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }

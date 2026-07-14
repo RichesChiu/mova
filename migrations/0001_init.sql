@@ -16,7 +16,6 @@ create table if not exists libraries (
     library_type varchar(32) not null, -- mixed / movie / series
     metadata_language varchar(32) not null default 'zh-CN',
     root_path text not null,
-    is_enabled boolean not null default true,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
     );
@@ -98,7 +97,7 @@ create table if not exists media_items (
     sort_title text,
     metadata_provider varchar(32),
     metadata_provider_item_id bigint,
-    metadata_status varchar(32) not null default 'skipped', -- matched / unmatched / failed / skipped
+    metadata_status varchar(32) not null default 'skipped', -- pending / matched / unmatched / failed / skipped
     metadata_failure_reason varchar(64),
     remote_media_type varchar(32), -- movie / series
     year integer,

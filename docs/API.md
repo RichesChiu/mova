@@ -63,7 +63,7 @@
 - TMDB provider 现在从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取；但每个媒体库仍可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。
 - 如果额外配置了可选的 `MOVA_OMDB_API_KEY`，服务端会在已拿到 `imdb_id` 的前提下补齐 `imdb_rating`；不配置时该字段保持为空，不影响扫描、入库和播放。
 - 本地海报和背景图这类图片资源，对外返回的 URL 现在会带版本参数（例如 `/api/media-items/42/poster?v=1704164645`），浏览器可以长期缓存；当媒体元数据更新时，版本参数会变化，前端会自动拿到新图。
-- 当前 pre-1.0 阶段的数据库 schema 只维护 `migrations/0001_init.sql`；本版会保存扫描本地分析版本、原生客户端 access/refresh token 设备会话，并用 `playback_progress` 保存逐文件进度、用有上限的 `continue_watching` 保存当前活跃队列。TMDB / provider 返回的标题、国家、题材、制作公司、演员角色等自由文本字段按 `text` 存储；已有开发库需要重建数据库 / 重扫媒体库才能得到完整状态。
+- 当前 pre-1.0 阶段的数据库 schema 只维护 `migrations/0001_init.sql`；本版已删除 `libraries.is_enabled`，会保存扫描本地分析版本、原生客户端 access/refresh token 设备会话，并用 `playback_progress` 保存逐文件进度、用有上限的 `continue_watching` 保存当前活跃队列。TMDB / provider 返回的标题、国家、题材、制作公司、演员角色等自由文本字段按 `text` 存储；已有开发库需要重建数据库 / 重扫媒体库才能与当前结构和完整状态一致。
 
 ## 接口总览
 
@@ -375,6 +375,7 @@
     "poster_path": null,
     "backdrop_path": null,
     "metadata_status": "matched",
+    "remote_media_type": "series",
     "season_number": null,
     "episode_number": null,
     "item_index": 12,
@@ -388,7 +389,8 @@
 字段说明：
 - `item_key`：当前扫描条目的稳定键；电影和无法确认剧名的本地文件直接使用文件路径，文件名里能确认剧名的剧集会使用 `series-title:*` 或明确季目录树下的 `series-folder:*` 键，避免前端在扫描中先看到一集一集、或多季年份不同导致被打散
 - `year` / `overview` / `poster_path` / `backdrop_path`：当前条目的临时展示信息；metadata 或 artwork 阶段会先补齐标题和简介，图片字段只返回当前条目自身且服务端确认浏览器可访问的图，否则保持 `null`，不会用其它图片字段或其它层级图片兜底
-- `metadata_status`：当前条目的元数据状态；`unmatched` / `failed` 可提前归到 Other，`matched` 表示已命中远端 metadata
+- `metadata_status`：当前条目的元数据状态；`pending` 表示已完成本地分析、正在等待远端类型和 metadata 确认，扫描卡仍按本地猜测进入 Movies / Series；`matched` 表示已命中远端 metadata
+- `remote_media_type`：TMDB 已确认的远端类型，当前为 `movie` / `series` 或 `null`。只有 `stage = completed` 且远端类型仍为空、或与本地结构冲突的条目进入 Other；远端类型已经确认且与本地结构一致时，即使后续 metadata 请求失败，仍保留在对应 Movies / Series 分区
 - `item_index` / `total_items`：当前条目在整批扫描里的位置，用于前端估算总进度
 - `stage`：当前条目处理阶段，当前会使用 `discovered` / `metadata` / `artwork` / `completed`
 - `progress_percent`：当前条目自身的粗粒度进度百分比，便于前端直接驱动占位卡进度条
@@ -590,7 +592,6 @@
 - `description`：媒体库描述，可为空
 - `metadata_language`：该媒体库扫描和 TMDB 补全时使用的语言，当前支持 `zh-CN` / `en-US`
 - `root_path`：扫描根目录
-- `is_enabled`：是否启用
 
 ### `GET /api/libraries/recently-added`
 
@@ -630,7 +631,6 @@
       "description": null,
       "metadata_language": "zh-CN",
       "root_path": "/media/overseas-tv",
-      "is_enabled": true,
       "created_at": "2026-06-05T09:00:00+08:00",
       "updated_at": "2026-06-05T09:00:00+08:00"
     },
@@ -680,8 +680,7 @@
   "name": "Media",
   "description": "家庭影音混合库",
   "metadata_language": "zh-CN",
-  "root_path": "/data/media",
-  "is_enabled": true
+  "root_path": "/data/media"
 }
 ```
 
@@ -690,7 +689,6 @@
 - `description`：可选，媒体库描述
 - `metadata_language`：TMDB 元数据语言，当前支持 `zh-CN` / `en-US`，不传时默认 `zh-CN`
 - `root_path`：要扫描的本地目录
-- `is_enabled`：可选，不传时默认为 `true`
 
 关键校验：
 - 名称不能为空
@@ -702,8 +700,8 @@
 - 返回创建后的 `LibraryResponse`
 
 说明：
-- 创建且启用的媒体库会自动触发一次后台扫描；后续仍可显式调用 `POST /api/libraries/{id}/scan`
-- `is_enabled = false` 只表示这个媒体库当前处于禁用状态，不再承担“自动监听/自动同步”的语义
+- 创建媒体库后会自动触发一次后台扫描；后续仍可显式调用 `POST /api/libraries/{id}/scan`
+- 媒体库不再提供启用/禁用状态；已创建的库始终可以被手动扫描
 - 当前允许重叠或完全相同的 `root_path`。同一个物理文件如果被多个库路径覆盖，会在各自库里独立建模和展示。
 - 媒体库现在统一自动识别电影和剧集，不再要求用户选择库类型。扫描时会按单个视频文件判断：
   - 文件名里命中 `剧名.S01E02.mkv`、`剧名 S01E02 - 第 2 集.mkv`、`剧名 - S01E02.mkv`、`剧名_S01E02.mkv`、`剧名-S01E02.mkv`、`剧名.1x02.mkv`、`剧名S01E02.mkv` 这类显式剧名和季集信号时，优先按文件名里的剧名归组
@@ -711,9 +709,10 @@
   - 剧集文件名里的年份只作为元数据匹配提示，不作为剧集身份键；例如 `The Boys (2019) - S01E01.mkv` 和 `The Boys (2020) - S02E01.mkv` 会自动聚合到同一剧集
   - `第 1 集`、`Episode 1` 这类跟在季集号后的通用集数文案不会当作远端集标题，远端集标题仍可在刮削成功后覆盖
   - 文件名只有 `S01E02.mkv`、`01.mkv`、`EP02.mkv`、`第03集.mkv` 这类季集或集号时，不再结合目录信号归组
-  - 没有季集号的文件会同时参考 TMDB movie / tv 搜索结果；远端明确匹配电影时才绑定电影 metadata
-  - 如果远端更像剧集但本地没有季集号，或者远端没有命中，文件会以 `metadata_status = unmatched` 和明确 `metadata_failure_reason` 入库，并进入前端 `Other` 复核区
-  - 如果没有启用 TMDB，文件会以 `metadata_status = skipped` 入库；这种情况不视为刮削失败，前端仍按本地识别出的 `media_type` 展示
+  - 本地猜测为电影或剧集的扫描组都会同时参考 TMDB movie / tv 搜索结果；当两种远端候选都存在时优先验证本地结构对应的类型，只有对应类型不存在合格候选时才判定类型冲突
+  - 本地剧集结构只搜到同名电影、或本地电影猜测只搜到同名剧集时，不跨类型改写；文件会以 `metadata_status = unmatched`、`metadata_failure_reason = remote_type_mismatch` 和实际远端 `remote_media_type` 入库，并进入前端 `Other` 复核区
+  - 本地分析完成、远端确认尚未完成时使用 `metadata_status = pending`，前端按本地猜测类型展示；远端完全未命中、类型冲突或检测失败只会在 `stage = completed` 后进入 `Other`
+  - 如果没有启用 TMDB，文件完成时会以 `metadata_status = skipped` 入库；这种情况不视为刮削失败，但由于没有远端类型确认，完成后进入 `Other`
 
 ### `GET /api/libraries/{id}`
 
@@ -783,8 +782,7 @@
 {
   "name": "Movies HD",
   "description": "4K 电影库",
-  "metadata_language": "en-US",
-  "is_enabled": true
+  "metadata_language": "en-US"
 }
 ```
 
@@ -792,7 +790,6 @@
 - `name`：可选，更新媒体库名称
 - `description`：可选，更新媒体库描述；传 `null` 可清空现有描述
 - `metadata_language`：可选，更新 TMDB 元数据语言，当前支持 `zh-CN` / `en-US`
-- `is_enabled`：可选，控制该媒体库是否启用
 
 返回：
 - 成功时 `200 OK`
@@ -800,8 +797,9 @@
 
 说明：
 - 至少要传一个字段，否则返回 `400 Bad Request`
-- 更新名称、描述或元数据语言不会直接重扫，但后续手动扫描会按新配置继续执行
-- 当 `is_enabled` 从 `true` 改成 `false` 时，如果该库此时有扫描正在执行，会先请求取消当前扫描
+- 只更新名称或描述不会触发扫描
+- 当 `metadata_language` 发生变化时，服务端会先停止该库当前正在执行的扫描，把库内所有媒体条目标记为 `metadata_status = pending`，然后自动创建一次覆盖全库的元数据扫描；文件未变化时会复用既有本地分析、音轨和字幕结果，但会按新语言重新请求全部远端元数据
+- 媒体库不再提供启用/禁用状态，更新接口也不再接受该字段
 
 ### `GET /api/libraries/{id}/media-items`
 
@@ -835,7 +833,7 @@
 
 说明：
 - 列表当前返回顶层媒体条目，也就是电影和剧；剧集的单集不会直接出现在这个列表里
-- `items[]` 使用 `MediaItemResponse`，会返回 `metadata_status` / `metadata_failure_reason` / `remote_media_type`；前端把 `metadata_status = unmatched` 或 `failed` 的条目放进 `Other`，其余条目按 `media_type` 进入 Movies / Series
+- `items[]` 使用 `MediaItemResponse`，会返回 `metadata_status` / `metadata_failure_reason` / `remote_media_type`；`pending` 条目按本地 `media_type` 进入 Movies / Series。完成后只有 `remote_media_type` 为空、或远端类型与本地结构冲突的条目进入 `Other`；远端类型已确认且一致的失败条目仍留在对应类型分区
 - 默认按名称升序返回
 - 当前只支持名称筛选和发行年筛选，尚未支持更多排序和筛选组合
 
@@ -968,8 +966,8 @@
 - `title`：当前前端默认展示名；TMDB 命中后优先使用当前媒体库语言对应的标题
 - `source_title`：文件名解析出的原始资源名，主要用于后续元数据匹配和问题排查，不建议直接作为前端展示名
 - `metadata_provider` / `metadata_provider_item_id`：远端 metadata 绑定信息，只表达当前条目是否绑定到具体 TMDB 条目，不再用于判断 `Other`
-- `metadata_status`：元数据处理状态，当前会使用 `matched` / `unmatched` / `failed` / `skipped`
-- `metadata_failure_reason`：当 `metadata_status` 为 `unmatched` 或 `failed` 时解释原因，例如 `no_remote_match`、`remote_series_without_episode_identity`、`remote_detection_failed`、`metadata_provider_error`
+- `metadata_status`：元数据处理状态，当前会使用 `pending` / `matched` / `unmatched` / `failed` / `skipped`；`pending` 只表示扫描中的远端确认中间态
+- `metadata_failure_reason`：当 `metadata_status` 为 `unmatched` 或 `failed` 时解释原因，例如 `no_remote_match`、`remote_type_mismatch`、`remote_detection_failed`、`metadata_provider_error`
 - `remote_media_type`：远端识别到的媒体类型，当前会使用 `movie` / `series`；没有远端判断或 TMDB 未启用时可为 `null`
 - `imdb_rating`：可选的 IMDb 评分字符串；只有在配置了 `MOVA_OMDB_API_KEY` 且当前条目能解析到 `imdb_id` 时才会有值
 - `country`：可选的国家/地区信息；电影会优先使用 TMDB 的 production countries，剧集会优先使用 TMDB 的 origin country；服务端按自由文本存储，不做 255 字符截断

@@ -4,9 +4,9 @@ import {
   type ContinueWatchingCardData,
   ContinueWatchingCardSkeleton,
 } from '../../../components/continue-watching-card'
-import { EmptyState } from '../../../components/empty-state'
 import { ScrollableRail } from '../../../components/scrollable-rail'
 import { useI18n } from '../../../i18n'
+import { shouldRenderHomeContinueWatching } from '../../../lib/home-sections'
 
 interface ContinueWatchingSectionProps {
   errorMessage: string | null
@@ -25,6 +25,16 @@ export const ContinueWatchingSection = ({
   const shouldShowSkeleton = isLoading && items.length === 0
   const visibleItems = items.slice(0, HOME_CONTINUE_WATCHING_LIMIT)
   const overflowCount = Math.max(0, items.length - visibleItems.length)
+
+  if (
+    !shouldRenderHomeContinueWatching({
+      hasError: Boolean(errorMessage),
+      isLoading,
+      itemCount: items.length,
+    })
+  ) {
+    return null
+  }
 
   return (
     <section className="catalog-block continue-watching-section">
@@ -52,13 +62,6 @@ export const ContinueWatchingSection = ({
           <ContinueWatchingCardSkeleton label="S02 E01" />
           <ContinueWatchingCardSkeleton label={l('Movies')} />
         </ScrollableRail>
-      ) : null}
-
-      {!isLoading && !errorMessage && items.length === 0 ? (
-        <EmptyState
-          description={l('Start watching something and it will appear here.')}
-          title={l('Nothing to continue yet.')}
-        />
       ) : null}
 
       {items.length > 0 ? (

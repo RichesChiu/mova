@@ -180,6 +180,7 @@ mod tests {
                 poster_path: Some("/cache/poster/interstellar.jpg".to_string()),
                 backdrop_path: Some("/cache/backdrop/interstellar.jpg".to_string()),
                 metadata_status: Some("matched".to_string()),
+                remote_media_type: Some("movie".to_string()),
                 season_number: None,
                 episode_number: None,
                 item_index: 1,

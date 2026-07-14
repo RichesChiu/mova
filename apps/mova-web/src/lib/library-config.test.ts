@@ -4,6 +4,7 @@ import {
   buildLibraryEditorDraft,
   buildLibraryUpdateInput,
   hasLibraryConfigChanges,
+  hasLibraryMetadataLanguageChanged,
   retainValidLibraryRootPath,
 } from './library-config'
 
@@ -13,7 +14,6 @@ const library: Library = {
   description: 'Family movie library',
   metadata_language: 'zh-CN',
   root_path: '/media/movies',
-  is_enabled: true,
   created_at: '2026-04-07T00:00:00Z',
   updated_at: '2026-04-07T00:00:00Z',
 }
@@ -59,6 +59,21 @@ describe('library config helpers', () => {
       hasLibraryConfigChanges(library, {
         ...buildLibraryEditorDraft(library),
         description: '',
+        metadataLanguage: 'en-US',
+      }),
+    ).toBe(true)
+  })
+
+  it('only requires scan confirmation when metadata language changes', () => {
+    expect(
+      hasLibraryMetadataLanguageChanged(library, {
+        ...buildLibraryEditorDraft(library),
+        name: 'Cinema',
+      }),
+    ).toBe(false)
+    expect(
+      hasLibraryMetadataLanguageChanged(library, {
+        ...buildLibraryEditorDraft(library),
         metadataLanguage: 'en-US',
       }),
     ).toBe(true)

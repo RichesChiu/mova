@@ -53,10 +53,8 @@
 }
 
 .libraries-section__grid {
-  --libraries-section-card-min: 176px;
-
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: clamp(10px, 1.1vw, 13px);
   align-items: stretch;
   overflow: visible;
@@ -467,34 +465,4 @@
   border-color: color-mix(in srgb, var(--floating-border) 72%, transparent);
   background: transparent;
   color: transparent;
-}
-
-@media (min-width: 760px) {
-  .libraries-section__grid {
-    grid-template-columns: repeat(2, minmax(var(--libraries-section-card-min), 1fr));
-  }
-}
-
-@media (min-width: 980px) {
-  .libraries-section__grid {
-    grid-template-columns: repeat(3, minmax(var(--libraries-section-card-min), 1fr));
-  }
-}
-
-@media (min-width: 1220px) {
-  .libraries-section__grid {
-    grid-template-columns: repeat(4, minmax(var(--libraries-section-card-min), 1fr));
-  }
-}
-
-@media (min-width: 1480px) {
-  .libraries-section__grid {
-    grid-template-columns: repeat(5, minmax(var(--libraries-section-card-min), 1fr));
-  }
-}
-
-@media (min-width: 1740px) {
-  .libraries-section__grid {
-    grid-template-columns: repeat(6, minmax(var(--libraries-section-card-min), 1fr));
-  }
 }

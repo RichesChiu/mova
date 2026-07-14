@@ -83,10 +83,10 @@
   - 服务端 `auth.rs` 会用它来判断是否是管理员、是否能访问某个媒体库。
 
 - `Library` / `LibraryDetail`
-  - 媒体库列表、详情、设置页和扫描链路都围绕这两个对象展开。
+  - 媒体库列表、详情、设置页和扫描链路都围绕这两个对象展开；库对象不再包含启用/禁用状态。
 
 - `MediaItem` / `MediaFile` / `AudioTrack`
-  - 一个负责逻辑上的媒体条目，一个负责物理文件与播放链路，`AudioTrack` 负责补齐单个媒体文件的内嵌音轨建模。`MediaItem` 同时暴露 `metadata_status`、`metadata_failure_reason` 和 `remote_media_type`，让前端明确区分已匹配、待复核、失败和跳过，而不是用 TMDB ID 是否为空做隐式判断。
+  - 一个负责逻辑上的媒体条目，一个负责物理文件与播放链路，`AudioTrack` 负责补齐单个媒体文件的内嵌音轨建模。`MediaItem` 同时暴露 `metadata_status`、`metadata_failure_reason` 和 `remote_media_type`，让前端明确区分待远端确认、已匹配、待复核、失败和跳过，而不是用 TMDB ID 是否为空做隐式判断；`pending` 只用于扫描中的中间写库，完成后必须收敛到 `matched` / `unmatched` / `failed` / `skipped`。
 
 - `PlaybackProgress` / `ContinueWatchingItem`
   - 前者表达逐文件当前进度，后者表达有上限的活跃 Continue 队列中聚合后的电影或 Series 卡片。

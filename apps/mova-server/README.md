@@ -142,7 +142,7 @@
 
 - 服务端不再常驻文件 watcher
 - 新建媒体库后会自动入队一次扫描
-- 重新启用媒体库、新增、删除、改名和移动都统一靠手动 `Scan Library` 收敛
+- 新增、删除、改名和移动文件都统一靠手动 `Scan Library` 收敛
 - 扫描链路本身不再全量跑片头检测，避免新库首次扫库时额外吃满 CPU 和 `ffmpeg`
 
 ### `src/realtime.rs`
@@ -159,9 +159,15 @@
 
 删除媒体库时，服务会先阻止新的扫描进入并等待当前扫描退出；删除事务会显式清理该库的媒体关系表、授权关系、扫描任务和播放进度。事务完成后，服务会删除该库曾引用且已经没有任何剩余记录引用的 `MOVA_CACHE_DIR/tmdb` 图片缓存文件，媒体目录里的 sidecar 图片不会被自动删除。
 
-其中 `scan.job.updated` 在发现文件阶段会先节流并合并进度写库 / 广播，避免大库扫描时按文件数量打满 SSE；发现阶段结束仍会强制写入最终文件数。扫描随后进入 `analyzing` 阶段：先只用文件名和路径做浅层解析与扫描展示聚合，不读取 sidecar、不调用 `ffprobe`、不访问 TMDB；聚合完成后再按组逐个做完整本地分析，包括 sidecar、`ffprobe`、音轨字幕和资源技术标签。每个组完成完整本地分析后都会立即写入数据库并通过 `scan.item.updated stage=discovered` 推给前端，然后才处理下一组。这样库详情页可以逐组出现稳定卡片，而不是等整库探测结束后一次性出现。随后进入 `enriching` 阶段按聚合组串行访问 TMDB。同一剧集组只做一次剧集 metadata 查询，拿到 TMDB 标题和剧集级海报后应用到组内所有集；本地 artwork 会按层级保存，`S01E01-poster` 这类文件专属图只属于单集，`poster/fanart` 这类通用图才可作为剧集容器图，扫描进度和落库都不会再用单集截图兜底剧集或季图；图片字段缺失时保持为空，不会用同条目的另一个图片字段、其它层级图片、搜索结果图片或默认语言图片补齐；本地分析或待远端复核的写库不会用空 artwork 覆盖已有剧集 / 季 / 集图片，只有 `metadata_status = matched` 的最终元数据写入才会把远端确认缺失的图片字段清空；同一 TMDB 影片下的电影资源会按 `provider_item_id` 归并到一个 movie item，详情页再作为多个资源版本切换；旧条目即使已有海报和简介，只要缺少 TMDB provider 绑定，也会继续请求 TMDB 拿到 provider id 后再合并多版本；每个组完成后立即覆盖写库并推送更新。事件会携带当前可用的 `year`、`overview` 和 `metadata_status`；`poster_path` / `backdrop_path` 只在服务端确认是浏览器可访问 URL 时才带出，避免缓存完成前让前端加载本地路径或失效远端图。当 `stage = completed` 时，该组已经完成远端 metadata / 海报覆盖写库，Web 端会立即重拉该库媒体列表、首页按库最新添加和库详情计数，让真实媒体卡也跟着逐个更新。剧集远端查询会先从文件名解析 `SxxExx` 前的剧名和年份；如果季目录结构明确，服务端会从季目录上一级提取干净剧名和年份作为补充搜索线索，覆盖类似 `Taxi.Driver.S01E01.mkv`、`Study Group S01E01 - 第 1 集.mkv`、`The.BeautyS01E01.mkv` 的场景。中文元数据库里，如果季目录上一级或无季目录时的直接父级目录提供中文剧名，会优先把中文剧名作为 TMDB 查询候选，再回退到英文文件名；这会覆盖 `莎拉的真伪人生(2026)/The.Art.of.Sarah.S01E01.mkv` 这类平铺剧集目录。已经入库但标题仍是英文、且路径里能识别中文剧名的 matched 剧集条目，也会在后续扫描中重新进入 metadata 流程，避免英文文件名先命中导致卡片标题长期偏英文。没有本地季集号的文件会先做 TMDB movie / tv 类型确认，远端更像剧集但本地无季集号、或远端没有命中时会写入明确的 `metadata_status` / `metadata_failure_reason` 并保留为前端 Other 复核项；TMDB 请求错误会写入 `failed / metadata_provider_error` 并在后续手动扫描中重试；TMDB 未启用时则标记为 `skipped`，不阻断本地媒体展示。所有事件都会先经过 `is_visible_to(&UserProfile)` 做库级可见性过滤，再转换成 SSE。
+其中 `scan.job.updated` 在发现文件阶段会先节流并合并进度写库 / 广播，避免大库扫描时按文件数量打满 SSE；发现阶段结束仍会强制写入最终文件数。扫描随后进入 `analyzing` 阶段：先只用文件名和路径做浅层解析与扫描展示聚合，不读取 sidecar、不调用 `ffprobe`、不访问 TMDB；聚合完成后再按组逐个做完整本地分析，包括 sidecar、`ffprobe`、音轨字幕和资源技术标签。每个组完成本地分析后立即以 `metadata_status = pending` 写入数据库，并通过 `scan.item.updated stage=discovered` 推给前端。这个阶段的电影 / 剧集类型只是本地结构猜测，Web 会按猜测类型展示扫描卡，不会提前放入 Other。
+
+随后进入 `enriching` 阶段按聚合组串行访问 TMDB。电影和剧集猜测都会通过 movie / tv 搜索结果确认；两种候选同时存在时优先验证本地结构对应的类型，只有该类型没有合格候选时才把另一类型判为冲突。本地剧集结构只命中同名电影、或本地电影猜测只命中同名剧集时，不跨类型改写，而是完成为 `unmatched / remote_type_mismatch` 并进入 Other。远端完全未命中、类型检测失败或 TMDB 未启用的条目，也只会在 `stage = completed` 后进入 Other。TMDB 请求错误会写入 `failed / metadata_provider_error` 并在后续手动扫描中重试；中断遗留的 `pending` 同样会在后续扫描中重试。
+
+同一剧集组只做一次剧集 metadata 查询，再把 TMDB 标题和剧集级海报应用到组内所有集；同一 TMDB 影片下的电影资源按 `provider_item_id` 归并为一个 movie item，详情页作为多个资源版本切换。图片字段只写当前层级、当前字段自己的图，不用单集截图、其它层级图片、搜索结果图片或另一个图片字段兜底；`pending` 写库不会清空既有 artwork，只有最终 `matched` 写入才允许清理远端确认缺失的图片。事件会携带当前可用的 `year`、`overview`、`metadata_status` 和 `remote_media_type`，`poster_path` / `backdrop_path` 只在确认浏览器可访问时返回；Web 只在 `stage = completed` 且远端类型为空或与本地结构冲突时把扫描卡放入 Other，远端类型一致的 metadata 失败仍留在对应类型分区。`stage = completed` 后 Web 会立即重拉该库媒体列表、首页按库最新添加和库详情计数。剧集查询仍优先使用文件名中 `SxxExx` 前的剧名和年份，明确季目录会补充上一级的干净剧名，中文元数据库还会优先尝试可识别的中文剧名。所有事件都会先经过 `is_visible_to(&UserProfile)` 做库级可见性过滤，再转换成 SSE。
 
 另外，扫描现在先做轻量文件清单和同路径 `scan_hash` / `local_analysis_version` 比对；已匹配且未变化、已经有 TMDB 绑定的路径不会重新跑拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存或数据库 upsert。新增、变更或本地分析版本过期的路径会先进入浅层聚合，再按组完整探测和 upsert。文件指纹与本地分析版本都未变化但未匹配成功、缺少 TMDB provider 绑定、旧状态是 `skipped` 但当前已启用 TMDB、按前端 Other 规则需要复核、或仍保留远端图片 URL 的路径，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时可从数据库恢复上次本地分析结果，跳过拆名、sidecar、`ffprobe`，只逐组串行补 metadata/海报、立即 upsert，然后继续处理下一组。自动 metadata 选择保持保守；更宽松的候选复核交给手动搜索 / 替换元数据。缺失路径会在最后统一删除。
+
+`PATCH /api/libraries/{id}` 修改 `metadata_language` 时会先停止该库的活跃扫描，再把库内全部媒体条目标记为 `pending` 并自动入队一次全库元数据重扫。该重扫会复用未变化文件已经缓存的本地分析、音轨和字幕结果，但不会跳过任何已有媒体的远端元数据刷新。媒体库不再维护启用/禁用状态。
 
 ## 5. 路由与 feature 划分
 
@@ -224,7 +230,7 @@ Web 端：
 
 原生客户端业务接口只接受 `Authorization: Bearer <access_token>`。`refresh_token` 只用于 `/auth/refresh`，成功刷新后会轮换 refresh token 并撤销旧值；用户禁用、删除或改密时会同步撤销该用户现有原生客户端会话。
 
-### 6.2 建库与启用链路
+### 6.2 建库与配置更新链路
 
 `routes/libraries.rs` -> `handlers::libraries::{create_library, update_library}` -> `mova_application::{create_library, update_library}` -> `realtime.rs`
 

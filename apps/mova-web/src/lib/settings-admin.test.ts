@@ -31,7 +31,6 @@ const library: Library = {
   description: 'Family movie library',
   metadata_language: 'zh-CN',
   root_path: '/media/movies',
-  is_enabled: true,
   created_at: '2026-04-08T00:00:00Z',
   updated_at: '2026-04-08T00:00:00Z',
 }
@@ -147,7 +146,6 @@ describe('settings admin helpers', () => {
   it('merges library detail updates while preserving the latest scan snapshot', () => {
     const currentDetail: LibraryDetail = {
       ...library,
-      is_enabled: false,
       media_count: 14,
       movie_count: 14,
       series_count: 0,
@@ -160,10 +158,8 @@ describe('settings admin helpers', () => {
       },
     }
 
-    expect(
-      mergeUpdatedLibraryDetail(currentDetail, { ...library, is_enabled: true }),
-    ).toMatchObject({
-      is_enabled: true,
+    expect(mergeUpdatedLibraryDetail(currentDetail, { ...library, name: 'Cinema' })).toMatchObject({
+      name: 'Cinema',
       last_scan: currentDetail.last_scan,
     })
 
@@ -176,7 +172,7 @@ describe('settings admin helpers', () => {
         currentLibraries: [currentDetail],
         updatedLibrary: {
           ...library,
-          is_enabled: true,
+          name: 'Cinema',
         },
         currentLibraryDetail: currentDetail,
         currentHomeLibraryDetail: currentDetail,
@@ -184,7 +180,7 @@ describe('settings admin helpers', () => {
     ).toMatchObject({
       libraries: [
         expect.objectContaining({
-          is_enabled: true,
+          name: 'Cinema',
         }),
       ],
       libraryDetail: {
@@ -215,22 +211,18 @@ describe('settings admin helpers', () => {
         currentLibraries: [
           {
             ...library,
-            is_enabled: true,
           },
         ],
         updatedLibrary: {
           ...library,
           description: 'Updated description',
-          is_enabled: true,
         },
         currentLibraryDetail: {
           ...currentDetail,
-          is_enabled: true,
           last_scan: scanJob,
         },
         currentHomeLibraryDetail: {
           ...currentDetail,
-          is_enabled: true,
           last_scan: scanJob,
         },
       }),
