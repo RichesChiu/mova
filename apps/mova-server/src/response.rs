@@ -240,6 +240,7 @@ pub struct HomeLibraryResponse {
 
 #[derive(Debug, Serialize)]
 pub struct HomeRealtimeStateResponse {
+    pub protocol_version: u8,
     pub server_epoch: String,
     pub resources: BTreeMap<String, i64>,
 }
@@ -707,6 +708,7 @@ impl HomeResponse {
                 .map(|item| ContinueWatchingItemResponse::from_domain(item, offset))
                 .collect(),
             realtime: HomeRealtimeStateResponse {
+                protocol_version: crate::realtime::REALTIME_PROTOCOL_VERSION,
                 server_epoch,
                 resources,
             },

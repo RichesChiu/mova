@@ -1,12 +1,19 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
-import { matchPath, useLocation, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { getRealtimeState } from '../../api/client'
-import type { HomeResponse, RealtimeState, ScanJob } from '../../api/types'
+import type { RealtimeState, ScanJob } from '../../api/types'
+import {
+  getRealtimeResourcesQueryKeys,
+  parseLibraryRealtimeResource,
+  REALTIME_PROTOCOL_VERSION,
+} from './realtime-resources'
 import type { ScanRuntimeByLibrary, ScanRuntimeItem } from './scan-runtime'
 
 const SERVER_EVENTS_URL = '/api/realtime/events'
 const MAX_SCAN_RUNTIME_ITEMS_PER_LIBRARY = 40
+const RESOURCE_REFRESH_RETRY_DELAYS_MS = [250, 1_000] as const
+const REALTIME_RECONCILE_RETRY_DELAY_MS = 1_000
 
 interface ResourceChange {
   resource: string
@@ -14,14 +21,15 @@ interface ResourceChange {
 }
 
 interface ResourcesChangedPayload {
-  version: number
+  protocol_version: number
   changes: ResourceChange[]
 }
 
 interface ScanProgressPayload {
-  version: number
+  protocol_version: number
   scan_job: ScanJob
   items: ScanRuntimeItem[]
+  changes: ResourceChange[]
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -51,7 +59,11 @@ const isScanRuntimeItem = (value: unknown): value is ScanRuntimeItem =>
 const parseResourcesChanged = (raw: string): ResourcesChangedPayload | null => {
   try {
     const value: unknown = JSON.parse(raw)
-    if (!isRecord(value) || value.version !== 1 || !Array.isArray(value.changes)) {
+    if (
+      !isRecord(value) ||
+      value.protocol_version !== REALTIME_PROTOCOL_VERSION ||
+      !Array.isArray(value.changes)
+    ) {
       return null
     }
     const changes = value.changes.filter(
@@ -60,7 +72,7 @@ const parseResourcesChanged = (raw: string): ResourcesChangedPayload | null => {
         typeof change.resource === 'string' &&
         typeof change.revision === 'number',
     )
-    return { version: 1, changes }
+    return { protocol_version: REALTIME_PROTOCOL_VERSION, changes }
   } catch {
     return null
   }
@@ -71,16 +83,24 @@ const parseScanProgress = (raw: string): ScanProgressPayload | null => {
     const value: unknown = JSON.parse(raw)
     if (
       !isRecord(value) ||
-      value.version !== 1 ||
+      value.protocol_version !== REALTIME_PROTOCOL_VERSION ||
       !isScanJob(value.scan_job) ||
       !Array.isArray(value.items)
     ) {
       return null
     }
     return {
-      version: 1,
+      protocol_version: REALTIME_PROTOCOL_VERSION,
       scan_job: value.scan_job,
       items: value.items.filter(isScanRuntimeItem),
+      changes: Array.isArray(value.changes)
+        ? value.changes.filter(
+            (change): change is ResourceChange =>
+              isRecord(change) &&
+              typeof change.resource === 'string' &&
+              typeof change.revision === 'number',
+          )
+        : [],
     }
   } catch {
     return null
@@ -135,28 +155,30 @@ const buildActiveScanRuntime = (
     }),
   )
 
-const libraryResource = (resource: string) => {
-  const match = /^library:(\d+):(settings|catalog|scan)$/.exec(resource)
-  if (!match) {
-    return null
+const mergeActiveScanRuntime = (
+  state: RealtimeState,
+  current: ScanRuntimeByLibrary,
+): ScanRuntimeByLibrary => {
+  const next = { ...current }
+  for (const scanJob of state.active_scans) {
+    const currentRuntime = current[scanJob.library_id]
+    next[scanJob.library_id] = {
+      scanJob,
+      items: currentRuntime?.scanJob?.id === scanJob.id ? currentRuntime.items : [],
+    }
   }
-  return { id: Number(match[1]), kind: match[2] }
+  return next
 }
 
 export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
   const queryClient = useQueryClient()
-  const location = useLocation()
   const navigate = useNavigate()
-  const pathnameRef = useRef(location.pathname)
   const serverEpochRef = useRef<string | null>(null)
   const appliedRevisionsRef = useRef(new Map<string, number>())
   const requestedRevisionsRef = useRef(new Map<string, number>())
   const inFlightResourcesRef = useRef(new Set<string>())
+  const activeScanLibraryIdsRef = useRef(new Set<number>())
   const [scanRuntimeByLibrary, setScanRuntimeByLibrary] = useState<ScanRuntimeByLibrary>({})
-
-  useEffect(() => {
-    pathnameRef.current = location.pathname
-  }, [location.pathname])
 
   useEffect(() => {
     if (!enabled || typeof EventSource === 'undefined') {
@@ -165,67 +187,92 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       appliedRevisionsRef.current.clear()
       requestedRevisionsRef.current.clear()
       inFlightResourcesRef.current.clear()
+      activeScanLibraryIdsRef.current.clear()
       return
     }
 
     let disposed = false
     const eventSource = new EventSource(SERVER_EVENTS_URL)
+    const pendingTimers = new Set<number>()
+    const resourceRefreshAttempts = new Map<string, number>()
+    const resourceWaiters = new Map<string, Array<{ revision: number; resolve: () => void }>>()
+    let resourceRefreshScheduled = false
+    let reconcileScheduled = false
+    let runResourceRefreshBatch: () => Promise<void> = async () => {}
+    let reconcileState: () => Promise<void> = async () => {}
 
-    const invalidateResource = async (resource: string) => {
-      const tasks: Promise<unknown>[] = []
-      const library = libraryResource(resource)
-
-      if (resource === 'libraries' || resource.endsWith(':libraries')) {
-        tasks.push(
-          queryClient.invalidateQueries({ queryKey: ['libraries'] }),
-          queryClient.invalidateQueries({ queryKey: ['home'] }),
-        )
-      } else if (library?.kind === 'settings') {
-        tasks.push(
-          queryClient.invalidateQueries({ queryKey: ['libraries'] }),
-          queryClient.invalidateQueries({ queryKey: ['library', library.id] }),
-          queryClient.invalidateQueries({ queryKey: ['home'] }),
-        )
-      } else if (library?.kind === 'catalog') {
-        tasks.push(
-          queryClient.invalidateQueries({ queryKey: ['library', library.id] }),
-          queryClient.invalidateQueries({ queryKey: ['library-media', library.id] }),
-          queryClient.invalidateQueries({ queryKey: ['home'] }),
-        )
-
-        const mediaMatch = matchPath('/media-items/:mediaItemId', pathnameRef.current)
-        const mediaItemId = Number(mediaMatch?.params.mediaItemId)
-        if (Number.isFinite(mediaItemId)) {
-          tasks.push(
-            queryClient.invalidateQueries({ queryKey: ['media-item', mediaItemId] }),
-            queryClient.invalidateQueries({ queryKey: ['media-episode-outline', mediaItemId] }),
-          )
-        }
-      } else if (library?.kind === 'scan') {
-        tasks.push(
-          queryClient.invalidateQueries({ queryKey: ['library', library.id] }),
-          queryClient.invalidateQueries({ queryKey: ['home'] }),
-        )
-      } else if (resource.endsWith(':continue-watching')) {
-        tasks.push(
-          queryClient.invalidateQueries({ queryKey: ['continue-watching'] }),
-          queryClient.invalidateQueries({ queryKey: ['home'] }),
-        )
-      } else if (resource.endsWith(':profile')) {
-        tasks.push(
-          queryClient.invalidateQueries({ queryKey: ['current-user'] }),
-          queryClient.invalidateQueries({ queryKey: ['home'] }),
-        )
-      } else if (resource === 'admin:users') {
-        tasks.push(queryClient.invalidateQueries({ queryKey: ['users'] }))
-      } else {
-        tasks.push(queryClient.invalidateQueries({ queryKey: ['home'] }))
-      }
-
-      await Promise.all(tasks)
+    const scheduleTimer = (callback: () => void, delayMs: number) => {
+      const timer = window.setTimeout(() => {
+        pendingTimers.delete(timer)
+        callback()
+      }, delayMs)
+      pendingTimers.add(timer)
     }
 
-    const queueResourceRefresh = (resource: string, revision: number) => {
+    const invalidateQueryKeys = async (
+      queryKeys: ReturnType<typeof getRealtimeResourcesQueryKeys>,
+    ) => {
+      await Promise.all(
+        queryKeys.map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey }, { throwOnError: true }),
+        ),
+      )
+    }
+
+    const scheduleReconcile = (delayMs = 0) => {
+      if (disposed || reconcileScheduled) {
+        return
+      }
+
+      reconcileScheduled = true
+      scheduleTimer(() => {
+        reconcileScheduled = false
+        void reconcileState().catch(() => {
+          scheduleReconcile(REALTIME_RECONCILE_RETRY_DELAY_MS)
+        })
+      }, delayMs)
+    }
+
+    const scheduleResourceRefresh = (delayMs = 0) => {
+      if (disposed || resourceRefreshScheduled) {
+        return
+      }
+
+      resourceRefreshScheduled = true
+      scheduleTimer(() => {
+        resourceRefreshScheduled = false
+        void runResourceRefreshBatch()
+      }, delayMs)
+    }
+
+    const resolveResourceWaiters = (resource: string) => {
+      const appliedRevision = appliedRevisionsRef.current.get(resource) ?? 0
+      const waiters = resourceWaiters.get(resource) ?? []
+      const pending = waiters.filter((waiter) => {
+        if (waiter.revision <= appliedRevision) {
+          waiter.resolve()
+          return false
+        }
+        return true
+      })
+
+      if (pending.length > 0) {
+        resourceWaiters.set(resource, pending)
+      } else {
+        resourceWaiters.delete(resource)
+      }
+    }
+
+    const resolveAllResourceWaiters = () => {
+      for (const waiters of resourceWaiters.values()) {
+        waiters.forEach((waiter) => {
+          waiter.resolve()
+        })
+      }
+      resourceWaiters.clear()
+    }
+
+    const queueResourceRefresh = (resource: string, revision: number, schedule = true) => {
       if (revision <= (appliedRevisionsRef.current.get(resource) ?? 0)) {
         return
       }
@@ -233,71 +280,167 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         resource,
         Math.max(revision, requestedRevisionsRef.current.get(resource) ?? 0),
       )
-      if (inFlightResourcesRef.current.has(resource)) {
-        return
+      if (schedule) {
+        scheduleResourceRefresh()
       }
-
-      inFlightResourcesRef.current.add(resource)
-      const run = async () => {
-        while (!disposed) {
-          const targetRevision = requestedRevisionsRef.current.get(resource) ?? 0
-          try {
-            await invalidateResource(resource)
-            appliedRevisionsRef.current.set(resource, targetRevision)
-          } catch {
-            return
-          }
-          if ((requestedRevisionsRef.current.get(resource) ?? 0) <= targetRevision) {
-            return
-          }
-        }
-      }
-
-      void run().finally(() => {
-        inFlightResourcesRef.current.delete(resource)
-      })
     }
 
-    const reconcileState = async () => {
-      if (serverEpochRef.current === null) {
-        await queryClient.refetchQueries({ queryKey: ['home'], type: 'active' })
+    const waitForResourceChanges = (changes: ResourceChange[]) => {
+      if (changes.length === 0) {
+        return Promise.resolve()
       }
-      const state = await getRealtimeState()
-      if (disposed || state.protocol_version !== 1) {
+
+      const waits = changes.map((change) => {
+        queueResourceRefresh(change.resource, change.revision)
+        if (change.revision <= (appliedRevisionsRef.current.get(change.resource) ?? 0)) {
+          return Promise.resolve()
+        }
+
+        return new Promise<void>((resolve) => {
+          const waiters = resourceWaiters.get(change.resource) ?? []
+          waiters.push({ revision: change.revision, resolve })
+          resourceWaiters.set(change.resource, waiters)
+        })
+      })
+
+      return Promise.all(waits).then(() => undefined)
+    }
+
+    runResourceRefreshBatch = async () => {
+      const resources = [...requestedRevisionsRef.current.entries()]
+        .filter(
+          ([resource, revision]) =>
+            revision > (appliedRevisionsRef.current.get(resource) ?? 0) &&
+            !inFlightResourcesRef.current.has(resource),
+        )
+        .map(([resource]) => resource)
+
+      if (resources.length === 0 || disposed) {
         return
       }
 
-      setScanRuntimeByLibrary((current) => buildActiveScanRuntime(state, current))
-      const homeSnapshot = queryClient.getQueryData<HomeResponse>(['home'])
-      if (serverEpochRef.current === null && homeSnapshot?.realtime) {
-        serverEpochRef.current = homeSnapshot.realtime.server_epoch
-        appliedRevisionsRef.current = new Map(Object.entries(homeSnapshot.realtime.resources))
+      const targetRevisions = new Map(
+        resources.map((resource) => [resource, requestedRevisionsRef.current.get(resource) ?? 0]),
+      )
+      resources.forEach((resource) => {
+        inFlightResourcesRef.current.add(resource)
+      })
+      let refreshSucceeded = false
+
+      try {
+        await invalidateQueryKeys(getRealtimeResourcesQueryKeys(resources))
+        if (disposed) {
+          return
+        }
+        for (const [resource, revision] of targetRevisions) {
+          appliedRevisionsRef.current.set(resource, revision)
+          resourceRefreshAttempts.delete(resource)
+          resolveResourceWaiters(resource)
+        }
+
+        const finishedLibraryIds = resources.flatMap((resource) => {
+          const library = parseLibraryRealtimeResource(resource)
+          return library?.kind === 'scan' && !activeScanLibraryIdsRef.current.has(library.id)
+            ? [library.id]
+            : []
+        })
+        if (finishedLibraryIds.length > 0) {
+          setScanRuntimeByLibrary((current) => {
+            const next = { ...current }
+            finishedLibraryIds.forEach((libraryId) => {
+              delete next[libraryId]
+            })
+            return next
+          })
+        }
+        refreshSucceeded = true
+      } catch {
+        const nextAttempt = Math.max(
+          ...resources.map((resource) => (resourceRefreshAttempts.get(resource) ?? 0) + 1),
+        )
+        resources.forEach((resource) => {
+          resourceRefreshAttempts.set(resource, nextAttempt)
+        })
+
+        const retryDelay = RESOURCE_REFRESH_RETRY_DELAYS_MS[nextAttempt - 1]
+        if (retryDelay !== undefined) {
+          scheduleResourceRefresh(retryDelay)
+        } else {
+          resources.forEach((resource) => {
+            resourceRefreshAttempts.delete(resource)
+          })
+          scheduleReconcile(REALTIME_RECONCILE_RETRY_DELAY_MS)
+        }
+      } finally {
+        resources.forEach((resource) => {
+          inFlightResourcesRef.current.delete(resource)
+        })
       }
+
+      if (
+        refreshSucceeded &&
+        [...requestedRevisionsRef.current.entries()].some(
+          ([resource, revision]) => revision > (appliedRevisionsRef.current.get(resource) ?? 0),
+        )
+      ) {
+        scheduleResourceRefresh()
+      }
+    }
+
+    reconcileState = async () => {
+      const state = await getRealtimeState()
+      if (disposed || state.protocol_version !== REALTIME_PROTOCOL_VERSION) {
+        return
+      }
+
       const firstSnapshot = serverEpochRef.current === null
       const epochChanged = !firstSnapshot && serverEpochRef.current !== state.server_epoch
-      serverEpochRef.current = state.server_epoch
+      activeScanLibraryIdsRef.current = new Set(
+        state.active_scans.map((scanJob) => scanJob.library_id),
+      )
+      setScanRuntimeByLibrary((current) =>
+        firstSnapshot || epochChanged
+          ? buildActiveScanRuntime(state, current)
+          : mergeActiveScanRuntime(state, current),
+      )
 
-      if (epochChanged) {
-        requestedRevisionsRef.current.clear()
+      if (firstSnapshot || epochChanged) {
+        if (epochChanged) {
+          resolveAllResourceWaiters()
+          requestedRevisionsRef.current.clear()
+        }
         appliedRevisionsRef.current.clear()
-        await queryClient.invalidateQueries()
+        await invalidateQueryKeys(getRealtimeResourcesQueryKeys(Object.keys(state.resources)))
         if (!disposed) {
+          serverEpochRef.current = state.server_epoch
           appliedRevisionsRef.current = new Map(Object.entries(state.resources))
+          for (const resource of Object.keys(state.resources)) {
+            resolveResourceWaiters(resource)
+          }
+          if (
+            [...requestedRevisionsRef.current.entries()].some(
+              ([resource, revision]) => revision > (appliedRevisionsRef.current.get(resource) ?? 0),
+            )
+          ) {
+            scheduleResourceRefresh()
+          }
+          if (epochChanged) {
+            scheduleReconcile()
+          }
         }
         return
       }
 
+      serverEpochRef.current = state.server_epoch
       for (const [resource, revision] of Object.entries(state.resources)) {
-        if (firstSnapshot) {
-          appliedRevisionsRef.current.set(resource, revision)
-        } else if (epochChanged || revision > (appliedRevisionsRef.current.get(resource) ?? 0)) {
+        if (revision > (appliedRevisionsRef.current.get(resource) ?? 0)) {
           queueResourceRefresh(resource, revision)
         }
       }
     }
 
     const handleOpen = () => {
-      void reconcileState()
+      scheduleReconcile()
     }
 
     const handleResourcesChanged = (event: MessageEvent<string>) => {
@@ -307,13 +450,15 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       }
       let shouldReconcileActiveScans = false
       for (const change of payload.changes) {
-        queueResourceRefresh(change.resource, change.revision)
-        if (libraryResource(change.resource)?.kind === 'scan') {
+        if (parseLibraryRealtimeResource(change.resource)?.kind === 'scan') {
           shouldReconcileActiveScans = true
         }
+        queueResourceRefresh(change.resource, change.revision, false)
       }
       if (shouldReconcileActiveScans) {
-        void reconcileState()
+        scheduleReconcile()
+      } else {
+        scheduleResourceRefresh()
       }
     }
 
@@ -339,6 +484,11 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       }
       applyScanProgressPayload(payload)
 
+      if (payload.changes.length === 0) {
+        scheduleReconcile()
+        return
+      }
+
       const clearFinishedRuntime = () => {
         if (disposed) return
         setScanRuntimeByLibrary((current) => {
@@ -351,15 +501,15 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         })
       }
 
-      void invalidateResource(`library:${payload.scan_job.library_id}:catalog`)
+      void waitForResourceChanges(payload.changes)
         .then(clearFinishedRuntime)
         .catch(() => {
-          void reconcileState()
+          scheduleReconcile()
         })
     }
 
     const handleResyncRequired = () => {
-      void reconcileState()
+      scheduleReconcile()
     }
 
     const handleSessionInvalidated = () => {
@@ -378,6 +528,11 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
 
     return () => {
       disposed = true
+      pendingTimers.forEach((timer) => {
+        window.clearTimeout(timer)
+      })
+      pendingTimers.clear()
+      resolveAllResourceWaiters()
       eventSource.close()
       eventSource.removeEventListener('open', handleOpen as EventListener)
       eventSource.removeEventListener('resources.changed', handleResourcesChanged as EventListener)

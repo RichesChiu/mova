@@ -6,7 +6,7 @@ use serde::Serialize;
 use sqlx::postgres::{PgListener, PgPool};
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{Arc, RwLock},
     time::Duration,
 };
 use time::UtcOffset;
@@ -18,6 +18,7 @@ const DISPATCH_COMMAND_BUFFER_SIZE: usize = 2_048;
 const RESOURCE_BATCH_INTERVAL: Duration = Duration::from_millis(500);
 const SCAN_PROGRESS_BATCH_INTERVAL: Duration = Duration::from_millis(200);
 const CONTINUE_WATCHING_BATCH_INTERVAL: Duration = Duration::from_secs(1);
+pub(crate) const REALTIME_PROTOCOL_VERSION: u8 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RealtimeVisibility {
@@ -47,8 +48,8 @@ impl RealtimeMessage {
         })
     }
 
-    pub fn event_name(&self) -> &'static str {
-        self.event_name
+    pub fn closes_stream(&self) -> bool {
+        matches!(self.event_name, "resync.required" | "session.invalidated")
     }
 
     pub fn is_visible_to(&self, user: &UserProfile) -> bool {
@@ -67,25 +68,92 @@ impl RealtimeMessage {
     }
 }
 
+struct RealtimeHubInner {
+    public_sender: broadcast::Sender<RealtimeMessage>,
+    admin_sender: broadcast::Sender<RealtimeMessage>,
+    library_senders: RwLock<HashMap<i64, broadcast::Sender<RealtimeMessage>>>,
+    user_senders: RwLock<HashMap<i64, broadcast::Sender<RealtimeMessage>>>,
+}
+
 #[derive(Clone)]
 pub struct RealtimeHub {
-    sender: broadcast::Sender<RealtimeMessage>,
+    inner: Arc<RealtimeHubInner>,
 }
 
 impl Default for RealtimeHub {
     fn default() -> Self {
-        let (sender, _) = broadcast::channel(REALTIME_BATCH_BUFFER_SIZE);
-        Self { sender }
+        let (public_sender, _) = broadcast::channel(REALTIME_BATCH_BUFFER_SIZE);
+        let (admin_sender, _) = broadcast::channel(REALTIME_BATCH_BUFFER_SIZE);
+        Self {
+            inner: Arc::new(RealtimeHubInner {
+                public_sender,
+                admin_sender,
+                library_senders: RwLock::new(HashMap::new()),
+                user_senders: RwLock::new(HashMap::new()),
+            }),
+        }
     }
 }
 
 impl RealtimeHub {
     fn publish(&self, message: RealtimeMessage) {
-        let _ = self.sender.send(message);
+        match message.visibility {
+            RealtimeVisibility::Public => {
+                let _ = self.inner.public_sender.send(message);
+            }
+            RealtimeVisibility::Admin => {
+                let _ = self.inner.admin_sender.send(message);
+            }
+            RealtimeVisibility::Library(library_id) => {
+                // Administrators see every library, while regular users only subscribe to
+                // channels for libraries granted in their connection-time permission snapshot.
+                let _ = self.inner.admin_sender.send(message.clone());
+                let _ = Self::scoped_sender(&self.inner.library_senders, library_id).send(message);
+            }
+            RealtimeVisibility::User(user_id) => {
+                let _ = Self::scoped_sender(&self.inner.user_senders, user_id).send(message);
+            }
+        }
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<RealtimeMessage> {
-        self.sender.subscribe()
+    pub fn subscribe(&self, user: &UserProfile) -> Vec<broadcast::Receiver<RealtimeMessage>> {
+        let mut receivers = vec![
+            self.inner.public_sender.subscribe(),
+            Self::scoped_sender(&self.inner.user_senders, user.user.id).subscribe(),
+        ];
+
+        if user.is_admin() {
+            receivers.push(self.inner.admin_sender.subscribe());
+        } else {
+            receivers.extend(user.library_ids.iter().map(|library_id| {
+                Self::scoped_sender(&self.inner.library_senders, *library_id).subscribe()
+            }));
+        }
+
+        receivers
+    }
+
+    fn scoped_sender(
+        senders: &RwLock<HashMap<i64, broadcast::Sender<RealtimeMessage>>>,
+        scope_id: i64,
+    ) -> broadcast::Sender<RealtimeMessage> {
+        let mut senders = senders.write().unwrap_or_else(|error| error.into_inner());
+        senders
+            .entry(scope_id)
+            .or_insert_with(|| broadcast::channel(REALTIME_BATCH_BUFFER_SIZE).0)
+            .clone()
+    }
+
+    fn publish_resync_required(&self, reason: &'static str) {
+        let payload = ResyncRequiredResponse {
+            protocol_version: REALTIME_PROTOCOL_VERSION,
+            reason,
+        };
+        if let Some(message) =
+            RealtimeMessage::json("resync.required", &payload, RealtimeVisibility::Public)
+        {
+            self.publish(message);
+        }
     }
 }
 
@@ -144,9 +212,10 @@ pub fn start_realtime_dispatcher(
     let (sender, receiver) = mpsc::channel(DISPATCH_COMMAND_BUFFER_SIZE);
     let dispatcher_sender = sender.clone();
     let listener_pool = pool.clone();
+    let listener_hub = hub.clone();
 
     tokio::spawn(async move {
-        run_postgres_revision_listener(listener_pool, dispatcher_sender).await;
+        run_postgres_revision_listener(listener_pool, dispatcher_sender, listener_hub).await;
     });
     tokio::spawn(async move {
         RealtimeDispatcher::new(pool, hub, api_time_offset, receiver)
@@ -304,7 +373,7 @@ impl RealtimeDispatcher {
         for (visibility, mut changes) in grouped {
             changes.sort_by(|left, right| left.resource.cmp(&right.resource));
             let payload = ResourcesChangedResponse {
-                version: 1,
+                protocol_version: REALTIME_PROTOCOL_VERSION,
                 changes,
             };
             if let Some(message) = RealtimeMessage::json("resources.changed", &payload, visibility)
@@ -355,7 +424,7 @@ impl RealtimeDispatcher {
         let mut items = batch.items.into_values().collect::<Vec<_>>();
         items.sort_by_key(|item| item.item_index);
         let payload = ScanProgressResponse {
-            version: 1,
+            protocol_version: REALTIME_PROTOCOL_VERSION,
             scan_job: ScanJobResponse::from_realtime(
                 update.scan_job,
                 update.phase,
@@ -365,6 +434,11 @@ impl RealtimeDispatcher {
                 .into_iter()
                 .map(ScanItemProgressResponse::from_domain)
                 .collect(),
+            changes: if event_name == "scan.finished" {
+                self.load_scan_finished_revisions(library_id).await
+            } else {
+                Vec::new()
+            },
         };
 
         if let Some(message) = RealtimeMessage::json(
@@ -376,8 +450,37 @@ impl RealtimeDispatcher {
         }
     }
 
+    async fn load_scan_finished_revisions(&self, library_id: i64) -> Vec<ResourceRevisionResponse> {
+        let resource_keys = vec![
+            format!("library:{library_id}:catalog"),
+            format!("library:{library_id}:scan"),
+        ];
+        match mova_db::list_realtime_revisions(&self.pool, &resource_keys).await {
+            Ok(revisions) => {
+                let mut changes = revisions
+                    .into_iter()
+                    .map(|revision| ResourceRevisionResponse {
+                        resource: revision.resource_key,
+                        revision: revision.revision,
+                    })
+                    .collect::<Vec<_>>();
+                changes.sort_by(|left, right| left.resource.cmp(&right.resource));
+                changes
+            }
+            Err(error) => {
+                tracing::warn!(
+                    library_id,
+                    error = ?error,
+                    "failed to load scan revisions for terminal realtime event"
+                );
+                Vec::new()
+            }
+        }
+    }
+
     fn publish_session_invalidated(&self, user_id: i64) {
         let payload = SessionInvalidatedResponse {
+            protocol_version: REALTIME_PROTOCOL_VERSION,
             reason: "authorization_changed",
         };
         if let Some(message) = RealtimeMessage::json(
@@ -390,7 +493,11 @@ impl RealtimeDispatcher {
     }
 }
 
-async fn run_postgres_revision_listener(pool: PgPool, sender: mpsc::Sender<RealtimeCommand>) {
+async fn run_postgres_revision_listener(
+    pool: PgPool,
+    sender: mpsc::Sender<RealtimeCommand>,
+    hub: RealtimeHub,
+) {
     loop {
         let mut listener = match PgListener::connect_with(&pool).await {
             Ok(listener) => listener,
@@ -406,6 +513,8 @@ async fn run_postgres_revision_listener(pool: PgPool, sender: mpsc::Sender<Realt
             tokio::time::sleep(Duration::from_secs(2)).await;
             continue;
         }
+
+        hub.publish_resync_required("postgres_listener_subscribed");
 
         loop {
             match listener.recv().await {
@@ -434,9 +543,6 @@ fn session_user_id(resource_key: &str) -> Option<i64> {
 }
 
 fn visibility_for_resource(resource_key: &str) -> Option<RealtimeVisibility> {
-    if resource_key == "libraries" {
-        return Some(RealtimeVisibility::Public);
-    }
     if resource_key.starts_with("admin:") {
         return Some(RealtimeVisibility::Admin);
     }
@@ -457,19 +563,28 @@ struct ResourceRevisionResponse {
 
 #[derive(Debug, Serialize)]
 struct ResourcesChangedResponse {
-    version: u8,
+    protocol_version: u8,
     changes: Vec<ResourceRevisionResponse>,
 }
 
 #[derive(Debug, Serialize)]
 struct ScanProgressResponse {
-    version: u8,
+    protocol_version: u8,
     scan_job: ScanJobResponse,
     items: Vec<ScanItemProgressResponse>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    changes: Vec<ResourceRevisionResponse>,
 }
 
 #[derive(Debug, Serialize)]
 struct SessionInvalidatedResponse {
+    protocol_version: u8,
+    reason: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct ResyncRequiredResponse {
+    protocol_version: u8,
     reason: &'static str,
 }
 
@@ -477,12 +592,28 @@ struct SessionInvalidatedResponse {
 mod tests {
     use super::{
         session_user_id, visibility_for_resource, RealtimeCommand, RealtimeDispatcherHandle,
-        RealtimeVisibility,
+        RealtimeMessage, RealtimeVisibility,
     };
     use mova_application::{ScanJobEvent, ScanJobProgressUpdate};
-    use mova_domain::ScanJob;
+    use mova_domain::{ScanJob, User, UserProfile, UserRole};
     use time::OffsetDateTime;
     use tokio::sync::mpsc;
+
+    fn test_user(id: i64, role: UserRole, library_ids: Vec<i64>) -> UserProfile {
+        UserProfile {
+            user: User {
+                id,
+                username: format!("user-{id}"),
+                nickname: format!("User {id}"),
+                role,
+                is_enabled: true,
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                updated_at: OffsetDateTime::UNIX_EPOCH,
+            },
+            is_primary_admin: false,
+            library_ids,
+        }
+    }
 
     #[test]
     fn resource_visibility_is_derived_from_aggregate_key() {
@@ -498,6 +629,10 @@ mod tests {
             visibility_for_resource("admin:users"),
             Some(RealtimeVisibility::Admin)
         );
+        assert_eq!(
+            visibility_for_resource("admin:libraries"),
+            Some(RealtimeVisibility::Admin)
+        );
     }
 
     #[test]
@@ -510,7 +645,9 @@ mod tests {
     async fn terminal_scan_event_waits_for_dispatch_capacity_instead_of_being_dropped() {
         let (sender, mut receiver) = mpsc::channel(1);
         sender
-            .try_send(RealtimeCommand::ResourceChanged("libraries".to_string()))
+            .try_send(RealtimeCommand::ResourceChanged(
+                "admin:libraries".to_string(),
+            ))
             .expect("test channel should accept the first command");
         let handle = RealtimeDispatcherHandle { sender };
         let finished = ScanJobEvent::Finished(ScanJobProgressUpdate {
@@ -539,5 +676,184 @@ mod tests {
             tokio::time::timeout(std::time::Duration::from_secs(1), receiver.recv()).await,
             Ok(Some(RealtimeCommand::ScanEvent(ScanJobEvent::Finished(_))))
         ));
+    }
+
+    #[tokio::test]
+    async fn resync_required_is_published_as_a_terminal_public_event() {
+        let hub = super::RealtimeHub::default();
+        let user = test_user(12, UserRole::Viewer, vec![7]);
+        let mut receivers = hub.subscribe(&user);
+        let mut receiver = receivers.remove(0);
+
+        hub.publish_resync_required("postgres_listener_subscribed");
+
+        let message = receiver
+            .recv()
+            .await
+            .expect("resync event should be published");
+        assert!(message.closes_stream());
+        assert_eq!(message.visibility, RealtimeVisibility::Public);
+        assert!(message.data.contains(r#""protocol_version":2"#));
+        assert!(message.data.contains("postgres_listener_subscribed"));
+    }
+
+    #[tokio::test]
+    async fn scoped_hub_does_not_wake_unrelated_viewers_and_still_reaches_admins() {
+        let hub = super::RealtimeHub::default();
+        let viewer = test_user(12, UserRole::Viewer, vec![7]);
+        let admin = test_user(1, UserRole::Admin, Vec::new());
+        let mut viewer_receivers = hub.subscribe(&viewer);
+        let mut admin_receivers = hub.subscribe(&admin);
+
+        hub.publish(
+            RealtimeMessage::json(
+                "resources.changed",
+                &serde_json::json!({"protocol_version": 2, "changes": []}),
+                RealtimeVisibility::Library(8),
+            )
+            .unwrap(),
+        );
+
+        assert!(viewer_receivers
+            .iter_mut()
+            .all(|receiver| receiver.try_recv().is_err()));
+        let admin_message = admin_receivers[2]
+            .recv()
+            .await
+            .expect("admin channel should receive every library event");
+        assert_eq!(admin_message.visibility, RealtimeVisibility::Library(8));
+
+        hub.publish(
+            RealtimeMessage::json(
+                "resources.changed",
+                &serde_json::json!({"protocol_version": 2, "changes": []}),
+                RealtimeVisibility::Library(7),
+            )
+            .unwrap(),
+        );
+        let viewer_message = viewer_receivers[2]
+            .recv()
+            .await
+            .expect("viewer library channel should receive an authorized event");
+        assert_eq!(viewer_message.visibility, RealtimeVisibility::Library(7));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn library_revision_triggers_separate_collection_and_settings(pool: sqlx::PgPool) {
+        let library_id: i64 = sqlx::query_scalar(
+            r#"
+            insert into libraries (name, library_type, metadata_language, root_path)
+            values ('Movies', 'mixed', 'zh-CN', '/media/movies')
+            returning id
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let collection_key = "admin:libraries".to_string();
+        let settings_key = format!("library:{library_id}:settings");
+        let initial = mova_db::list_realtime_revisions(
+            &pool,
+            &[collection_key.clone(), settings_key.clone()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            initial
+                .iter()
+                .find(|revision| revision.resource_key == collection_key)
+                .map(|revision| revision.revision),
+            Some(1)
+        );
+        assert!(!initial
+            .iter()
+            .any(|revision| revision.resource_key == settings_key));
+
+        sqlx::query("update libraries set name = 'Movies 2' where id = $1")
+            .bind(library_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let updated = mova_db::list_realtime_revisions(
+            &pool,
+            &[collection_key.clone(), settings_key.clone()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            updated
+                .iter()
+                .find(|revision| revision.resource_key == collection_key)
+                .map(|revision| revision.revision),
+            Some(1)
+        );
+        assert_eq!(
+            updated
+                .iter()
+                .find(|revision| revision.resource_key == settings_key)
+                .map(|revision| revision.revision),
+            Some(1)
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn scan_revision_tracks_durable_lifecycle_transitions(pool: sqlx::PgPool) {
+        let library_id: i64 = sqlx::query_scalar(
+            r#"
+            insert into libraries (name, library_type, metadata_language, root_path)
+            values ('Series', 'mixed', 'zh-CN', '/media/series')
+            returning id
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let scan_job_id: i64 = sqlx::query_scalar(
+            r#"
+            insert into scan_jobs (library_id, status, total_files, scanned_files)
+            values ($1, 'pending', 0, 0)
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let scan_key = format!("library:{library_id}:scan");
+
+        let revision_after_insert =
+            mova_db::list_realtime_revisions(&pool, std::slice::from_ref(&scan_key))
+                .await
+                .unwrap();
+        assert_eq!(revision_after_insert[0].revision, 1);
+
+        sqlx::query("update scan_jobs set status = 'running' where id = $1")
+            .bind(scan_job_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("update scan_jobs set scanned_files = 1 where id = $1")
+            .bind(scan_job_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let revision_while_running =
+            mova_db::list_realtime_revisions(&pool, std::slice::from_ref(&scan_key))
+                .await
+                .unwrap();
+        assert_eq!(revision_while_running[0].revision, 2);
+
+        sqlx::query("update scan_jobs set status = 'success' where id = $1")
+            .bind(scan_job_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let revision_after_finish = mova_db::list_realtime_revisions(&pool, &[scan_key])
+            .await
+            .unwrap();
+        assert_eq!(revision_after_finish[0].revision, 3);
     }
 }

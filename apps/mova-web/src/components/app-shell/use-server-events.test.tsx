@@ -79,10 +79,10 @@ const completedScanItem = {
 }
 
 const baselineState = {
-  protocol_version: 1,
+  protocol_version: 2,
   server_epoch: 'server-a',
   resources: {
-    libraries: 2,
+    'admin:libraries': 2,
     'library:7:catalog': 10,
     'user:3:continue-watching': 4,
   },
@@ -112,7 +112,7 @@ describe('useServerEvents revision protocol', () => {
   beforeEach(() => {
     FakeEventSource.instances = []
     vi.stubGlobal('EventSource', FakeEventSource as unknown as typeof EventSource)
-    clientMocks.getRealtimeState.mockResolvedValue(baselineState)
+    clientMocks.getRealtimeState.mockReset().mockResolvedValue(baselineState)
   })
 
   afterEach(() => {
@@ -120,7 +120,7 @@ describe('useServerEvents revision protocol', () => {
     vi.restoreAllMocks()
   })
 
-  it('restores active scan state without invalidating the first revision snapshot', async () => {
+  it('restores active scans and refreshes loaded read models before accepting the first baseline', async () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined)
     renderHook(queryClient)
@@ -130,7 +130,7 @@ describe('useServerEvents revision protocol', () => {
     await waitFor(() => {
       expect(screen.getByTestId('scan-runtime')).toHaveTextContent('"library_id":7')
     })
-    expect(invalidateSpy).not.toHaveBeenCalled()
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['home'] }, { throwOnError: true })
   })
 
   it('refreshes only the changed catalog resource and ignores duplicate revisions', async () => {
@@ -142,36 +142,40 @@ describe('useServerEvents revision protocol', () => {
     await waitFor(() => expect(clientMocks.getRealtimeState).toHaveBeenCalled())
 
     const payload = {
-      version: 1,
+      protocol_version: 2,
       changes: [{ resource: 'library:7:catalog', revision: 11 }],
     }
     source.emit('resources.changed', payload)
 
-    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledTimes(5))
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        { queryKey: ['media-item-files'] },
+        { throwOnError: true },
+      ),
+    )
     const keys = invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)
     expect(keys).toEqual(
       expect.arrayContaining([
         ['library', 7],
         ['library-media', 7],
         ['home'],
-        ['media-item', 31],
-        ['media-episode-outline', 31],
+        ['libraries-page-recently-added'],
+        ['media-item'],
+        ['media-item-cast'],
+        ['media-item-files'],
+        ['media-item-playback-header'],
+        ['media-episode-outline'],
       ]),
     )
+    const firstRefreshCallCount = invalidateSpy.mock.calls.length
 
     source.emit('resources.changed', payload)
     await new Promise((resolve) => window.setTimeout(resolve, 10))
-    expect(invalidateSpy).toHaveBeenCalledTimes(5)
+    expect(invalidateSpy).toHaveBeenCalledTimes(firstRefreshCallCount)
   })
 
-  it('uses the cached home revisions as the reconnect baseline', async () => {
+  it('refreshes loaded read models before accepting the initial state revisions', async () => {
     const queryClient = createTestQueryClient()
-    queryClient.setQueryData(['home'], {
-      realtime: {
-        server_epoch: 'server-a',
-        resources: { 'library:7:catalog': 9 },
-      },
-    })
     clientMocks.getRealtimeState.mockResolvedValue({
       ...baselineState,
       resources: { 'library:7:catalog': 10 },
@@ -183,10 +187,81 @@ describe('useServerEvents revision protocol', () => {
     FakeEventSource.instances[0].emit('open')
 
     await waitFor(() => {
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['home'] })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['home'] }, { throwOnError: true })
     })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['library', 7] })
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['library-media', 7] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['library', 7] }, { throwOnError: true })
+    expect(invalidateSpy).toHaveBeenCalledWith(
+      { queryKey: ['library-media', 7] },
+      { throwOnError: true },
+    )
+  })
+
+  it('deduplicates shared query keys across one resource event batch', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined)
+    renderHook(queryClient)
+    const source = FakeEventSource.instances[0]
+    source.emit('open')
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['home'] }, { throwOnError: true }),
+    )
+    invalidateSpy.mockClear()
+
+    source.emit('resources.changed', {
+      protocol_version: 2,
+      changes: [
+        { resource: 'library:7:catalog', revision: 11 },
+        { resource: 'user:3:continue-watching', revision: 5 },
+      ],
+    })
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        { queryKey: ['continue-watching'] },
+        { throwOnError: true },
+      ),
+    )
+    expect(
+      invalidateSpy.mock.calls.filter(([filters]) => filters?.queryKey?.[0] === 'home'),
+    ).toHaveLength(1)
+  })
+
+  it('retries a failed resource refresh before applying its revision', async () => {
+    const queryClient = createTestQueryClient()
+    let homeRefreshAttempts = 0
+    let failHomeRefresh = false
+    const invalidateSpy = vi
+      .spyOn(queryClient, 'invalidateQueries')
+      .mockImplementation((filters) => {
+        if (filters?.queryKey?.[0] === 'home') {
+          if (failHomeRefresh) {
+            homeRefreshAttempts += 1
+          }
+          if (failHomeRefresh && homeRefreshAttempts === 1) {
+            return Promise.reject(new Error('temporary refresh failure'))
+          }
+        }
+        return Promise.resolve()
+      })
+    renderHook(queryClient)
+    const source = FakeEventSource.instances[0]
+    source.emit('open')
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['home'] }, { throwOnError: true }),
+    )
+    failHomeRefresh = true
+    homeRefreshAttempts = 0
+
+    const change = {
+      protocol_version: 2,
+      changes: [{ resource: 'user:3:continue-watching', revision: 5 }],
+    }
+    source.emit('resources.changed', change)
+
+    await waitFor(() => expect(homeRefreshAttempts).toBe(2), { timeout: 2_000 })
+    source.emit('resources.changed', change)
+    await new Promise((resolve) => window.setTimeout(resolve, 20))
+    expect(homeRefreshAttempts).toBe(2)
   })
 
   it('stores a server-batched scan progress payload in one runtime update', async () => {
@@ -195,7 +270,7 @@ describe('useServerEvents revision protocol', () => {
     const source = FakeEventSource.instances[0]
 
     source.emit('scan.progress', {
-      version: 1,
+      protocol_version: 2,
       scan_job: scanJob,
       items: [
         {
@@ -233,7 +308,7 @@ describe('useServerEvents revision protocol', () => {
     const source = FakeEventSource.instances[0]
 
     source.emit('scan.progress', {
-      version: 1,
+      protocol_version: 2,
       scan_job: scanJob,
       items: [completedScanItem],
     })
@@ -242,7 +317,7 @@ describe('useServerEvents revision protocol', () => {
     })
 
     source.emit('scan.finished', {
-      version: 1,
+      protocol_version: 2,
       scan_job: {
         ...scanJob,
         status: 'success',
@@ -251,6 +326,10 @@ describe('useServerEvents revision protocol', () => {
         finished_at: '2026-07-14T00:00:30Z',
       },
       items: [completedScanItem],
+      changes: [
+        { resource: 'library:7:catalog', revision: 11 },
+        { resource: 'library:7:scan', revision: 1 },
+      ],
     })
 
     await waitFor(() => {
@@ -279,12 +358,29 @@ describe('useServerEvents revision protocol', () => {
       active_scans: [],
     })
     source.emit('resources.changed', {
-      version: 1,
+      protocol_version: 2,
       changes: [{ resource: 'library:7:scan', revision: 1 }],
     })
 
     await waitFor(() => {
       expect(screen.getByTestId('scan-runtime')).toHaveTextContent('{}')
     })
+  })
+
+  it('does not reconcile durable state for every transient scan progress batch', async () => {
+    const queryClient = createTestQueryClient()
+    renderHook(queryClient)
+
+    FakeEventSource.instances[0].emit('scan.progress', {
+      protocol_version: 2,
+      scan_job: scanJob,
+      items: [completedScanItem],
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scan-runtime')).toHaveTextContent('completed')
+    })
+    await new Promise((resolve) => window.setTimeout(resolve, 20))
+    expect(clientMocks.getRealtimeState).not.toHaveBeenCalled()
   })
 })

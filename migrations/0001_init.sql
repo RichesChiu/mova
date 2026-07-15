@@ -375,8 +375,14 @@ begin
     else
         changed_library_id := new.id;
     end if;
-    perform mova_bump_realtime_revision('libraries');
-    perform mova_bump_realtime_revision('library:' || changed_library_id || ':settings');
+    if tg_op = 'INSERT' then
+        perform mova_bump_realtime_revision('admin:libraries');
+    elsif tg_op = 'UPDATE' then
+        perform mova_bump_realtime_revision('library:' || changed_library_id || ':settings');
+    else
+        perform mova_bump_realtime_revision('admin:libraries');
+        perform mova_bump_realtime_revision('library:' || changed_library_id || ':settings');
+    end if;
     if tg_op = 'DELETE' then
         return old;
     end if;
@@ -534,19 +540,22 @@ create trigger user_library_access_realtime_revision
 after insert or delete on user_library_access
 for each row execute function mova_notify_user_library_access_change();
 
-create or replace function mova_notify_scan_finished()
+create or replace function mova_notify_scan_change()
 returns trigger
 language plpgsql
 as $$
 begin
-    if new.status in ('success', 'failed')
-       and new.status is distinct from old.status then
+    if tg_op = 'INSERT' or new.status is distinct from old.status then
         perform mova_bump_realtime_revision('library:' || new.library_id || ':scan');
     end if;
     return new;
 end;
 $$;
 
-create trigger scan_jobs_realtime_revision
+create trigger scan_jobs_realtime_revision_insert
+after insert on scan_jobs
+for each row execute function mova_notify_scan_change();
+
+create trigger scan_jobs_realtime_revision_status
 after update of status on scan_jobs
-for each row execute function mova_notify_scan_finished();
+for each row execute function mova_notify_scan_change();

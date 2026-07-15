@@ -1,60 +1,56 @@
 <p align="center">
-  <img src="apps/mova-web/public/mova-logo-master-transparent.png" alt="Mova logo" width="96" />
+  <img src="apps/mova-web/public/mova-logo-master-transparent.png" alt="Mova 标志" width="96" />
 </p>
 
 <h1 align="center">Mova</h1>
 
 <p align="center">
-  A lightweight, secure, and efficient self-hosted media server for local movies and series.
+  面向本地电影和剧集的轻量、安全、高效自托管媒体服务器。
 </p>
 
-<p align="center">
-  English | <a href="README.zh-CN.md">Chinese</a>
-</p>
+## Mova 是什么
 
-## What Mova Is
+Mova 是一个用于整理、浏览和播放本地电影与剧集的自托管媒体服务器。服务端使用 Rust 构建，这是一门强调内存安全、稳定性能和资源效率的现代系统语言。
 
-Mova is a self-hosted media server for organizing, browsing, and playing local movies and series. Its server is built with Rust, a modern systems language focused on memory safety, predictable performance, and efficient resource usage.
+项目希望把媒体服务器体验保持得足够简单可靠：挂载媒体目录，扫描媒体库，按需补齐元数据，然后在清晰的网页界面里浏览和播放。当前版本定位为可用的 pre-1.0 MVP 预览版，适合本机、家用服务器和私人媒体库场景。
 
-The project aims to keep the media-server experience simple and dependable: mount a media folder, scan the library, enrich metadata when needed, and browse or play from a clean Web interface. The current release is a usable pre-1.0 MVP preview for local machines, home servers, and private media setups.
+Web 主页以媒体库为第一层级：有继续观看数据时才展示该区块；`你的库` 最多在一排展示 5 个库，超过 5 个时才提供查看全部；最新添加由服务端按每个可见非空媒体库返回最多 8 条内容，不设置默认时间窗口。
 
-The Web home page is library-first: it shows continue watching when the active queue is non-empty, one five-column `Your Libraries` row containing at most five responsive 16:9 library cards, and the latest eight added media items grouped by every visible non-empty library, without a default time-window cutoff or a front-end merge of per-library title-sorted lists. The library `View all` link only appears when more than five libraries exist. Continue, library detail, and server-management pages use the shared empty-state panel with context-specific copy, while the empty home Continue module is hidden. Dashboard routes share a left navigation rail that stays anchored to the viewport, with the profile entry at the lower edge and a small lower-left expand handle when collapsed. The rail's `Continue` entry opens a dedicated page containing the bounded active Continue queue; a non-empty home section links to the same page through `View all`. Playback progress remains the per-file state source, while the queue keeps at most 20 unique movies or series and removes an entry when it is marked finished.
+Web 界面在首次初始化或没有有效语言偏好时默认使用简体中文；用户在个人设置中明确选择的语言仍会保存在当前浏览器。
 
-The Web interface defaults to Simplified Chinese on first initialization or when no valid language preference exists. A language explicitly selected in profile settings remains stored in the current browser.
+媒体库编辑器只允许修改名称、描述和 TMDB 元数据语言，创建后的根路径保持只读。媒体库不再维护启用/禁用状态：新建库始终自动开始首次扫描，所有已有库也始终可以手动扫描。切换元数据语言需要二次确认，确认后会复用未变化文件的本地分析结果，并按新语言自动执行一次全库元数据刷新。
 
-Library editors can change only the library name, description, and TMDB metadata language; the root path remains read-only after creation. Libraries no longer have an enabled/disabled state: a newly created library always starts its initial scan, and every existing library remains available for manual scans. Changing the metadata language requires confirmation and then automatically starts a full-library metadata refresh in the selected language while reusing unchanged local probe analysis.
+服务器设置中的媒体库卡片将超长标题压缩为单行省略，并用更小字号为描述固定保留两行省略高度；悬浮标题、描述或根路径会立即显示带指向箭头的完整内容气泡，默认出现在目标上方，顶部空间不足时自动翻到下方，并避免超出左右边界。扫描状态紧凑地放在垂直居中的三点菜单左侧；扫描成功只保留绿色状态点和文字，不再给卡片增加绿色底色。编辑、扫描和删除统一收进与首页库卡片一致的三点菜单。
 
-Server Settings keeps library cards aligned with an ellipsized single-line title, a smaller fixed two-line clamped description area, a compact scan-status marker beside the vertically centered three-dot menu, and a single-line ellipsized root path. Hovering the title, description, or root path opens an immediate pointed tooltip with its complete value; it prefers the top side and flips below when viewport space requires it. Successful scans use only the green marker and text instead of tinting the card. Edit, scan, and delete actions share the same three-dot menu used by home library cards.
+原生客户端使用 opaque 短期 access token 和可轮换 refresh token 登录续期。业务 API 只接受 `Authorization: Bearer ...` 里的 access token；refresh token 以 hash 形式保存在服务端，可按设备会话撤销，并且只通过 `/api/auth/refresh` 使用。
 
-Native clients authenticate with opaque short-lived access tokens plus rotating refresh tokens. Business APIs only accept the access token in `Authorization: Bearer ...`; refresh tokens are stored server-side as hashes, can be revoked per device session, and are used only through `/api/auth/refresh`.
+Web、macOS 和 iOS 共用服务端定义的 Realtime/SSE v2 协议。`GET /api/home` 返回有界首页快照，不再让客户端为首页下载每个媒体库的完整目录；PostgreSQL 中持久化的资源 revision 是可靠变更状态，SSE 只发送批量失效提示和临时扫描进度。最后一跳按 public、admin、library、user scope 分域，单个用户或媒体库的高频事件不会唤醒无关连接。客户端重连或从后台回到前台时通过 `GET /api/realtime/state` 恢复，只刷新 revision 发生变化的资源。媒体库扫描以 PostgreSQL 持久化后台任务入队，由有并发上限的 worker 池领取，HTTP 请求不再持有扫描生命周期，服务重启后未完成任务仍可继续领取。
 
-Home and realtime synchronization are shared across Web, macOS, and iOS. `GET /api/home` returns a bounded home snapshot instead of making clients download every library catalog, while PostgreSQL-backed resource revisions provide durable change state. SSE only delivers batched invalidation hints and transient scan progress; clients recover after reconnect or foreground resume through `GET /api/realtime/state` and refresh only resources whose revisions changed. Library scans are stored as durable PostgreSQL background jobs and claimed by a bounded worker pool, so an HTTP request never owns the scan lifetime and pending work can resume after a server restart.
+登录账户可以使用普通账号名，也可以使用最长 254 个字符的邮箱形式字符串。Mova 只把它作为精确匹配的账户标识，不会验证邮箱归属或发送邮件。
 
-Login account identifiers can be regular usernames or email-form strings up to 254 characters. Mova treats them as exact account identifiers and does not verify email ownership or send email.
+对于本地媒体很少的机器，Web 端提供一个明确的开发期 mock API 开关，方便 UI 审核。开关说明见 [apps/mova-web/README.md](apps/mova-web/README.md)，默认关闭，因此真实 API 错误不会被 mock 数据掩盖。
 
-For UI review on machines with very small local libraries, the Web app also has an explicit development-only mock API switch. It is documented in [apps/mova-web/README.md](apps/mova-web/README.md) and is off by default, so real API errors are not hidden by mock data.
+剧集归组会优先且只信任文件名。建议使用 `剧名.S01E01.mkv`、`剧名 S01E01 - 第 1 集.mkv`、`剧名 - S01E01.mkv`、`剧名_S01E01.mkv`、`剧名S01E01.mkv` 这类命名；Mova 不会从随意命名的文件夹里推断剧集身份。如果文件位于明确季目录下，例如 `流氓读书会 (2025)/第 1 季/Study Group S01E01.mkv`，父级剧集目录里的年份只会作为元数据搜索提示使用。TMDB 补全成功前，卡片先使用本地分析出的电影或剧集名称；TMDB 补全成功后，再用 TMDB 返回的名称覆盖本地名称。电影文件只要最终绑定到同一个 TMDB 影片，就会归并到同一个详情页作为多个本地版本，即使本地目录名或标点不同；如果电影文件名和干净的中文父目录不一致，中文父目录只会作为后备 TMDB 查询候选。没有季集身份的文件会同时参考 TMDB 电影和剧集搜索结果；如果远端更像剧集但本地没有季集号、远端匹配失败或文件名明显异常，会用明确的元数据复核状态入库并进入 Other 分区。如果未启用 TMDB，元数据状态会标记为 skipped，本地识别出的电影或剧集仍会正常展示。
 
-Series grouping is intentionally filename-first. Use filenames such as `Show.Name.S01E01.mkv`, `Show S01E01 - Episode 1.mkv`, `Show - S01E01.mkv`, `Show_S01E01.mkv`, or `ShowNameS01E01.mkv`; Mova does not infer series identity from arbitrary folder names. When an explicit season folder sits under a clean series folder such as `Study Group (2025)/Season 01/Study Group S01E01.mkv`, the folder year is used only as a metadata search hint. Local analysis produces a movie or series hypothesis and a title for progressive scan cards, but TMDB must confirm the corresponding remote type before the item is considered matched. When TMDB has both movie and TV candidates, Mova first validates the locally inferred type; when only the opposite type exists, Mova does not rewrite the local structure and instead stores `unmatched / remote_type_mismatch` for Other review. Movie files that resolve to the same confirmed TMDB movie are grouped into one detail page as multiple local versions, even when their local folders or punctuation differ; when a movie file name and a clean CJK parent folder disagree, the CJK folder name is only used as a fallback TMDB search candidate. No remote match, remote detection failures, type conflicts, malformed filenames, and scans completed without TMDB confirmation stay in the Other section.
+一次成功扫描后，后续扫描会先按文件路径匹配，再比较由文件大小和修改时间生成的轻量指纹。扫描拆成四段：发现物理文件、浅层文件名聚合、按组本地分析、TMDB 元数据补全。浅层阶段只读取文件名和路径，用来先建立稳定的电影/剧集组，不读取 sidecar，也不调用 `ffprobe`；随后每个组再做完整本地分析、写库并推送给前端，然后才继续处理下一组。本地分析会保存自己的版本号，所以只有文件指纹和本地分析版本都一致时，才会跳过拆名、sidecar 读取、`ffprobe` 探测和聚合。如果条目从未成功绑定 TMDB、位于 Other、之前匹配失败、曾因 TMDB 未启用而跳过，或只保存了还没缓存成本地文件的远端图片 URL，Mova 会复用已入库的本地分析结果，直接进入逐条 TMDB 补全。自动匹配保持保守，更宽泛的候选复核交给手动元数据搜索流程。图片字段各自保持自己的语义：剧集、季、单集、海报和背景图不会互相替代，也不会跨层级兜底。已经匹配且未变化的条目会保持稳定，即使 TMDB 当前没有海报也不会拿其它图片补齐。本地占位条目会按组写入，但待完成的本地写入不会清空已有图片；只有最终 `matched` 元数据写入确认远端确实缺图时，才会清空对应图片字段。每成功补齐一个 TMDB 条目就立即覆盖写库，因此海报会逐个出现。
 
-After a successful scan, later scans first match by file path and compare a lightweight fingerprint based on file size and modified time. Scanning is split into four phases: discover physical files, shallow filename grouping, group-by-group local analysis, then TMDB enrichment. The shallow pass only reads filenames and paths so it can build stable movie/series groups before expensive sidecar reads or `ffprobe`; each group is then fully analyzed, written with `metadata_status = pending`, and pushed to the Web UI before the next group starts. Pending scan cards stay in the locally inferred Movies or Series section; only a completed group whose remote type remains unknown or conflicts with local structure enters Other. Local analysis stores its own version, so unchanged files skip filename parsing, sidecar reads, `ffprobe`, and aggregation only when both the fingerprint and local analysis version still match. When an unchanged item still needs TMDB because it has no TMDB provider binding, sits in Other, failed earlier, was previously skipped before TMDB was enabled, was left pending by an interrupted scan, or only has remote artwork URLs that need local caching, Mova reuses the stored local analysis and goes straight to item-by-item TMDB enrichment. Automatic matching stays conservative; broader candidate review belongs to the manual metadata search flow. Artwork fields keep their own semantics: series, season, episode, poster, and backdrop values are not substituted from another level or another image field. Already matched and unchanged items stay stable even if TMDB has no poster for them. A pending local write does not clear existing artwork; only a completed `matched` metadata write can clear artwork fields when the remote item truly has no image. Each successful TMDB result is written immediately so artwork appears progressively.
+当运行环境可用 `ffprobe` 时，Mova 也会为每个物理资源文件保存 4K、1080p、HDR10、Dolby Vision、DTS-HD、Atmos 等资源级技术标签，并在详情页以资源徽标展示。
 
-When `ffprobe` is available, Mova also stores resource-level technical tags such as 4K, 1080p, HDR10, Dolby Vision, DTS-HD, and Atmos for each physical media file, then surfaces those tags as resource badges on detail pages.
+## 部署
 
-## Deployment
-
-### Requirements
+### 环境要求
 
 - Docker
 - Docker Compose
-- A local media folder on the host machine
+- 一个宿主机上的本地媒体目录
 
-### Configure
+### 配置
 
 ```bash
 cp .env.example .env
 ```
 
-Common configuration:
+常用配置：
 
 ```env
 MOVA_MEDIA_ROOT=/absolute/path/to/media
@@ -65,70 +61,71 @@ HTTP_PROXY=
 HTTPS_PROXY=
 ```
 
-- `MOVA_MEDIA_ROOT` is required and is mounted read-only into the container at `/media`.
-- `MOVA_TMDB_ACCESS_TOKEN` is optional. Scanning, importing, and playback still work without it.
-- `MOVA_OMDB_API_KEY` is optional and is used to fill IMDb ratings when an `imdb_id` is available.
-- `MOVA_WORKER_CONCURRENCY` controls the bounded in-process background worker pool and defaults to `2`.
+- `MOVA_MEDIA_ROOT` 必填，会只读挂载到容器内固定目录 `/media`。
+- `MOVA_TMDB_ACCESS_TOKEN` 可选，不填也能扫描、入库和播放。
+- `MOVA_OMDB_API_KEY` 可选，配置后会在拿到 `imdb_id` 时补 IMDb 评分。
+- `MOVA_WORKER_CONCURRENCY` 控制进程内后台 worker 池并发数，默认值为 `2`。
 
-### Start
+### 启动
 
 ```bash
 docker compose up -d
 ```
 
-Default endpoints:
+默认地址：
 
 - Web: `http://127.0.0.1:36080`
 - Health: `http://127.0.0.1:36080/api/health`
 
-After startup, Mova creates two runtime folders:
+启动后，Mova 会生成两个运行时目录：
 
-- `data/postgres/`: PostgreSQL database files for libraries, users, metadata, playback progress, durable background jobs, and realtime resource revisions.
-- `data/cache/`: cached artwork and generated media assets. Deleting a library also removes its unshared TMDB artwork cache files.
+- `data/postgres/`：PostgreSQL 数据库文件，用于保存媒体库、用户、元数据、播放进度、持久化后台任务和实时资源 revision。
+- `data/cache/`：缓存海报、背景图和生成的媒体资源。删除媒体库时，也会清理该库独占引用的 TMDB 图片缓存。
 
-During the current pre-1.0 MVP preview stage, database schema changes can require rebuilding `data/postgres/`. This realtime/background-job revision changes `migrations/0001_init.sql` directly, so an existing database is not upgraded in place: reset `data/postgres/`, initialize it again, and rescan media libraries.
+当前仍处于 pre-1.0 MVP 预览版阶段，schema 变更继续直接修改 `migrations/0001_init.sql`。本次实时同步与后台任务改造无法平滑升级现有数据库：需要重置 `data/postgres/`、重新初始化数据库并重新扫描媒体库。
 
-Your media folder is mounted read-only. Mova does not modify your original media files.
+媒体目录只读挂载，Mova 不会修改你的原始媒体文件。
 
-The default Compose file runs the published `richeschiu/mova:latest` image, so the deployment machine only needs `docker compose up -d` and does not build from source. Compose will pull the image when it is missing locally; when you want to upgrade to the latest published image, run `docker compose pull` yourself before `docker compose up -d`.
+默认 Compose 文件会直接运行已发布的 `richeschiu/mova:latest` 镜像，不在部署机器上从源码构建。本地没有镜像时，`docker compose up -d` 会自动拉取；如果你想主动升级到最新发布镜像，自己先执行 `docker compose pull`，再执行 `docker compose up -d`。
 
-For local source builds, set this in your local `.env`:
+如果需要本地源码构建，在本机 `.env` 里设置：
 
 ```dotenv
 COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml
 ```
 
-Then local startup uses the same short shape:
+之后本地启动也可以使用同样简短的形式：
 
 ```bash
 docker compose up -d --build
 ```
 
-The published image and build base images are Linux multi-architecture images for `linux/amd64` and `linux/arm64`. Windows and macOS hosts run the same Linux image through Docker Desktop, and Linux hosts run it through Docker Engine or Docker Desktop. Docker selects the matching architecture automatically. The release entrypoint is `./scripts/publish-docker-images.sh`; it checks whether the build base image tags already include the required platforms and publishes missing base images before pushing `richeschiu/mova:latest`.
+已发布镜像和构建基础镜像默认是 Linux 多架构镜像，覆盖 `linux/amd64` 和 `linux/arm64`。Windows 和 macOS 宿主机通过 Docker Desktop 运行同一个 Linux 镜像，Linux 宿主机通过 Docker Engine 或 Docker Desktop 运行同一镜像，Docker 会自动选择匹配的架构。发布入口是 `./scripts/publish-docker-images.sh`；脚本会检查构建基础镜像 tag 是否已经包含所需平台，缺失时先发布基础镜像，再推送 `richeschiu/mova:latest`。
 
-The app service is named `app`, and the runtime container is fixed as `mova-app`; use `docker compose logs -f app` when following server logs.
+应用服务名是 `app`，运行时容器固定为 `mova-app`；查看服务日志时使用 `docker compose logs -f app`。
 
-### First Run
+### 首次使用
 
-1. Open the Web app after the containers start.
-2. Create the first administrator on the bootstrap page.
-3. Open server settings and create a media library.
-4. Select a directory under the container path `/media`.
-5. Save the library and Mova will start the first scan automatically.
+1. 容器启动后打开 Web 页面。
+2. 在初始化页面创建第一个管理员。
+3. 进入服务器设置并创建媒体库。
+4. 选择容器内 `/media` 下的目录。
+5. 保存媒体库后，Mova 会自动开始第一次扫描。
 
-## Documentation
+## 文档
 
 - API: [docs/API.md](docs/API.md)
-- Frontend: [apps/mova-web/README.md](apps/mova-web/README.md)
-- Backend: [apps/mova-server/README.md](apps/mova-server/README.md)
+- Realtime / SSE 契约: [docs/REALTIME.md](docs/REALTIME.md)
+- 前端: [apps/mova-web/README.md](apps/mova-web/README.md)
+- 后端: [apps/mova-server/README.md](apps/mova-server/README.md)
 - Crates: [crates/README.md](crates/README.md)
 
-## Roadmap And Feedback
+## 路线图与反馈
 
-Mova is still under active development. The author is also actively maintaining Pad and macOS app directions so they can connect naturally to the same self-hosted media server.
+Mova 仍在积极迭代中。作者也在积极维护 Pad 和 macOS 客户端方向，让它们可以更自然地接入同一个自托管媒体服务器。
 
-Feedback, feature requests, client integration ideas, and usability suggestions are welcome.
+欢迎提交反馈、功能建议、客户端接入想法和体验改进意见。
 
-## License
+## 许可证
 
-Current license: `AGPL-3.0-only`. See [LICENSE](LICENSE).
+当前许可证：`AGPL-3.0-only`。详见 [LICENSE](LICENSE)。

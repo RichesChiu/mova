@@ -346,10 +346,15 @@
 - `recently_added`：按库分组的最新添加内容，每个库最多 8 条。
 - `continue_watching`：当前用户未看完的继续观看队列，最多 20 条。
 - `realtime`：本次快照对应的 `server_epoch` 和当前可见资源 `resources` revisions。
+  - `protocol_version`：当前 Realtime/SSE 协议版本，当前值为 `2`。
 
 说明：
 - 进入具体媒体库后再使用 `GET /api/libraries/{id}/media-items` 分页加载完整目录。
-- 客户端可以直接把 `realtime.resources` 作为已应用 revision 基线，避免紧接着收到重复失效通知后再次刷新首页。
+- 客户端可以把 `realtime.resources` 作为当前**首页读模型**的 revision 基线，避免紧接着收到重复失效通知后再次刷新首页；它不能替代媒体详情、用户管理等独立读模型的首次加载或失效处理。
+
+### Realtime / SSE 协议
+
+Realtime 的资源 revision、事件触发条件、完整 payload、跨 Web/macOS/iOS 客户端状态机、断线恢复和当前架构边界统一见 [`REALTIME.md`](REALTIME.md)。下面只保留接口级摘要。
 
 ### `GET /api/realtime/state`
 
@@ -360,10 +365,10 @@
 
 ```json
 {
-  "protocol_version": 1,
+  "protocol_version": 2,
   "server_epoch": "019f...",
   "resources": {
-    "libraries": 14,
+    "admin:libraries": 14,
     "library:7:settings": 3,
     "library:7:catalog": 128,
     "library:7:scan": 9,
@@ -391,18 +396,18 @@
 - 资源变更由数据库事务同步增加 `realtime_revisions`，即使 SSE 丢失或服务重启，revision 仍可恢复。
 - 普通资源最多每 500ms 合并一批；继续观看默认最多每 1 秒合并一批，标记已看完会立即通知。
 - 扫描进度按 `(scan_job_id, item_key)` latest-wins 合并，最多每 200ms 发送一批；普通进度在 Dispatcher 饱和时允许丢弃，`scan.finished` 作为终态事件会等待队列容量并立即发送。
-- SSE 最后一跳使用有界队列。客户端明显落后时服务端发送一次 `resync.required` 后关闭连接，客户端应重新获取 state 并重连。
-- 资源和事件按 server/admin/library/user scope 过滤；权限变化或会话撤销会发送 `session.invalidated` 并关闭当前连接。
+- SSE 最后一跳按 server/admin/library/user scope 使用独立有界队列。连接只订阅与自己有关的 scope，无关用户或媒体库的高频事件不会唤醒该连接。客户端在相关队列中明显落后时，服务端发送一次 `resync.required` 后关闭连接，客户端应重新获取 state 并重连。
+- 权限变化或会话撤销会发送 `session.invalidated` 并关闭当前连接。
 
 #### `resources.changed`
 
 ```text
 event: resources.changed
-data: {"version":1,"changes":[{"resource":"library:7:catalog","revision":128}]}
+data: {"protocol_version":2,"changes":[{"resource":"library:7:catalog","revision":128}]}
 ```
 
 客户端只在服务端 revision 大于本地已应用 revision 时刷新对应资源；重复事件和乱序旧事件应忽略。当前资源键包括：
-- `libraries`
+- `admin:libraries`
 - `library:{id}:settings`
 - `library:{id}:catalog`
 - `library:{id}:scan`
@@ -416,7 +421,7 @@ data: {"version":1,"changes":[{"resource":"library:7:catalog","revision":128}]}
 ```text
 event: scan.progress
 data: {
-  "version": 1,
+  "protocol_version": 2,
   "scan_job": {
     "id": 41,
     "library_id": 7,
@@ -442,7 +447,7 @@ data: {
 ```
 
 - `scan.progress` 是可丢失的临时 UI 状态，同一 `item_key` 只保留最新值。
-- `scan.finished` 使用相同 payload，表示任务已经结束；客户端应先通过对应的 catalog revision 拉取最终数据，再移除尚未被正式媒体卡片替换的临时扫描卡片。即使没有收到该事件，`library:{id}:scan` revision 和 realtime state 中的 `active_scans` 仍是清理过期扫描状态的可靠依据。
+- `scan.finished` 在相同任务和条目字段之外增加 `changes`，其中包含当前可读取到的 `library:{id}:catalog` 与 `library:{id}:scan` revision。客户端把这些 change 交给统一 Revision Coordinator，刷新成功后再移除临时扫描卡片；不再为终态事件单独实现一套 catalog 刷新路径。
 - 扫描 phase 使用 `initializing` / `discovering` / `analyzing` / `enriching` / `syncing` / `finished`。
 - 条目 stage 使用 `discovered` / `metadata` / `artwork` / `completed`。
 
@@ -450,14 +455,17 @@ data: {
 
 ```text
 event: resync.required
-data: {"reason":"client_lagged"}
+data: {"protocol_version":2,"reason":"client_lagged"}
 
 event: session.invalidated
-data: {"reason":"authorization_changed"}
+data: {"protocol_version":2,"reason":"authorization_changed"}
 ```
 
 - 收到 `resync.required` 后重新获取 realtime state，只刷新 revision 不一致的资源。
 - 收到 `session.invalidated` 后停止实时连接并重新建立登录态。
+
+更完整的事件使用规则和客户端验收清单见 [`REALTIME.md`](REALTIME.md)。
+
 ### `PUT /api/auth/password`
 
 作用：

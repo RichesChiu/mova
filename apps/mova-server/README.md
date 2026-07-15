@@ -3,7 +3,7 @@
 `mova-server` 是 Mova 的后端进程，基于 Axum + Tokio。  
 它的职责不是承载全部业务实现，而是把 HTTP/SSE 请求接进来，做鉴权和协议转换，再把真正的业务分发到 `mova-application`、`mova-db`、`mova-domain` 以及本地运行时模块。
 
-如果你要看接口字段和响应格式，优先看 [`../../docs/API.md`](../../docs/API.md)。  
+如果你要看接口字段和响应格式，优先看 [`../../docs/API.md`](../../docs/API.md)；Realtime revision、SSE 事件与跨端恢复流程见 [`../../docs/REALTIME.md`](../../docs/REALTIME.md)。
 这份 README 更关注代码入口、路由结构、handler 调用链和依赖的 crate。
 
 ## 1. 启动入口与进程链路
@@ -151,14 +151,14 @@
 
 ### `src/realtime.rs`
 
-可靠实时状态保存在 PostgreSQL `realtime_revisions`，业务写入事务通过 trigger 同步增加对应 resource revision，并使用 `LISTEN/NOTIFY` 唤醒当前实例的 `RealtimeDispatcher`。SSE 不再传最终业务对象，只发送以下协议消息：
+当前 Realtime/SSE 协议版本为 `2`。可靠实时状态保存在 PostgreSQL `realtime_revisions`，业务写入事务通过 trigger 同步增加对应 resource revision，并使用 `LISTEN/NOTIFY` 唤醒当前实例的 `RealtimeDispatcher`。SSE 不再传最终业务对象，只发送以下协议消息：
 
 - `resources.changed`：普通资源最多每 500ms 合并；继续观看最多每 1 秒合并，标记已看完立即发送。
 - `scan.progress`：按扫描任务和 `item_key` latest-wins 合并，最多每 200ms 一批。
-- `scan.finished`：作为不可由 Dispatcher 饱和丢弃的终态事件，等待队列容量后立即发送，不等待防抖窗口。
+- `scan.finished`：作为不可由 Dispatcher 饱和丢弃的终态事件，等待队列容量后立即发送，不等待防抖窗口；payload 同时携带最终 `catalog/scan` revisions，客户端统一交给 Revision Coordinator。
 - `session.invalidated`：用户权限或登录态失效后立即发送并关闭连接。
 
-`RealtimeHub` 仍使用 `tokio::sync::broadcast`，但只作为单进程的有界最后一跳。客户端落后时服务发送 `resync.required` 并关闭连接，客户端通过 `GET /api/realtime/state` 比对持久化 revision 后恢复。`GET /api/home` 同时返回首页快照对应的 revisions，三端可以把它作为已应用基线。
+`RealtimeHub` 仍使用 `tokio::sync::broadcast`，但只作为单进程的有界最后一跳，并按 public/admin/library/user scope 分域。每条连接只订阅与自身有关的频道，用户级或单库高频事件不会再唤醒全部在线连接；管理员频道会接收所有 library scope。客户端在相关频道落后时，服务发送 `resync.required` 并关闭连接；PostgreSQL Listener 每次订阅或重订阅成功后也会要求当前连接重新对账，关闭通知丢失窗口。客户端通过 `GET /api/realtime/state` 比对持久化 revision 后恢复。扫描任务入队和持久化状态变化都会增加 `library:{id}:scan` revision，因此其他连接无需等待第一条临时进度即可发现 pending scan。`GET /api/home` 同时返回协议版本和首页快照对应的 revisions，三端可以把它作为已应用基线。
 
 删除媒体库时，服务会先阻止新的扫描进入并等待当前扫描退出；删除事务会显式清理该库的媒体关系表、授权关系、扫描任务和播放进度。事务完成后，服务会删除该库曾引用且已经没有任何剩余记录引用的 `MOVA_CACHE_DIR/tmdb` 图片缓存文件，媒体目录里的 sidecar 图片不会被自动删除。
 
@@ -245,6 +245,8 @@ Web 端：
 ### 6.4 SSE 链路
 
 业务事务增加 `realtime_revisions` -> PostgreSQL `NOTIFY` -> `RealtimeDispatcher` 批量合并 -> `state.realtime_hub` -> `handlers::realtime::events` -> Web / macOS / iOS 客户端。断线恢复走 `handlers::realtime::state`，首页首屏走 `handlers::home::get_home`。
+
+完整的事件触发条件、payload、客户端状态机与架构边界见 [`../../docs/REALTIME.md`](../../docs/REALTIME.md)。
 
 ### 6.5 播放链路
 

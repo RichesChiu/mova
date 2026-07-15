@@ -1,3 +1,4 @@
+use crate::realtime::REALTIME_PROTOCOL_VERSION;
 use crate::{
     auth::require_user,
     error::ApiError,
@@ -20,7 +21,7 @@ use std::{
 };
 use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
-    Stream,
+    Stream, StreamMap,
 };
 
 #[derive(Debug, Serialize)]
@@ -53,7 +54,7 @@ pub async fn state(
         .collect();
 
     Ok(ok(RealtimeStateResponse {
-        protocol_version: 1,
+        protocol_version: REALTIME_PROTOCOL_VERSION,
         server_epoch: snapshot.server_epoch,
         resources: snapshot.resources,
         active_scans,
@@ -104,8 +105,12 @@ pub async fn events(
     jar: CookieJar,
 ) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let user = require_user(&state, &headers, &jar).await?;
+    let mut receivers = StreamMap::new();
+    for (index, receiver) in state.realtime_hub.subscribe(&user).into_iter().enumerate() {
+        receivers.insert(index, BroadcastStream::new(receiver));
+    }
     let stream = RealtimeSseStream {
-        receiver: BroadcastStream::new(state.realtime_hub.subscribe()),
+        receivers,
         user,
         close_on_next_poll: false,
     };
@@ -118,7 +123,7 @@ pub async fn events(
 }
 
 struct RealtimeSseStream {
-    receiver: BroadcastStream<crate::realtime::RealtimeMessage>,
+    receivers: StreamMap<usize, BroadcastStream<crate::realtime::RealtimeMessage>>,
     user: mova_domain::UserProfile,
     close_on_next_poll: bool,
 }
@@ -132,13 +137,13 @@ impl Stream for RealtimeSseStream {
         }
 
         loop {
-            match Pin::new(&mut self.receiver).poll_next(context) {
-                Poll::Ready(Some(Ok(message))) if message.is_visible_to(&self.user) => {
-                    self.close_on_next_poll = message.event_name() == "session.invalidated";
+            match Pin::new(&mut self.receivers).poll_next(context) {
+                Poll::Ready(Some((_, Ok(message)))) if message.is_visible_to(&self.user) => {
+                    self.close_on_next_poll = message.closes_stream();
                     return Poll::Ready(Some(Ok(message.to_sse_event())));
                 }
-                Poll::Ready(Some(Ok(_))) => continue,
-                Poll::Ready(Some(Err(BroadcastStreamRecvError::Lagged(skipped)))) => {
+                Poll::Ready(Some((_, Ok(_)))) => continue,
+                Poll::Ready(Some((_, Err(BroadcastStreamRecvError::Lagged(skipped))))) => {
                     tracing::warn!(
                         skipped,
                         user_id = self.user.user.id,
@@ -147,7 +152,9 @@ impl Stream for RealtimeSseStream {
                     self.close_on_next_poll = true;
                     return Poll::Ready(Some(Ok(Event::default()
                         .event("resync.required")
-                        .data(r#"{"reason":"client_lagged"}"#))));
+                        .data(format!(
+                            r#"{{"protocol_version":{REALTIME_PROTOCOL_VERSION},"reason":"client_lagged"}}"#
+                        )))));
                 }
                 Poll::Ready(None) => return Poll::Ready(None),
                 Poll::Pending => return Poll::Pending,
@@ -161,13 +168,14 @@ fn resource_keys_for_user(
     visible_library_ids: &[i64],
 ) -> Vec<String> {
     let mut keys = vec![
-        "libraries".to_string(),
-        format!("user:{}:libraries", user.user.id),
         format!("user:{}:profile", user.user.id),
         format!("user:{}:continue-watching", user.user.id),
     ];
     if user.is_admin() {
+        keys.push("admin:libraries".to_string());
         keys.push("admin:users".to_string());
+    } else {
+        keys.push(format!("user:{}:libraries", user.user.id));
     }
     for library_id in visible_library_ids {
         keys.push(format!("library:{library_id}:settings"));
@@ -201,7 +209,9 @@ mod tests {
 
         let keys = resource_keys_for_user(&user, &[7]);
         assert!(keys.contains(&"library:7:catalog".to_string()));
+        assert!(keys.contains(&"user:12:libraries".to_string()));
         assert!(!keys.contains(&"library:8:catalog".to_string()));
+        assert!(!keys.contains(&"admin:libraries".to_string()));
         assert!(!keys.contains(&"admin:users".to_string()));
     }
 }

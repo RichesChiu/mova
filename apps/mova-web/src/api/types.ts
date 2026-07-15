@@ -120,6 +120,7 @@ export interface HomeLibrary {
 }
 
 export interface HomeRealtimeState {
+  protocol_version: number
   server_epoch: string
   resources: Record<string, number>
 }
