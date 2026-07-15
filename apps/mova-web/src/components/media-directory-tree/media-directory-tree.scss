@@ -91,31 +91,25 @@
   padding: 2px 4px 2px 0;
   border: 1px solid transparent;
   border-radius: 10px;
-  transition:
-    border-color 140ms ease,
-    background 140ms ease,
-    box-shadow 140ms ease;
+  transition: background 140ms ease;
 }
 
 .media-tree__row:hover,
 .media-tree__row:focus-within {
-  border-color: color-mix(in srgb, var(--input-focus-border) 48%, transparent);
-  background: color-mix(in srgb, var(--button-primary-background) 13%, transparent);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .media-tree__row--expanded {
-  background: color-mix(in srgb, var(--button-primary-background) 8%, transparent);
+  background: transparent;
 }
 
-.media-tree__row--selected {
-  border-color: color-mix(in srgb, var(--accent) 72%, var(--input-focus-border));
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 28%, transparent), transparent 78%),
-    color-mix(in srgb, var(--accent) 18%, var(--button-primary-background));
-  box-shadow:
-    inset 3px 0 0 var(--accent-strong),
-    inset 0 1px 0 color-mix(in srgb, var(--color-white) 10%, transparent),
-    0 8px 22px color-mix(in srgb, var(--accent) 18%, transparent);
+.media-tree__row--selected,
+.media-tree__row--selected:hover,
+.media-tree__row--selected:focus-within {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 28%, var(--panel-background-soft));
+  box-shadow: none;
 }
 
 .media-tree__toggle,
@@ -131,7 +125,7 @@
   justify-content: center;
   border: 0;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--button-background) 72%, transparent);
+  background: transparent;
   color: var(--text-muted);
   transition:
     background 160ms ease,
@@ -139,7 +133,7 @@
 }
 
 .media-tree__toggle:hover {
-  background: color-mix(in srgb, var(--accent) 18%, var(--button-background));
+  background: transparent;
   color: var(--accent-strong);
 }
 
@@ -210,15 +204,4 @@
 
 .media-tree__row--selected .media-tree__name {
   font-weight: 800;
-}
-
-.media-tree__row--selected:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 82%, var(--accent-strong));
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 34%, transparent), transparent 82%),
-    color-mix(in srgb, var(--accent) 22%, var(--button-primary-background));
-  box-shadow:
-    inset 3px 0 0 var(--accent-strong),
-    inset 0 1px 0 color-mix(in srgb, var(--color-white) 12%, transparent),
-    0 8px 22px color-mix(in srgb, var(--accent) 20%, transparent);
 }

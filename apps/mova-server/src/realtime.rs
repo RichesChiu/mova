@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 use time::UtcOffset;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{broadcast, mpsc};
 
 const REALTIME_BATCH_BUFFER_SIZE: usize = 32;
@@ -95,12 +96,27 @@ pub struct RealtimeDispatcherHandle {
 
 impl RealtimeDispatcherHandle {
     pub fn publish_scan_event(&self, event: ScanJobEvent) {
-        if self
-            .sender
-            .try_send(RealtimeCommand::ScanEvent(event))
-            .is_err()
-        {
-            tracing::debug!("dropping transient scan progress because dispatcher is saturated");
+        let is_terminal = matches!(event, ScanJobEvent::Finished(_));
+        let command = RealtimeCommand::ScanEvent(event);
+
+        match self.sender.try_send(command) {
+            Ok(()) => {}
+            Err(TrySendError::Full(command)) if is_terminal => {
+                let sender = self.sender.clone();
+                tokio::spawn(async move {
+                    if sender.send(command).await.is_err() {
+                        tracing::warn!(
+                            "failed to deliver terminal scan event because dispatcher stopped"
+                        );
+                    }
+                });
+            }
+            Err(TrySendError::Full(_)) => {
+                tracing::debug!("dropping transient scan progress because dispatcher is saturated");
+            }
+            Err(TrySendError::Closed(_)) => {
+                tracing::warn!("failed to deliver scan event because dispatcher stopped");
+            }
         }
     }
 
@@ -459,7 +475,14 @@ struct SessionInvalidatedResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{session_user_id, visibility_for_resource, RealtimeVisibility};
+    use super::{
+        session_user_id, visibility_for_resource, RealtimeCommand, RealtimeDispatcherHandle,
+        RealtimeVisibility,
+    };
+    use mova_application::{ScanJobEvent, ScanJobProgressUpdate};
+    use mova_domain::ScanJob;
+    use time::OffsetDateTime;
+    use tokio::sync::mpsc;
 
     #[test]
     fn resource_visibility_is_derived_from_aggregate_key() {
@@ -481,5 +504,40 @@ mod tests {
     fn session_resource_extracts_target_user() {
         assert_eq!(session_user_id("session:user:42"), Some(42));
         assert_eq!(session_user_id("user:42:profile"), None);
+    }
+
+    #[tokio::test]
+    async fn terminal_scan_event_waits_for_dispatch_capacity_instead_of_being_dropped() {
+        let (sender, mut receiver) = mpsc::channel(1);
+        sender
+            .try_send(RealtimeCommand::ResourceChanged("libraries".to_string()))
+            .expect("test channel should accept the first command");
+        let handle = RealtimeDispatcherHandle { sender };
+        let finished = ScanJobEvent::Finished(ScanJobProgressUpdate {
+            scan_job: ScanJob {
+                id: 41,
+                library_id: 7,
+                status: "success".to_string(),
+                phase: Some("finished".to_string()),
+                total_files: 20,
+                scanned_files: 20,
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                started_at: Some(OffsetDateTime::UNIX_EPOCH),
+                finished_at: Some(OffsetDateTime::UNIX_EPOCH),
+                error_message: None,
+            },
+            phase: Some("finished".to_string()),
+        });
+
+        handle.publish_scan_event(finished);
+
+        assert!(matches!(
+            receiver.recv().await,
+            Some(RealtimeCommand::ResourceChanged(_))
+        ));
+        assert!(matches!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), receiver.recv()).await,
+            Ok(Some(RealtimeCommand::ScanEvent(ScanJobEvent::Finished(_))))
+        ));
     }
 }

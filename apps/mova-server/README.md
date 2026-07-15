@@ -155,7 +155,7 @@
 
 - `resources.changed`：普通资源最多每 500ms 合并；继续观看最多每 1 秒合并，标记已看完立即发送。
 - `scan.progress`：按扫描任务和 `item_key` latest-wins 合并，最多每 200ms 一批。
-- `scan.finished`：立即发送，不等待防抖窗口。
+- `scan.finished`：作为不可由 Dispatcher 饱和丢弃的终态事件，等待队列容量后立即发送，不等待防抖窗口。
 - `session.invalidated`：用户权限或登录态失效后立即发送并关闭连接。
 
 `RealtimeHub` 仍使用 `tokio::sync::broadcast`，但只作为单进程的有界最后一跳。客户端落后时服务发送 `resync.required` 并关闭连接，客户端通过 `GET /api/realtime/state` 比对持久化 revision 后恢复。`GET /api/home` 同时返回首页快照对应的 revisions，三端可以把它作为已应用基线。

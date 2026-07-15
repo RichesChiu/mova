@@ -58,6 +58,26 @@ const scanJob = {
   error_message: null,
 }
 
+const completedScanItem = {
+  scan_job_id: 88,
+  library_id: 7,
+  item_key: 'series:arcane',
+  media_type: 'series',
+  title: 'Arcane',
+  year: 2024,
+  overview: 'Two sisters fight on opposite sides of a conflict.',
+  poster_path: null,
+  backdrop_path: null,
+  metadata_status: 'matched',
+  remote_media_type: 'series',
+  season_number: null,
+  episode_number: null,
+  item_index: 1,
+  total_items: 1,
+  stage: 'completed',
+  progress_percent: 100,
+}
+
 const baselineState = {
   protocol_version: 1,
   server_epoch: 'server-a',
@@ -203,6 +223,68 @@ describe('useServerEvents revision protocol', () => {
     await waitFor(() => {
       expect(screen.getByTestId('scan-runtime')).toHaveTextContent('Arcane')
       expect(screen.getByTestId('scan-runtime')).toHaveTextContent('76')
+    })
+  })
+
+  it('refreshes final catalog data before removing completed scan cards', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined)
+    renderHook(queryClient)
+    const source = FakeEventSource.instances[0]
+
+    source.emit('scan.progress', {
+      version: 1,
+      scan_job: scanJob,
+      items: [completedScanItem],
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId('scan-runtime')).toHaveTextContent('completed')
+    })
+
+    source.emit('scan.finished', {
+      version: 1,
+      scan_job: {
+        ...scanJob,
+        status: 'success',
+        phase: 'finished',
+        scanned_files: 40,
+        finished_at: '2026-07-14T00:00:30Z',
+      },
+      items: [completedScanItem],
+    })
+
+    await waitFor(() => {
+      const keys = invalidateSpy.mock.calls.map(([filters]) => filters?.queryKey)
+      expect(keys).toEqual(expect.arrayContaining([['library', 7], ['library-media', 7], ['home']]))
+      expect(screen.getByTestId('scan-runtime')).toHaveTextContent('{}')
+    })
+  })
+
+  it('reconciles active scans when the durable scan revision changes', async () => {
+    const queryClient = createTestQueryClient()
+    renderHook(queryClient)
+    const source = FakeEventSource.instances[0]
+
+    source.emit('open')
+    await waitFor(() => {
+      expect(screen.getByTestId('scan-runtime')).toHaveTextContent('"library_id":7')
+    })
+
+    clientMocks.getRealtimeState.mockResolvedValue({
+      ...baselineState,
+      resources: {
+        ...baselineState.resources,
+        'library:7:scan': 1,
+      },
+      active_scans: [],
+    })
+    source.emit('resources.changed', {
+      version: 1,
+      changes: [{ resource: 'library:7:scan', revision: 1 }],
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scan-runtime')).toHaveTextContent('{}')
     })
   })
 })

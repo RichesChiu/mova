@@ -76,7 +76,7 @@ src/
 | 路由 | 页面文件 | 作用 | 主要数据来源 |
 | --- | --- | --- | --- |
 | `/login` | `src/pages/login-page/index.tsx` | 登录页和首个管理员 bootstrap 入口。根据 `bootstrap-status` 决定是“创建第一个管理员”还是普通登录。 | `getCurrentUser`、`getBootstrapStatus`、`login`、`bootstrapAdmin` |
-| `/` | `src/pages/home-page/index.tsx` | 首页。使用单个 `GET /api/home` 有界快照展示继续观看、`Your Libraries` 摘要和 `Recently Added`，不再为每个库下载完整目录或额外拉取剧集大纲；继续观看没有数据时隐藏整个模块。通用 dashboard shell 负责左侧导航和用户区，页面自己的顶部 header 右侧提供消息入口，顶部不再显示搜索框，搜索只保留在 `/search` 页面内。左侧导航固定在视口高度内，用户入口始终贴近左下角；收起后展开入口改为左下浮动小按钮，并用慢速脉冲提示可展开。左侧导航支持收起/展开，宽度只保留短时过渡，图标方向、文字透明度和位移使用轻量动画，并把偏好保存在浏览器本地。`Your Libraries` 固定为一排 5 等分列，只展示前 5 个库；总库数超过 5 个时才在标题旁显示进入 `/libraries` 的 `View all`，5 个及以下不显示。时钟导航项和首页继续观看模块的 `View all` 都进入 `/continue`，只展示尚未完成、可以继续播放的内容。最近添加区域不使用分组外框，每组通过 `From “{library}” library` / `来自「{library}」库` 的轻量来源说明区分媒体库，媒体条目继续使用独立横向卡片。 | `getHome` |
+| `/` | `src/pages/home-page/index.tsx` | 首页。使用单个 `GET /api/home` 有界快照展示继续观看、`Your Libraries` 摘要和 `Recently Added`，不再为每个库下载完整目录或额外拉取剧集大纲；继续观看没有数据时隐藏整个模块。通用 dashboard shell 负责左侧导航和用户区，页面自己的顶部 header 右侧提供消息入口，顶部不再显示搜索框，搜索只保留在 `/search` 页面内。左侧导航固定在视口高度内，用户入口始终贴近左下角；收起后展开入口改为左下浮动小按钮，并用慢速脉冲提示可展开。左侧导航支持收起/展开，宽度只保留短时过渡，图标方向、文字透明度和位移使用轻量动画，并把偏好保存在浏览器本地。`Your Libraries` 固定为一排 5 等分列，只展示前 5 个库；首页库卡随列宽保持 `16:9` 比例，背景图继续使用 `cover` 填满卡片。总库数超过 5 个时才在标题旁显示进入 `/libraries` 的 `View all`，5 个及以下不显示。时钟导航项和首页继续观看模块的 `View all` 都进入 `/continue`，只展示尚未完成、可以继续播放的内容。最近添加区域不使用分组外框，每组通过 `From “{library}” library` / `来自「{library}」库` 的轻量来源说明区分媒体库，媒体条目继续使用独立横向卡片。 | `getHome` |
 | `/search` | `src/pages/search-page/index.tsx` | 搜索结果页。复用通用 dashboard 左右布局，并在页面 header 左侧提供唯一搜索输入，右侧保留消息入口；读取 URL 中的 `q` 参数，调用全局搜索接口展示当前用户可见库下的电影、剧集和本地集条目；结果使用竖版海报卡片，图片只使用结果自身的 `poster_path`，没有图时显示明确占位。 | `globalSearch` |
 | `/libraries` | `src/pages/libraries-page/index.tsx` | 全部媒体库页。展示当前用户可见的所有库、库统计、扫描状态和最近新增海报预览；没有最近新增海报的库保持空媒体画布，不借其他字段或其他库图片兜底。 | `listLibraries`、`getLibrary`、`listRecentlyAddedByLibrary`、`scanRuntimeByLibrary` |
 | `/libraries/:libraryId` | `src/pages/library-page/index.tsx` | 单库详情页。页面 header 左侧展示真实历史返回图标、当前库名和条目总数小字，右侧保留消息入口，不再使用卡片式 hero；直开详情页时返回按钮兜底到 `/libraries`；扫描状态作为标题下方的运行提示单独展示，主体以无大边框分区展示电影/剧集列表和扫描中的占位卡。扫描组处于 `discovered / metadata / artwork` 阶段时按本地分析出的电影或剧集猜测展示；`completed` 后只有远端类型仍未知、或与本地结构冲突的条目进入 Other，远端类型已经确认且一致的 metadata 失败仍留在对应 Movies / Series 分区，避免刮削期间大量卡片先堆进 Other 再移动。条目网格按 dense 内容处理，侧栏宽度过渡会缩短，列表 section、grid 和 tile 也做布局隔离，避免大量条目放大展开收起的重排成本。 | `getLibrary`、`listLibraryMediaItems`、`scanRuntimeByLibrary` |
@@ -101,7 +101,7 @@ src/
 | 组件 | 文件 | 作用 | 主要使用位置 |
 | --- | --- | --- | --- |
 | `AppShell` | `components/app-shell/index.tsx` | 登录后壳层，负责当前用户、媒体库列表、SSE、顶栏和 `Outlet` 上下文；首页路由会隐藏通用顶栏，让首页使用专属 dashboard frame。 | 所有非登录、非沉浸式播放器页面 |
-| `useServerEvents` | `components/app-shell/use-server-events.ts` | 通过 `EventSource('/api/realtime/events')` 订阅 revision 失效通知和临时扫描进度；连接建立、重连或收到 `resync.required` 后读取 `/api/realtime/state`，只为 revision 前进的 resource 串行刷新对应 React Query key，忽略重复和乱序事件。扫描 item 按服务端批次更新运行时卡片，会话失效时关闭连接并回到登录页。 | `AppShell` |
+| `useServerEvents` | `components/app-shell/use-server-events.ts` | 通过 `EventSource('/api/realtime/events')` 订阅 revision 失效通知和临时扫描进度；连接建立、重连或收到 `resync.required` 后读取 `/api/realtime/state`，只为 revision 前进的 resource 串行刷新对应 React Query key，忽略重复和乱序事件。扫描 item 按服务端批次更新运行时卡片；完成条目在正式媒体卡片到达后立即让位，扫描结束时先刷新最终目录再清理剩余临时卡片，并通过 scan revision 恢复遗漏的终态。会话失效时关闭连接并回到登录页。 | `AppShell` |
 | `scan-runtime` | `components/app-shell/scan-runtime.ts` | 把 SSE 运行时扫描数据整理成库级进度、条目级占位卡、详情页同步提示和状态文案。 | 首页、媒体库页、媒体详情页、设置页 |
 | `ContentHeader` | `components/content-header/index.tsx` | 顶部品牌和用户菜单；顶栏用户区会优先显示昵称，没有昵称时回退到用户名。语言与主题偏好统一收进个人设置页，不再在 header 里分散放入口。 | `AppShell` |
 
@@ -129,7 +129,7 @@ src/
 | `ConfirmActionModal` | `components/confirm-action-modal/index.tsx` | 统一承接危险操作确认流和错误提示，当前用于删库、删用户。 | 设置页 |
 | `ChangePasswordModal` | `components/change-password-modal/index.tsx` | 个人页的改密弹窗，统一处理当前密码校验、确认输入和错误反馈。 | 个人页 |
 | `MetadataMatchPanel` | `components/metadata-match-panel/index.tsx` | 管理员手动搜索并替换单条媒体元数据；确认替换剧集时，服务端会同步刷新该剧已存在季和集的远端封面数据，弹窗头部和搜索表单使用更紧凑的布局，标题、年份和搜索按钮在小屏下也会自然换行。 | 媒体详情页 |
-| `MediaDirectoryTree` | `components/media-directory-tree/index.tsx` | 递归目录树选择器，用于从容器内 `/media` 目录里选择库根路径。 | `CreateLibraryForm` |
+| `MediaDirectoryTree` | `components/media-directory-tree/index.tsx` | 递归目录树选择器，用于从容器内 `/media` 目录里选择库根路径；文件夹 hover 使用淡蓝底，当前选择使用更深蓝底，不额外绘制边框或侧边高亮条。 | `CreateLibraryForm` |
 | `GlassSelect` | `components/glass-select/index.tsx` | 自定义下拉选择器，统一风格与交互；也支持更紧凑的 compact 形态，用在详情页技术卡头部的小下拉。菜单会通过 portal 挂到根级浮层，避免被 hero、卡片或容器裁掉；弹出宽度会优先跟随当前选项内容，而不是被 trigger 宽度锁死。 | 设置页、建库表单、用户编辑弹窗、媒体库编辑弹窗、媒体详情页 |
 
 ### 4.4 轻量 UI 基元

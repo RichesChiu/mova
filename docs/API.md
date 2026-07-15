@@ -390,7 +390,7 @@
 - 服务端只推送连接建立之后的新事件，不回放历史；客户端重连后必须先调用 `GET /api/realtime/state` 做 revision 差异同步。
 - 资源变更由数据库事务同步增加 `realtime_revisions`，即使 SSE 丢失或服务重启，revision 仍可恢复。
 - 普通资源最多每 500ms 合并一批；继续观看默认最多每 1 秒合并一批，标记已看完会立即通知。
-- 扫描进度按 `(scan_job_id, item_key)` latest-wins 合并，最多每 200ms 发送一批；`scan.finished` 立即发送。
+- 扫描进度按 `(scan_job_id, item_key)` latest-wins 合并，最多每 200ms 发送一批；普通进度在 Dispatcher 饱和时允许丢弃，`scan.finished` 作为终态事件会等待队列容量并立即发送。
 - SSE 最后一跳使用有界队列。客户端明显落后时服务端发送一次 `resync.required` 后关闭连接，客户端应重新获取 state 并重连。
 - 资源和事件按 server/admin/library/user scope 过滤；权限变化或会话撤销会发送 `session.invalidated` 并关闭当前连接。
 
@@ -442,7 +442,7 @@ data: {
 ```
 
 - `scan.progress` 是可丢失的临时 UI 状态，同一 `item_key` 只保留最新值。
-- `scan.finished` 使用相同 payload，表示任务已经结束；客户端随后通过对应的 catalog revision 拉取最终数据。
+- `scan.finished` 使用相同 payload，表示任务已经结束；客户端应先通过对应的 catalog revision 拉取最终数据，再移除尚未被正式媒体卡片替换的临时扫描卡片。即使没有收到该事件，`library:{id}:scan` revision 和 realtime state 中的 `active_scans` 仍是清理过期扫描状态的可靠依据。
 - 扫描 phase 使用 `initializing` / `discovering` / `analyzing` / `enriching` / `syncing` / `finished`。
 - 条目 stage 使用 `discovered` / `metadata` / `artwork` / `completed`。
 

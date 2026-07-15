@@ -61,7 +61,14 @@
 }
 
 .libraries-section__grid .library-spotlight {
+  aspect-ratio: 16 / 9;
+  min-height: 0;
   box-shadow: var(--library-spotlight-card-shadow);
+}
+
+.libraries-section__grid .library-spotlight__link {
+  min-height: 0;
+  height: 100%;
 }
 
 .libraries-section__grid .library-spotlight:hover {
@@ -158,7 +165,7 @@
   background: var(--library-spotlight-fallback-loading);
 }
 
-.library-spotlight__actions {
+.library-spotlight > .library-spotlight__actions {
   position: absolute;
   top: 13px;
   right: 13px;

@@ -118,15 +118,21 @@ const applyScanPayload = (
   },
 })
 
-const buildActiveScanRuntime = (state: RealtimeState): ScanRuntimeByLibrary =>
+const buildActiveScanRuntime = (
+  state: RealtimeState,
+  current: ScanRuntimeByLibrary = {},
+): ScanRuntimeByLibrary =>
   Object.fromEntries(
-    state.active_scans.map((scanJob) => [
-      scanJob.library_id,
-      {
-        scanJob,
-        items: [],
-      },
-    ]),
+    state.active_scans.map((scanJob) => {
+      const currentRuntime = current[scanJob.library_id]
+      return [
+        scanJob.library_id,
+        {
+          scanJob,
+          items: currentRuntime?.scanJob?.id === scanJob.id ? currentRuntime.items : [],
+        },
+      ]
+    }),
   )
 
 const libraryResource = (resource: string) => {
@@ -261,7 +267,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         return
       }
 
-      setScanRuntimeByLibrary(buildActiveScanRuntime(state))
+      setScanRuntimeByLibrary((current) => buildActiveScanRuntime(state, current))
       const homeSnapshot = queryClient.getQueryData<HomeResponse>(['home'])
       if (serverEpochRef.current === null && homeSnapshot?.realtime) {
         serverEpochRef.current = homeSnapshot.realtime.server_epoch
@@ -299,9 +305,23 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       if (!payload) {
         return
       }
+      let shouldReconcileActiveScans = false
       for (const change of payload.changes) {
         queueResourceRefresh(change.resource, change.revision)
+        if (libraryResource(change.resource)?.kind === 'scan') {
+          shouldReconcileActiveScans = true
+        }
       }
+      if (shouldReconcileActiveScans) {
+        void reconcileState()
+      }
+    }
+
+    const applyScanProgressPayload = (payload: ScanProgressPayload) => {
+      setScanRuntimeByLibrary((current) => applyScanPayload(current, payload))
+      queryClient.setQueryData(['library', payload.scan_job.library_id], (current: unknown) =>
+        isRecord(current) ? { ...current, last_scan: payload.scan_job } : current,
+      )
     }
 
     const handleScanProgress = (event: MessageEvent<string>) => {
@@ -309,22 +329,18 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       if (!payload) {
         return
       }
-      setScanRuntimeByLibrary((current) => applyScanPayload(current, payload))
-      queryClient.setQueryData(['library', payload.scan_job.library_id], (current: unknown) =>
-        isRecord(current) ? { ...current, last_scan: payload.scan_job } : current,
-      )
+      applyScanProgressPayload(payload)
     }
 
     const handleScanFinished = (event: MessageEvent<string>) => {
-      handleScanProgress(event)
       const payload = parseScanProgress(event.data)
       if (!payload) {
         return
       }
-      window.setTimeout(() => {
-        if (disposed) {
-          return
-        }
+      applyScanProgressPayload(payload)
+
+      const clearFinishedRuntime = () => {
+        if (disposed) return
         setScanRuntimeByLibrary((current) => {
           if (current[payload.scan_job.library_id]?.scanJob?.id !== payload.scan_job.id) {
             return current
@@ -333,7 +349,13 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
           delete next[payload.scan_job.library_id]
           return next
         })
-      }, 1_500)
+      }
+
+      void invalidateResource(`library:${payload.scan_job.library_id}:catalog`)
+        .then(clearFinishedRuntime)
+        .catch(() => {
+          void reconcileState()
+        })
     }
 
     const handleResyncRequired = () => {

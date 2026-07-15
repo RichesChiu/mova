@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  filterCompletedScanItemsWithSavedMedia,
   filterLibraryMediaItemsForScanRuntime,
   getLibraryMediaSection,
   getLibraryScanSection,
@@ -252,6 +253,55 @@ describe('library-media-sections', () => {
         },
       ]).map((item) => item.id),
     ).toEqual([1])
+  })
+
+  it('replaces a completed scan card as soon as its saved media card is available', () => {
+    const mediaItems = [
+      {
+        id: 1,
+        media_type: 'series',
+        metadata_provider_item_id: 839,
+        metadata_status: 'matched',
+        remote_media_type: 'series',
+        title: 'Arcane',
+        source_title: 'Arcane',
+        original_title: null,
+        year: 2024,
+        overview: 'Two sisters fight on opposite sides of a conflict.',
+        poster_path: '/api/media-items/1/poster?v=42',
+        backdrop_path: null,
+      },
+    ]
+    const scanItems = [
+      {
+        item_key: 'series:arcane',
+        media_type: 'series',
+        metadata_status: 'matched',
+        remote_media_type: 'series',
+        title: 'Arcane',
+        year: 2024,
+        overview: 'Two sisters fight on opposite sides of a conflict.',
+        poster_path: null,
+        backdrop_path: null,
+        stage: 'completed',
+      },
+      {
+        item_key: 'series:foundation',
+        media_type: 'series',
+        metadata_status: 'pending',
+        remote_media_type: 'series',
+        title: 'Foundation',
+        year: 2021,
+        overview: null,
+        poster_path: null,
+        backdrop_path: null,
+        stage: 'artwork',
+      },
+    ]
+
+    expect(
+      filterCompletedScanItemsWithSavedMedia(scanItems, mediaItems).map((item) => item.item_key),
+    ).toEqual(['series:foundation'])
   })
 
   it('keeps same-title media items when the scan type or year is different', () => {

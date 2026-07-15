@@ -23,6 +23,7 @@ import {
 import { EmptyState } from '../../components/empty-state'
 import { useI18n } from '../../i18n'
 import {
+  filterCompletedScanItemsWithSavedMedia,
   filterLibraryMediaItemsForScanRuntime,
   getLibraryMediaSection,
   getLibraryScanSection,
@@ -269,7 +270,10 @@ export const LibraryPage = () => {
   const scanItems = shouldShowScanPlaceholder(currentLibrary?.last_scan, currentScanRuntime)
     ? getScanRuntimeItems(currentScanRuntime)
     : []
-  const visibleScanItems = scanItems.filter((item) => getLibraryScanSection(item) !== null)
+  const visibleScanItems = filterCompletedScanItemsWithSavedMedia(
+    scanItems.filter((item) => getLibraryScanSection(item) !== null),
+    mediaItems,
+  )
   const visibleMediaItems = filterLibraryMediaItemsForScanRuntime(mediaItems, visibleScanItems)
   const movieItems = visibleMediaItems.filter((item) => getLibraryMediaSection(item) === 'movies')
   const seriesItems = visibleMediaItems.filter((item) => getLibraryMediaSection(item) === 'series')

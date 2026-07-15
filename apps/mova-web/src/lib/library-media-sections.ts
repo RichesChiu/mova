@@ -166,3 +166,13 @@ export const filterLibraryMediaItemsForScanRuntime = <Item extends MediaScanMatc
   items.filter(
     (item) => !scanItems.some((scanItem) => shouldScanItemReplaceMediaItem(item, scanItem)),
   )
+
+export const filterCompletedScanItemsWithSavedMedia = <Item extends ScanSectionInput>(
+  scanItems: Item[],
+  mediaItems: MediaScanMatchInput[],
+) =>
+  scanItems.filter(
+    (scanItem) =>
+      scanItem.stage !== 'completed' ||
+      !mediaItems.some((mediaItem) => shouldScanItemReplaceMediaItem(mediaItem, scanItem)),
+  )
