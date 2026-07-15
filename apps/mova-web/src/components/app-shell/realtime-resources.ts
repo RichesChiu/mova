@@ -1,6 +1,6 @@
 import type { QueryKey } from '@tanstack/react-query'
 
-export const REALTIME_PROTOCOL_VERSION = 2
+export const REALTIME_PROTOCOL_VERSION = 1
 
 export interface LibraryRealtimeResource {
   id: number

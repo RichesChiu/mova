@@ -18,7 +18,7 @@ const DISPATCH_COMMAND_BUFFER_SIZE: usize = 2_048;
 const RESOURCE_BATCH_INTERVAL: Duration = Duration::from_millis(500);
 const SCAN_PROGRESS_BATCH_INTERVAL: Duration = Duration::from_millis(200);
 const CONTINUE_WATCHING_BATCH_INTERVAL: Duration = Duration::from_secs(1);
-pub(crate) const REALTIME_PROTOCOL_VERSION: u8 = 2;
+pub(crate) const REALTIME_PROTOCOL_VERSION: u8 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RealtimeVisibility {
@@ -693,7 +693,7 @@ mod tests {
             .expect("resync event should be published");
         assert!(message.closes_stream());
         assert_eq!(message.visibility, RealtimeVisibility::Public);
-        assert!(message.data.contains(r#""protocol_version":2"#));
+        assert!(message.data.contains(r#""protocol_version":1"#));
         assert!(message.data.contains("postgres_listener_subscribed"));
     }
 
@@ -708,7 +708,7 @@ mod tests {
         hub.publish(
             RealtimeMessage::json(
                 "resources.changed",
-                &serde_json::json!({"protocol_version": 2, "changes": []}),
+                &serde_json::json!({"protocol_version": 1, "changes": []}),
                 RealtimeVisibility::Library(8),
             )
             .unwrap(),
@@ -726,7 +726,7 @@ mod tests {
         hub.publish(
             RealtimeMessage::json(
                 "resources.changed",
-                &serde_json::json!({"protocol_version": 2, "changes": []}),
+                &serde_json::json!({"protocol_version": 1, "changes": []}),
                 RealtimeVisibility::Library(7),
             )
             .unwrap(),

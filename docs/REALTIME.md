@@ -1,6 +1,6 @@
 # Mova Realtime / SSE 契约
 
-本文档是 Mova Web、macOS、iOS 和 iPadOS 客户端共同遵循的实时同步契约，描述当前 `protocol_version = 2` 的实际实现、事件触发条件、数据使用方式、断线恢复流程和已知架构边界。旧协议不保留兼容路径，客户端以服务端当前契约为唯一事实源。
+本文档是 Mova Web、macOS、iOS 和 iPadOS 客户端共同遵循的实时同步契约，描述首个正式开发契约 `protocol_version = 1` 的实际实现、事件触发条件、数据使用方式、断线恢复流程和已知架构边界。开发过程中未发布的旧格式不保留兼容路径，客户端以服务端当前契约为唯一事实源。
 
 接口字段和业务 API 总览仍以 [`API.md`](API.md) 为准。本文档专门解释 realtime state 与 SSE，不把某个客户端的 React Query、SwiftUI 或页面实现当成协议的一部分。
 
@@ -57,7 +57,7 @@ Mova 的实时同步分成两条职责不同的链路：
 
 ```json
 {
-  "protocol_version": 2,
+  "protocol_version": 1,
   "server_epoch": "019f...",
   "resources": {
     "admin:libraries": 14,
@@ -73,7 +73,7 @@ Mova 的实时同步分成两条职责不同的链路：
 
 字段语义：
 
-- `protocol_version`：当前为 `2`。客户端遇到不支持的版本时不得猜测事件含义，应停止消费并提示升级。
+- `protocol_version`：当前为 `1`。客户端遇到不支持的版本时不得猜测事件含义，应停止消费并提示升级。
 - `server_epoch`：当前数据库生命周期标识。服务重启不会改变；数据库重建会改变。
 - `resources`：当前用户可见资源的最新 revision。尚未变化过的资源返回 `0`。
 - `active_scans`：当前仍为 `pending` 或 `running` 的扫描任务，只恢复任务级状态，不回放历史条目进度。
@@ -85,7 +85,7 @@ Mova 的实时同步分成两条职责不同的链路：
 ```json
 {
   "realtime": {
-    "protocol_version": 2,
+    "protocol_version": 1,
     "server_epoch": "019f...",
     "resources": {
       "admin:libraries": 14,
@@ -157,7 +157,7 @@ Mova 的实时同步分成两条职责不同的链路：
 ```text
 event: resources.changed
 data: {
-  "protocol_version": 2,
+  "protocol_version": 1,
   "changes": [
     {
       "resource": "library:7:catalog",
@@ -218,7 +218,7 @@ Dispatcher 按扫描任务合并，最多每 200ms 发送一批：
 ```text
 event: scan.progress
 data: {
-  "protocol_version": 2,
+  "protocol_version": 1,
   "scan_job": {
     "id": 41,
     "library_id": 7,
@@ -308,7 +308,7 @@ Dispatcher 输入队列已满时，终态事件会等待队列容量，不按普
 ```text
 event: scan.finished
 data: {
-  "protocol_version": 2,
+  "protocol_version": 1,
   "scan_job": {
     "id": 41,
     "library_id": 7,
@@ -325,7 +325,7 @@ data: {
 }
 ```
 
-当前 v2 顺序：
+当前 v1 顺序：
 
 1. 先显示最终扫描状态。
 2. 读取 payload 的 `changes`；其中包含服务端当前可读取到的 `library:{id}:catalog` 与 `library:{id}:scan` revision。
@@ -343,7 +343,7 @@ data: {
 
 ```text
 event: resync.required
-data: {"protocol_version":2,"reason":"client_lagged"}
+data: {"protocol_version":1,"reason":"client_lagged"}
 ```
 
 当前服务端 SSE 最后一跳按 public、admin、library、user scope 分成容量为 32 个批次的有界广播队列。客户端只订阅与自身有关的 scope；消费相关队列明显落后，或 PostgreSQL Listener 订阅/重订阅成功需要关闭潜在通知空档时，服务端：
@@ -364,7 +364,7 @@ data: {"protocol_version":2,"reason":"client_lagged"}
 
 ```text
 event: session.invalidated
-data: {"protocol_version":2,"reason":"authorization_changed"}
+data: {"protocol_version":1,"reason":"authorization_changed"}
 ```
 
 服务端发送后会关闭 SSE 流。客户端必须：
@@ -481,7 +481,7 @@ SSE 消息按以下范围过滤：
 
 ## 14. 架构审查与建议演进
 
-以下内容说明当前 v2 已落实的架构决策和后续仍可演进的边界。
+以下内容说明当前 v1 已落实的架构决策和后续仍可演进的边界。
 
 ### 14.1 应保留
 
@@ -490,7 +490,7 @@ SSE 消息按以下范围过滤：
 - 保留扫描 progress 可丢、终态可恢复的语义。
 - 近期继续使用 PostgreSQL `LISTEN/NOTIFY`，当前规模没有必要引入 NATS、JetStream 或 Redis。
 
-### 14.2 v2 已落实的收敛
+### 14.2 v1 已落实的收敛
 
 1. PostgreSQL Listener 每次订阅或重新订阅成功后，向当前实例全部连接发送 `resync.required` 并关闭连接，客户端重连后按 state 对账。
 2. Web 已补齐 catalog/settings 查询映射，包括最近添加、媒体库聚合详情、搜索、演员、资源版本、播放头部、剧集大纲、音轨和字幕。
@@ -498,7 +498,7 @@ SSE 消息按以下范围过滤：
 4. 刷新失败会保留 dirty revision，先按退避策略重试，耗尽后回到 realtime state 对账。
 5. 媒体库创建、删除使用管理员集合资源 `admin:libraries`；单库更新只增加 `library:{id}:settings`，普通用户通过自己的 library-access revision 获取集合变化。
 6. `scan.finished` 携带最终 revisions，并与 `resources.changed` 共用同一个 Revision Coordinator；相同 revision 的后续通知会被忽略。
-7. Realtime state、首页 baseline 和业务事件统一升级到协议版本 `2`，不保留 v1 兼容分支。
+7. Realtime state、首页 baseline 和业务事件统一采用首个开发协议版本 `1`，不保留未发布格式的兼容分支。
 8. SSE Hub 改为 public/admin/library/user 分域广播，避免用户级事件对全部连接产生 O(在线连接数) 的无效唤醒。
 9. `library:{id}:scan` 在任务入队和持久化状态变化时递增，其他已连接客户端不需要等待第一条临时进度即可发现 pending scan。
 

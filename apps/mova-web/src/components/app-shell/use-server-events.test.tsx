@@ -79,7 +79,7 @@ const completedScanItem = {
 }
 
 const baselineState = {
-  protocol_version: 2,
+  protocol_version: 1,
   server_epoch: 'server-a',
   resources: {
     'admin:libraries': 2,
@@ -142,7 +142,7 @@ describe('useServerEvents revision protocol', () => {
     await waitFor(() => expect(clientMocks.getRealtimeState).toHaveBeenCalled())
 
     const payload = {
-      protocol_version: 2,
+      protocol_version: 1,
       changes: [{ resource: 'library:7:catalog', revision: 11 }],
     }
     source.emit('resources.changed', payload)
@@ -208,7 +208,7 @@ describe('useServerEvents revision protocol', () => {
     invalidateSpy.mockClear()
 
     source.emit('resources.changed', {
-      protocol_version: 2,
+      protocol_version: 1,
       changes: [
         { resource: 'library:7:catalog', revision: 11 },
         { resource: 'user:3:continue-watching', revision: 5 },
@@ -253,7 +253,7 @@ describe('useServerEvents revision protocol', () => {
     homeRefreshAttempts = 0
 
     const change = {
-      protocol_version: 2,
+      protocol_version: 1,
       changes: [{ resource: 'user:3:continue-watching', revision: 5 }],
     }
     source.emit('resources.changed', change)
@@ -270,7 +270,7 @@ describe('useServerEvents revision protocol', () => {
     const source = FakeEventSource.instances[0]
 
     source.emit('scan.progress', {
-      protocol_version: 2,
+      protocol_version: 1,
       scan_job: scanJob,
       items: [
         {
@@ -308,7 +308,7 @@ describe('useServerEvents revision protocol', () => {
     const source = FakeEventSource.instances[0]
 
     source.emit('scan.progress', {
-      protocol_version: 2,
+      protocol_version: 1,
       scan_job: scanJob,
       items: [completedScanItem],
     })
@@ -317,7 +317,7 @@ describe('useServerEvents revision protocol', () => {
     })
 
     source.emit('scan.finished', {
-      protocol_version: 2,
+      protocol_version: 1,
       scan_job: {
         ...scanJob,
         status: 'success',
@@ -358,7 +358,7 @@ describe('useServerEvents revision protocol', () => {
       active_scans: [],
     })
     source.emit('resources.changed', {
-      protocol_version: 2,
+      protocol_version: 1,
       changes: [{ resource: 'library:7:scan', revision: 1 }],
     })
 
@@ -372,7 +372,7 @@ describe('useServerEvents revision protocol', () => {
     renderHook(queryClient)
 
     FakeEventSource.instances[0].emit('scan.progress', {
-      protocol_version: 2,
+      protocol_version: 1,
       scan_job: scanJob,
       items: [completedScanItem],
     })

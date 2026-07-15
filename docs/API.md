@@ -346,7 +346,7 @@
 - `recently_added`：按库分组的最新添加内容，每个库最多 8 条。
 - `continue_watching`：当前用户未看完的继续观看队列，最多 20 条。
 - `realtime`：本次快照对应的 `server_epoch` 和当前可见资源 `resources` revisions。
-  - `protocol_version`：当前 Realtime/SSE 协议版本，当前值为 `2`。
+  - `protocol_version`：当前 Realtime/SSE 协议版本，当前值为 `1`。
 
 说明：
 - 进入具体媒体库后再使用 `GET /api/libraries/{id}/media-items` 分页加载完整目录。
@@ -365,7 +365,7 @@ Realtime 的资源 revision、事件触发条件、完整 payload、跨 Web/macO
 
 ```json
 {
-  "protocol_version": 2,
+  "protocol_version": 1,
   "server_epoch": "019f...",
   "resources": {
     "admin:libraries": 14,
@@ -403,7 +403,7 @@ Realtime 的资源 revision、事件触发条件、完整 payload、跨 Web/macO
 
 ```text
 event: resources.changed
-data: {"protocol_version":2,"changes":[{"resource":"library:7:catalog","revision":128}]}
+data: {"protocol_version":1,"changes":[{"resource":"library:7:catalog","revision":128}]}
 ```
 
 客户端只在服务端 revision 大于本地已应用 revision 时刷新对应资源；重复事件和乱序旧事件应忽略。当前资源键包括：
@@ -421,7 +421,7 @@ data: {"protocol_version":2,"changes":[{"resource":"library:7:catalog","revision
 ```text
 event: scan.progress
 data: {
-  "protocol_version": 2,
+  "protocol_version": 1,
   "scan_job": {
     "id": 41,
     "library_id": 7,
@@ -455,10 +455,10 @@ data: {
 
 ```text
 event: resync.required
-data: {"protocol_version":2,"reason":"client_lagged"}
+data: {"protocol_version":1,"reason":"client_lagged"}
 
 event: session.invalidated
-data: {"protocol_version":2,"reason":"authorization_changed"}
+data: {"protocol_version":1,"reason":"authorization_changed"}
 ```
 
 - 收到 `resync.required` 后重新获取 realtime state，只刷新 revision 不一致的资源。

@@ -590,7 +590,7 @@ export const requestMockJson = async <T>(
       recently_added: recentlyAddedByLibrary(homeURL),
       continue_watching: continueWatching(homeURL),
       realtime: {
-        protocol_version: 2,
+        protocol_version: 1,
         server_epoch: 'mock-server',
         resources: {},
       },

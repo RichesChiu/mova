@@ -151,7 +151,7 @@
 
 ### `src/realtime.rs`
 
-当前 Realtime/SSE 协议版本为 `2`。可靠实时状态保存在 PostgreSQL `realtime_revisions`，业务写入事务通过 trigger 同步增加对应 resource revision，并使用 `LISTEN/NOTIFY` 唤醒当前实例的 `RealtimeDispatcher`。SSE 不再传最终业务对象，只发送以下协议消息：
+当前 Realtime/SSE 协议版本为 `1`。可靠实时状态保存在 PostgreSQL `realtime_revisions`，业务写入事务通过 trigger 同步增加对应 resource revision，并使用 `LISTEN/NOTIFY` 唤醒当前实例的 `RealtimeDispatcher`。SSE 不再传最终业务对象，只发送以下协议消息：
 
 - `resources.changed`：普通资源最多每 500ms 合并；继续观看最多每 1 秒合并，标记已看完立即发送。
 - `scan.progress`：按扫描任务和 `item_key` latest-wins 合并，最多每 200ms 一批。
