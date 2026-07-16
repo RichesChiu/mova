@@ -79,7 +79,7 @@ src/
 | `/` | `src/pages/home-page/index.tsx` | 首页。使用单个 `GET /api/home` 有界快照展示继续观看、`Your Libraries` 摘要和 `Recently Added`，不再为每个库下载完整目录或额外拉取剧集大纲；继续观看没有数据时隐藏整个模块。通用 dashboard shell 负责左侧导航和用户区，页面自己的顶部 header 右侧提供消息入口，顶部不再显示搜索框，搜索只保留在 `/search` 页面内。左侧导航固定在视口高度内，用户入口始终贴近左下角；收起后展开入口改为左下浮动小按钮，并用慢速脉冲提示可展开。左侧导航支持收起/展开，宽度只保留短时过渡，图标方向、文字透明度和位移使用轻量动画，并把偏好保存在浏览器本地。`Your Libraries` 固定为一排 5 等分列，只展示前 5 个库；首页库卡随列宽保持 `16:9` 比例，背景图继续使用 `cover` 填满卡片。总库数超过 5 个时才在标题旁显示进入 `/libraries` 的 `View all`，5 个及以下不显示。时钟导航项和首页继续观看模块的 `View all` 都进入 `/continue`，只展示尚未完成、可以继续播放的内容。最近添加区域不使用分组外框，每组通过 `From “{library}” library` / `来自「{library}」库` 的轻量来源说明区分媒体库，媒体条目继续使用独立横向卡片。 | `getHome` |
 | `/search` | `src/pages/search-page/index.tsx` | 搜索结果页。复用通用 dashboard 左右布局，并在页面 header 左侧提供唯一搜索输入，右侧保留消息入口；读取 URL 中的 `q` 参数，调用全局搜索接口展示当前用户可见库下的电影、剧集和本地集条目；结果使用竖版海报卡片，图片只使用结果自身的 `poster_path`，没有图时显示明确占位。 | `globalSearch` |
 | `/libraries` | `src/pages/libraries-page/index.tsx` | 全部媒体库页。展示当前用户可见的所有库、库统计、扫描状态和最近新增海报预览；没有最近新增海报的库保持空媒体画布，不借其他字段或其他库图片兜底。 | `listLibraries`、`getLibrary`、`listRecentlyAddedByLibrary`、`scanRuntimeByLibrary` |
-| `/libraries/:libraryId` | `src/pages/library-page/index.tsx` | 单库详情页。页面 header 左侧展示真实历史返回图标、当前库名和条目总数小字，右侧保留消息入口，不再使用卡片式 hero；直开详情页时返回按钮兜底到 `/libraries`；扫描状态作为标题下方的运行提示单独展示，主体以无大边框分区展示电影/剧集列表和扫描中的占位卡。扫描组处于 `discovered / metadata / artwork` 阶段时按本地分析出的电影或剧集猜测展示；`completed` 后只有远端类型仍未知、或与本地结构冲突的条目进入 Other，远端类型已经确认且一致的 metadata 失败仍留在对应 Movies / Series 分区，避免刮削期间大量卡片先堆进 Other 再移动。条目网格按 dense 内容处理，侧栏宽度过渡会缩短，列表 section、grid 和 tile 也做布局隔离，避免大量条目放大展开收起的重排成本。 | `getLibrary`、`listLibraryMediaItems`、`scanRuntimeByLibrary` |
+| `/libraries/:libraryId` | `src/pages/library-page/index.tsx` | 单库详情页。页面 header 左侧展示真实历史返回图标、当前库名和条目总数小字，右侧保留消息入口，不再使用卡片式 hero；直开详情页时返回按钮兜底到 `/libraries`；扫描状态作为标题下方的运行提示单独展示，主体以无大边框分区展示电影/剧集列表和扫描中的占位卡。扫描组处于 `analyzed / pending_committed / metadata / artwork` 阶段时按本地分析出的电影或剧集猜测展示；`completed` 后只有远端类型仍未知、或与本地结构冲突的条目进入 Other，远端类型已经确认且一致的 metadata 失败仍留在对应 Movies / Series 分区，避免刮削期间大量卡片先堆进 Other 再移动。条目网格按 dense 内容处理，侧栏宽度过渡会缩短，列表 section、grid 和 tile 也做布局隔离，避免大量条目放大展开收起的重排成本。 | `getLibrary`、`listLibraryMediaItems`、`scanRuntimeByLibrary` |
 | `/media-items/:mediaItemId` | `src/pages/media-item-page/index.tsx` | 媒体详情页。复用通用 dashboard 左右布局，进入详情页时左侧导航会自动收起以给封面和详情内容更多空间，但用户仍可手动展开；页面 header 左侧提供返回库的 icon，右侧保留消息入口；电影显示详情与播放入口，并在标题旁展示更轻量的年份和带 `IMDb` 标识的评分；背景图挂在整个媒体详情路由容器上，覆盖页面 header 和详情主体，hero 区只用当前条目自己的背景图做内容区内的模糊大底与光晕层，剧集切换季时只更新季海报位，不再让缺少背景图的季清空整页背景，同一详情页内也会保留已经收到的当前条目背景，避免后续 refetch 空响应把整页背景瞬间清掉，海报只用于海报位，不再拿海报顶背景图，让标题、年份、海报和评分形成更完整的电影感头图，资源技术标签挪到年份下方的独立行，剧集可用集数用轻量文案展示，国家/地区、题材类型和工作室放在次级 facts 区里；如果同一部电影存在多个本地版本，播放区会先给版本选择，技术信息区也会跟着当前版本切换；演员区会在主体信息先渲染后再异步加载，服务端会在本地还没有演员数据时按需拉取一次并持久写库，后续详情页直接复用；演员区下方会展示当前资源文件的 source details，原始标题和路径直接放在 Source Files 面板内，并排展示视频、音频、字幕技术卡，不再额外包一层资源文件卡；音轨和字幕卡头部都有小下拉，当前版本本身则只在播放区选择，字幕卡也会展示默认、强制、听障和外挂标记；剧集显示季/集大纲、演员和管理员元数据工具；剧集播放入口会优先沿用最近一次观看的那一集，如果最近一集已经播完则自动跳到下一集；当所在媒体库仍在扫描时，这里也会显示当前条目或当前季的同步状态与占位集卡。 | `getMediaItem`、`getMediaItemCast`、`getMediaItemEpisodeOutline`、`getMediaItemPlaybackProgress`、`getMediaItemPlaybackHeader`、`listMediaItemFiles`、`listMediaFileAudioTracks`、`listMediaFileSubtitles`、`scanRuntimeByLibrary` |
 | `/media-items/:mediaItemId/play` | `src/pages/media-player-page/index.tsx` | 沉浸式播放器页。负责装配播放器标题、副标题、片头跳过区间、集切换选项和“下一集”目标，并把实际播放行为交给 `MediaPlayerPanel`；播放器写入进度后会同步更新剧集 outline 缓存，这样返回详情页时已完成状态和集卡进度条能立刻跟上。 | `getMediaItemPlaybackHeader`、`getMediaItemEpisodeOutline` |
 | `/profile` | `src/pages/profile-page/index.tsx` | 个人设置页。复用通用 dashboard 左右布局，右侧收成单块资料面板，展示登录账户、昵称、角色标签，并把昵称编辑、改密、界面语言和 `dark / light` 主题偏好都放进同一个资料面板；首次初始化或没有有效语言偏好时默认使用中文，语言切换会即时驱动界面文案在英文 / 中文之间切换，已保存的语言和主题偏好都会保存在当前浏览器。 | `updateOwnProfile`、`changeOwnPassword`、`AppShell` 提供的 `currentUser`、`lib/preferences.ts`、`src/i18n/` |
@@ -101,8 +101,8 @@ src/
 | 组件 | 文件 | 作用 | 主要使用位置 |
 | --- | --- | --- | --- |
 | `AppShell` | `components/app-shell/index.tsx` | 登录后壳层，负责当前用户、媒体库列表、SSE、顶栏和 `Outlet` 上下文；首页路由会隐藏通用顶栏，让首页使用专属 dashboard frame。 | 所有非登录、非沉浸式播放器页面 |
-| `useServerEvents` | `components/app-shell/use-server-events.ts` | 通过 `EventSource('/api/realtime/events')` 订阅 revision 失效通知和临时扫描进度；连接建立、重连或收到 `resync.required` 后读取 `/api/realtime/state`，只为 revision 前进的 resource 串行刷新对应 React Query key，忽略重复和乱序事件。扫描 item 按服务端批次更新运行时卡片；完成条目在正式媒体卡片到达后立即让位，扫描结束时先刷新最终目录再清理剩余临时卡片，并通过 scan revision 恢复遗漏的终态。会话失效时关闭连接并回到登录页。 | `AppShell` |
-| `scan-runtime` | `components/app-shell/scan-runtime.ts` | 把 SSE 运行时扫描数据整理成库级进度、条目级占位卡、详情页同步提示和状态文案。 | 首页、媒体库页、媒体详情页、设置页 |
+| `useServerEvents` | `components/app-shell/use-server-events.ts` | 通过 `EventSource('/api/realtime/events')` 订阅 revision 失效通知和临时扫描进度；连接建立、重连或收到 `resync.required` 后读取 `/api/realtime/state`，只为 revision 前进的 resource 串行刷新对应 React Query key，忽略重复和乱序事件。扫描任务直接消费服务端权威 `scan_job.progress_percent`；活跃扫描期间普通 catalog revision 只合并最高值，本地检查点强制刷新一次 pending 目录，扫描终态再刷新最终目录并清理剩余临时卡片。会话失效时关闭连接并回到登录页。 | `AppShell` |
+| `scan-runtime` | `components/app-shell/scan-runtime.ts` | 把 SSE 运行时扫描数据整理成库级进度、条目级占位卡、详情页同步提示和状态文案；库级进度只校验并展示服务端任务值，不再从 phase、文件数或当前条目阶段估算。 | 首页、媒体库页、媒体详情页、设置页 |
 | `ContentHeader` | `components/content-header/index.tsx` | 顶部品牌和用户菜单；顶栏用户区会优先显示昵称，没有昵称时回退到用户名。语言与主题偏好统一收进个人设置页，不再在 header 里分散放入口。 | `AppShell` |
 
 ### 4.2 媒体展示
@@ -220,7 +220,7 @@ src/
 当前这些测试重点覆盖：
 
 - `useServerEvents` 的首次 state 基线、活跃扫描恢复、按 resource revision 精准刷新、重复 revision 忽略和批量扫描运行时状态
-- `scan-runtime` 的扫描中文案、占位显示、详情页条目匹配和粗粒度进度计算
+- `scan-runtime` 的扫描中文案、占位显示、详情页条目匹配、任务级权威进度展示和条目级临时进度隔离
 - `MediaPlayerPanel` 的恢复播放、从头播放、首次自动起播、空格键播放切换、片头跳过、下一集提示、切源迁移、音轨切换时的位置保持、切换提示文案、错误文案映射，以及自动播放/全屏失败与字幕失败的非阻断降级
 - `audio-tracks` helper 的音轨菜单标签和元信息格式化
 - `media-country` helper 的国家/地区格式化与 ISO 国家码显示

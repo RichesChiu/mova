@@ -870,6 +870,91 @@ pub async fn list_audio_tracks_for_media_file(
     Ok(rows.into_iter().map(map_audio_track_row).collect())
 }
 
+/// 批量读取多个媒体文件的音轨，供扫描复用本地分析时避免逐文件查询。
+pub async fn list_audio_tracks_for_media_files(
+    pool: &PgPool,
+    media_file_ids: &[i64],
+) -> Result<Vec<AudioTrack>> {
+    if media_file_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let rows = sqlx::query(
+        r#"
+        select
+            id,
+            media_file_id,
+            stream_index,
+            language,
+            audio_codec,
+            label,
+            channel_layout,
+            channels,
+            bitrate,
+            sample_rate,
+            is_default,
+            created_at,
+            updated_at
+        from audio_tracks
+        where media_file_id = any($1)
+        order by
+            media_file_id asc,
+            is_default desc,
+            coalesce(language, '') asc,
+            id asc
+        "#,
+    )
+    .bind(media_file_ids)
+    .fetch_all(pool)
+    .await
+    .context("failed to list audio tracks for media files")?;
+
+    Ok(rows.into_iter().map(map_audio_track_row).collect())
+}
+
+/// 批量读取多个媒体文件的字幕，供扫描复用本地分析时避免逐文件查询。
+pub async fn list_subtitle_files_for_media_files(
+    pool: &PgPool,
+    media_file_ids: &[i64],
+) -> Result<Vec<SubtitleFile>> {
+    if media_file_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let rows = sqlx::query(
+        r#"
+        select
+            id,
+            media_file_id,
+            source_kind,
+            file_path,
+            stream_index,
+            language,
+            subtitle_format,
+            label,
+            is_default,
+            is_forced,
+            is_hearing_impaired,
+            created_at,
+            updated_at
+        from subtitle_files
+        where media_file_id = any($1)
+        order by
+            media_file_id asc,
+            is_default desc,
+            is_forced desc,
+            coalesce(language, '') asc,
+            id asc
+        "#,
+    )
+    .bind(media_file_ids)
+    .fetch_all(pool)
+    .await
+    .context("failed to list subtitle files for media files")?;
+
+    Ok(rows.into_iter().map(map_subtitle_file_row).collect())
+}
+
 /// 通过主键读取单条字幕轨道。
 pub async fn get_subtitle_file(
     pool: &PgPool,

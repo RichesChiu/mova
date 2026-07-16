@@ -2,16 +2,13 @@ use crate::{
     error::{ApplicationError, ApplicationResult},
     libraries::get_library,
     media_classification::classify_media_type,
-    media_enrichment::{
-        normalize_lookup_punctuation_candidate, MetadataEnrichmentContext, MetadataEnrichmentStage,
-    },
-    metadata::{MetadataLookup, MetadataProvider, RemoteMediaKind, TMDB_PROVIDER_NAME},
+    media_enrichment::{MetadataEnrichmentContext, MetadataEnrichmentStage},
+    metadata::{MetadataProvider, TMDB_PROVIDER_NAME},
 };
 use mova_domain::{Library, ScanJob};
 use mova_domain::{
     METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED,
-    METADATA_FAILURE_PROVIDER_ERROR, METADATA_FAILURE_REMOTE_DETECTION_FAILED,
-    METADATA_FAILURE_REMOTE_TYPE_MISMATCH, METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED,
+    METADATA_FAILURE_PROVIDER_ERROR, METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED,
     METADATA_STATUS_PENDING, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
     REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
 };
@@ -30,6 +27,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use tokio::sync::mpsc;
 
 /// 触发媒体库扫描时返回的结果。
 /// `created = false` 表示本次没有新建任务，而是复用了当前库已有的活跃任务。
@@ -49,6 +47,7 @@ pub enum ExecuteScanJobOutcome {
 #[derive(Debug, Clone)]
 pub enum ScanJobEvent {
     Updated(ScanJobProgressUpdate),
+    Checkpoint(ScanJobProgressUpdate),
     Finished(ScanJobProgressUpdate),
     ItemUpdated(ScanJobItemProgressUpdate),
 }
@@ -82,7 +81,8 @@ pub struct ScanJobItemProgressUpdate {
 
 #[derive(Debug, Clone, Copy)]
 enum ScanItemStage {
-    Discovered,
+    Analyzed,
+    PendingCommitted,
     Metadata,
     Artwork,
     Completed,
@@ -119,6 +119,13 @@ struct ScanDiscoveredGroup {
 }
 
 #[derive(Debug)]
+struct QueuedScanGroup {
+    group: ScanDiscoveredGroup,
+    item_index: i32,
+    total_items: i32,
+}
+
+#[derive(Debug)]
 struct PendingScanGroup {
     files: Vec<IncrementalScanFile>,
 }
@@ -150,12 +157,12 @@ struct GroupMetadataLookupDecision {
 }
 
 const SCAN_PHASE_DISCOVERING: &str = "discovering";
-const SCAN_PHASE_ANALYZING: &str = "analyzing";
-const SCAN_PHASE_ENRICHING: &str = "enriching";
-const SCAN_PHASE_SYNCING: &str = "syncing";
+const SCAN_PHASE_PROCESSING: &str = "processing";
+const SCAN_PHASE_FINALIZING: &str = "finalizing";
 const SCAN_PHASE_FINISHED: &str = "finished";
 
-const SCAN_ITEM_STAGE_DISCOVERED: &str = "discovered";
+const SCAN_ITEM_STAGE_ANALYZED: &str = "analyzed";
+const SCAN_ITEM_STAGE_PENDING_COMMITTED: &str = "pending_committed";
 const SCAN_ITEM_STAGE_METADATA: &str = "metadata";
 const SCAN_ITEM_STAGE_ARTWORK: &str = "artwork";
 const SCAN_ITEM_STAGE_COMPLETED: &str = "completed";
@@ -287,7 +294,7 @@ pub async fn execute_scan_job(
     let cancellation_flag = Arc::new(AtomicBool::new(false));
     let event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync> = Arc::new(|_| {});
 
-    match execute_scan_job_with_cancellation(
+    let outcome = match execute_scan_job_with_cancellation(
         pool,
         library_id,
         scan_job_id,
@@ -296,8 +303,31 @@ pub async fn execute_scan_job(
         metadata_provider,
         event_listener,
     )
-    .await?
+    .await
     {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            if let Ok(Some(scan_job)) = mova_db::get_scan_job(pool, scan_job_id).await {
+                let error_message = scan_job
+                    .error_message
+                    .as_deref()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| error.to_string());
+                let _ = mova_db::finalize_scan_job(
+                    pool,
+                    scan_job_id,
+                    "failed",
+                    scan_job.total_files,
+                    scan_job.scanned_files,
+                    Some(&error_message),
+                )
+                .await;
+            }
+            return Err(error);
+        }
+    };
+
+    match outcome {
         ExecuteScanJobOutcome::Completed(scan_job) => Ok(scan_job),
         ExecuteScanJobOutcome::Cancelled => Err(ApplicationError::Conflict(format!(
             "scan job {} was cancelled",
@@ -333,24 +363,12 @@ pub async fn execute_scan_job_with_cancellation(
             return Ok(ExecuteScanJobOutcome::Cancelled);
         }
         Err(error) => {
-            if let Some(scan_job) = finalize_failed_scan(
-                pool,
-                scan_job_id,
-                0,
-                0,
-                &format_scan_phase_error(
-                    SCAN_PHASE_INITIALIZING,
-                    format!("Failed to load library configuration: {}", error),
-                ),
-            )
-            .await
-            {
-                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
-                    scan_job,
-                    SCAN_PHASE_FINISHED,
-                )));
-            }
-            return Err(error);
+            let message = format_scan_phase_error(
+                SCAN_PHASE_INITIALIZING,
+                format!("Failed to load library configuration: {}", error),
+            );
+            record_failed_scan_attempt(pool, scan_job_id, 0, 0, &message).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
     };
 
@@ -376,24 +394,12 @@ pub async fn execute_scan_job_with_cancellation(
         }
         Err(error) => {
             let error = ApplicationError::from(error);
-            if let Some(scan_job) = finalize_failed_scan(
-                pool,
-                scan_job_id,
-                0,
-                0,
-                &format_scan_phase_error(
-                    SCAN_PHASE_INITIALIZING,
-                    format!("Failed to start the scan job: {}", error),
-                ),
-            )
-            .await
-            {
-                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
-                    scan_job,
-                    SCAN_PHASE_FINISHED,
-                )));
-            }
-            return Err(error);
+            let message = format_scan_phase_error(
+                SCAN_PHASE_INITIALIZING,
+                format!("Failed to start the scan job: {}", error),
+            );
+            record_failed_scan_attempt(pool, scan_job_id, 0, 0, &message).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
     }
 
@@ -410,24 +416,12 @@ pub async fn execute_scan_job_with_cancellation(
     let mut sync_outcome = match reconcile_existing_media_paths(pool, library.id).await {
         Ok(outcome) => outcome,
         Err(error) => {
-            if let Some(scan_job) = finalize_failed_scan(
-                pool,
-                scan_job_id,
-                0,
-                0,
-                &format_scan_phase_error(
-                    SCAN_PHASE_DISCOVERING,
-                    format!("Failed to reconcile existing media files: {}", error),
-                ),
-            )
-            .await
-            {
-                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
-                    scan_job,
-                    SCAN_PHASE_FINISHED,
-                )));
-            }
-            return Err(error);
+            let message = format_scan_phase_error(
+                SCAN_PHASE_DISCOVERING,
+                format!("Failed to reconcile existing media files: {}", error),
+            );
+            record_failed_scan_attempt(pool, scan_job_id, 0, 0, &message).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
     };
 
@@ -453,24 +447,12 @@ pub async fn execute_scan_job_with_cancellation(
             return Ok(ExecuteScanJobOutcome::Cancelled);
         }
         Err(error) => {
-            if let Some(scan_job) = finalize_failed_scan(
-                pool,
-                scan_job_id,
-                0,
-                0,
-                &format_scan_phase_error(
-                    SCAN_PHASE_DISCOVERING,
-                    format!("Failed to scan library files: {}", error),
-                ),
-            )
-            .await
-            {
-                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
-                    scan_job,
-                    SCAN_PHASE_FINISHED,
-                )));
-            }
-            return Err(error);
+            let message = format_scan_phase_error(
+                SCAN_PHASE_DISCOVERING,
+                format!("Failed to scan library files: {}", error),
+            );
+            record_failed_scan_attempt(pool, scan_job_id, 0, 0, &message).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
     };
 
@@ -494,14 +476,6 @@ pub async fn execute_scan_job_with_cancellation(
         }
     }
 
-    emit_scan_job_phase(
-        pool,
-        scan_job_id,
-        SCAN_PHASE_ANALYZING,
-        event_listener.clone(),
-    )
-    .await;
-
     let IncrementalScanPlan {
         discovered_paths,
         changed_files,
@@ -516,131 +490,87 @@ pub async fn execute_scan_job_with_cancellation(
     {
         Ok(plan) => plan,
         Err(error) => {
-            if let Some(scan_job) = finalize_failed_scan(
-                pool,
-                scan_job_id,
-                total_files,
-                0,
-                &format_scan_phase_error(
-                    SCAN_PHASE_ANALYZING,
-                    format!("Failed to load existing media metadata: {}", error),
-                ),
-            )
-            .await
-            {
-                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
-                    scan_job,
-                    SCAN_PHASE_FINISHED,
-                )));
-            }
-
-            return Err(error);
+            let message = format_scan_phase_error(
+                SCAN_PHASE_INITIALIZING,
+                format!("Failed to load existing media metadata: {}", error),
+            );
+            record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
     };
 
+    let pending_file_count = i32::try_from(changed_files.len()).unwrap_or(i32::MAX);
     let pending_groups = match build_pending_scan_groups(&library, changed_files).await {
         Ok(groups) => groups,
         Err(error) => {
-            if let Some(scan_job) = finalize_failed_scan(
-                pool,
-                scan_job_id,
-                total_files,
-                0,
-                &format_scan_phase_error(
-                    SCAN_PHASE_ANALYZING,
-                    format!("Failed to analyze changed media files: {}", error),
-                ),
-            )
-            .await
-            {
-                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
-                    scan_job,
-                    SCAN_PHASE_FINISHED,
-                )));
-            }
-
-            return Err(error);
+            let message = format_scan_phase_error(
+                SCAN_PHASE_INITIALIZING,
+                format!("Failed to plan changed media groups: {}", error),
+            );
+            record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
     };
 
-    let (discovered_groups, analyzed_sync_outcome) = match analyze_pending_scan_groups(
-        pool,
-        &library,
-        scan_job_id,
-        pending_groups,
-        cancellation_flag.clone(),
-        event_listener.clone(),
-    )
-    .await
+    match mova_db::initialize_scan_job_work(pool, scan_job_id, total_files, pending_file_count)
+        .await
     {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            if let Some(scan_job) = finalize_failed_scan(
-                pool,
-                scan_job_id,
-                total_files,
-                0,
-                &format_scan_phase_error(
-                    SCAN_PHASE_ANALYZING,
-                    format!("Failed to analyze changed media files: {}", error),
-                ),
-            )
-            .await
-            {
-                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
-                    scan_job,
-                    SCAN_PHASE_FINISHED,
-                )));
-            }
-
-            return Err(error);
+        Ok(Some(scan_job)) => {
+            event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
+                scan_job,
+                SCAN_PHASE_PROCESSING,
+            )));
         }
-    };
-    merge_sync_outcome(&mut sync_outcome, analyzed_sync_outcome);
-
-    emit_scan_job_phase(
-        pool,
-        scan_job_id,
-        SCAN_PHASE_ENRICHING,
-        event_listener.clone(),
-    )
-    .await;
-
-    let enriched_sync_outcome = match enrich_discovered_groups(
-        pool,
-        &library,
-        scan_job_id,
-        discovered_groups,
-        cancellation_flag.clone(),
-        artwork_cache_dir,
-        metadata_provider.clone(),
-        event_listener.clone(),
-    )
-    .await
-    {
-        Ok(outcome) => outcome,
+        Ok(None) => return Ok(ExecuteScanJobOutcome::Cancelled),
         Err(error) => {
-            if let Some(scan_job) = finalize_failed_scan(
-                pool,
-                scan_job_id,
-                total_files,
-                0,
-                &format_scan_phase_error(
-                    SCAN_PHASE_ENRICHING,
-                    format!("Failed to save enriched media: {}", error),
-                ),
-            )
-            .await
-            {
-                event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
-                    scan_job,
-                    SCAN_PHASE_FINISHED,
-                )));
-            }
-            return Err(error);
+            let message = format_scan_phase_error(
+                SCAN_PHASE_PROCESSING,
+                format!("Failed to initialize scan pipeline: {}", error),
+            );
+            record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
-    };
-    merge_sync_outcome(&mut sync_outcome, enriched_sync_outcome);
+    }
+
+    let total_items = i32::try_from(pending_groups.len()).unwrap_or(i32::MAX);
+    let (group_sender, group_receiver) = mpsc::channel(2);
+    let pipeline_result = tokio::try_join!(
+        analyze_pending_scan_groups(
+            pool,
+            &library,
+            scan_job_id,
+            pending_groups,
+            group_sender,
+            cancellation_flag.clone(),
+            event_listener.clone(),
+        ),
+        enrich_discovered_groups(
+            pool,
+            &library,
+            scan_job_id,
+            group_receiver,
+            total_items,
+            cancellation_flag.clone(),
+            artwork_cache_dir,
+            metadata_provider.clone(),
+            event_listener.clone(),
+        )
+    );
+
+    match pipeline_result {
+        Ok((local_outcome, remote_outcome)) => {
+            merge_sync_outcome(&mut sync_outcome, local_outcome);
+            merge_sync_outcome(&mut sync_outcome, remote_outcome);
+        }
+        Err(error) => {
+            let message = format_scan_phase_error(
+                SCAN_PHASE_PROCESSING,
+                format!("Failed to process scan pipeline: {}", error),
+            );
+            record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
+        }
+    }
 
     if is_cancelled(&cancellation_flag) {
         if let Some(scan_job) =
@@ -657,15 +587,24 @@ pub async fn execute_scan_job_with_cancellation(
     emit_scan_job_phase(
         pool,
         scan_job_id,
-        SCAN_PHASE_SYNCING,
+        SCAN_PHASE_FINALIZING,
+        99,
         event_listener.clone(),
     )
     .await;
 
     let removal_outcome =
-        mova_db::sync_library_media_changes(pool, library.id, &discovered_paths, &[])
-            .await
-            .map_err(ApplicationError::Unexpected)?;
+        match mova_db::sync_library_media_changes(pool, library.id, &discovered_paths, &[]).await {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                let message = format_scan_phase_error(
+                    SCAN_PHASE_FINALIZING,
+                    format!("Failed to reconcile missing media files: {}", error),
+                );
+                record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message).await;
+                return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
+            }
+        };
     merge_sync_outcome(&mut sync_outcome, removal_outcome);
 
     if sync_outcome.failed_count > 0 {
@@ -684,17 +623,9 @@ pub async fn execute_scan_job_with_cancellation(
         && sync_outcome.failed_count > 0
     {
         let message =
-            format_scan_phase_error(SCAN_PHASE_SYNCING, "Failed to save changed library data");
+            format_scan_phase_error(SCAN_PHASE_FINALIZING, "Failed to save changed library data");
 
-        if let Some(scan_job) =
-            finalize_failed_scan(pool, scan_job_id, total_files, 0, &message).await
-        {
-            event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
-                scan_job,
-                SCAN_PHASE_FINISHED,
-            )));
-        }
-
+        record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message).await;
         return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
     }
 
@@ -800,18 +731,18 @@ async fn analyze_pending_scan_groups(
     library: &Library,
     scan_job_id: i64,
     pending_groups: Vec<PendingScanGroup>,
+    group_sender: mpsc::Sender<QueuedScanGroup>,
     cancellation_flag: Arc<AtomicBool>,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
-) -> ApplicationResult<(
-    Vec<ScanDiscoveredGroup>,
-    mova_db::SyncLibraryMediaBestEffortOutcome,
-)> {
+) -> ApplicationResult<mova_db::SyncLibraryMediaBestEffortOutcome> {
     let total_items = i32::try_from(pending_groups.len()).unwrap_or(i32::MAX);
-    let mut discovered_groups = Vec::new();
+    let mut processed_items = 0_i32;
     let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
+    let mut completed_all_local_groups = true;
 
-    for pending_group in pending_groups {
+    'pending_groups: for pending_group in pending_groups {
         if is_cancelled(&cancellation_flag) {
+            completed_all_local_groups = false;
             break;
         }
 
@@ -821,8 +752,47 @@ async fn analyze_pending_scan_groups(
         prepare_scan_groups_for_metadata_lookup(&mut groups);
 
         for group in groups {
-            let item_index = i32::try_from(discovered_groups.len() + 1).unwrap_or(i32::MAX);
-            let group_outcome = sync_scan_group_media_entries(pool, library, &group, false).await?;
+            if is_cancelled(&cancellation_flag) {
+                completed_all_local_groups = false;
+                break 'pending_groups;
+            }
+
+            processed_items = processed_items.saturating_add(1);
+            let item_index = processed_items;
+            let effective_total_items = total_items.max(item_index);
+            let analyzed_scan_job = mova_db::mark_scan_group_analyzed(
+                pool,
+                scan_job_id,
+                &group.presentation.item_key,
+                i32::try_from(group.files.len()).unwrap_or(i32::MAX),
+            )
+            .await
+            .map_err(ApplicationError::Unexpected)?;
+            event_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
+                scan_job_id,
+                library.id,
+                &group.presentation,
+                group.files.first(),
+                item_index,
+                effective_total_items,
+                ScanItemStage::Analyzed,
+            )));
+            if let Some(scan_job) = analyzed_scan_job {
+                event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
+                    scan_job,
+                    SCAN_PHASE_PROCESSING,
+                )));
+            }
+
+            let group_outcome = sync_scan_group_media_entries(
+                pool,
+                scan_job_id,
+                library,
+                &group,
+                mova_db::ScanGroupCommitStage::Local,
+                false,
+            )
+            .await?;
             merge_sync_outcome(&mut sync_outcome, group_outcome);
 
             event_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
@@ -831,15 +801,46 @@ async fn analyze_pending_scan_groups(
                 &group.presentation,
                 group.files.first(),
                 item_index,
-                total_items.max(item_index),
-                ScanItemStage::Discovered,
+                effective_total_items,
+                ScanItemStage::PendingCommitted,
             )));
 
-            discovered_groups.push(group);
+            emit_current_scan_job_update(pool, scan_job_id, &event_listener).await;
+            if is_cancelled(&cancellation_flag) {
+                completed_all_local_groups = false;
+                break 'pending_groups;
+            }
+            if group_sender
+                .send(QueuedScanGroup {
+                    group,
+                    item_index,
+                    total_items: effective_total_items,
+                })
+                .await
+                .is_err()
+            {
+                if is_cancelled(&cancellation_flag) {
+                    completed_all_local_groups = false;
+                    break 'pending_groups;
+                }
+                return Err(ApplicationError::Unexpected(anyhow::anyhow!(
+                    "remote scan pipeline stopped before local groups completed"
+                )));
+            }
         }
     }
 
-    Ok((discovered_groups, sync_outcome))
+    drop(group_sender);
+    if completed_all_local_groups && processed_items > 0 {
+        if let Ok(Some(scan_job)) = mova_db::get_scan_job(pool, scan_job_id).await {
+            event_listener(ScanJobEvent::Checkpoint(build_scan_job_progress_update(
+                scan_job,
+                SCAN_PHASE_PROCESSING,
+            )));
+        }
+    }
+
+    Ok(sync_outcome)
 }
 
 fn prepare_scan_groups_for_metadata_lookup(groups: &mut [ScanDiscoveredGroup]) {
@@ -863,7 +864,8 @@ async fn enrich_discovered_groups(
     pool: &PgPool,
     library: &Library,
     scan_job_id: i64,
-    mut groups: Vec<ScanDiscoveredGroup>,
+    mut group_receiver: mpsc::Receiver<QueuedScanGroup>,
+    total_items: i32,
     cancellation_flag: Arc<AtomicBool>,
     artwork_cache_dir: PathBuf,
     metadata_provider: Arc<dyn MetadataProvider>,
@@ -874,21 +876,22 @@ async fn enrich_discovered_groups(
         metadata_provider.clone(),
         library.metadata_language.clone(),
     );
-    let total_items = i32::try_from(groups.len()).unwrap_or(i32::MAX);
     let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
 
-    for (index, group) in groups.iter_mut().enumerate() {
+    while let Some(queued_group) = group_receiver.recv().await {
         if is_cancelled(&cancellation_flag) {
             break;
         }
 
-        let metadata_decision = resolve_group_metadata_lookup_type(
-            metadata_provider.as_ref(),
-            &library.metadata_language,
-            group,
-        )
-        .await;
-        let item_index = i32::try_from(index + 1).unwrap_or(i32::MAX);
+        let QueuedScanGroup {
+            mut group,
+            item_index,
+            total_items: queued_total_items,
+        } = queued_group;
+        let total_items = total_items.max(queued_total_items).max(item_index);
+
+        let metadata_decision =
+            resolve_group_metadata_lookup_type(metadata_provider.as_ref(), &group);
         if group.files.is_empty() {
             continue;
         }
@@ -904,7 +907,15 @@ async fn enrich_discovered_groups(
                     metadata_decision.remote_media_type,
                 );
             }
-            let group_outcome = sync_scan_group_media_entries(pool, library, group, true).await?;
+            let group_outcome = sync_scan_group_media_entries(
+                pool,
+                scan_job_id,
+                library,
+                &group,
+                mova_db::ScanGroupCommitStage::Remote,
+                true,
+            )
+            .await?;
             merge_sync_outcome(&mut sync_outcome, group_outcome);
             progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
                 scan_job_id,
@@ -915,6 +926,7 @@ async fn enrich_discovered_groups(
                 total_items,
                 ScanItemStage::Completed,
             )));
+            emit_current_scan_job_update(pool, scan_job_id, &progress_listener).await;
             continue;
         };
 
@@ -945,9 +957,7 @@ async fn enrich_discovered_groups(
             })
             .await;
 
-        let remote_media_type = metadata_decision
-            .remote_media_type
-            .or_else(|| remote_media_type_for_lookup_type(lookup_type));
+        let remote_media_type = metadata_decision.remote_media_type;
         if let Err(error) = enrichment_result {
             tracing::warn!(
                 library_id = library.id,
@@ -968,7 +978,15 @@ async fn enrich_discovered_groups(
                 );
             }
 
-            let group_outcome = sync_scan_group_media_entries(pool, library, group, true).await?;
+            let group_outcome = sync_scan_group_media_entries(
+                pool,
+                scan_job_id,
+                library,
+                &group,
+                mova_db::ScanGroupCommitStage::Remote,
+                true,
+            )
+            .await?;
             merge_sync_outcome(&mut sync_outcome, group_outcome);
             progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
                 scan_job_id,
@@ -979,11 +997,16 @@ async fn enrich_discovered_groups(
                 total_items,
                 ScanItemStage::Completed,
             )));
+            emit_current_scan_job_update(pool, scan_job_id, &progress_listener).await;
             continue;
         }
 
         for file in &mut group.files {
-            finalize_file_metadata_status(file, metadata_provider.is_enabled(), remote_media_type);
+            finalize_file_metadata_status(
+                file,
+                metadata_provider.is_enabled(),
+                remote_media_type_for_lookup_type(lookup_type),
+            );
         }
 
         if let Some(primary_file) = group.files.first() {
@@ -992,7 +1015,15 @@ async fn enrich_discovered_groups(
             }
         }
 
-        let group_outcome = sync_scan_group_media_entries(pool, library, group, true).await?;
+        let group_outcome = sync_scan_group_media_entries(
+            pool,
+            scan_job_id,
+            library,
+            &group,
+            mova_db::ScanGroupCommitStage::Remote,
+            true,
+        )
+        .await?;
         merge_sync_outcome(&mut sync_outcome, group_outcome);
         progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
             scan_job_id,
@@ -1003,6 +1034,7 @@ async fn enrich_discovered_groups(
             total_items,
             ScanItemStage::Completed,
         )));
+        emit_current_scan_job_update(pool, scan_job_id, &progress_listener).await;
     }
 
     Ok(sync_outcome)
@@ -1010,33 +1042,28 @@ async fn enrich_discovered_groups(
 
 async fn sync_scan_group_media_entries(
     pool: &PgPool,
+    scan_job_id: i64,
     library: &Library,
     group: &ScanDiscoveredGroup,
+    stage: mova_db::ScanGroupCommitStage,
     allow_artwork_clear: bool,
 ) -> ApplicationResult<mova_db::SyncLibraryMediaBestEffortOutcome> {
     let entries = build_media_entries(library, group.files.clone(), allow_artwork_clear)?;
-    let mut outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
+    let upserted_count = mova_db::upsert_library_media_entries_by_file_path(
+        pool,
+        scan_job_id,
+        library.id,
+        &group.presentation.item_key,
+        stage,
+        &entries,
+    )
+    .await
+    .map_err(ApplicationError::Unexpected)?;
 
-    for entry in entries {
-        match mova_db::upsert_library_media_entry_by_file_path(pool, library.id, &entry).await {
-            Ok(_) => {
-                outcome.upserted_count += 1;
-            }
-            Err(error) => {
-                outcome.failed_count += 1;
-                tracing::warn!(
-                    library_id = library.id,
-                    file_path = %entry.file_path,
-                    media_type = %entry.media_type,
-                    title = %entry.title,
-                    error = ?error,
-                    "scan group sync failed to upsert enriched media entry"
-                );
-            }
-        }
-    }
-
-    Ok(outcome)
+    Ok(mova_db::SyncLibraryMediaBestEffortOutcome {
+        upserted_count,
+        ..Default::default()
+    })
 }
 
 fn merge_sync_outcome(
@@ -1048,18 +1075,12 @@ fn merge_sync_outcome(
     target.failed_count += source.failed_count;
 }
 
-async fn resolve_group_metadata_lookup_type(
+fn resolve_group_metadata_lookup_type(
     metadata_provider: &dyn MetadataProvider,
-    metadata_language: &str,
     group: &ScanDiscoveredGroup,
 ) -> GroupMetadataLookupDecision {
     let presentation = &group.presentation;
     let local_lookup_type = scan_presentation_lookup_type(presentation);
-    let local_remote_kind = if local_lookup_type == "series" {
-        RemoteMediaKind::Series
-    } else {
-        RemoteMediaKind::Movie
-    };
 
     if !metadata_provider.is_enabled() {
         return GroupMetadataLookupDecision {
@@ -1074,68 +1095,9 @@ async fn resolve_group_metadata_lookup_type(
         return decision;
     }
 
-    let mut remote_type_mismatch = None;
-    let mut last_detection_error = None;
-    for lookup in metadata_detection_lookups(group, metadata_language) {
-        match metadata_provider.detect_media_type(&lookup).await {
-            Ok(Some(remote_match)) if remote_match.media_kind == local_remote_kind => {
-                return GroupMetadataLookupDecision {
-                    lookup_type: Some(local_lookup_type),
-                    metadata_status: METADATA_STATUS_PENDING,
-                    metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
-                    remote_media_type: remote_media_type_for_kind(remote_match.media_kind),
-                };
-            }
-            Ok(Some(remote_match)) => {
-                remote_type_mismatch.get_or_insert((lookup, remote_match));
-            }
-            Ok(None) => {}
-            Err(error) => {
-                last_detection_error = Some((lookup, error));
-            }
-        }
-    }
-
-    if let Some((lookup, remote_match)) = remote_type_mismatch {
-        tracing::info!(
-            title = %lookup.title,
-            year = lookup.year,
-            local_kind = ?local_remote_kind,
-            remote_kind = ?remote_match.media_kind,
-            provider_item_id = remote_match.provider_item_id,
-            "remote metadata type conflicts with local structure; keeping item for Other review"
-        );
-        return GroupMetadataLookupDecision {
-            lookup_type: None,
-            metadata_status: METADATA_STATUS_UNMATCHED,
-            metadata_failure_reason: Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH),
-            remote_media_type: remote_media_type_for_kind(remote_match.media_kind),
-        };
-    }
-
-    if let Some((lookup, error)) = last_detection_error {
-        tracing::warn!(
-            title = %lookup.title,
-            year = lookup.year,
-            error = ?error,
-            "failed to confirm remote media type; keeping item for Other review"
-        );
-        return GroupMetadataLookupDecision {
-            lookup_type: None,
-            metadata_status: METADATA_STATUS_FAILED,
-            metadata_failure_reason: Some(METADATA_FAILURE_REMOTE_DETECTION_FAILED),
-            remote_media_type: None,
-        };
-    }
-
-    tracing::info!(
-        title = %presentation.lookup_title,
-        year = presentation.year,
-        "remote metadata did not confirm the locally inferred media type; keeping item for Other review"
-    );
     GroupMetadataLookupDecision {
-        lookup_type: None,
-        metadata_status: METADATA_STATUS_UNMATCHED,
+        lookup_type: Some(local_lookup_type),
+        metadata_status: METADATA_STATUS_PENDING,
         metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
         remote_media_type: None,
     }
@@ -1153,27 +1115,12 @@ fn existing_bound_group_lookup_decision(
     }
 
     let local_lookup_type = scan_presentation_lookup_type(&group.presentation);
-    let local_remote_media_type = remote_media_type_for_lookup_type(local_lookup_type)?;
-    let existing_remote_media_type = group.files.iter().find_map(|file| {
-        file.remote_media_type
-            .as_deref()
-            .and_then(normalize_remote_media_type)
-    })?;
-
-    if !existing_remote_media_type.eq_ignore_ascii_case(local_remote_media_type) {
-        return Some(GroupMetadataLookupDecision {
-            lookup_type: None,
-            metadata_status: METADATA_STATUS_UNMATCHED,
-            metadata_failure_reason: Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH),
-            remote_media_type: Some(existing_remote_media_type),
-        });
-    }
 
     Some(GroupMetadataLookupDecision {
         lookup_type: Some(local_lookup_type),
         metadata_status: METADATA_STATUS_PENDING,
         metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
-        remote_media_type: Some(existing_remote_media_type),
+        remote_media_type: remote_media_type_for_lookup_type(local_lookup_type),
     })
 }
 
@@ -1185,117 +1132,26 @@ fn scan_presentation_lookup_type(presentation: &ScanPresentationGroup) -> &'stat
     }
 }
 
-fn remote_media_type_for_kind(kind: RemoteMediaKind) -> Option<&'static str> {
-    match kind {
-        RemoteMediaKind::Movie => Some(REMOTE_MEDIA_TYPE_MOVIE),
-        RemoteMediaKind::Series => Some(REMOTE_MEDIA_TYPE_SERIES),
-    }
-}
-
-fn normalize_remote_media_type(value: &str) -> Option<&'static str> {
-    if value.eq_ignore_ascii_case(REMOTE_MEDIA_TYPE_MOVIE) {
-        return Some(REMOTE_MEDIA_TYPE_MOVIE);
-    }
-
-    if value.eq_ignore_ascii_case(REMOTE_MEDIA_TYPE_SERIES) {
-        return Some(REMOTE_MEDIA_TYPE_SERIES);
-    }
-
-    None
-}
-
-fn metadata_detection_lookups(
-    group: &ScanDiscoveredGroup,
-    metadata_language: &str,
-) -> Vec<MetadataLookup> {
-    let presentation = &group.presentation;
-    let lookup_type = scan_presentation_lookup_type(presentation);
-    let mut lookups = Vec::new();
-    push_metadata_detection_lookup(
-        &mut lookups,
-        presentation.lookup_title.clone(),
-        presentation.year,
-        metadata_language,
-        lookup_type,
-    );
-
-    let normalized_lookup_title =
-        normalize_lookup_punctuation_candidate(&presentation.lookup_title);
-    if normalized_lookup_title != presentation.lookup_title {
-        push_metadata_detection_lookup(
-            &mut lookups,
-            normalized_lookup_title,
-            presentation.year,
-            metadata_language,
-            lookup_type,
-        );
-    }
-
-    if lookup_type == "movie" {
-        for file in &group.files {
-            if let Some(container_title) = localized_movie_container_title_for_path(&file.file_path)
-            {
-                push_metadata_detection_lookup(
-                    &mut lookups,
-                    container_title,
-                    presentation.year.or(file.year),
-                    metadata_language,
-                    lookup_type,
-                );
-            }
-        }
-    }
-
-    lookups
-}
-
-fn push_metadata_detection_lookup(
-    lookups: &mut Vec<MetadataLookup>,
-    title: String,
-    year: Option<i32>,
-    metadata_language: &str,
-    lookup_type: &str,
-) {
-    let title = title.trim().to_string();
-    if title.is_empty() {
-        return;
-    }
-
-    if lookups
-        .iter()
-        .any(|lookup| lookup.title.eq_ignore_ascii_case(&title) && lookup.year == year)
-    {
-        return;
-    }
-
-    lookups.push(MetadataLookup {
-        title,
-        year,
-        library_type: lookup_type.to_string(),
-        language: Some(metadata_language.to_string()),
-        provider_item_id: None,
-    });
-}
-
 fn finalize_file_metadata_status(
     file: &mut DiscoveredMediaFile,
     metadata_provider_enabled: bool,
     remote_media_type: Option<&'static str>,
 ) {
-    file.remote_media_type = remote_media_type.map(str::to_string);
-
     if !metadata_provider_enabled {
+        file.remote_media_type = None;
         file.metadata_status = Some(METADATA_STATUS_SKIPPED.to_string());
         file.metadata_failure_reason = Some(METADATA_FAILURE_PROVIDER_DISABLED.to_string());
         return;
     }
 
     if file.metadata_provider_item_id.is_some() {
+        file.remote_media_type = remote_media_type.map(str::to_string);
         file.metadata_status = Some(METADATA_STATUS_MATCHED.to_string());
         file.metadata_failure_reason = None;
         return;
     }
 
+    file.remote_media_type = None;
     file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
     file.metadata_failure_reason = Some(METADATA_FAILURE_NO_REMOTE_MATCH.to_string());
 }
@@ -1396,55 +1252,82 @@ async fn hydrate_incremental_scan_file_cached_tracks(
     pool: &PgPool,
     changed_files: &mut [IncrementalScanFile],
 ) {
-    for changed_file in changed_files {
-        let Some(existing_metadata) = changed_file.existing_metadata.as_ref() else {
-            continue;
-        };
+    let reusable_media_file_ids = changed_files
+        .iter()
+        .filter_map(|changed_file| {
+            let existing_metadata = changed_file.existing_metadata.as_ref()?;
+            let scan_hash = discovered_media_file_inventory_scan_hash(&changed_file.inventory);
 
-        let scan_hash = discovered_media_file_inventory_scan_hash(&changed_file.inventory);
-        if !can_reuse_cached_local_analysis(existing_metadata, scan_hash.as_str()) {
-            continue;
-        }
+            can_reuse_cached_local_analysis(existing_metadata, scan_hash.as_str())
+                .then_some(existing_metadata.media_file_id)
+        })
+        .collect::<Vec<_>>();
 
-        let media_file_id = existing_metadata.media_file_id;
-        let file_path = existing_metadata.file_path.clone();
+    if reusable_media_file_ids.is_empty() {
+        return;
+    }
+    let reusable_media_file_id_set = reusable_media_file_ids
+        .iter()
+        .copied()
+        .collect::<HashSet<_>>();
 
-        let audio_tracks =
-            match mova_db::list_audio_tracks_for_media_file(pool, media_file_id).await {
-                Ok(audio_tracks) => audio_tracks,
-                Err(error) => {
-                    tracing::warn!(
-                        media_file_id,
-                        file_path = %file_path,
-                        error = ?error,
-                        "failed to load cached audio tracks; falling back to fresh local analysis"
-                    );
-                    changed_file.existing_metadata = None;
-                    continue;
-                }
-            };
-
-        let subtitle_tracks = match mova_db::list_subtitle_files_for_media_file(pool, media_file_id)
-            .await
-        {
-            Ok(subtitle_tracks) => subtitle_tracks,
+    let audio_tracks =
+        match mova_db::list_audio_tracks_for_media_files(pool, &reusable_media_file_ids).await {
+            Ok(audio_tracks) => audio_tracks,
             Err(error) => {
                 tracing::warn!(
-                    media_file_id,
-                    file_path = %file_path,
+                    media_file_count = reusable_media_file_ids.len(),
                     error = ?error,
-                    "failed to load cached subtitle tracks; falling back to fresh local analysis"
+                    "failed to batch-load cached audio tracks; falling back to fresh local analysis"
                 );
-                changed_file.existing_metadata = None;
-                continue;
+                invalidate_reusable_local_analysis(changed_files, &reusable_media_file_id_set);
+                return;
             }
         };
+    let subtitle_tracks = match mova_db::list_subtitle_files_for_media_files(
+        pool,
+        &reusable_media_file_ids,
+    )
+    .await
+    {
+        Ok(subtitle_tracks) => subtitle_tracks,
+        Err(error) => {
+            tracing::warn!(
+                media_file_count = reusable_media_file_ids.len(),
+                error = ?error,
+                "failed to batch-load cached subtitle tracks; falling back to fresh local analysis"
+            );
+            invalidate_reusable_local_analysis(changed_files, &reusable_media_file_id_set);
+            return;
+        }
+    };
 
+    let mut audio_tracks_by_media_file = HashMap::new();
+    for track in audio_tracks {
+        audio_tracks_by_media_file
+            .entry(track.media_file_id)
+            .or_insert_with(Vec::new)
+            .push(track);
+    }
+    let mut subtitle_tracks_by_media_file = HashMap::new();
+    for subtitle in subtitle_tracks {
+        subtitle_tracks_by_media_file
+            .entry(subtitle.media_file_id)
+            .or_insert_with(Vec::new)
+            .push(subtitle);
+    }
+
+    for changed_file in changed_files {
         let Some(existing_metadata) = changed_file.existing_metadata.as_mut() else {
             continue;
         };
+        if !reusable_media_file_id_set.contains(&existing_metadata.media_file_id) {
+            continue;
+        }
 
-        existing_metadata.audio_tracks = audio_tracks
+        existing_metadata.audio_tracks = audio_tracks_by_media_file
+            .remove(&existing_metadata.media_file_id)
+            .unwrap_or_default()
             .into_iter()
             .map(|track| mova_db::CreateAudioTrackParams {
                 stream_index: track.stream_index,
@@ -1458,8 +1341,9 @@ async fn hydrate_incremental_scan_file_cached_tracks(
                 is_default: track.is_default,
             })
             .collect();
-
-        existing_metadata.subtitle_tracks = subtitle_tracks
+        existing_metadata.subtitle_tracks = subtitle_tracks_by_media_file
+            .remove(&existing_metadata.media_file_id)
+            .unwrap_or_default()
             .into_iter()
             .map(|subtitle| mova_db::CreateSubtitleTrackParams {
                 source_kind: subtitle.source_kind,
@@ -1473,6 +1357,21 @@ async fn hydrate_incremental_scan_file_cached_tracks(
                 is_hearing_impaired: subtitle.is_hearing_impaired,
             })
             .collect();
+    }
+}
+
+fn invalidate_reusable_local_analysis(
+    changed_files: &mut [IncrementalScanFile],
+    reusable_media_file_ids: &HashSet<i64>,
+) {
+    for changed_file in changed_files {
+        if changed_file
+            .existing_metadata
+            .as_ref()
+            .is_some_and(|metadata| reusable_media_file_ids.contains(&metadata.media_file_id))
+        {
+            changed_file.existing_metadata = None;
+        }
     }
 }
 
@@ -2347,18 +2246,6 @@ fn localized_series_container_title_for_path(file_path: &std::path::Path) -> Opt
     localized_title_from_container_directory(directory_title)
 }
 
-fn localized_movie_container_title_for_path(file_path: &std::path::Path) -> Option<String> {
-    let parent = file_path.parent()?;
-    let directory_title = parent.file_name()?.to_str()?;
-    let title = localized_title_from_container_directory(directory_title)?;
-
-    if !contains_cjk_character(&title) || is_generic_container_title(&title) {
-        return None;
-    }
-
-    Some(title)
-}
-
 fn localized_title_from_container_directory(directory_title: &str) -> Option<String> {
     let title = directory_title
         .replace(['.', '_', '-', '—', '–'], " ")
@@ -2368,23 +2255,6 @@ fn localized_title_from_container_directory(directory_title: &str) -> Option<Str
     let parsed_title = strip_year_from_localized_container_title(&title);
 
     (!parsed_title.trim().is_empty()).then_some(parsed_title)
-}
-
-fn is_generic_container_title(value: &str) -> bool {
-    matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "movie"
-            | "movies"
-            | "film"
-            | "films"
-            | "media"
-            | "video"
-            | "videos"
-            | "series"
-            | "shows"
-            | "tv"
-            | "tv shows"
-    ) || matches!(value.trim(), "电影" | "剧集" | "电视剧" | "动画" | "动漫")
 }
 
 fn strip_year_from_localized_container_title(value: &str) -> String {
@@ -2796,9 +2666,8 @@ fn scan_phase_label(phase: &str) -> &'static str {
     match phase {
         SCAN_PHASE_INITIALIZING => "Initialization failed",
         SCAN_PHASE_DISCOVERING => "Directory scan failed",
-        SCAN_PHASE_ANALYZING => "Local media analysis failed",
-        SCAN_PHASE_ENRICHING => "Metadata enrichment failed",
-        SCAN_PHASE_SYNCING => "Library write failed",
+        SCAN_PHASE_PROCESSING => "Media processing failed",
+        SCAN_PHASE_FINALIZING => "Library finalization failed",
         SCAN_PHASE_FINISHED => "Finalization failed",
         _ => "Scan job failed",
     }
@@ -2902,9 +2771,10 @@ fn build_scan_group_progress_update(
     stage: ScanItemStage,
 ) -> ScanJobItemProgressUpdate {
     let (stage_name, progress_percent) = match stage {
-        ScanItemStage::Discovered => (SCAN_ITEM_STAGE_DISCOVERED, 6),
-        ScanItemStage::Metadata => (SCAN_ITEM_STAGE_METADATA, 36),
-        ScanItemStage::Artwork => (SCAN_ITEM_STAGE_ARTWORK, 76),
+        ScanItemStage::Analyzed => (SCAN_ITEM_STAGE_ANALYZED, 30),
+        ScanItemStage::PendingCommitted => (SCAN_ITEM_STAGE_PENDING_COMMITTED, 40),
+        ScanItemStage::Metadata => (SCAN_ITEM_STAGE_METADATA, 60),
+        ScanItemStage::Artwork => (SCAN_ITEM_STAGE_ARTWORK, 85),
         ScanItemStage::Completed => (SCAN_ITEM_STAGE_COMPLETED, 100),
     };
     let artwork_preview_file = scan_progress_artwork_preview_file(stage, preview_file);
@@ -3019,9 +2889,10 @@ async fn emit_scan_job_phase(
     pool: &PgPool,
     scan_job_id: i64,
     phase: &str,
+    progress_percent: i32,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) {
-    match mova_db::update_scan_job_phase(pool, scan_job_id, phase).await {
+    match mova_db::update_scan_job_phase(pool, scan_job_id, phase, progress_percent).await {
         Ok(Some(scan_job)) => {
             event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
                 scan_job, phase,
@@ -3039,21 +2910,41 @@ async fn emit_scan_job_phase(
     }
 }
 
+async fn emit_current_scan_job_update(
+    pool: &PgPool,
+    scan_job_id: i64,
+    event_listener: &Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
+) {
+    match mova_db::get_scan_job(pool, scan_job_id).await {
+        Ok(Some(scan_job)) => {
+            event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
+                scan_job,
+                SCAN_PHASE_PROCESSING,
+            )));
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(
+                scan_job_id,
+                error = ?error,
+                "failed to load authoritative scan pipeline progress"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
         media_classification::{LIBRARY_TYPE_MIXED, LIBRARY_TYPE_SERIES},
-        metadata::{
-            MetadataLookup, MetadataProvider, RemoteMediaKind, RemoteMediaTypeMatch, RemoteMetadata,
-        },
+        metadata::{MetadataLookup, MetadataProvider, RemoteMetadata},
     };
     use async_trait::async_trait;
     use mova_db::ExistingMediaMetadataSummary;
     use mova_domain::{
-        Library, METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_REMOTE_TYPE_MISMATCH,
-        METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED, METADATA_STATUS_PENDING,
-        METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE,
-        REMOTE_MEDIA_TYPE_SERIES,
+        Library, METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED,
+        METADATA_STATUS_PENDING, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
+        REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
     };
     use mova_scan::{
         discovered_media_file_inventory_scan_hash, discovered_media_file_scan_hash,
@@ -3138,59 +3029,18 @@ mod tests {
     }
 
     #[derive(Debug, Clone)]
-    struct FixedDetectionProvider {
+    struct FixedMetadataProvider {
         enabled: bool,
-        detected: Option<RemoteMediaTypeMatch>,
     }
 
     #[async_trait]
-    impl MetadataProvider for FixedDetectionProvider {
+    impl MetadataProvider for FixedMetadataProvider {
         fn is_enabled(&self) -> bool {
             self.enabled
         }
 
         async fn lookup(&self, _lookup: &MetadataLookup) -> anyhow::Result<Option<RemoteMetadata>> {
             Ok(None)
-        }
-
-        async fn detect_media_type(
-            &self,
-            _lookup: &MetadataLookup,
-        ) -> anyhow::Result<Option<RemoteMediaTypeMatch>> {
-            Ok(self.detected.clone())
-        }
-    }
-
-    #[derive(Debug, Clone)]
-    struct TitleDetectionProvider {
-        enabled: bool,
-        movie_title: String,
-    }
-
-    #[async_trait]
-    impl MetadataProvider for TitleDetectionProvider {
-        fn is_enabled(&self) -> bool {
-            self.enabled
-        }
-
-        async fn lookup(&self, _lookup: &MetadataLookup) -> anyhow::Result<Option<RemoteMetadata>> {
-            Ok(None)
-        }
-
-        async fn detect_media_type(
-            &self,
-            lookup: &MetadataLookup,
-        ) -> anyhow::Result<Option<RemoteMediaTypeMatch>> {
-            if lookup.title != self.movie_title {
-                return Ok(None);
-            }
-
-            Ok(Some(RemoteMediaTypeMatch {
-                media_kind: RemoteMediaKind::Movie,
-                provider_item_id: 123_456,
-                title: self.movie_title.clone(),
-                year: lookup.year,
-            }))
         }
     }
 
@@ -3745,16 +3595,12 @@ mod tests {
             "Directory scan failed"
         );
         assert_eq!(
-            super::scan_phase_label(super::SCAN_PHASE_ANALYZING),
-            "Local media analysis failed"
+            super::scan_phase_label(super::SCAN_PHASE_PROCESSING),
+            "Media processing failed"
         );
         assert_eq!(
-            super::scan_phase_label(super::SCAN_PHASE_ENRICHING),
-            "Metadata enrichment failed"
-        );
-        assert_eq!(
-            super::scan_phase_label(super::SCAN_PHASE_SYNCING),
-            "Library write failed"
+            super::scan_phase_label(super::SCAN_PHASE_FINALIZING),
+            "Library finalization failed"
         );
     }
 
@@ -3835,7 +3681,7 @@ mod tests {
             None,
             1,
             3,
-            super::ScanItemStage::Discovered,
+            super::ScanItemStage::Analyzed,
         );
 
         assert_eq!(progress.scan_job_id, 41);
@@ -3844,8 +3690,8 @@ mod tests {
         assert_eq!(progress.title, "Arcane");
         assert_eq!(progress.season_number, None);
         assert_eq!(progress.episode_number, None);
-        assert_eq!(progress.stage, "discovered");
-        assert_eq!(progress.progress_percent, 6);
+        assert_eq!(progress.stage, "analyzed");
+        assert_eq!(progress.progress_percent, 30);
         assert_eq!(progress.item_index, 1);
         assert_eq!(progress.total_items, 3);
         assert_eq!(progress.item_key, "series-title:arcane");
@@ -4368,8 +4214,8 @@ mod tests {
             .any(|group| group.presentation.title == "How to Train Your Dragon"));
     }
 
-    #[tokio::test]
-    async fn resolve_group_metadata_lookup_type_accepts_remote_movie_match() {
+    #[test]
+    fn resolve_group_metadata_lookup_type_routes_files_without_episode_coordinates_to_movie() {
         let mut file = build_discovered_file();
         file.file_path = PathBuf::from("movies/Dune.2021.mkv");
         file.title = "Dune".to_string();
@@ -4381,21 +4227,12 @@ mod tests {
 
         let groups =
             super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
-        let provider = FixedDetectionProvider {
-            enabled: true,
-            detected: Some(RemoteMediaTypeMatch {
-                media_kind: RemoteMediaKind::Movie,
-                provider_item_id: 438631,
-                title: "Dune".to_string(),
-                year: Some(2021),
-            }),
-        };
+        let provider = FixedMetadataProvider { enabled: true };
 
-        let decision =
-            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
+        let decision = super::resolve_group_metadata_lookup_type(&provider, &groups[0]);
 
         assert_eq!(decision.lookup_type, Some("movie"));
-        assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
+        assert_eq!(decision.remote_media_type, None);
         assert_eq!(decision.metadata_status, METADATA_STATUS_PENDING);
         assert_eq!(
             decision.metadata_failure_reason,
@@ -4403,65 +4240,22 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn resolve_group_metadata_lookup_type_tries_ascii_punctuation_candidate() {
-        let mut file = build_discovered_file();
-        file.file_path =
-            PathBuf::from("movies/阿凡达.2025/Avatar： Fire and Ash (2025) - 1080p WEB-DL.mkv");
-        file.title = "Avatar： Fire and Ash".to_string();
-        file.source_title = "Avatar： Fire and Ash".to_string();
-        file.year = Some(2025);
-        file.season_number = None;
-        file.episode_number = None;
-        file.episode_title = None;
-
+    #[test]
+    fn resolve_group_metadata_lookup_type_routes_explicit_episode_coordinates_to_series() {
+        let file = build_discovered_file();
         let groups =
             super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
-        assert_eq!(groups[0].presentation.lookup_title, "Avatar： Fire and Ash");
-        let provider = TitleDetectionProvider {
-            enabled: true,
-            movie_title: "Avatar: Fire and Ash".to_string(),
-        };
+        let provider = FixedMetadataProvider { enabled: true };
 
-        let decision =
-            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
+        let decision = super::resolve_group_metadata_lookup_type(&provider, &groups[0]);
 
-        assert_eq!(decision.lookup_type, Some("movie"));
-        assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
+        assert_eq!(decision.lookup_type, Some("series"));
+        assert_eq!(decision.remote_media_type, None);
         assert_eq!(decision.metadata_status, METADATA_STATUS_PENDING);
     }
 
-    #[tokio::test]
-    async fn resolve_group_metadata_lookup_type_tries_cjk_movie_parent_candidate() {
-        let mut file = build_discovered_file();
-        file.file_path = PathBuf::from(
-            "movies/过家家/Unexpected Family (2026) - 2160p WEB-DL DV HQ H265 DTS 5.1.mkv",
-        );
-        file.title = "Unexpected Family".to_string();
-        file.source_title = "Unexpected Family".to_string();
-        file.year = Some(2026);
-        file.season_number = None;
-        file.episode_number = None;
-        file.episode_title = None;
-
-        let groups =
-            super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
-        assert_eq!(groups[0].presentation.lookup_title, "Unexpected Family");
-        let provider = TitleDetectionProvider {
-            enabled: true,
-            movie_title: "过家家".to_string(),
-        };
-
-        let decision =
-            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
-
-        assert_eq!(decision.lookup_type, Some("movie"));
-        assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
-        assert_eq!(decision.metadata_status, METADATA_STATUS_PENDING);
-    }
-
-    #[tokio::test]
-    async fn resolve_group_metadata_lookup_type_trusts_existing_movie_binding() {
+    #[test]
+    fn resolve_group_metadata_lookup_type_trusts_existing_movie_binding() {
         let mut file = build_discovered_file();
         file.file_path = PathBuf::from("movies/Unexpected Family (2026).mkv");
         file.title = "过家家".to_string();
@@ -4477,118 +4271,26 @@ mod tests {
 
         let groups =
             super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
-        let provider = FixedDetectionProvider {
-            enabled: true,
-            detected: None,
-        };
+        let provider = FixedMetadataProvider { enabled: true };
 
-        let decision =
-            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
+        let decision = super::resolve_group_metadata_lookup_type(&provider, &groups[0]);
 
         assert_eq!(decision.lookup_type, Some("movie"));
         assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
     }
 
-    #[tokio::test]
-    async fn resolve_group_metadata_lookup_type_rechecks_binding_without_remote_type() {
-        let mut file = build_discovered_file();
-        file.file_path = PathBuf::from("movies/Paradise.2025.mkv");
-        file.title = "Paradise".to_string();
-        file.source_title = "Paradise".to_string();
-        file.year = Some(2025);
-        file.season_number = None;
-        file.episode_number = None;
-        file.episode_title = None;
-        file.metadata_provider = Some(super::TMDB_PROVIDER_NAME.to_string());
-        file.metadata_provider_item_id = Some(112470);
-        file.remote_media_type = None;
-
-        let groups =
-            super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
-        let provider = FixedDetectionProvider {
-            enabled: true,
-            detected: Some(RemoteMediaTypeMatch {
-                media_kind: RemoteMediaKind::Series,
-                provider_item_id: 112470,
-                title: "Paradise".to_string(),
-                year: Some(2025),
-            }),
-        };
-
-        let decision =
-            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
-
-        assert_eq!(decision.lookup_type, None);
-        assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_SERIES));
-        assert_eq!(decision.metadata_status, METADATA_STATUS_UNMATCHED);
-        assert_eq!(
-            decision.metadata_failure_reason,
-            Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH)
-        );
-    }
-
-    #[tokio::test]
-    async fn resolve_group_metadata_lookup_type_rejects_remote_series_for_movie_structure() {
-        let mut file = build_discovered_file();
-        file.file_path = PathBuf::from("tv/Paradise.2025.mkv");
-        file.title = "Paradise".to_string();
-        file.source_title = "Paradise".to_string();
-        file.year = Some(2025);
-        file.season_number = None;
-        file.episode_number = None;
-        file.episode_title = None;
-
-        let groups =
-            super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
-        let provider = FixedDetectionProvider {
-            enabled: true,
-            detected: Some(RemoteMediaTypeMatch {
-                media_kind: RemoteMediaKind::Series,
-                provider_item_id: 112470,
-                title: "Paradise".to_string(),
-                year: Some(2025),
-            }),
-        };
-
-        let decision =
-            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
-
-        assert_eq!(decision.lookup_type, None);
-        assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_SERIES));
-        assert_eq!(decision.metadata_status, METADATA_STATUS_UNMATCHED);
-        assert_eq!(
-            decision.metadata_failure_reason,
-            Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH)
-        );
-    }
-
-    #[tokio::test]
-    async fn resolve_group_metadata_lookup_type_rejects_remote_movie_for_series_structure() {
+    #[test]
+    fn resolve_group_metadata_lookup_type_skips_tmdb_when_provider_is_disabled() {
         let file = build_discovered_file();
         let groups =
             super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
-        assert_eq!(groups[0].presentation.media_type, "series");
+        let provider = FixedMetadataProvider { enabled: false };
 
-        let provider = FixedDetectionProvider {
-            enabled: true,
-            detected: Some(RemoteMediaTypeMatch {
-                media_kind: RemoteMediaKind::Movie,
-                provider_item_id: 550,
-                title: "Arcane".to_string(),
-                year: Some(2021),
-            }),
-        };
+        let decision = super::resolve_group_metadata_lookup_type(&provider, &groups[0]);
 
-        let decision =
-            super::resolve_group_metadata_lookup_type(&provider, "zh-CN", &groups[0]).await;
-
-        assert_eq!(decision.lookup_type, None);
-        assert_eq!(decision.remote_media_type, Some(REMOTE_MEDIA_TYPE_MOVIE));
-        assert_eq!(decision.metadata_status, METADATA_STATUS_UNMATCHED);
-        assert_eq!(
-            decision.metadata_failure_reason,
-            Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH)
-        );
+        assert_eq!(decision.lookup_type, Some("series"));
+        assert_eq!(decision.metadata_status, METADATA_STATUS_SKIPPED);
+        assert_eq!(decision.remote_media_type, None);
     }
 
     #[test]
@@ -4605,8 +4307,8 @@ mod tests {
         super::clear_remote_metadata_for_review(
             &mut file,
             METADATA_STATUS_UNMATCHED,
-            Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH),
-            Some(REMOTE_MEDIA_TYPE_SERIES),
+            Some(METADATA_FAILURE_NO_REMOTE_MATCH),
+            None,
         );
 
         assert_eq!(file.title, "Local File Title");
@@ -4618,12 +4320,9 @@ mod tests {
         );
         assert_eq!(
             file.metadata_failure_reason.as_deref(),
-            Some(METADATA_FAILURE_REMOTE_TYPE_MISMATCH)
+            Some(METADATA_FAILURE_NO_REMOTE_MATCH)
         );
-        assert_eq!(
-            file.remote_media_type.as_deref(),
-            Some(REMOTE_MEDIA_TYPE_SERIES)
-        );
+        assert_eq!(file.remote_media_type, None);
         assert_eq!(file.original_title, None);
         assert_eq!(file.poster_path, None);
         assert_eq!(file.backdrop_path, None);
@@ -4772,24 +4471,28 @@ mod tests {
     }
 }
 
-async fn finalize_failed_scan(
+async fn record_failed_scan_attempt(
     pool: &PgPool,
     scan_job_id: i64,
     total_files: i32,
     scanned_files: i32,
     error_message: &str,
-) -> Option<ScanJob> {
-    mova_db::finalize_scan_job(
+) {
+    if let Err(error) = mova_db::record_scan_job_attempt_failure(
         pool,
         scan_job_id,
-        "failed",
         total_files,
         scanned_files,
-        Some(error_message),
+        error_message,
     )
     .await
-    .ok()
-    .flatten()
+    {
+        tracing::warn!(
+            scan_job_id,
+            error = ?error,
+            "failed to persist scan attempt failure context"
+        );
+    }
 }
 
 async fn finalize_cancelled_scan(

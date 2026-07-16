@@ -23,8 +23,8 @@ pub struct EnqueueScanJobResult {
 pub async fn create_scan_job(pool: &PgPool, params: CreateScanJobParams) -> Result<ScanJob> {
     let row = sqlx::query(
         r#"
-        insert into scan_jobs (library_id, status, total_files, scanned_files)
-        values ($1, 'pending', 0, 0)
+        insert into scan_jobs (library_id, status, total_files, scanned_files, progress_percent)
+        values ($1, 'pending', 0, 0, 0)
         returning
             id,
             library_id,
@@ -32,6 +32,10 @@ pub async fn create_scan_job(pool: &PgPool, params: CreateScanJobParams) -> Resu
             phase,
             total_files,
             scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
             created_at,
             started_at,
             finished_at,
@@ -76,8 +80,8 @@ pub async fn enqueue_scan_job(
 
     let row = sqlx::query(
         r#"
-        insert into scan_jobs (library_id, status, total_files, scanned_files)
-        values ($1, 'pending', 0, 0)
+        insert into scan_jobs (library_id, status, total_files, scanned_files, progress_percent)
+        values ($1, 'pending', 0, 0, 0)
         returning
             id,
             library_id,
@@ -85,6 +89,10 @@ pub async fn enqueue_scan_job(
             phase,
             total_files,
             scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
             created_at,
             started_at,
             finished_at,
@@ -138,7 +146,8 @@ pub async fn mark_scan_job_running(pool: &PgPool, scan_job_id: i64) -> Result<Op
         r#"
         update scan_jobs
         set status = 'running',
-            phase = 'initializing',
+            phase = 'discovering',
+            progress_percent = greatest(progress_percent, 1),
             started_at = coalesce(started_at, now()),
             finished_at = null,
             error_message = null
@@ -150,6 +159,10 @@ pub async fn mark_scan_job_running(pool: &PgPool, scan_job_id: i64) -> Result<Op
             phase,
             total_files,
             scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
             created_at,
             started_at,
             finished_at,
@@ -185,6 +198,10 @@ pub async fn update_scan_job_progress(
             phase,
             total_files,
             scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
             created_at,
             started_at,
             finished_at,
@@ -206,11 +223,13 @@ pub async fn update_scan_job_phase(
     pool: &PgPool,
     scan_job_id: i64,
     phase: &str,
+    progress_percent: i32,
 ) -> Result<Option<ScanJob>> {
     let row = sqlx::query(
         r#"
         update scan_jobs
-        set phase = $2
+        set phase = $2,
+            progress_percent = greatest(progress_percent, least(99, greatest(0, $3)))
         where id = $1
         returning
             id,
@@ -219,6 +238,10 @@ pub async fn update_scan_job_phase(
             phase,
             total_files,
             scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
             created_at,
             started_at,
             finished_at,
@@ -227,9 +250,95 @@ pub async fn update_scan_job_phase(
     )
     .bind(scan_job_id)
     .bind(phase)
+    .bind(progress_percent)
     .fetch_optional(pool)
     .await
     .context("failed to update scan job phase")?;
+
+    Ok(row.map(map_scan_job_row))
+}
+
+/// 记录一次可重试扫描尝试的失败上下文，不把父任务提前写成终态。
+pub async fn record_scan_job_attempt_failure(
+    pool: &PgPool,
+    scan_job_id: i64,
+    total_files: i32,
+    scanned_files: i32,
+    error_message: &str,
+) -> Result<Option<ScanJob>> {
+    let row = sqlx::query(
+        r#"
+        update scan_jobs
+        set total_files = greatest(total_files, $2),
+            scanned_files = greatest(scanned_files, $3),
+            error_message = $4
+        where id = $1
+          and status in ('pending', 'running')
+        returning
+            id,
+            library_id,
+            status,
+            phase,
+            total_files,
+            scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
+            created_at,
+            started_at,
+            finished_at,
+            error_message
+        "#,
+    )
+    .bind(scan_job_id)
+    .bind(total_files.max(0))
+    .bind(scanned_files.max(0))
+    .bind(error_message)
+    .fetch_optional(pool)
+    .await
+    .context("failed to record scan job attempt failure")?;
+
+    Ok(row.map(map_scan_job_row))
+}
+
+/// 后台任务仍有重试额度时，把父扫描任务恢复为可见的 pending 状态。
+pub async fn mark_scan_job_retry_pending(
+    pool: &PgPool,
+    scan_job_id: i64,
+    error_message: &str,
+) -> Result<Option<ScanJob>> {
+    let row = sqlx::query(
+        r#"
+        update scan_jobs
+        set status = 'pending',
+            phase = null,
+            finished_at = null,
+            error_message = $2
+        where id = $1
+          and status in ('pending', 'running')
+        returning
+            id,
+            library_id,
+            status,
+            phase,
+            total_files,
+            scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
+            created_at,
+            started_at,
+            finished_at,
+            error_message
+        "#,
+    )
+    .bind(scan_job_id)
+    .bind(error_message)
+    .fetch_optional(pool)
+    .await
+    .context("failed to mark scan job as pending for retry")?;
 
     Ok(row.map(map_scan_job_row))
 }
@@ -251,6 +360,7 @@ pub async fn finalize_scan_job(
             phase = 'finished',
             total_files = $3,
             scanned_files = $4,
+            progress_percent = case when $2 = 'success' then 100 else progress_percent end,
             finished_at = now(),
             error_message = $5
         where id = $1
@@ -261,6 +371,10 @@ pub async fn finalize_scan_job(
             phase,
             total_files,
             scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
             created_at,
             started_at,
             finished_at,
@@ -290,6 +404,10 @@ pub async fn list_scan_jobs_for_library(pool: &PgPool, library_id: i64) -> Resul
             phase,
             total_files,
             scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
             created_at,
             started_at,
             finished_at,
@@ -321,6 +439,10 @@ pub async fn get_latest_scan_job_for_library(
             phase,
             total_files,
             scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
             created_at,
             started_at,
             finished_at,
@@ -350,6 +472,10 @@ pub async fn get_scan_job(pool: &PgPool, scan_job_id: i64) -> Result<Option<Scan
             phase,
             total_files,
             scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
             created_at,
             started_at,
             finished_at,
@@ -379,6 +505,10 @@ async fn get_active_scan_job_for_library_tx(
             phase,
             total_files,
             scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
             created_at,
             started_at,
             finished_at,
@@ -398,6 +528,175 @@ async fn get_active_scan_job_for_library_tx(
     Ok(row.map(map_scan_job_row))
 }
 
+/// 在文件树和浅层分组完成后建立本轮流水处理基线。
+/// 未进入待处理集合的文件视为三个阶段都已完成；重试同一任务时会清空旧组检查点后重新规划。
+pub async fn initialize_scan_job_work(
+    pool: &PgPool,
+    scan_job_id: i64,
+    total_files: i32,
+    pending_files: i32,
+) -> Result<Option<ScanJob>> {
+    let total_files = total_files.max(0);
+    let pending_files = pending_files.clamp(0, total_files);
+    let completed_files = total_files.saturating_sub(pending_files);
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start scan work initialization transaction")?;
+
+    sqlx::query("delete from scan_job_groups where scan_job_id = $1")
+        .bind(scan_job_id)
+        .execute(&mut *tx)
+        .await
+        .context("failed to reset scan group checkpoints")?;
+
+    let row = sqlx::query(
+        r#"
+        update scan_jobs
+        set phase = 'processing',
+            total_files = $2,
+            scanned_files = $2,
+            local_analyzed_files = $3,
+            local_committed_files = $3,
+            remote_completed_files = $3,
+            progress_percent = greatest(
+                progress_percent,
+                case
+                    when $2 = 0 then 10
+                    else least(99, floor(
+                        10
+                        + 20.0 * $3 / $2
+                        + 20.0 * $3 / $2
+                        + 49.0 * $3 / $2
+                    )::integer)
+                end
+            )
+        where id = $1
+        returning
+            id,
+            library_id,
+            status,
+            phase,
+            total_files,
+            scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
+            created_at,
+            started_at,
+            finished_at,
+            error_message
+        "#,
+    )
+    .bind(scan_job_id)
+    .bind(total_files)
+    .bind(completed_files)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("failed to initialize authoritative scan work counters")?;
+
+    tx.commit()
+        .await
+        .context("failed to commit scan work initialization transaction")?;
+
+    Ok(row.map(map_scan_job_row))
+}
+
+/// 幂等记录一个扫描组已经完成完整本地分析，并推进任务级权威进度。
+/// pending 媒体数据尚未提交，因此这个检查点只写扫描工作状态，不写正式媒体表。
+pub async fn mark_scan_group_analyzed(
+    pool: &PgPool,
+    scan_job_id: i64,
+    group_key: &str,
+    file_count: i32,
+) -> Result<Option<ScanJob>> {
+    let file_count = file_count.max(1);
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start analyzed scan group transaction")?;
+    let transitioned_file_count = sqlx::query_scalar::<_, i32>(
+        r#"
+        insert into scan_job_groups (
+            scan_job_id,
+            group_key,
+            file_count,
+            local_analyzed,
+            local_committed,
+            remote_completed
+        )
+        values ($1, $2, $3, true, false, false)
+        on conflict (scan_job_id, group_key) do update
+            set file_count = excluded.file_count,
+                local_analyzed = true,
+                updated_at = now()
+        where not scan_job_groups.local_analyzed
+        returning file_count
+        "#,
+    )
+    .bind(scan_job_id)
+    .bind(group_key)
+    .bind(file_count)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("failed to checkpoint analyzed scan group")?
+    .unwrap_or(0);
+
+    let row = sqlx::query(
+        r#"
+        update scan_jobs
+        set phase = 'processing',
+            local_analyzed_files = least(
+                total_files,
+                local_analyzed_files + $2
+            ),
+            progress_percent = greatest(
+                progress_percent,
+                case
+                    when total_files = 0 then 10
+                    else least(99, floor(
+                        10
+                        + 20.0 * least(
+                            total_files,
+                            local_analyzed_files + $2
+                        ) / total_files
+                        + 20.0 * local_committed_files / total_files
+                        + 49.0 * remote_completed_files / total_files
+                    )::integer)
+                end
+            )
+        where id = $1
+        returning
+            id,
+            library_id,
+            status,
+            phase,
+            total_files,
+            scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
+            created_at,
+            started_at,
+            finished_at,
+            error_message
+        "#,
+    )
+    .bind(scan_job_id)
+    .bind(transitioned_file_count)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("failed to advance analyzed scan work counter")?;
+
+    tx.commit()
+        .await
+        .context("failed to commit analyzed scan group transaction")?;
+
+    Ok(row.map(map_scan_job_row))
+}
+
 fn map_scan_job_row(row: PgRow) -> ScanJob {
     ScanJob {
         id: row.get("id"),
@@ -406,6 +705,10 @@ fn map_scan_job_row(row: PgRow) -> ScanJob {
         phase: row.get("phase"),
         total_files: row.get("total_files"),
         scanned_files: row.get("scanned_files"),
+        local_analyzed_files: row.get("local_analyzed_files"),
+        local_committed_files: row.get("local_committed_files"),
+        remote_completed_files: row.get("remote_completed_files"),
+        progress_percent: row.get("progress_percent"),
         created_at: row.get("created_at"),
         started_at: row.get("started_at"),
         finished_at: row.get("finished_at"),

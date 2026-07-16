@@ -9,6 +9,22 @@
   background: var(--body-background);
 }
 
+.app-shell__state {
+  min-height: 100dvh;
+  padding: clamp(24px, 5vw, 64px);
+}
+
+.app-shell__state > .empty-panel,
+.app-shell__state > .callout {
+  align-self: start;
+}
+
+.app-shell__global-callout {
+  z-index: 3;
+  width: auto;
+  margin: clamp(20px, 3vw, 36px) clamp(18px, 3vw, 36px) 0;
+}
+
 .content {
   position: relative;
   width: 100%;

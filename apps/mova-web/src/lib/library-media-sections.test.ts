@@ -127,7 +127,7 @@ describe('library-media-sections', () => {
       getLibraryScanSection({
         media_type: 'movie',
         metadata_status: 'unmatched',
-        stage: 'discovered',
+        stage: 'analyzed',
       }),
     ).toBe('movies')
     expect(

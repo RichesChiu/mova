@@ -76,7 +76,7 @@ Mova 的实时同步分成两条职责不同的链路：
 - `protocol_version`：当前为 `1`。客户端遇到不支持的版本时不得猜测事件含义，应停止消费并提示升级。
 - `server_epoch`：当前数据库生命周期标识。服务重启不会改变；数据库重建会改变。
 - `resources`：当前用户可见资源的最新 revision。尚未变化过的资源返回 `0`。
-- `active_scans`：当前仍为 `pending` 或 `running` 的扫描任务，只恢复任务级状态，不回放历史条目进度。
+- `active_scans`：当前仍为 `pending` 或 `running` 的扫描任务，包含持久化的任务级 `progress_percent`，不回放历史条目进度。
 
 ### 2.3 `GET /api/home` 中的 realtime 基线
 
@@ -127,7 +127,7 @@ Mova 的实时同步分成两条职责不同的链路：
 | 事件 | 是否携带最终业务数据 | 是否允许丢失 | 典型用途 |
 | --- | --- | --- | --- |
 | `resources.changed` | 否，只携带资源键和 revision | 通知可丢，revision 不丢 | 定向调用业务 API 刷新数据 |
-| `scan.progress` | 否，携带临时扫描展示数据 | 是 | 实时展示扫描任务和扫描卡片 |
+| `scan.progress` | 否，携带临时扫描展示数据 | 普通批次可丢；local checkpoint 不因进程内队列饱和丢弃 | 实时展示扫描任务和扫描卡片，并在本地阶段结束时触发一次正式目录刷新 |
 | `scan.finished` | 否，携带扫描终态和最后一批临时条目 | Dispatcher 输入端不因饱和丢弃；仍需 revision 恢复兜底 | 立即显示终态，刷新正式目录后移除临时卡片 |
 | `resync.required` | 否 | 连接随后关闭 | 要求客户端重新读取 realtime state |
 | `session.invalidated` | 否 | 连接随后关闭 | 停止使用旧权限并重新建立登录态 |
@@ -136,8 +136,8 @@ Mova 的实时同步分成两条职责不同的链路：
 
 ### 5.1 触发流程
 
-1. 业务表 mutation 触发数据库 trigger。
-2. trigger 在同一事务中增加 `realtime_revisions.revision`。
+1. 普通业务 mutation 触发数据库 trigger；扫描组事务会临时关闭逐行 catalog trigger，并在组末显式 bump 一次。
+2. trigger 或扫描组显式调用在同一业务事务中增加 `realtime_revisions.revision`。
 3. trigger 调用 `pg_notify('mova_realtime', resource_key)`。
 4. 事务提交后，当前服务实例的 PostgreSQL Listener 收到通知。
 5. `RealtimeDispatcher` 按资源键去重并读取数据库中的最新 revision。
@@ -202,16 +202,22 @@ data: {
 
 - 扫描任务启动或 phase 改变。
 - 文件发现数量达到服务端节流阈值。
-- 一个扫描组完成本地分析并以 `metadata_status = pending` 写入数据库。
+- 一个扫描组完成本地分析，`local_analyzed_files` 检查点已经持久化。
+- 一个扫描组以 `metadata_status = pending` 完成短事务提交，`local_committed_files` 已推进。
+- 本轮存在待处理组且全部本地组完成 pending 提交，产生一次带 catalog/scan revisions 的可靠本地检查点。
 - 一个扫描组进入 metadata 请求阶段。
 - 一个扫描组进入 artwork 请求阶段。
 - 一个扫描组完成最终入库。
 
-Dispatcher 按扫描任务合并，最多每 200ms 发送一批：
+Dispatcher 按扫描任务合并，普通进度最多每 200ms 发送一批：
 
 - `scan_job` 只保留最新任务状态。
 - 相同 `(scan_job_id, item_key)` 只保留最新条目状态。
 - Dispatcher 输入队列饱和时，普通临时进度允许丢弃。
+- 本地检查点和 `scan.finished` 进入独立的稀疏可靠 FIFO，保持先后顺序并立即发送，不与普通临时进度争抢队列容量。
+- 两个输入队列上的扫描事件共享单调序号。发送终态后，Dispatcher 保留 60 秒的终态序号屏障，只忽略序号小于或等于终态的晚到普通事件；后台重试产生的新事件序号更大，可以重新激活同一个 scan job。
+
+这里的“可靠”只表示当前进程内不会因普通 Dispatcher 队列饱和而丢弃或乱序。它不是磁盘消息队列；服务进程退出后，客户端仍通过 catalog/scan revisions 和 realtime state 恢复，不要求回放检查点。
 
 ### 6.2 Payload
 
@@ -223,9 +229,13 @@ data: {
     "id": 41,
     "library_id": 7,
     "status": "running",
-    "phase": "enriching",
+    "phase": "processing",
     "total_files": 240,
-    "scanned_files": 52,
+    "scanned_files": 240,
+    "local_analyzed_files": 52,
+    "local_committed_files": 48,
+    "remote_completed_files": 20,
+    "progress_percent": 22,
     "created_at": "2026-07-14T00:00:00Z",
     "started_at": "2026-07-14T00:00:01Z",
     "finished_at": null,
@@ -249,35 +259,50 @@ data: {
       "item_index": 52,
       "total_items": 240,
       "stage": "artwork",
-      "progress_percent": 76
+      "progress_percent": 85
     }
   ]
 }
 ```
 
-扫描任务 phase：
+扫描任务 phase（尚未被 worker 领取的 `pending` 任务为 `null`）：
 
-- `initializing`
 - `discovering`
-- `analyzing`
-- `enriching`
-- `syncing`
+- `processing`
+- `finalizing`
 - `finished`
+
+任务级 `scan_job.progress_percent` 是服务端持久化的权威值，并在数据库层保证单调不回退：
+
+| 任务状态 / phase | 权威进度 | 服务端完成条件 |
+| --- | ---: | --- |
+| 首次 `pending` | 0 | 任务已入队，尚未被 worker 领取 |
+| 重试 `pending` | 保留最后值 | 本次执行失败但后台任务仍有重试额度；`error_message` 保留本次失败上下文，下一次领取后继续单调推进 |
+| `running / discovering` | 1 | worker 已领取任务并开始发现文件 |
+| `running / processing` | 10～99 | local 与 remote worker 有界重叠，按物理文件权重推进分析、pending 提交和远端终态计数 |
+| `running / finalizing` | 99 | 所有远端组已终结，正在收敛缺失路径和最终任务状态 |
+| `success / finished` | 100 | 所有最终数据库更新完成，任务成功终结 |
+| `failed / finished` | 保留最后值 | 任务失败或取消，不伪装成已完成 |
+
+任务进度表示本轮扫描工作是否处理完毕，不表示 TMDB 匹配成功率。文件树、增量计划和浅层分组全部完成后为 10，再使用 `floor(10 + 20×local_analyzed/total + 20×local_committed/total + 49×remote_completed/total)`；运行中最大为 99。local 与 remote 可以同时增加，因此不保证单独显示 50。最终写成 `unmatched`、`failed` 或 `skipped` 的条目也已经完成本轮处理，因此会计入任务进度；条目自己的 metadata 状态仍用于表达匹配结果。
 
 扫描条目 stage 与当前展示百分比：
 
 | stage | 当前百分比 | 含义 |
 | --- | ---: | --- |
-| `discovered` | 6 | 已识别本地结构并写入初步数据 |
-| `metadata` | 36 | 正在获取或判断远端元数据 |
-| `artwork` | 76 | 正在获取海报、背景图等资源 |
+| `analyzed` | 30 | 当前组完成 sidecar、`ffprobe` 和技术信息分析 |
+| `pending_committed` | 40 | 当前组 pending 短事务已经提交，可以进入 remote worker |
+| `metadata` | 60 | 正在获取或判断远端元数据 |
+| `artwork` | 85 | 正在获取海报、背景图等资源 |
 | `completed` | 100 | 该组最终数据已经写入数据库 |
 
-百分比是 UI 展示提示，不是可以恢复的任务进度账本。客户端不得根据缺失的中间百分比判断扫描失败。
+条目表中的百分比只是单个条目的 UI 阶段提示，不是任务进度账本。客户端不得用 `items[].progress_percent`、phase、文件数、条目序号或收到的事件数量重新计算任务进度。
 
 ### 6.3 客户端使用规则
 
 - 按 `library_id` 保存当前扫描运行时。
+- 任务进度直接使用 `scan_job.progress_percent`；SSE 丢失时，从 `/api/realtime/state`、扫描任务查询接口或媒体库的 `last_scan` 恢复同一个持久化值。
+- 扫描活跃期间收到普通 catalog revision 时只记录最高 requested revision，不立即反复刷新正式目录；首次连接/重连允许追平一次，本地检查点携带 `changes` 时强制刷新一次 pending 目录，终态再刷新一次。
 - 按 `item_key` latest-wins 合并条目。
 - 新的 `scan_job.id` 出现时，丢弃该库旧任务的临时条目。
 - `poster_path` 和 `backdrop_path` 只用于临时展示，正式卡片仍以业务 API 返回值为准。
@@ -288,7 +313,7 @@ data: {
 
 ### 7.1 触发条件
 
-扫描任务进入终态后立即触发，包括成功、失败和取消后写入的终态。
+扫描任务进入终态后立即触发，包括成功、重试额度耗尽后的失败，以及取消后写入的终态。一次执行失败但后台任务仍有重试额度时，只把父扫描任务恢复为 `pending` 并通过 `scan.progress` / `library:{id}:scan` revision 暴露状态，不发送 `scan.finished`。
 
 服务端会：
 
@@ -299,7 +324,7 @@ data: {
 5. 如果 revision 查询暂时失败，仍发送终态事件，但 `changes` 为空，客户端转入 state reconcile。
 6. 不等待 200ms 扫描进度窗口。
 
-Dispatcher 输入队列已满时，终态事件会等待队列容量，不按普通进度丢弃。
+终态事件使用和本地检查点相同的独立可靠 FIFO，不按普通进度丢弃，也不会在 Dispatcher 饱和时与检查点乱序。Dispatcher 使用共享单调序号屏蔽终态前已经排队的晚到普通事件；后续合法重试使用更大的序号，因此不会被旧终态屏障误拦截。
 
 ### 7.2 客户端使用规则
 
@@ -315,7 +340,11 @@ data: {
     "status": "success",
     "phase": "finished",
     "total_files": 240,
-    "scanned_files": 240
+    "scanned_files": 240,
+    "local_analyzed_files": 240,
+    "local_committed_files": 240,
+    "remote_completed_files": 240,
+    "progress_percent": 100
   },
   "items": [],
   "changes": [
@@ -445,6 +474,7 @@ SSE 消息按以下范围过滤：
 | 项目 | 当前值 |
 | --- | ---: |
 | Dispatcher command queue | 2048 |
+| 可靠扫描控制通道 | 独立 unbounded FIFO；只接收每次扫描最多一个 local checkpoint 和一个 finished，不接收条目进度 |
 | 每个 SSE scope broadcast queue | 32 个批次 |
 | 普通资源合并窗口 | 500ms |
 | 继续观看合并窗口 | 1s |
@@ -456,7 +486,8 @@ SSE 消息按以下范围过滤：
 - 资源键使用集合去重。
 - 扫描条目使用 `item_key` latest-wins。
 - 普通扫描进度在 Dispatcher 饱和时允许丢弃。
-- 扫描终态等待队列容量。
+- 本地检查点和扫描终态走独立 FIFO，并保持 checkpoint 在 finished 之前。
+- Dispatcher 发送 finished 后会保留 60 秒终态屏障，忽略普通队列中该任务迟到的 running/item 进度；屏障定期清理，不随历史任务无限增长。
 - 慢客户端不无限积压，直接要求 state resync。
 - JSON 在发送前序列化一次，同权限范围订阅者共享序列化结果。
 - Hub 按 public/admin/library/user scope 分发，不做全连接扇出后再过滤。
@@ -476,7 +507,7 @@ SSE 消息按以下范围过滤：
 ### 13.2 当前限制
 
 1. `scan.progress` / `scan.finished` 当前通过产生扫描任务的进程内 Hub 发送；多 API/worker 实例部署时，连接到另一个实例的客户端可能看不到临时扫描进度，但最终 catalog/scan revision 仍可恢复。
-2. catalog revision 当前由行级 trigger 增加，大批量扫描会多次更新同一个 aggregate revision；SSE 合并不能消除数据库侧的 revision 写放大。
+2. 扫描组已经把逐行 catalog trigger 延迟到事务末尾并显式 bump 一次，但 local pending 与 remote 最终提交仍会各产生一个 revision。Web 会在活跃扫描期间合并这些失效；未实现同样策略的客户端仍可能造成查询放大。
 3. 每个客户端仍必须完整实现资源到业务读模型的映射；映射缺失会造成局部页面保持旧缓存。Web 已将映射集中到独立模块并建立覆盖测试，原生客户端应采用同样的集中式 Revision Coordinator。
 
 ## 14. 架构审查与建议演进
@@ -501,10 +532,13 @@ SSE 消息按以下范围过滤：
 7. Realtime state、首页 baseline 和业务事件统一采用首个开发协议版本 `1`，不保留未发布格式的兼容分支。
 8. SSE Hub 改为 public/admin/library/user 分域广播，避免用户级事件对全部连接产生 O(在线连接数) 的无效唤醒。
 9. `library:{id}:scan` 在任务入队和持久化状态变化时递增，其他已连接客户端不需要等待第一条临时进度即可发现 pending scan。
+10. 扫描组事务在组末只增加一次 catalog revision；普通扫描进度可丢，全部 local pending 提交后的检查点和 `scan.finished` 则立即携带 revisions。
+11. Web 在活跃扫描期间保留普通 catalog 的最高 requested revision，不逐组回查；本地检查点和终态分别强制刷新一次。
+12. 扫描检查点与终态使用独立的稀疏可靠 FIFO 和共享单调序号；失败尝试有剩余重试额度时不再提前发送 `scan.finished`，只有最终成功、取消或重试耗尽才进入终态。
 
 ### 14.3 数据库 revision 写放大
 
-在大库或并行 worker 增多前，把 catalog revision 从“每一行 trigger 都 bump”改成“每个业务事务每个 aggregate 最多 bump 一次”。可以保留数据库事务原子性，但应避免同一文件 upsert 同时更新多个表时反复锁定同一 revision 行。
+扫描写入已经按“每个组事务每个 catalog aggregate 最多 bump 一次”落实，并保持业务数据与 revision 的事务原子性。后续新增非扫描批量写仓储时应复用同样边界；如果将来要把整个扫描压缩成更少 revision，应只调整通知和客户端刷新频率，不能牺牲每个已提交组可恢复的可靠版本状态。
 
 ### 14.4 多实例临时进度
 

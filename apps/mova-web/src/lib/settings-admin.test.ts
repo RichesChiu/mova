@@ -41,6 +41,10 @@ const scanJob: ScanJob = {
   phase: 'discovering',
   total_files: 20,
   scanned_files: 6,
+  local_analyzed_files: 4,
+  local_committed_files: 3,
+  remote_completed_files: 1,
+  progress_percent: 18,
   created_at: '2026-04-08T00:00:00Z',
   started_at: '2026-04-08T00:00:05Z',
   finished_at: null,
@@ -153,6 +157,7 @@ describe('settings admin helpers', () => {
         status: 'success',
         phase: 'finished',
         scanned_files: 20,
+        progress_percent: 100,
         finished_at: '2026-04-08T10:10:00Z',
       },
     }

@@ -60,7 +60,7 @@
   - `404 Not Found`：资源不存在
   - `416 Range Not Satisfiable`：媒体流的 `Range` 请求越界
   - `500 Internal Server Error`：服务内部错误
-- TMDB provider 现在从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取；但每个媒体库仍可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。
+- TMDB provider 现在从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取；但每个媒体库仍可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。服务端当前实际调用的 TMDB endpoint、严格候选规则和下一轮字段覆盖目标见 [`TMDB.md`](TMDB.md)。
 - 如果额外配置了可选的 `MOVA_OMDB_API_KEY`，服务端会在已拿到 `imdb_id` 的前提下补齐 `imdb_rating`；不配置时该字段保持为空，不影响扫描、入库和播放。
 - 本地海报和背景图这类图片资源，对外返回的 URL 现在会带版本参数（例如 `/api/media-items/42/poster?v=1704164645`），浏览器可以长期缓存；当媒体元数据更新时，版本参数会变化，前端会自动拿到新图。
 - 当前 pre-1.0 阶段的数据库 schema 只维护 `migrations/0001_init.sql`；本版已删除 `libraries.is_enabled`，会保存扫描本地分析版本、原生客户端 access/refresh token 设备会话，并用 `playback_progress` 保存逐文件进度、用有上限的 `continue_watching` 保存当前活跃队列。后台扫描通过 PostgreSQL `background_jobs` 持久化，资源版本通过 `realtime_revisions` 持久化；TMDB / provider 返回的标题、国家、题材、制作公司、演员角色等自由文本字段按 `text` 存储。已有开发库需要重建数据库 / 重置数据目录并重新扫描媒体库，旧 migration 不会被平滑升级。
@@ -382,7 +382,7 @@ Realtime 的资源 revision、事件触发条件、完整 payload、跨 Web/macO
 说明：
 - `server_epoch` 在当前数据库生命周期内保持稳定；数据库重建后会变化。客户端发现 epoch 变化时应丢弃本地 revision 基线并重新同步。
 - `resources` 只包含当前用户有权访问的资源；尚未变化过的资源 revision 为 `0`。
-- `active_scans` 返回当前仍为 `pending` 或 `running` 的扫描任务。扫描 `phase` 会持久化，不依赖 SSE 临时状态恢复。
+- `active_scans` 返回当前仍为 `pending` 或 `running` 的扫描任务。扫描 `phase` 和任务级 `progress_percent` 都会持久化，不依赖 SSE 临时状态恢复。
 
 ### `GET /api/realtime/events`
 
@@ -395,7 +395,7 @@ Realtime 的资源 revision、事件触发条件、完整 payload、跨 Web/macO
 - 服务端只推送连接建立之后的新事件，不回放历史；客户端重连后必须先调用 `GET /api/realtime/state` 做 revision 差异同步。
 - 资源变更由数据库事务同步增加 `realtime_revisions`，即使 SSE 丢失或服务重启，revision 仍可恢复。
 - 普通资源最多每 500ms 合并一批；继续观看默认最多每 1 秒合并一批，标记已看完会立即通知。
-- 扫描进度按 `(scan_job_id, item_key)` latest-wins 合并，最多每 200ms 发送一批；普通进度在 Dispatcher 饱和时允许丢弃，`scan.finished` 作为终态事件会等待队列容量并立即发送。
+- 扫描进度按 `(scan_job_id, item_key)` latest-wins 合并，最多每 200ms 发送一批；普通进度在 Dispatcher 饱和时允许丢弃，本地检查点和 `scan.finished` 使用独立的稀疏可靠 FIFO 立即发送，并通过共享单调序号避免终态前的晚到普通事件覆盖终态。
 - SSE 最后一跳按 server/admin/library/user scope 使用独立有界队列。连接只订阅与自己有关的 scope，无关用户或媒体库的高频事件不会唤醒该连接。客户端在相关队列中明显落后时，服务端发送一次 `resync.required` 后关闭连接，客户端应重新获取 state 并重连。
 - 权限变化或会话撤销会发送 `session.invalidated` 并关闭当前连接。
 
@@ -426,9 +426,13 @@ data: {
     "id": 41,
     "library_id": 7,
     "status": "running",
-    "phase": "enriching",
+    "phase": "processing",
     "total_files": 240,
-    "scanned_files": 52
+    "scanned_files": 240,
+    "local_analyzed_files": 52,
+    "local_committed_files": 48,
+    "remote_completed_files": 20,
+    "progress_percent": 22
   },
   "items": [
     {
@@ -440,16 +444,19 @@ data: {
       "item_index": 52,
       "total_items": 240,
       "stage": "artwork",
-      "progress_percent": 76
+      "progress_percent": 85
     }
   ]
 }
 ```
 
-- `scan.progress` 是可丢失的临时 UI 状态，同一 `item_key` 只保留最新值。
+- 普通 `scan.progress` 是可丢失的临时 UI 状态，同一 `item_key` 只保留最新值；本轮存在待处理组且全部本地组已经提交时，会立即发送一个带 `changes` 的可靠检查点，不等待 200ms 防抖且不会因 Dispatcher 饱和而丢弃。
+- `scan_job.progress_percent` 是服务端持久化并单调推进的任务级权威进度；客户端直接显示该字段，不得根据 phase、文件数或条目阶段重新计算。
+- 扫描期间普通 `library:{id}:catalog` revision 只记录最高版本，不应触发每组一次的正式目录刷新；本地检查点强制刷新一次 pending 目录，`scan.finished` 再按最终 revision 刷新一次。
 - `scan.finished` 在相同任务和条目字段之外增加 `changes`，其中包含当前可读取到的 `library:{id}:catalog` 与 `library:{id}:scan` revision。客户端把这些 change 交给统一 Revision Coordinator，刷新成功后再移除临时扫描卡片；不再为终态事件单独实现一套 catalog 刷新路径。
-- 扫描 phase 使用 `initializing` / `discovering` / `analyzing` / `enriching` / `syncing` / `finished`。
-- 条目 stage 使用 `discovered` / `metadata` / `artwork` / `completed`。
+- 后台执行失败但仍有重试额度时，任务恢复为 `pending`、保留权威进度和本次 `error_message`，不发送 `scan.finished`；只有成功、取消或重试耗尽后的最终失败才发送终态事件。
+- 扫描 phase 使用 `discovering` / `processing` / `finalizing` / `finished`；尚未被 worker 领取的 `pending` 任务 phase 为 `null`。`processing` 表示 local 与 remote worker 正在有界重叠运行。
+- 条目 stage 使用 `analyzed` / `pending_committed` / `metadata` / `artwork` / `completed`，当前展示百分比分别为 30 / 40 / 60 / 85 / 100；它们只用于单组动画。
 
 #### 恢复与会话事件
 
@@ -770,6 +777,8 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 说明：
 - 创建媒体库后会自动触发一次后台扫描；后续仍可显式调用 `POST /api/libraries/{id}/scan`
 - 媒体库不再提供启用/禁用状态；已创建的库始终可以被手动扫描
+- 本轮扫描重构没有删除或新增面向 Web、macOS、iOS 的 Mova HTTP 路由；`GET /api/media-items/{id}/metadata-search` 和 `POST /api/media-items/{id}/metadata-match` 等手动匹配接口保持不变。删减的是服务端内部 `MetadataProvider::detect_media_type()` 以及自动扫描中的 movie/TV 双查链路
+- 自动扫描不再产生 `remote_type_mismatch` 和 `remote_detection_failed`；远端没有严格候选统一收敛为 `no_remote_match`，provider 请求失败使用 `metadata_provider_error`。客户端不应再声明或判断这两个旧失败原因
 - 当前允许重叠或完全相同的 `root_path`。同一个物理文件如果被多个库路径覆盖，会在各自库里独立建模和展示。
 - 媒体库现在统一自动识别电影和剧集，不再要求用户选择库类型。扫描时会按单个视频文件判断：
   - 文件名里命中 `剧名.S01E02.mkv`、`剧名 S01E02 - 第 2 集.mkv`、`剧名 - S01E02.mkv`、`剧名_S01E02.mkv`、`剧名-S01E02.mkv`、`剧名.1x02.mkv`、`剧名S01E02.mkv` 这类显式剧名和季集信号时，优先按文件名里的剧名归组
@@ -777,9 +786,9 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
   - 剧集文件名里的年份只作为元数据匹配提示，不作为剧集身份键；例如 `The Boys (2019) - S01E01.mkv` 和 `The Boys (2020) - S02E01.mkv` 会自动聚合到同一剧集
   - `第 1 集`、`Episode 1` 这类跟在季集号后的通用集数文案不会当作远端集标题，远端集标题仍可在刮削成功后覆盖
   - 文件名只有 `S01E02.mkv`、`01.mkv`、`EP02.mkv`、`第03集.mkv` 这类季集或集号时，不再结合目录信号归组
-  - 本地猜测为电影或剧集的扫描组都会同时参考 TMDB movie / tv 搜索结果；当两种远端候选都存在时优先验证本地结构对应的类型，只有对应类型不存在合格候选时才判定类型冲突
-  - 本地剧集结构只搜到同名电影、或本地电影猜测只搜到同名剧集时，不跨类型改写；文件会以 `metadata_status = unmatched`、`metadata_failure_reason = remote_type_mismatch` 和实际远端 `remote_media_type` 入库，并进入前端 `Other` 复核区
-  - 本地分析完成、远端确认尚未完成时使用 `metadata_status = pending`，前端按本地猜测类型展示；远端完全未命中、类型冲突或检测失败只会在 `stage = completed` 后进入 `Other`
+  - 完整季集坐标只调用 TMDB TV search；其它文件只调用 movie search。对应类型没有严格候选时直接完成为未匹配，不查询另一类型兜底
+  - 自动匹配不再计算标题/年份分数：标准化名称必须与本地化标题、原始标题或经 alternative titles 验证的别名完全相等；本地有年份时年份必须完全相同且不执行无年份重试；本地无年份时在结果不超过 20 页时遍历全部页并选择完整日期唯一最新者，查询过宽则不自动匹配
+  - 本地分析完成、远端确认尚未完成时使用 `metadata_status = pending`，前端按本地结构展示；远端没有严格命中时在 `stage = completed` 后以 `metadata_failure_reason = no_remote_match` 进入 `Other`
   - 如果没有启用 TMDB，文件完成时会以 `metadata_status = skipped` 入库；这种情况不视为刮削失败，但由于没有远端类型确认，完成后进入 `Other`
 
 ### `GET /api/libraries/{id}`
@@ -805,7 +814,8 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - `description`：媒体库描述，可为空
 - `media_count`：当前库中的媒体数量
 - `last_scan`：最近一次扫描摘要，没有时为 `null`
-- `last_scan.phase`：持久化的最近扫描阶段，当前使用 `initializing` / `discovering` / `analyzing` / `enriching` / `syncing` / `finished`；服务重启后仍可通过 HTTP 恢复
+- `last_scan.phase`：持久化的最近扫描阶段，当前使用 `discovering` / `processing` / `finalizing` / `finished`，尚未被 worker 领取的 `pending` 任务为 `null`；服务重启后仍可通过 HTTP 恢复
+- `last_scan.progress_percent`：与扫描任务接口和 SSE 相同的服务端任务级权威进度；客户端从任意入口恢复后都直接使用该值
 
 ### `DELETE /api/libraries/{id}`
 
@@ -901,7 +911,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 
 说明：
 - 列表当前返回顶层媒体条目，也就是电影和剧；剧集的单集不会直接出现在这个列表里
-- `items[]` 使用 `MediaItemResponse`，会返回 `metadata_status` / `metadata_failure_reason` / `remote_media_type`；`pending` 条目按本地 `media_type` 进入 Movies / Series。完成后只有 `remote_media_type` 为空、或远端类型与本地结构冲突的条目进入 `Other`；远端类型已确认且一致的失败条目仍留在对应类型分区
+- `items[]` 使用 `MediaItemResponse`，会返回 `metadata_status` / `metadata_failure_reason` / `remote_media_type`；`pending` 条目按本地 `media_type` 进入 Movies / Series。严格匹配成功后 `remote_media_type` 与唯一查询类型一致；`skipped` / `unmatched` / `failed` 且没有远端确认的条目进入 `Other`
 - 默认按名称升序返回
 - 当前只支持名称筛选和发行年筛选，尚未支持更多排序和筛选组合
 
@@ -943,15 +953,23 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 
 关键字段：
 - `status`：`pending` / `running` / `success` / `failed`
-- `phase`：持久化的当前扫描阶段，使用 `initializing` / `discovering` / `analyzing` / `enriching` / `syncing` / `finished`
+- `phase`：持久化的当前扫描阶段，使用 `discovering` / `processing` / `finalizing` / `finished`；尚未被 worker 领取或正在等待后台重试的 `pending` 任务为 `null`
 - `scanned_files`：当前已发现文件数
 - `total_files`：当前已知总文件数
+- `local_analyzed_files`：已完成完整本地分析并通过扫描组检查点持久化的物理文件数；此时 pending 媒体事务可能尚未提交
+- `local_committed_files`：已通过组级短事务写入 pending 数据的物理文件数
+- `remote_completed_files`：已完成 TMDB/图片处理并写入远端业务终态的物理文件数
+- `progress_percent`：服务端持久化的任务级权威进度，使用 `floor(10 + 20×analyzed/total + 20×committed/total + 49×remote/total)`，范围为 0～100 且不会回退；运行中最大 99，只有任务成功写入终态时为 100。local 与 remote 有界重叠，因此不保证单独显示 50
 - `error_message`：失败原因；现在会直接带阶段上下文，例如：
-  - `扫描目录阶段失败：扫描文件目录失败：无法读取媒体库目录 /media/movies：...`
-  - `元数据补全阶段失败：整理媒体条目失败：...`
-  - `写入媒体库阶段失败：写入媒体库失败：...`
+  - `Directory scan failed: Failed to scan media directory /media/movies: ...`
+  - `Media processing failed: Failed to process scan pipeline: ...`
+  - `Library finalization failed: Failed to save changed library data`
+
+等待重试的 `pending` 任务也会暂存最近一次执行的 `error_message` 和最后权威进度，但它还不是终态；下一次 worker 领取时会清除该错误并继续执行。重试额度耗尽后才写入 `failed / finished`。
 
 ### `POST /api/libraries/{id}/scan`
+
+扫描工作流、名称拆分、分组、事务和 TMDB 调用的当前实现与剩余目标见 [`SCAN_PIPELINE.md`](SCAN_PIPELINE.md)。
 
 作用：
 - 为指定媒体库创建异步扫描任务
@@ -972,7 +990,11 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - 当前库如果已经有 `pending` 或 `running` 任务，不会重复启动第二个扫描
 - 扫描请求会和 PostgreSQL `background_jobs` 后台任务在同一事务内持久化；服务重启后 worker 会重新领取未完成任务，不再把所有中断任务直接标记失败。客户端可以通过 `/api/libraries/{id}/scan-jobs/{scan_job_id}` 查询，也可以通过 realtime state 和临时扫描事件展示进度
 - 当前扫描会按 `(library_id, file_path)` 做增量同步：同路径文件原地更新，缺失路径删除，改名或移动会表现成旧路径删除加新路径新增
-- 已经成功匹配的路径会先按文件大小和修改时间生成稳定指纹；同路径指纹一致、本地分析版本一致、且已有 TMDB 绑定时会跳过拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存和数据库 upsert，只保留现有数据。新增、变化或本地分析版本过期的路径会先做浅层文件名聚合，再按扫描组逐个完整探测、写库并推送。`unmatched` / `failed`、缺少 TMDB provider 绑定、旧状态是 `skipped` 但当前已启用 TMDB、按前端 Other 规则需要复核、或仍保存远端图片 URL 的条目仍会在后续手动扫描中重试；如果这些条目的文件指纹和本地分析版本未变化，服务端仍用当前文件名 / 路径做浅层聚合，再复用已入库的本地分析结果，仅重试 TMDB 和图片缓存。电影补全拿到相同 TMDB `provider_item_id` 后会合并为同一个 `media_item`，详情页通过资源版本切换展示多个本地文件。自动候选选择保持保守；更宽松的候选复核交给手动搜索 / 替换元数据。如果当前没有启用 metadata provider，`skipped` 条目也可按指纹和本地分析版本跳过
+- `discovering` 会依次完成文件树、增量计划和浅层分组，三者都成功后才进入 `processing` 并建立 10% 的任务进度基线
+- 已经成功匹配的路径会先按文件大小和修改时间生成稳定指纹；同路径指纹一致、本地分析版本一致、且已有 TMDB 绑定时会跳过拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存和数据库 upsert，只保留现有数据。新增、变化或本地分析版本过期的路径会先做浅层文件名聚合，再按扫描组逐个完整探测、写库并推送。`unmatched` / `failed`、缺少 TMDB provider 绑定、旧状态是 `skipped` 但当前已启用 TMDB、按前端 Other 规则需要复核、或仍保存远端图片 URL 的条目仍会在后续手动扫描中重试；如果这些条目的文件指纹和本地分析版本未变化，服务端仍用当前文件名 / 路径做浅层聚合，并通过一次媒体摘要查询、一次批量音轨查询和一次批量字幕查询恢复本地分析，仅重试 TMDB 和图片缓存。电影补全拿到相同 TMDB `provider_item_id` 后会合并为同一个 `media_item`，详情页通过资源版本切换展示多个本地文件。自动 TMDB 候选使用单类型严格匹配，规则见 [`TMDB.md`](TMDB.md)；更宽泛的候选复核交给手动搜索 / 替换元数据。如果当前没有启用 metadata provider，`skipped` 条目也可按指纹和本地分析版本跳过
+- 同一扫描组的本地 pending 写入和远端最终写入各使用一个短事务；组内任一媒体文件写入失败时整组回滚，每个事务只执行一次孤儿季集结构清理
+- local worker 与 remote worker 通过容量为 2 的有界通道形成流水线：组 A 的 pending 事务提交后即可进入 TMDB/图片处理，同时 local worker 继续分析组 B；不再等待全部本地组完成后才开始远端处理
+- 每个本地或远端组事务通过事务内会话标记关闭逐行 catalog trigger，并在组末显式增加一次 `library:{id}:catalog` revision；不会因为同一组更新 media item、file、season、episode 多张表而重复发送逐行 revision
 - 现在只有手动扫描会驱动这套库存对齐与元数据补全链路；新增、删除、改名和移动都会在手动扫描时收敛出来
 
 ### `GET /api/search`
@@ -1035,7 +1057,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - `source_title`：文件名解析出的原始资源名，主要用于后续元数据匹配和问题排查，不建议直接作为前端展示名
 - `metadata_provider` / `metadata_provider_item_id`：远端 metadata 绑定信息，只表达当前条目是否绑定到具体 TMDB 条目，不再用于判断 `Other`
 - `metadata_status`：元数据处理状态，当前会使用 `pending` / `matched` / `unmatched` / `failed` / `skipped`；`pending` 只表示扫描中的远端确认中间态
-- `metadata_failure_reason`：当 `metadata_status` 为 `unmatched` 或 `failed` 时解释原因，例如 `no_remote_match`、`remote_type_mismatch`、`remote_detection_failed`、`metadata_provider_error`
+- `metadata_failure_reason`：当 `metadata_status` 为 `unmatched` 或 `failed` 时解释原因，当前使用 `no_remote_match` 或 `metadata_provider_error`；`ambiguous_remote_match` 将在后续状态模型收口时加入
 - `remote_media_type`：远端识别到的媒体类型，当前会使用 `movie` / `series`；没有远端判断或 TMDB 未启用时可为 `null`
 - `imdb_rating`：可选的 IMDb 评分字符串；只有在配置了 `MOVA_OMDB_API_KEY` 且当前条目能解析到 `imdb_id` 时才会有值
 - `country`：可选的国家/地区信息；电影会优先使用 TMDB 的 production countries，剧集会优先使用 TMDB 的 origin country；服务端按自由文本存储，不做 255 字符截断

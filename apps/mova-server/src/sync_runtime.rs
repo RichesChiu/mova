@@ -1,5 +1,5 @@
 use crate::state::{AppState, RegisterScanError};
-use mova_application::{ExecuteScanJobOutcome, ScanJobEvent};
+use mova_application::{ExecuteScanJobOutcome, ScanJobEvent, ScanJobProgressUpdate};
 use serde::Deserialize;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::watch;
@@ -88,20 +88,65 @@ async fn run_background_worker(state: AppState, worker_id: String) {
                             error = ?error,
                             "background job execution failed"
                         );
-                        if status == "failed" {
-                            if let Some(scan_job_id) = job.related_scan_job_id {
-                                if let Ok(Some(scan_job)) =
-                                    mova_db::get_scan_job(&state.db, scan_job_id).await
+                        if let Some(scan_job_id) = job.related_scan_job_id {
+                            if status == "pending" {
+                                match mova_db::mark_scan_job_retry_pending(
+                                    &state.db,
+                                    scan_job_id,
+                                    &error_message,
+                                )
+                                .await
                                 {
-                                    let _ = mova_db::finalize_scan_job(
-                                        &state.db,
+                                    Ok(Some(scan_job)) => {
+                                        state.realtime_dispatcher.publish_scan_event(
+                                            ScanJobEvent::Updated(ScanJobProgressUpdate {
+                                                scan_job,
+                                                phase: None,
+                                            }),
+                                        )
+                                    }
+                                    Ok(None) => {}
+                                    Err(update_error) => tracing::warn!(
                                         scan_job_id,
-                                        "failed",
-                                        scan_job.total_files,
-                                        scan_job.scanned_files,
-                                        Some(&error_message),
-                                    )
-                                    .await;
+                                        error = ?update_error,
+                                        "failed to mark scan job as pending for retry"
+                                    ),
+                                }
+                            } else if status == "failed" {
+                                match mova_db::get_scan_job(&state.db, scan_job_id).await {
+                                    Ok(Some(scan_job)) => {
+                                        match mova_db::finalize_scan_job(
+                                            &state.db,
+                                            scan_job_id,
+                                            "failed",
+                                            scan_job.total_files,
+                                            scan_job.scanned_files,
+                                            Some(&error_message),
+                                        )
+                                        .await
+                                        {
+                                            Ok(Some(scan_job)) => {
+                                                state.realtime_dispatcher.publish_scan_event(
+                                                    ScanJobEvent::Finished(ScanJobProgressUpdate {
+                                                        scan_job,
+                                                        phase: Some("finished".to_string()),
+                                                    }),
+                                                )
+                                            }
+                                            Ok(None) => {}
+                                            Err(update_error) => tracing::warn!(
+                                                scan_job_id,
+                                                error = ?update_error,
+                                                "failed to finalize exhausted scan job"
+                                            ),
+                                        }
+                                    }
+                                    Ok(None) => {}
+                                    Err(update_error) => tracing::warn!(
+                                        scan_job_id,
+                                        error = ?update_error,
+                                        "failed to load exhausted scan job"
+                                    ),
                                 }
                             }
                         }

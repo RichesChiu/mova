@@ -49,9 +49,13 @@ const scanJob = {
   id: 88,
   library_id: 7,
   status: 'running',
-  phase: 'enriching',
+  phase: 'processing',
   total_files: 40,
   scanned_files: 12,
+  local_analyzed_files: 12,
+  local_committed_files: 10,
+  remote_completed_files: 4,
+  progress_percent: 58,
   created_at: '2026-07-14T00:00:00Z',
   started_at: '2026-07-14T00:00:01Z',
   finished_at: null,
@@ -135,6 +139,10 @@ describe('useServerEvents revision protocol', () => {
 
   it('refreshes only the changed catalog resource and ignores duplicate revisions', async () => {
     const queryClient = createTestQueryClient()
+    clientMocks.getRealtimeState.mockResolvedValue({
+      ...baselineState,
+      active_scans: [],
+    })
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined)
     renderHook(queryClient, '/media-items/31')
     const source = FakeEventSource.instances[0]
@@ -172,6 +180,42 @@ describe('useServerEvents revision protocol', () => {
     source.emit('resources.changed', payload)
     await new Promise((resolve) => window.setTimeout(resolve, 10))
     expect(invalidateSpy).toHaveBeenCalledTimes(firstRefreshCallCount)
+  })
+
+  it('defers catalog refresh during an active scan until the local checkpoint arrives', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue(undefined)
+    renderHook(queryClient, '/libraries/7')
+    const source = FakeEventSource.instances[0]
+    source.emit('open')
+    await waitFor(() => expect(clientMocks.getRealtimeState).toHaveBeenCalled())
+    invalidateSpy.mockClear()
+
+    source.emit('resources.changed', {
+      protocol_version: 1,
+      changes: [{ resource: 'library:7:catalog', revision: 11 }],
+    })
+    await new Promise((resolve) => window.setTimeout(resolve, 20))
+    expect(invalidateSpy).not.toHaveBeenCalled()
+
+    source.emit('scan.progress', {
+      protocol_version: 1,
+      scan_job: {
+        ...scanJob,
+        local_analyzed_files: 40,
+        local_committed_files: 40,
+        progress_percent: 50,
+      },
+      items: [],
+      changes: [{ resource: 'library:7:catalog', revision: 11 }],
+    })
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith(
+        { queryKey: ['library-media', 7] },
+        { throwOnError: true },
+      ),
+    )
   })
 
   it('refreshes loaded read models before accepting the initial state revisions', async () => {
@@ -290,14 +334,14 @@ describe('useServerEvents revision protocol', () => {
           item_index: 1,
           total_items: 3,
           stage: 'artwork',
-          progress_percent: 76,
+          progress_percent: 85,
         },
       ],
     })
 
     await waitFor(() => {
       expect(screen.getByTestId('scan-runtime')).toHaveTextContent('Arcane')
-      expect(screen.getByTestId('scan-runtime')).toHaveTextContent('76')
+      expect(screen.getByTestId('scan-runtime')).toHaveTextContent('85')
     })
   })
 
@@ -323,6 +367,7 @@ describe('useServerEvents revision protocol', () => {
         status: 'success',
         phase: 'finished',
         scanned_files: 40,
+        progress_percent: 100,
         finished_at: '2026-07-14T00:00:30Z',
       },
       items: [completedScanItem],

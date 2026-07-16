@@ -42,7 +42,11 @@ const isScanJob = (value: unknown): value is ScanJob =>
   typeof value.status === 'string' &&
   (typeof value.phase === 'string' || value.phase === null || value.phase === undefined) &&
   typeof value.total_files === 'number' &&
-  typeof value.scanned_files === 'number'
+  typeof value.scanned_files === 'number' &&
+  typeof value.local_analyzed_files === 'number' &&
+  typeof value.local_committed_files === 'number' &&
+  typeof value.remote_completed_files === 'number' &&
+  typeof value.progress_percent === 'number'
 
 const isScanRuntimeItem = (value: unknown): value is ScanRuntimeItem =>
   isRecord(value) &&
@@ -177,6 +181,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
   const appliedRevisionsRef = useRef(new Map<string, number>())
   const requestedRevisionsRef = useRef(new Map<string, number>())
   const inFlightResourcesRef = useRef(new Set<string>())
+  const forcedResourceRefreshesRef = useRef(new Set<string>())
   const activeScanLibraryIdsRef = useRef(new Set<number>())
   const [scanRuntimeByLibrary, setScanRuntimeByLibrary] = useState<ScanRuntimeByLibrary>({})
 
@@ -187,6 +192,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       appliedRevisionsRef.current.clear()
       requestedRevisionsRef.current.clear()
       inFlightResourcesRef.current.clear()
+      forcedResourceRefreshesRef.current.clear()
       activeScanLibraryIdsRef.current.clear()
       return
     }
@@ -272,26 +278,39 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       resourceWaiters.clear()
     }
 
-    const queueResourceRefresh = (resource: string, revision: number, schedule = true) => {
+    const shouldDeferResourceRefresh = (resource: string) => {
+      const library = parseLibraryRealtimeResource(resource)
+      return library?.kind === 'catalog' && activeScanLibraryIdsRef.current.has(library.id)
+    }
+
+    const queueResourceRefresh = (
+      resource: string,
+      revision: number,
+      schedule = true,
+      force = false,
+    ) => {
       if (revision <= (appliedRevisionsRef.current.get(resource) ?? 0)) {
         return
+      }
+      if (force) {
+        forcedResourceRefreshesRef.current.add(resource)
       }
       requestedRevisionsRef.current.set(
         resource,
         Math.max(revision, requestedRevisionsRef.current.get(resource) ?? 0),
       )
-      if (schedule) {
+      if (schedule && (force || !shouldDeferResourceRefresh(resource))) {
         scheduleResourceRefresh()
       }
     }
 
-    const waitForResourceChanges = (changes: ResourceChange[]) => {
+    const waitForResourceChanges = (changes: ResourceChange[], force = false) => {
       if (changes.length === 0) {
         return Promise.resolve()
       }
 
       const waits = changes.map((change) => {
-        queueResourceRefresh(change.resource, change.revision)
+        queueResourceRefresh(change.resource, change.revision, true, force)
         if (change.revision <= (appliedRevisionsRef.current.get(change.resource) ?? 0)) {
           return Promise.resolve()
         }
@@ -311,7 +330,9 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         .filter(
           ([resource, revision]) =>
             revision > (appliedRevisionsRef.current.get(resource) ?? 0) &&
-            !inFlightResourcesRef.current.has(resource),
+            !inFlightResourcesRef.current.has(resource) &&
+            (!shouldDeferResourceRefresh(resource) ||
+              forcedResourceRefreshesRef.current.has(resource)),
         )
         .map(([resource]) => resource)
 
@@ -334,6 +355,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         }
         for (const [resource, revision] of targetRevisions) {
           appliedRevisionsRef.current.set(resource, revision)
+          forcedResourceRefreshesRef.current.delete(resource)
           resourceRefreshAttempts.delete(resource)
           resolveResourceWaiters(resource)
         }
@@ -380,7 +402,10 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       if (
         refreshSucceeded &&
         [...requestedRevisionsRef.current.entries()].some(
-          ([resource, revision]) => revision > (appliedRevisionsRef.current.get(resource) ?? 0),
+          ([resource, revision]) =>
+            revision > (appliedRevisionsRef.current.get(resource) ?? 0) &&
+            (!shouldDeferResourceRefresh(resource) ||
+              forcedResourceRefreshesRef.current.has(resource)),
         )
       ) {
         scheduleResourceRefresh()
@@ -408,6 +433,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         if (epochChanged) {
           resolveAllResourceWaiters()
           requestedRevisionsRef.current.clear()
+          forcedResourceRefreshesRef.current.clear()
         }
         appliedRevisionsRef.current.clear()
         await invalidateQueryKeys(getRealtimeResourcesQueryKeys(Object.keys(state.resources)))
@@ -463,6 +489,9 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
     }
 
     const applyScanProgressPayload = (payload: ScanProgressPayload) => {
+      if (payload.scan_job.status === 'pending' || payload.scan_job.status === 'running') {
+        activeScanLibraryIdsRef.current.add(payload.scan_job.library_id)
+      }
       setScanRuntimeByLibrary((current) => applyScanPayload(current, payload))
       queryClient.setQueryData(['library', payload.scan_job.library_id], (current: unknown) =>
         isRecord(current) ? { ...current, last_scan: payload.scan_job } : current,
@@ -475,6 +504,11 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         return
       }
       applyScanProgressPayload(payload)
+      if (payload.changes.length > 0) {
+        void waitForResourceChanges(payload.changes, true).catch(() => {
+          scheduleReconcile()
+        })
+      }
     }
 
     const handleScanFinished = (event: MessageEvent<string>) => {
@@ -482,6 +516,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
       if (!payload) {
         return
       }
+      activeScanLibraryIdsRef.current.delete(payload.scan_job.library_id)
       applyScanProgressPayload(payload)
 
       if (payload.changes.length === 0) {
@@ -501,7 +536,7 @@ export const useServerEvents = ({ enabled }: { enabled: boolean }) => {
         })
       }
 
-      void waitForResourceChanges(payload.changes)
+      void waitForResourceChanges(payload.changes, true)
         .then(clearFinishedRuntime)
         .catch(() => {
           scheduleReconcile()

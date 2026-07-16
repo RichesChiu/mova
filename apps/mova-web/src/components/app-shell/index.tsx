@@ -74,7 +74,7 @@ export const AppShell = () => {
 
   if (currentUserQuery.isLoading) {
     return (
-      <div className="page-stack">
+      <div className="page-stack app-shell__state">
         <section className="empty-panel">
           <h3>{l('Loading session…')}</h3>
           <p className="muted">{l('Validating the current signed-in session.')}</p>
@@ -89,7 +89,7 @@ export const AppShell = () => {
     }
 
     return (
-      <div className="page-stack">
+      <div className="page-stack app-shell__state">
         <p className="callout callout--danger">
           {currentUserQuery.error instanceof Error
             ? currentUserQuery.error.message
@@ -103,7 +103,7 @@ export const AppShell = () => {
 
   if (!currentUser) {
     return (
-      <div className="page-stack">
+      <div className="page-stack app-shell__state">
         <p className="callout callout--danger">{l('Current user is not available.')}</p>
       </div>
     )
@@ -117,7 +117,7 @@ export const AppShell = () => {
             className={isDesktopDashboardRoute ? 'content-body content-body--home' : 'content-body'}
           >
             {librariesQuery.isError ? (
-              <p className="callout callout--danger">
+              <p className="callout callout--danger app-shell__global-callout">
                 {librariesQuery.error instanceof Error
                   ? librariesQuery.error.message
                   : l('Failed to load libraries')}

@@ -12,6 +12,8 @@ pub const DEFAULT_TMDB_API_BASE_URL: &str = "https://api.themoviedb.org/3";
 pub const DEFAULT_TMDB_IMAGE_BASE_URL: &str = "https://image.tmdb.org/t/p/original";
 pub const DEFAULT_OMDB_API_BASE_URL: &str = "https://www.omdbapi.com";
 pub const TMDB_PROVIDER_NAME: &str = "tmdb";
+const TMDB_MAX_AUTO_MATCH_PAGES: u32 = 20;
+const TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES: usize = 40;
 const METADATA_PROVIDER_CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
 const METADATA_PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 
@@ -69,20 +71,6 @@ pub struct RemoteMetadataSearchResult {
     pub backdrop_path: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RemoteMediaKind {
-    Movie,
-    Series,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RemoteMediaTypeMatch {
-    pub media_kind: RemoteMediaKind,
-    pub provider_item_id: i64,
-    pub title: String,
-    pub year: Option<i32>,
-}
-
 /// 第三方元数据源返回的剧集季/集大纲结构。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteSeriesEpisodeOutline {
@@ -137,13 +125,6 @@ pub trait MetadataProvider: Send + Sync {
         _lookup: &MetadataLookup,
     ) -> anyhow::Result<Vec<RemoteMetadataSearchResult>> {
         Ok(Vec::new())
-    }
-
-    async fn detect_media_type(
-        &self,
-        _lookup: &MetadataLookup,
-    ) -> anyhow::Result<Option<RemoteMediaTypeMatch>> {
-        Ok(None)
     }
 }
 
@@ -242,7 +223,7 @@ impl TmdbMetadataProvider {
             Some(movie_id) => movie_id,
             None => {
                 let candidates = self.search_movie_candidates(lookup).await?;
-                let Some(best_match) = select_best_match(&lookup.title, lookup.year, &candidates)
+                let Some(best_match) = self.select_strict_movie_match(lookup, &candidates).await?
                 else {
                     return Ok(None);
                 };
@@ -267,38 +248,41 @@ impl TmdbMetadataProvider {
         &self,
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Vec<TmdbMovieSearchResult>> {
-        let primary = self.search_movie_response(lookup, true).await?;
+        let first_page = self.search_movie_response(lookup, 1).await?;
+        let total_pages = first_page.total_pages.unwrap_or(1).max(1);
+        if total_pages > TMDB_MAX_AUTO_MATCH_PAGES {
+            tracing::warn!(
+                title = %lookup.title,
+                total_pages,
+                max_pages = TMDB_MAX_AUTO_MATCH_PAGES,
+                "tmdb movie search is too broad for strict automatic matching"
+            );
+            return Ok(Vec::new());
+        }
+        let mut results = first_page.results;
 
-        if lookup.year.is_none() {
-            return Ok(primary.results);
+        for page in 2..=total_pages {
+            results.extend(self.search_movie_response(lookup, page).await?.results);
         }
 
-        let fallback = self.search_movie_response(lookup, false).await?;
-
-        Ok(merge_search_results(
-            primary.results,
-            fallback.results,
-            |result| result.id,
-        ))
+        Ok(deduplicate_search_results(results, |result| result.id))
     }
 
     async fn search_movie_response(
         &self,
         lookup: &MetadataLookup,
-        include_year_filter: bool,
+        page: u32,
     ) -> anyhow::Result<TmdbSearchResponse<TmdbMovieSearchResult>> {
         let request_language = self.request_language(lookup);
         let mut query = vec![
             ("query", lookup.title.clone()),
             ("include_adult", "false".to_string()),
-            ("page", "1".to_string()),
+            ("page", page.to_string()),
             ("language", request_language.to_string()),
         ];
 
-        if include_year_filter {
-            if let Some(year) = lookup.year {
-                query.push(("year", year.to_string()));
-            }
+        if let Some(year) = lookup.year {
+            query.push(("primary_release_year", year.to_string()));
         }
 
         let response = self
@@ -320,7 +304,10 @@ impl TmdbMetadataProvider {
     ) -> anyhow::Result<Option<TmdbTvSearchResult>> {
         let candidates = self.search_tv_candidates(lookup).await?;
 
-        let best_match = select_best_match(&lookup.title, lookup.year, &candidates).cloned();
+        let best_match = self
+            .select_strict_tv_match(lookup, &candidates)
+            .await?
+            .cloned();
 
         Ok(best_match)
     }
@@ -329,38 +316,41 @@ impl TmdbMetadataProvider {
         &self,
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Vec<TmdbTvSearchResult>> {
-        let primary = self.search_tv_response(lookup, true).await?;
+        let first_page = self.search_tv_response(lookup, 1).await?;
+        let total_pages = first_page.total_pages.unwrap_or(1).max(1);
+        if total_pages > TMDB_MAX_AUTO_MATCH_PAGES {
+            tracing::warn!(
+                title = %lookup.title,
+                total_pages,
+                max_pages = TMDB_MAX_AUTO_MATCH_PAGES,
+                "tmdb tv search is too broad for strict automatic matching"
+            );
+            return Ok(Vec::new());
+        }
+        let mut results = first_page.results;
 
-        if lookup.year.is_none() {
-            return Ok(primary.results);
+        for page in 2..=total_pages {
+            results.extend(self.search_tv_response(lookup, page).await?.results);
         }
 
-        let fallback = self.search_tv_response(lookup, false).await?;
-
-        Ok(merge_search_results(
-            primary.results,
-            fallback.results,
-            |result| result.id,
-        ))
+        Ok(deduplicate_search_results(results, |result| result.id))
     }
 
     async fn search_tv_response(
         &self,
         lookup: &MetadataLookup,
-        include_year_filter: bool,
+        page: u32,
     ) -> anyhow::Result<TmdbSearchResponse<TmdbTvSearchResult>> {
         let request_language = self.request_language(lookup);
         let mut query = vec![
             ("query", lookup.title.clone()),
             ("include_adult", "false".to_string()),
-            ("page", "1".to_string()),
+            ("page", page.to_string()),
             ("language", request_language.to_string()),
         ];
 
-        if include_year_filter {
-            if let Some(year) = lookup.year {
-                query.push(("first_air_date_year", year.to_string()));
-            }
+        if let Some(year) = lookup.year {
+            query.push(("first_air_date_year", year.to_string()));
         }
 
         let response = self
@@ -374,6 +364,150 @@ impl TmdbMetadataProvider {
             .await?;
 
         Ok(response)
+    }
+
+    async fn fetch_movie_alternative_titles(&self, movie_id: i64) -> anyhow::Result<Vec<String>> {
+        let response = self
+            .client
+            .get(format!(
+                "{}/movie/{}/alternative_titles",
+                self.api_base_url, movie_id
+            ))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<TmdbMovieAlternativeTitlesResponse>()
+            .await?;
+
+        Ok(response
+            .titles
+            .into_iter()
+            .filter_map(|title| empty_to_none(title.title))
+            .collect())
+    }
+
+    async fn fetch_tv_alternative_titles(&self, tv_id: i64) -> anyhow::Result<Vec<String>> {
+        let response = self
+            .client
+            .get(format!(
+                "{}/tv/{}/alternative_titles",
+                self.api_base_url, tv_id
+            ))
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<TmdbTvAlternativeTitlesResponse>()
+            .await?;
+
+        Ok(response
+            .results
+            .into_iter()
+            .filter_map(|title| empty_to_none(title.title))
+            .collect())
+    }
+
+    async fn select_strict_movie_match<'a>(
+        &self,
+        lookup: &MetadataLookup,
+        candidates: &'a [TmdbMovieSearchResult],
+    ) -> anyhow::Result<Option<&'a TmdbMovieSearchResult>> {
+        let eligible_candidates = candidates
+            .iter()
+            .filter(|candidate| candidate_matches_year(lookup.year, *candidate))
+            .collect::<Vec<_>>();
+        let direct_candidates = eligible_candidates
+            .iter()
+            .copied()
+            .filter(|candidate| candidate_matches_title(&lookup.title, *candidate))
+            .collect::<Vec<_>>();
+        if !direct_candidates.is_empty() {
+            return Ok(select_strict_candidate(lookup.year, direct_candidates));
+        }
+        if eligible_candidates.len() > TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES {
+            tracing::warn!(
+                title = %lookup.title,
+                candidate_count = eligible_candidates.len(),
+                max_candidates = TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES,
+                "tmdb movie candidates are too broad for alternative-title verification"
+            );
+            return Ok(None);
+        }
+
+        let mut exact_candidates = Vec::new();
+
+        for candidate in eligible_candidates {
+            let alternative_titles = match self.fetch_movie_alternative_titles(candidate.id).await {
+                Ok(titles) => titles,
+                Err(error) => {
+                    tracing::warn!(
+                        movie_id = candidate.id,
+                        error = ?error,
+                        "failed to verify tmdb movie alternative titles"
+                    );
+                    continue;
+                }
+            };
+            if alternative_titles
+                .iter()
+                .any(|title| titles_are_equal(&lookup.title, title))
+            {
+                exact_candidates.push(candidate);
+            }
+        }
+
+        Ok(select_strict_candidate(lookup.year, exact_candidates))
+    }
+
+    async fn select_strict_tv_match<'a>(
+        &self,
+        lookup: &MetadataLookup,
+        candidates: &'a [TmdbTvSearchResult],
+    ) -> anyhow::Result<Option<&'a TmdbTvSearchResult>> {
+        let eligible_candidates = candidates
+            .iter()
+            .filter(|candidate| candidate_matches_year(lookup.year, *candidate))
+            .collect::<Vec<_>>();
+        let direct_candidates = eligible_candidates
+            .iter()
+            .copied()
+            .filter(|candidate| candidate_matches_title(&lookup.title, *candidate))
+            .collect::<Vec<_>>();
+        if !direct_candidates.is_empty() {
+            return Ok(select_strict_candidate(lookup.year, direct_candidates));
+        }
+        if eligible_candidates.len() > TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES {
+            tracing::warn!(
+                title = %lookup.title,
+                candidate_count = eligible_candidates.len(),
+                max_candidates = TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES,
+                "tmdb tv candidates are too broad for alternative-title verification"
+            );
+            return Ok(None);
+        }
+
+        let mut exact_candidates = Vec::new();
+
+        for candidate in eligible_candidates {
+            let alternative_titles = match self.fetch_tv_alternative_titles(candidate.id).await {
+                Ok(titles) => titles,
+                Err(error) => {
+                    tracing::warn!(
+                        tv_id = candidate.id,
+                        error = ?error,
+                        "failed to verify tmdb tv alternative titles"
+                    );
+                    continue;
+                }
+            };
+            if alternative_titles
+                .iter()
+                .any(|title| titles_are_equal(&lookup.title, title))
+            {
+                exact_candidates.push(candidate);
+            }
+        }
+
+        Ok(select_strict_candidate(lookup.year, exact_candidates))
     }
 
     async fn fetch_movie_details(
@@ -616,7 +750,7 @@ impl TmdbMetadataProvider {
             Some(movie_id) => movie_id,
             None => {
                 let candidates = self.search_movie_candidates(lookup).await?;
-                let Some(best_match) = select_best_match(&lookup.title, lookup.year, &candidates)
+                let Some(best_match) = self.select_strict_movie_match(lookup, &candidates).await?
                 else {
                     return Ok(None);
                 };
@@ -860,7 +994,7 @@ impl MetadataProvider for TmdbMetadataProvider {
         }
 
         if lookup.library_type.eq_ignore_ascii_case("series") {
-            let results = self.search_tv_candidates(lookup).await?;
+            let results = self.search_tv_response(lookup, 1).await?.results;
             return Ok(results
                 .into_iter()
                 .filter_map(|result| {
@@ -877,7 +1011,7 @@ impl MetadataProvider for TmdbMetadataProvider {
                 .collect());
         }
 
-        let response = self.search_movie_candidates(lookup).await?;
+        let response = self.search_movie_response(lookup, 1).await?.results;
         Ok(response
             .into_iter()
             .filter_map(|result| {
@@ -893,62 +1027,22 @@ impl MetadataProvider for TmdbMetadataProvider {
             })
             .collect())
     }
-
-    async fn detect_media_type(
-        &self,
-        lookup: &MetadataLookup,
-    ) -> anyhow::Result<Option<RemoteMediaTypeMatch>> {
-        if lookup.title.trim().is_empty() {
-            return Ok(None);
-        }
-
-        let movie_lookup = MetadataLookup {
-            library_type: "movie".to_string(),
-            ..lookup.clone()
-        };
-        let series_lookup = MetadataLookup {
-            library_type: "series".to_string(),
-            ..lookup.clone()
-        };
-
-        let movie_candidates = self.search_movie_candidates(&movie_lookup).await?;
-        let series_candidates = self.search_tv_candidates(&series_lookup).await?;
-
-        let movie_match =
-            select_best_match_with_rank(lookup.title.as_str(), lookup.year, &movie_candidates);
-        let series_match =
-            select_best_match_with_rank(lookup.title.as_str(), lookup.year, &series_candidates);
-
-        match select_remote_media_kind(
-            lookup.library_type.as_str(),
-            movie_match.map(|(rank, _)| rank),
-            series_match.map(|(rank, _)| rank),
-        ) {
-            Some(RemoteMediaKind::Movie) => {
-                Ok(movie_match.map(|(_, movie)| remote_movie_type_match(movie)))
-            }
-            Some(RemoteMediaKind::Series) => {
-                Ok(series_match.map(|(_, series)| remote_series_type_match(series)))
-            }
-            None => Ok(None),
-        }
-    }
 }
 
-fn merge_search_results<T, F>(primary: Vec<T>, fallback: Vec<T>, id_fn: F) -> Vec<T>
+fn deduplicate_search_results<T, F>(results: Vec<T>, id_fn: F) -> Vec<T>
 where
     F: Fn(&T) -> i64,
 {
-    let mut merged = Vec::with_capacity(primary.len() + fallback.len());
+    let mut deduplicated = Vec::with_capacity(results.len());
     let mut seen_ids = std::collections::HashSet::new();
 
-    for item in primary.into_iter().chain(fallback.into_iter()) {
+    for item in results {
         if seen_ids.insert(id_fn(&item)) {
-            merged.push(item);
+            deduplicated.push(item);
         }
     }
 
-    merged
+    deduplicated
 }
 
 /// 把远程元数据补到本地扫描结果里。
@@ -1074,15 +1168,16 @@ trait TmdbSearchCandidate {
     fn candidate_title(&self) -> Option<&str>;
     fn candidate_original_title(&self) -> Option<&str>;
     fn candidate_year(&self) -> Option<i32>;
-    fn candidate_popularity(&self) -> f64;
+    fn candidate_date(&self) -> Option<&str>;
 }
 
 #[derive(Debug, Deserialize)]
 struct TmdbSearchResponse<T> {
     results: Vec<T>,
+    total_pages: Option<u32>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct TmdbMovieSearchResult {
     id: i64,
     title: Option<String>,
@@ -1091,8 +1186,6 @@ struct TmdbMovieSearchResult {
     overview: Option<String>,
     poster_path: Option<String>,
     backdrop_path: Option<String>,
-    #[serde(default)]
-    popularity: f64,
 }
 
 impl TmdbSearchCandidate for TmdbMovieSearchResult {
@@ -1108,8 +1201,8 @@ impl TmdbSearchCandidate for TmdbMovieSearchResult {
         parse_year(self.release_date.as_deref())
     }
 
-    fn candidate_popularity(&self) -> f64 {
-        self.popularity
+    fn candidate_date(&self) -> Option<&str> {
+        self.release_date.as_deref()
     }
 }
 
@@ -1122,8 +1215,6 @@ struct TmdbTvSearchResult {
     overview: Option<String>,
     poster_path: Option<String>,
     backdrop_path: Option<String>,
-    #[serde(default)]
-    popularity: f64,
 }
 
 impl TmdbSearchCandidate for TmdbTvSearchResult {
@@ -1139,9 +1230,26 @@ impl TmdbSearchCandidate for TmdbTvSearchResult {
         parse_year(self.first_air_date.as_deref())
     }
 
-    fn candidate_popularity(&self) -> f64 {
-        self.popularity
+    fn candidate_date(&self) -> Option<&str> {
+        self.first_air_date.as_deref()
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbMovieAlternativeTitlesResponse {
+    #[serde(default)]
+    titles: Vec<TmdbAlternativeTitle>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbTvAlternativeTitlesResponse {
+    #[serde(default)]
+    results: Vec<TmdbAlternativeTitle>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbAlternativeTitle {
+    title: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1266,102 +1374,67 @@ struct OmdbRatingResponse {
     imdb_rating: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct MatchRank {
-    score: i32,
-    popularity: i64,
-}
-
-fn select_remote_media_kind(
-    preferred_type: &str,
-    movie_rank: Option<MatchRank>,
-    series_rank: Option<MatchRank>,
-) -> Option<RemoteMediaKind> {
-    if preferred_type.eq_ignore_ascii_case("series") && series_rank.is_some() {
-        return Some(RemoteMediaKind::Series);
-    }
-
-    if preferred_type.eq_ignore_ascii_case("movie") && movie_rank.is_some() {
-        return Some(RemoteMediaKind::Movie);
-    }
-
-    match (movie_rank, series_rank) {
-        (Some(_), None) => Some(RemoteMediaKind::Movie),
-        (None, Some(_)) => Some(RemoteMediaKind::Series),
-        (Some(movie), Some(series)) if movie >= series => Some(RemoteMediaKind::Movie),
-        (Some(_), Some(_)) => Some(RemoteMediaKind::Series),
-        (None, None) => None,
-    }
-}
-
-fn select_best_match<'a, T>(
-    query_title: &str,
-    query_year: Option<i32>,
-    candidates: &'a [T],
-) -> Option<&'a T>
+fn candidate_matches_title<T>(query_title: &str, candidate: &T) -> bool
 where
     T: TmdbSearchCandidate,
 {
-    select_best_match_with_rank(query_title, query_year, candidates).map(|(_, candidate)| candidate)
+    [
+        candidate.candidate_title(),
+        candidate.candidate_original_title(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|title| titles_are_equal(query_title, title))
 }
 
-fn select_best_match_with_rank<'a, T>(
-    query_title: &str,
-    query_year: Option<i32>,
-    candidates: &'a [T],
-) -> Option<(MatchRank, &'a T)>
+fn titles_are_equal(left: &str, right: &str) -> bool {
+    let normalized_left = normalize_title(left);
+    !normalized_left.is_empty() && normalized_left == normalize_title(right)
+}
+
+fn candidate_matches_year<T>(query_year: Option<i32>, candidate: &T) -> bool
 where
     T: TmdbSearchCandidate,
 {
-    let normalized_query = normalize_title(query_title);
+    match query_year {
+        Some(query_year) => candidate.candidate_year() == Some(query_year),
+        None => true,
+    }
+}
 
-    candidates
+fn select_strict_candidate<'a, T>(query_year: Option<i32>, candidates: Vec<&'a T>) -> Option<&'a T>
+where
+    T: TmdbSearchCandidate,
+{
+    if query_year.is_some() {
+        return (candidates.len() == 1).then(|| candidates[0]);
+    }
+
+    let newest_date = candidates
         .iter()
-        .map(|candidate| {
-            let best_title_score = [
-                candidate.candidate_title(),
-                candidate.candidate_original_title(),
-            ]
-            .into_iter()
-            .flatten()
-            .map(|title| title_match_score(&normalized_query, &normalize_title(title)))
-            .max()
-            .unwrap_or(0);
+        .filter_map(|candidate| normalize_tmdb_date(candidate.candidate_date()))
+        .max()?;
+    let newest_candidates = candidates
+        .into_iter()
+        .filter(|candidate| normalize_tmdb_date(candidate.candidate_date()) == Some(newest_date))
+        .collect::<Vec<_>>();
 
-            let year_score = match (query_year, candidate.candidate_year()) {
-                (Some(left), Some(right)) if left == right => 20,
-                (Some(left), Some(right)) if (left - right).abs() == 1 => 10,
-                (Some(_), Some(_)) => -10,
-                _ => 0,
-            };
-
-            let score = best_title_score + year_score;
-
-            (
-                MatchRank {
-                    score,
-                    popularity: (candidate.candidate_popularity() * 1000.0) as i64,
-                },
-                candidate,
-            )
-        })
-        .filter(|(rank, _)| rank.score > 0)
-        .max_by_key(|(rank, _)| *rank)
+    (newest_candidates.len() == 1).then(|| newest_candidates[0])
 }
 
-fn title_match_score(query: &str, candidate: &str) -> i32 {
-    if query.is_empty() || candidate.is_empty() {
-        return 0;
-    }
-
-    if query == candidate {
-        100
-    } else if candidate.starts_with(query) || query.starts_with(candidate) {
-        80
-    } else if candidate.contains(query) || query.contains(candidate) {
-        60
+fn normalize_tmdb_date(value: Option<&str>) -> Option<&str> {
+    let value = value?.trim();
+    if value.len() == 10
+        && value.as_bytes()[4] == b'-'
+        && value.as_bytes()[7] == b'-'
+        && value
+            .chars()
+            .enumerate()
+            .all(|(index, ch)| index == 4 || index == 7 || ch.is_ascii_digit())
+    {
+        Some(value)
     } else {
-        0
+        None
     }
 }
 
@@ -1463,44 +1536,19 @@ fn pick_primary_character_name(roles: &[TmdbTvAggregateRole]) -> Option<String> 
         .map(|(_, character_name)| character_name)
 }
 
-fn remote_movie_type_match(candidate: &TmdbMovieSearchResult) -> RemoteMediaTypeMatch {
-    RemoteMediaTypeMatch {
-        media_kind: RemoteMediaKind::Movie,
-        provider_item_id: candidate.id,
-        title: candidate
-            .candidate_title()
-            .or_else(|| candidate.candidate_original_title())
-            .unwrap_or_default()
-            .to_string(),
-        year: candidate.candidate_year(),
-    }
-}
-
-fn remote_series_type_match(candidate: &TmdbTvSearchResult) -> RemoteMediaTypeMatch {
-    RemoteMediaTypeMatch {
-        media_kind: RemoteMediaKind::Series,
-        provider_item_id: candidate.id,
-        title: candidate
-            .candidate_title()
-            .or_else(|| candidate.candidate_original_title())
-            .unwrap_or_default()
-            .to_string(),
-        year: candidate.candidate_year(),
-    }
-}
-
 /// 扫描任务内部使用的查询缓存。
 pub type MetadataLookupCache = HashMap<MetadataLookup, Option<RemoteMetadata>>;
 
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_remote_metadata, build_metadata_provider, format_country_codes, merge_search_results,
-        normalize_base_url, normalize_metadata_language, normalize_optional_value, normalize_title,
-        parse_year, pick_primary_character_name, select_best_match, select_remote_media_kind,
-        MatchRank, MetadataLookup, MetadataProviderConfig, RemoteMediaKind, RemoteMetadata,
-        TmdbMetadataProvider, TmdbMetadataProviderConfig, TmdbMovieDetails, TmdbMovieSearchResult,
-        TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL, TMDB_PROVIDER_NAME,
+        apply_remote_metadata, build_metadata_provider, candidate_matches_title,
+        deduplicate_search_results, format_country_codes, normalize_base_url,
+        normalize_metadata_language, normalize_optional_value, normalize_title, parse_year,
+        pick_primary_character_name, select_strict_candidate, MetadataLookup,
+        MetadataProviderConfig, RemoteMetadata, TmdbMetadataProvider, TmdbMetadataProviderConfig,
+        TmdbMovieDetails, TmdbMovieSearchResult, TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL,
+        TMDB_PROVIDER_NAME,
     };
 
     #[test]
@@ -1536,40 +1584,6 @@ mod tests {
         assert_eq!(
             normalize_metadata_language(None, "zh-CN").unwrap(),
             "zh-CN".to_string()
-        );
-    }
-
-    #[test]
-    fn remote_type_detection_prefers_the_locally_inferred_type_when_tmdb_has_both() {
-        let movie_rank = MatchRank {
-            score: 120,
-            popularity: 100,
-        };
-        let series_rank = MatchRank {
-            score: 100,
-            popularity: 80,
-        };
-
-        assert_eq!(
-            select_remote_media_kind("series", Some(movie_rank), Some(series_rank)),
-            Some(RemoteMediaKind::Series)
-        );
-        assert_eq!(
-            select_remote_media_kind("movie", Some(movie_rank), Some(series_rank)),
-            Some(RemoteMediaKind::Movie)
-        );
-    }
-
-    #[test]
-    fn remote_type_detection_returns_the_other_type_only_when_preferred_type_is_missing() {
-        let movie_rank = MatchRank {
-            score: 120,
-            popularity: 100,
-        };
-
-        assert_eq!(
-            select_remote_media_kind("series", Some(movie_rank), None),
-            Some(RemoteMediaKind::Movie)
         );
     }
 
@@ -1744,7 +1758,7 @@ mod tests {
     }
 
     #[test]
-    fn select_best_match_prefers_exact_title_and_year() {
+    fn strict_match_requires_exact_title_and_year() {
         let candidates = vec![
             TmdbMovieSearchResult {
                 id: 1,
@@ -1754,7 +1768,6 @@ mod tests {
                 overview: None,
                 poster_path: None,
                 backdrop_path: None,
-                popularity: 10.0,
             },
             TmdbMovieSearchResult {
                 id: 2,
@@ -1764,18 +1777,81 @@ mod tests {
                 overview: None,
                 poster_path: None,
                 backdrop_path: None,
-                popularity: 50.0,
             },
         ];
 
-        let best_match = select_best_match("Castle in the Sky", Some(1986), &candidates).unwrap();
+        let exact_candidates = candidates
+            .iter()
+            .filter(|candidate| {
+                candidate_matches_title("Castle in the Sky", *candidate)
+                    && candidate
+                        .release_date
+                        .as_deref()
+                        .is_some_and(|date| date.starts_with("1986"))
+            })
+            .collect::<Vec<_>>();
+        let best_match = select_strict_candidate(Some(1986), exact_candidates).unwrap();
 
         assert_eq!(best_match.id, 1);
     }
 
     #[test]
-    fn merge_search_results_keeps_year_filtered_results_first_and_deduplicates() {
-        let merged = merge_search_results(
+    fn strict_match_without_year_selects_unique_newest_exact_title() {
+        let candidates = vec![
+            TmdbMovieSearchResult {
+                id: 1,
+                title: Some("Dune".to_string()),
+                original_title: None,
+                release_date: Some("1984-12-14".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+            TmdbMovieSearchResult {
+                id: 2,
+                title: Some("Dune".to_string()),
+                original_title: None,
+                release_date: Some("2021-10-22".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+        ];
+
+        let best_match = select_strict_candidate(None, candidates.iter().collect()).unwrap();
+
+        assert_eq!(best_match.id, 2);
+    }
+
+    #[test]
+    fn strict_match_without_year_rejects_tied_latest_candidates() {
+        let candidates = vec![
+            TmdbMovieSearchResult {
+                id: 1,
+                title: Some("Same".to_string()),
+                original_title: None,
+                release_date: Some("2025-01-01".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+            TmdbMovieSearchResult {
+                id: 2,
+                title: Some("Same".to_string()),
+                original_title: None,
+                release_date: Some("2025-01-01".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+        ];
+
+        assert!(select_strict_candidate(None, candidates.iter().collect()).is_none());
+    }
+
+    #[test]
+    fn deduplicate_search_results_keeps_first_occurrence() {
+        let deduplicated = deduplicate_search_results(
             vec![
                 TmdbMovieSearchResult {
                     id: 2,
@@ -1785,7 +1861,6 @@ mod tests {
                     overview: None,
                     poster_path: None,
                     backdrop_path: None,
-                    popularity: 50.0,
                 },
                 TmdbMovieSearchResult {
                     id: 3,
@@ -1795,10 +1870,7 @@ mod tests {
                     overview: None,
                     poster_path: None,
                     backdrop_path: None,
-                    popularity: 20.0,
                 },
-            ],
-            vec![
                 TmdbMovieSearchResult {
                     id: 2,
                     title: Some("The Legend of the Condor Heroes".to_string()),
@@ -1807,7 +1879,6 @@ mod tests {
                     overview: None,
                     poster_path: None,
                     backdrop_path: None,
-                    popularity: 50.0,
                 },
                 TmdbMovieSearchResult {
                     id: 1,
@@ -1817,18 +1888,17 @@ mod tests {
                     overview: None,
                     poster_path: None,
                     backdrop_path: None,
-                    popularity: 80.0,
                 },
             ],
             |result| result.id,
         );
 
-        let merged_ids = merged
+        let result_ids = deduplicated
             .into_iter()
             .map(|result| result.id)
             .collect::<Vec<_>>();
 
-        assert_eq!(merged_ids, vec![2, 3, 1]);
+        assert_eq!(result_ids, vec![2, 3, 1]);
     }
 
     #[test]

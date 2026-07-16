@@ -101,11 +101,13 @@ export const formatScanJobStatusCopy = (
         : translateCurrent('Discovered {{count}} files', {
             count: effectiveScanJob.scanned_files,
           })
-    case 'analyzing':
-      return translateCurrent('Analyzing local media')
-    case 'enriching':
+    case 'processing':
       if (primaryItem) {
-        if (primaryItem.stage === 'discovered') {
+        if (primaryItem.stage === 'analyzed') {
+          return `${primaryItem.title} · ${translateCurrent('Analyzing local media')}`
+        }
+
+        if (primaryItem.stage === 'pending_committed') {
           return `${primaryItem.title} · ${translateCurrent('Waiting for metadata')}`
         }
 
@@ -119,8 +121,10 @@ export const formatScanJobStatusCopy = (
 
         return `${primaryItem.title} · ${translateCurrent('Fetching metadata')}`
       }
-      return translateCurrent('Enriching metadata')
-    case 'syncing':
+      return effectiveScanJob.local_committed_files < effectiveScanJob.total_files
+        ? translateCurrent('Analyzing local media')
+        : translateCurrent('Enriching metadata')
+    case 'finalizing':
       return activeItemCount > 0
         ? translateCurrent('Saving {{count}} items', { count: activeItemCount })
         : translateCurrent('Saving to library')
@@ -134,73 +138,7 @@ export const getScanJobProgressPercent = (
   runtime: LibraryScanRuntime | null | undefined,
 ) => {
   const effectiveScanJob = getEffectiveScanJob(scanJob, runtime)
-
-  if (!effectiveScanJob) {
-    const currentItem = getPrimaryScanRuntimeItem(runtime)
-    return currentItem ? Math.max(10, currentItem.progress_percent) : 0
-  }
-
-  if (effectiveScanJob.status === 'success') {
-    return 100
-  }
-
-  if (effectiveScanJob.status === 'pending') {
-    return 4
-  }
-
-  if (effectiveScanJob.phase === 'discovering') {
-    if (
-      effectiveScanJob.total_files <= 0 ||
-      effectiveScanJob.scanned_files > effectiveScanJob.total_files
-    ) {
-      return 12
-    }
-
-    return Math.max(
-      12,
-      Math.min(
-        45,
-        Math.round((effectiveScanJob.scanned_files / effectiveScanJob.total_files) * 45),
-      ),
-    )
-  }
-
-  if (effectiveScanJob.phase === 'analyzing') {
-    return 46
-  }
-
-  if (effectiveScanJob.phase === 'enriching') {
-    const currentItem = getPrimaryScanRuntimeItem(runtime)
-    if (!currentItem || currentItem.total_items <= 0) {
-      return 52
-    }
-
-    const completedItems = Math.max(0, currentItem.item_index - 1)
-    const itemFraction = Math.max(0, Math.min(1, currentItem.progress_percent / 100))
-    const totalFraction = (completedItems + itemFraction) / currentItem.total_items
-
-    return Math.max(46, Math.min(90, Math.round(45 + totalFraction * 45)))
-  }
-
-  if (effectiveScanJob.phase === 'syncing') {
-    return 94
-  }
-
-  if (effectiveScanJob.status === 'failed') {
-    if (effectiveScanJob.total_files > 0) {
-      return Math.max(
-        8,
-        Math.min(
-          94,
-          Math.round((effectiveScanJob.scanned_files / effectiveScanJob.total_files) * 94),
-        ),
-      )
-    }
-
-    return 8
-  }
-
-  return 16
+  return effectiveScanJob ? Math.max(0, Math.min(100, effectiveScanJob.progress_percent)) : 0
 }
 
 export const isLibraryScanActive = (
@@ -274,7 +212,9 @@ export const formatScanItemMeta = (item: ScanRuntimeItem) => {
 
 export const formatScanItemProgressCopy = (item: ScanRuntimeItem) => {
   switch (item.stage) {
-    case 'discovered':
+    case 'analyzed':
+      return translateCurrent('Analyzing local media')
+    case 'pending_committed':
       return translateCurrent('Waiting for metadata')
     case 'artwork':
       return translateCurrent('Fetching artwork & overview')
@@ -286,10 +226,10 @@ export const formatScanItemProgressCopy = (item: ScanRuntimeItem) => {
 }
 
 export const formatScanItemCardProgressLabel = (item: ScanRuntimeItem) =>
-  item.stage === 'completed' ? translateCurrent('Updating card') : translateCurrent('syncing')
+  item.stage === 'completed' ? translateCurrent('Saved to library') : translateCurrent('syncing')
 
 export const getScanItemCardProgressPercent = (item: ScanRuntimeItem) =>
-  item.stage === 'completed' ? Math.min(96, item.progress_percent) : item.progress_percent
+  Math.max(0, Math.min(100, item.progress_percent))
 
 export const formatScanItemCardSummary = (item: ScanRuntimeItem) =>
   item.stage === 'completed' && item.overview ? item.overview : formatScanItemProgressCopy(item)

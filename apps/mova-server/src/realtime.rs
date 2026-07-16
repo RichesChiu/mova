@@ -6,7 +6,10 @@ use serde::Serialize;
 use sqlx::postgres::{PgListener, PgPool};
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, RwLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, RwLock,
+    },
     time::Duration,
 };
 use time::UtcOffset;
@@ -18,6 +21,7 @@ const DISPATCH_COMMAND_BUFFER_SIZE: usize = 2_048;
 const RESOURCE_BATCH_INTERVAL: Duration = Duration::from_millis(500);
 const SCAN_PROGRESS_BATCH_INTERVAL: Duration = Duration::from_millis(200);
 const CONTINUE_WATCHING_BATCH_INTERVAL: Duration = Duration::from_secs(1);
+const FINISHED_SCAN_EVENT_GUARD_TTL: Duration = Duration::from_secs(60);
 pub(crate) const REALTIME_PROTOCOL_VERSION: u8 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -160,25 +164,30 @@ impl RealtimeHub {
 #[derive(Clone)]
 pub struct RealtimeDispatcherHandle {
     sender: mpsc::Sender<RealtimeCommand>,
+    reliable_sender: mpsc::UnboundedSender<RealtimeCommand>,
+    scan_event_sequence: Arc<AtomicU64>,
 }
 
 impl RealtimeDispatcherHandle {
     pub fn publish_scan_event(&self, event: ScanJobEvent) {
-        let is_terminal = matches!(event, ScanJobEvent::Finished(_));
-        let command = RealtimeCommand::ScanEvent(event);
+        let is_reliable = matches!(
+            event,
+            ScanJobEvent::Checkpoint(_) | ScanJobEvent::Finished(_)
+        );
+        let command = RealtimeCommand::ScanEvent {
+            sequence: self.scan_event_sequence.fetch_add(1, Ordering::Relaxed),
+            event,
+        };
+
+        if is_reliable {
+            if self.reliable_sender.send(command).is_err() {
+                tracing::warn!("failed to deliver reliable scan event because dispatcher stopped");
+            }
+            return;
+        }
 
         match self.sender.try_send(command) {
             Ok(()) => {}
-            Err(TrySendError::Full(command)) if is_terminal => {
-                let sender = self.sender.clone();
-                tokio::spawn(async move {
-                    if sender.send(command).await.is_err() {
-                        tracing::warn!(
-                            "failed to deliver terminal scan event because dispatcher stopped"
-                        );
-                    }
-                });
-            }
             Err(TrySendError::Full(_)) => {
                 tracing::debug!("dropping transient scan progress because dispatcher is saturated");
             }
@@ -199,8 +208,14 @@ impl RealtimeDispatcherHandle {
 impl Default for RealtimeDispatcherHandle {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel(1);
+        let (reliable_sender, reliable_receiver) = mpsc::unbounded_channel();
         drop(receiver);
-        Self { sender }
+        drop(reliable_receiver);
+        Self {
+            sender,
+            reliable_sender,
+            scan_event_sequence: Arc::new(AtomicU64::new(1)),
+        }
     }
 }
 
@@ -210,6 +225,7 @@ pub fn start_realtime_dispatcher(
     api_time_offset: UtcOffset,
 ) -> RealtimeDispatcherHandle {
     let (sender, receiver) = mpsc::channel(DISPATCH_COMMAND_BUFFER_SIZE);
+    let (reliable_sender, reliable_receiver) = mpsc::unbounded_channel();
     let dispatcher_sender = sender.clone();
     let listener_pool = pool.clone();
     let listener_hub = hub.clone();
@@ -218,19 +234,23 @@ pub fn start_realtime_dispatcher(
         run_postgres_revision_listener(listener_pool, dispatcher_sender, listener_hub).await;
     });
     tokio::spawn(async move {
-        RealtimeDispatcher::new(pool, hub, api_time_offset, receiver)
+        RealtimeDispatcher::new(pool, hub, api_time_offset, receiver, reliable_receiver)
             .run()
             .await;
     });
 
-    RealtimeDispatcherHandle { sender }
+    RealtimeDispatcherHandle {
+        sender,
+        reliable_sender,
+        scan_event_sequence: Arc::new(AtomicU64::new(1)),
+    }
 }
 
 #[derive(Debug)]
 enum RealtimeCommand {
     ResourceChanged(String),
     ResourceChangedImmediate(String),
-    ScanEvent(ScanJobEvent),
+    ScanEvent { sequence: u64, event: ScanJobEvent },
 }
 
 #[derive(Default)]
@@ -239,14 +259,21 @@ struct ScanProgressBatch {
     items: HashMap<String, mova_application::ScanJobItemProgressUpdate>,
 }
 
+struct FinishedScanEventGuard {
+    sequence: u64,
+    finished_at: tokio::time::Instant,
+}
+
 struct RealtimeDispatcher {
     pool: PgPool,
     hub: RealtimeHub,
     api_time_offset: UtcOffset,
     receiver: mpsc::Receiver<RealtimeCommand>,
+    reliable_receiver: mpsc::UnboundedReceiver<RealtimeCommand>,
     pending_resources: HashSet<String>,
     pending_continue_watching: HashSet<String>,
     pending_scans: HashMap<i64, ScanProgressBatch>,
+    finished_scan_jobs: HashMap<i64, FinishedScanEventGuard>,
 }
 
 impl RealtimeDispatcher {
@@ -255,15 +282,18 @@ impl RealtimeDispatcher {
         hub: RealtimeHub,
         api_time_offset: UtcOffset,
         receiver: mpsc::Receiver<RealtimeCommand>,
+        reliable_receiver: mpsc::UnboundedReceiver<RealtimeCommand>,
     ) -> Self {
         Self {
             pool,
             hub,
             api_time_offset,
             receiver,
+            reliable_receiver,
             pending_resources: HashSet::new(),
             pending_continue_watching: HashSet::new(),
             pending_scans: HashMap::new(),
+            finished_scan_jobs: HashMap::new(),
         }
     }
 
@@ -274,18 +304,31 @@ impl RealtimeDispatcher {
         resource_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         scan_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         continue_watching_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut receiver_closed = false;
+        let mut reliable_receiver_closed = false;
 
         loop {
             tokio::select! {
-                command = self.receiver.recv() => {
-                    let Some(command) = command else {
-                        break;
-                    };
-                    self.handle_command(command).await;
+                biased;
+                command = self.reliable_receiver.recv(), if !reliable_receiver_closed => {
+                    match command {
+                        Some(command) => self.handle_command(command).await,
+                        None => reliable_receiver_closed = true,
+                    }
+                }
+                command = self.receiver.recv(), if !receiver_closed => {
+                    match command {
+                        Some(command) => self.handle_command(command).await,
+                        None => receiver_closed = true,
+                    }
                 }
                 _ = resource_tick.tick() => self.flush_resource_changes().await,
                 _ = scan_tick.tick() => self.flush_scan_progress().await,
                 _ = continue_watching_tick.tick() => self.flush_continue_watching_changes().await,
+            }
+
+            if receiver_closed && reliable_receiver_closed {
+                break;
             }
         }
     }
@@ -305,21 +348,69 @@ impl RealtimeDispatcher {
                 self.pending_continue_watching.remove(&resource_key);
                 self.flush_resource_keys(vec![resource_key]).await;
             }
-            RealtimeCommand::ScanEvent(ScanJobEvent::Updated(update)) => {
+            RealtimeCommand::ScanEvent {
+                sequence,
+                event: ScanJobEvent::Updated(update),
+            } => {
                 let scan_job_id = update.scan_job.id;
+                if self.scan_event_is_stale(scan_job_id, sequence) {
+                    return;
+                }
+                self.finished_scan_jobs.remove(&scan_job_id);
                 self.pending_scans.entry(scan_job_id).or_default().scan_job = Some(update);
             }
-            RealtimeCommand::ScanEvent(ScanJobEvent::ItemUpdated(item)) => {
+            RealtimeCommand::ScanEvent {
+                sequence,
+                event: ScanJobEvent::Checkpoint(update),
+            } => {
+                let scan_job_id = update.scan_job.id;
+                if self.scan_event_is_stale(scan_job_id, sequence) {
+                    return;
+                }
+                self.finished_scan_jobs.remove(&scan_job_id);
+                let mut batch = self.pending_scans.remove(&scan_job_id).unwrap_or_default();
+                batch.scan_job = Some(update);
+                self.publish_scan_batch(scan_job_id, batch, "scan.progress", true)
+                    .await;
+            }
+            RealtimeCommand::ScanEvent {
+                sequence,
+                event: ScanJobEvent::ItemUpdated(item),
+            } => {
+                if self.scan_event_is_stale(item.scan_job_id, sequence) {
+                    return;
+                }
+                self.finished_scan_jobs.remove(&item.scan_job_id);
                 self.pending_scans
                     .entry(item.scan_job_id)
                     .or_default()
                     .items
                     .insert(item.item_key.clone(), item);
             }
-            RealtimeCommand::ScanEvent(ScanJobEvent::Finished(update)) => {
+            RealtimeCommand::ScanEvent {
+                sequence,
+                event: ScanJobEvent::Finished(update),
+            } => {
+                let scan_job_id = update.scan_job.id;
+                if self.scan_event_is_stale(scan_job_id, sequence) {
+                    return;
+                }
+                self.finished_scan_jobs.insert(
+                    scan_job_id,
+                    FinishedScanEventGuard {
+                        sequence,
+                        finished_at: tokio::time::Instant::now(),
+                    },
+                );
                 self.publish_scan_finished(update).await;
             }
         }
+    }
+
+    fn scan_event_is_stale(&self, scan_job_id: i64, sequence: u64) -> bool {
+        self.finished_scan_jobs
+            .get(&scan_job_id)
+            .is_some_and(|guard| sequence <= guard.sequence)
     }
 
     async fn flush_resource_changes(&mut self) {
@@ -384,9 +475,13 @@ impl RealtimeDispatcher {
     }
 
     async fn flush_scan_progress(&mut self) {
+        let now = tokio::time::Instant::now();
+        self.finished_scan_jobs.retain(|_, guard| {
+            now.duration_since(guard.finished_at) < FINISHED_SCAN_EVENT_GUARD_TTL
+        });
         let pending = std::mem::take(&mut self.pending_scans);
         for (scan_job_id, batch) in pending {
-            self.publish_scan_batch(scan_job_id, batch, "scan.progress")
+            self.publish_scan_batch(scan_job_id, batch, "scan.progress", false)
                 .await;
         }
     }
@@ -395,7 +490,7 @@ impl RealtimeDispatcher {
         let scan_job_id = update.scan_job.id;
         let mut batch = self.pending_scans.remove(&scan_job_id).unwrap_or_default();
         batch.scan_job = Some(update);
-        self.publish_scan_batch(scan_job_id, batch, "scan.finished")
+        self.publish_scan_batch(scan_job_id, batch, "scan.finished", true)
             .await;
     }
 
@@ -404,6 +499,7 @@ impl RealtimeDispatcher {
         scan_job_id: i64,
         batch: ScanProgressBatch,
         event_name: &'static str,
+        include_changes: bool,
     ) {
         let update = match batch.scan_job {
             Some(update) => update,
@@ -434,7 +530,7 @@ impl RealtimeDispatcher {
                 .into_iter()
                 .map(ScanItemProgressResponse::from_domain)
                 .collect(),
-            changes: if event_name == "scan.finished" {
+            changes: if include_changes {
                 self.load_scan_finished_revisions(library_id).await
             } else {
                 Vec::new()
@@ -596,6 +692,7 @@ mod tests {
     };
     use mova_application::{ScanJobEvent, ScanJobProgressUpdate};
     use mova_domain::{ScanJob, User, UserProfile, UserRole};
+    use std::sync::{atomic::AtomicU64, Arc};
     use time::OffsetDateTime;
     use tokio::sync::mpsc;
 
@@ -642,15 +739,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn terminal_scan_event_waits_for_dispatch_capacity_instead_of_being_dropped() {
+    async fn reliable_scan_events_keep_order_when_transient_dispatch_is_saturated() {
         let (sender, mut receiver) = mpsc::channel(1);
+        let (reliable_sender, mut reliable_receiver) = mpsc::unbounded_channel();
         sender
             .try_send(RealtimeCommand::ResourceChanged(
                 "admin:libraries".to_string(),
             ))
             .expect("test channel should accept the first command");
-        let handle = RealtimeDispatcherHandle { sender };
-        let finished = ScanJobEvent::Finished(ScanJobProgressUpdate {
+        let handle = RealtimeDispatcherHandle {
+            sender,
+            reliable_sender,
+            scan_event_sequence: Arc::new(AtomicU64::new(1)),
+        };
+        let update = ScanJobProgressUpdate {
             scan_job: ScanJob {
                 id: 41,
                 library_id: 7,
@@ -658,24 +760,40 @@ mod tests {
                 phase: Some("finished".to_string()),
                 total_files: 20,
                 scanned_files: 20,
+                local_analyzed_files: 20,
+                local_committed_files: 20,
+                remote_completed_files: 20,
+                progress_percent: 100,
                 created_at: OffsetDateTime::UNIX_EPOCH,
                 started_at: Some(OffsetDateTime::UNIX_EPOCH),
                 finished_at: Some(OffsetDateTime::UNIX_EPOCH),
                 error_message: None,
             },
             phase: Some("finished".to_string()),
-        });
+        };
 
-        handle.publish_scan_event(finished);
+        handle.publish_scan_event(ScanJobEvent::Checkpoint(update.clone()));
+        handle.publish_scan_event(ScanJobEvent::Finished(update));
 
         assert!(matches!(
             receiver.recv().await,
             Some(RealtimeCommand::ResourceChanged(_))
         ));
-        assert!(matches!(
-            tokio::time::timeout(std::time::Duration::from_secs(1), receiver.recv()).await,
-            Ok(Some(RealtimeCommand::ScanEvent(ScanJobEvent::Finished(_))))
-        ));
+        let checkpoint_sequence = match reliable_receiver.recv().await {
+            Some(RealtimeCommand::ScanEvent {
+                sequence,
+                event: ScanJobEvent::Checkpoint(_),
+            }) => sequence,
+            other => panic!("expected checkpoint command, got {other:?}"),
+        };
+        let finished_sequence = match reliable_receiver.recv().await {
+            Some(RealtimeCommand::ScanEvent {
+                sequence,
+                event: ScanJobEvent::Finished(_),
+            }) => sequence,
+            other => panic!("expected finished command, got {other:?}"),
+        };
+        assert!(checkpoint_sequence < finished_sequence);
     }
 
     #[tokio::test]

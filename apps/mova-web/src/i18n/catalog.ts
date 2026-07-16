@@ -395,7 +395,6 @@ const zhCN: Record<string, string> = {
   'Waiting for metadata': '等待获取元数据',
   'Fetching artwork & overview': '正在获取海报与简介',
   'Saved to library': '已写入媒体库',
-  'Updating card': '正在更新卡片',
   'Fetching metadata': '正在获取元数据',
   'Enriching metadata': '正在补全元数据',
   'Saving {{count}} items': '正在保存 {{count}} 个条目',

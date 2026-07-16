@@ -23,6 +23,10 @@ const buildScanJob = (overrides: Partial<ScanJob> = {}): ScanJob => ({
   phase: 'discovering',
   total_files: 20,
   scanned_files: 4,
+  local_analyzed_files: 0,
+  local_committed_files: 0,
+  remote_completed_files: 0,
+  progress_percent: 1,
   created_at: '2026-04-07T00:00:00Z',
   started_at: '2026-04-07T00:00:01Z',
   finished_at: null,
@@ -40,7 +44,7 @@ describe('scan runtime helpers', () => {
     expect(isLibraryScanActive(null, runtime)).toBe(true)
     expect(shouldShowScanPlaceholder(null, runtime)).toBe(true)
     expect(formatScanJobStatusCopy(null, runtime)).toBe('Scanning files 4/20')
-    expect(getScanJobProgressPercent(null, runtime)).toBe(12)
+    expect(getScanJobProgressPercent(null, runtime)).toBe(1)
   })
 
   it('shows discovered file count when the scan total is unknown or stale', () => {
@@ -53,7 +57,7 @@ describe('scan runtime helpers', () => {
     }
 
     expect(formatScanJobStatusCopy(null, runtime)).toBe('Discovered 169 files')
-    expect(getScanJobProgressPercent(null, runtime)).toBe(12)
+    expect(getScanJobProgressPercent(null, runtime)).toBe(1)
 
     expect(
       formatScanJobStatusCopy(null, {
@@ -80,17 +84,20 @@ describe('scan runtime helpers', () => {
     const runtime: LibraryScanRuntime = {
       items: [],
       scanJob: buildScanJob({
-        phase: 'analyzing',
+        phase: 'processing',
         total_files: 20,
         scanned_files: 20,
+        local_analyzed_files: 8,
+        local_committed_files: 6,
+        progress_percent: 34,
       }),
     }
 
     expect(formatScanJobStatusCopy(null, runtime)).toBe('Analyzing local media')
-    expect(getScanJobProgressPercent(null, runtime)).toBe(46)
+    expect(getScanJobProgressPercent(null, runtime)).toBe(34)
   })
 
-  it('falls back to item-level progress copy when only a temporary scan card exists', () => {
+  it('does not derive task progress from an item-only temporary scan card', () => {
     const runtime: LibraryScanRuntime = {
       scanJob: null,
       items: [
@@ -111,7 +118,7 @@ describe('scan runtime helpers', () => {
           item_index: 1,
           total_items: 3,
           stage: 'artwork',
-          progress_percent: 68,
+          progress_percent: 85,
         },
       ],
     }
@@ -119,13 +126,13 @@ describe('scan runtime helpers', () => {
     expect(formatPendingScanPlaceholderCopy(null, runtime, 'Movies')).toBe(
       'Interstellar · Fetching artwork & overview',
     )
-    expect(getScanJobProgressPercent(null, runtime)).toBe(68)
+    expect(getScanJobProgressPercent(null, runtime)).toBe(0)
     expect(formatScanItemProgressCopy(runtime.items[0])).toBe('Fetching artwork & overview')
     expect(formatScanItemCardProgressLabel(runtime.items[0])).toBe('syncing')
-    expect(getScanItemCardProgressPercent(runtime.items[0])).toBe(68)
+    expect(getScanItemCardProgressPercent(runtime.items[0])).toBe(85)
   })
 
-  it('keeps completed placeholder cards below full progress until real cards replace them', () => {
+  it('shows completed placeholder cards at full progress until real cards replace them', () => {
     const item = {
       scan_job_id: 41,
       library_id: 7,
@@ -146,14 +153,14 @@ describe('scan runtime helpers', () => {
       progress_percent: 100,
     }
 
-    expect(formatScanItemCardProgressLabel(item)).toBe('Updating card')
-    expect(getScanItemCardProgressPercent(item)).toBe(96)
+    expect(formatScanItemCardProgressLabel(item)).toBe('Saved to library')
+    expect(getScanItemCardProgressPercent(item)).toBe(100)
   })
 
   it('matches a movie detail against scan runtime items by title and file path', () => {
     const runtime: LibraryScanRuntime = {
       scanJob: buildScanJob({
-        phase: 'enriching',
+        phase: 'processing',
       }),
       items: [
         {
@@ -205,7 +212,7 @@ describe('scan runtime helpers', () => {
   it('filters series scan runtime items by the selected season', () => {
     const runtime: LibraryScanRuntime = {
       scanJob: buildScanJob({
-        phase: 'enriching',
+        phase: 'processing',
       }),
       items: [
         {
@@ -225,7 +232,7 @@ describe('scan runtime helpers', () => {
           item_index: 1,
           total_items: 2,
           stage: 'artwork',
-          progress_percent: 76,
+          progress_percent: 85,
         },
         {
           scan_job_id: 41,

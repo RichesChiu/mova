@@ -10,6 +10,12 @@ pub struct SyncLibraryMediaBestEffortOutcome {
     pub failed_count: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanGroupCommitStage {
+    Local,
+    Remote,
+}
+
 /// 按文件路径把最新扫描结果增量同步到某个媒体库。
 /// 同路径文件会原地更新；缺失路径会删除；新增路径会插入。
 pub async fn sync_library_media(
@@ -192,6 +198,183 @@ pub async fn upsert_library_media_entry_by_file_path(
     tx.commit()
         .await
         .context("failed to commit single media upsert transaction")?;
+
+    Ok(())
+}
+
+/// 在一个短事务中写入同一扫描组的全部媒体文件，并且只执行一次孤儿结构清理。
+/// 任一条目失败时整组回滚，避免同一电影版本组或同一剧集组出现半完成状态。
+pub async fn upsert_library_media_entries_by_file_path(
+    pool: &PgPool,
+    scan_job_id: i64,
+    library_id: i64,
+    group_key: &str,
+    stage: ScanGroupCommitStage,
+    entries: &[CreateMediaEntryParams],
+) -> Result<usize> {
+    if entries.is_empty() {
+        return Ok(0);
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start scan group media upsert transaction")?;
+
+    sqlx::query("select set_config('mova.defer_catalog_revision', 'on', true)")
+        .fetch_one(&mut *tx)
+        .await
+        .context("failed to defer row-level catalog revisions for scan group")?;
+
+    for entry in entries {
+        let existing =
+            get_existing_library_media_file_by_path(&mut tx, library_id, &entry.file_path).await?;
+        upsert_media_entry(&mut tx, entry, existing).await?;
+    }
+
+    series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
+    advance_scan_group_progress(
+        &mut tx,
+        scan_job_id,
+        group_key,
+        i32::try_from(entries.len()).unwrap_or(i32::MAX),
+        stage,
+    )
+    .await?;
+    sqlx::query("select mova_bump_realtime_revision($1)")
+        .bind(format!("library:{library_id}:catalog"))
+        .fetch_one(&mut *tx)
+        .await
+        .context("failed to bump scan group catalog revision")?;
+    tx.commit()
+        .await
+        .context("failed to commit scan group media upsert transaction")?;
+
+    Ok(entries.len())
+}
+
+async fn advance_scan_group_progress(
+    tx: &mut Transaction<'_, Postgres>,
+    scan_job_id: i64,
+    group_key: &str,
+    file_count: i32,
+    stage: ScanGroupCommitStage,
+) -> Result<()> {
+    let transitioned_file_count = match stage {
+        ScanGroupCommitStage::Local => sqlx::query_scalar::<_, i32>(
+            r#"
+                insert into scan_job_groups (
+                    scan_job_id,
+                    group_key,
+                    file_count,
+                    local_analyzed,
+                    local_committed,
+                    remote_completed
+                )
+                values ($1, $2, $3, true, true, false)
+                on conflict (scan_job_id, group_key) do update
+                    set file_count = excluded.file_count,
+                        local_committed = true,
+                        updated_at = now()
+                where not scan_job_groups.local_committed
+                returning file_count
+                "#,
+        )
+        .bind(scan_job_id)
+        .bind(group_key)
+        .bind(file_count)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("failed to checkpoint local scan group commit")?,
+        ScanGroupCommitStage::Remote => sqlx::query_scalar::<_, i32>(
+            r#"
+                insert into scan_job_groups (
+                    scan_job_id,
+                    group_key,
+                    file_count,
+                    local_analyzed,
+                    local_committed,
+                    remote_completed
+                )
+                values ($1, $2, $3, true, true, true)
+                on conflict (scan_job_id, group_key) do update
+                    set file_count = excluded.file_count,
+                        remote_completed = true,
+                        updated_at = now()
+                where not scan_job_groups.remote_completed
+                returning file_count
+                "#,
+        )
+        .bind(scan_job_id)
+        .bind(group_key)
+        .bind(file_count)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("failed to checkpoint remote scan group completion")?,
+    }
+    .unwrap_or(0);
+
+    match stage {
+        ScanGroupCommitStage::Local => {
+            sqlx::query(
+                r#"
+                update scan_jobs
+                set phase = 'processing',
+                    local_committed_files = least(
+                        total_files,
+                        local_committed_files + $2
+                    )
+                where id = $1
+                "#,
+            )
+            .bind(scan_job_id)
+            .bind(transitioned_file_count)
+            .execute(&mut **tx)
+            .await
+            .context("failed to advance local scan work counters")?;
+        }
+        ScanGroupCommitStage::Remote => {
+            sqlx::query(
+                r#"
+                update scan_jobs
+                set phase = 'processing',
+                    remote_completed_files = least(
+                        total_files,
+                        remote_completed_files + $2
+                    )
+                where id = $1
+                "#,
+            )
+            .bind(scan_job_id)
+            .bind(transitioned_file_count)
+            .execute(&mut **tx)
+            .await
+            .context("failed to advance remote scan work counters")?;
+        }
+    }
+
+    sqlx::query(
+        r#"
+        update scan_jobs
+        set progress_percent = greatest(
+            progress_percent,
+            case
+                when total_files = 0 then 10
+                else least(99, floor(
+                    10
+                    + 20.0 * local_analyzed_files / total_files
+                    + 20.0 * local_committed_files / total_files
+                    + 49.0 * remote_completed_files / total_files
+                )::integer)
+            end
+        )
+        where id = $1
+        "#,
+    )
+    .bind(scan_job_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to calculate authoritative scan pipeline progress")?;
 
     Ok(())
 }

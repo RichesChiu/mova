@@ -17,6 +17,10 @@ export interface ScanJob {
   phase?: string | null
   total_files: number
   scanned_files: number
+  local_analyzed_files: number
+  local_committed_files: number
+  remote_completed_files: number
+  progress_percent: number
   created_at: string
   started_at: string | null
   finished_at: string | null
