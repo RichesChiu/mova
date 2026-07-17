@@ -301,6 +301,8 @@
 }
 ```
 
+Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Content-Type: application/json`。如果发送请求体，则必须是合法 JSON。
+
 返回：
 - `200 OK`
 

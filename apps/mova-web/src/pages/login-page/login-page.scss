@@ -24,6 +24,15 @@
   white-space: nowrap;
 }
 
+.login-card__field-error {
+  display: block;
+  margin: -1px 2px 0;
+  color: var(--danger);
+  font-size: 0.74rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
 @media (max-width: 620px) {
   .login-card {
     width: min(100%, 480px);

@@ -11,6 +11,7 @@ import { useI18n } from '../../i18n'
 import { usePresenceTransition } from '../../lib/use-presence-transition'
 import { USER_ACCOUNT_MAX_LENGTH } from '../../lib/user-account'
 import { GlassSelect } from '../glass-select'
+import { LibraryAccessOption } from './library-access-option'
 
 interface UserEditorModalProps {
   currentUserId: number
@@ -42,10 +43,8 @@ export const UserEditorModal = ({
   const { l } = useI18n()
   const modalPresence = usePresenceTransition(isOpen)
   const [username, setUsername] = useState('')
-  const [nickname, setNickname] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<UserRole>('viewer')
-  const [isEnabled, setIsEnabled] = useState(true)
   const [selectedLibraryIds, setSelectedLibraryIds] = useState<number[]>([])
 
   const roleOptions = useMemo(
@@ -63,12 +62,9 @@ export const UserEditorModal = ({
     [libraries],
   )
   const isCreateMode = mode === 'create'
-  const isEditingAdmin = !isCreateMode && user?.role === 'admin'
   const isEditingSelf = !isCreateMode && user?.id === currentUserId
   const canEditRole = currentUserIsPrimaryAdmin && !isEditingSelf
   const shouldShowRoleField = isCreateMode || (canEditRole && !user?.is_primary_admin)
-  const canManageEnabledState =
-    !isEditingSelf && !user?.is_primary_admin && (role === 'viewer' || currentUserIsPrimaryAdmin)
 
   useEffect(() => {
     if (!isOpen) {
@@ -77,10 +73,8 @@ export const UserEditorModal = ({
 
     // 打开弹窗时总是把表单重置到当前模式对应的数据，避免上一次编辑残留到下一次创建。
     setUsername(user?.username ?? '')
-    setNickname(user?.nickname ?? user?.username ?? '')
     setPassword('')
     setRole(user?.role ?? 'viewer')
-    setIsEnabled(user?.is_enabled ?? true)
     setSelectedLibraryIds(user?.library_ids ?? [])
   }, [isOpen, user])
 
@@ -119,10 +113,9 @@ export const UserEditorModal = ({
     if (mode === 'create') {
       await onCreate({
         username: username.trim(),
-        nickname: nickname.trim(),
         password,
         role,
-        is_enabled: isEnabled,
+        is_enabled: true,
         library_ids: role === 'admin' ? [] : selectedLibraryIds,
       })
       onClose()
@@ -134,10 +127,7 @@ export const UserEditorModal = ({
     }
 
     await onUpdate(user.id, {
-      username: username.trim(),
-      nickname: nickname.trim(),
       role,
-      is_enabled: isEnabled,
       library_ids: role === 'admin' ? [] : selectedLibraryIds,
     })
     onClose()
@@ -155,10 +145,9 @@ export const UserEditorModal = ({
     : isSubmitting
       ? l('Saving…')
       : l('Save Changes')
-  const gridClassName =
-    isCreateMode || !isEditingAdmin || shouldShowRoleField
-      ? 'user-editor-modal__grid'
-      : 'user-editor-modal__grid user-editor-modal__grid--single'
+  const gridClassName = isCreateMode
+    ? 'user-editor-modal__grid'
+    : 'user-editor-modal__grid user-editor-modal__grid--single'
 
   return createPortal(
     <div
@@ -205,42 +194,32 @@ export const UserEditorModal = ({
 
         <form className="stack" onSubmit={handleSubmit}>
           <div className={gridClassName}>
-            <label className="field">
-              <span>{l('Account')}</span>
-              <input
-                autoComplete="username"
-                disabled={!isCreateMode}
-                maxLength={USER_ACCOUNT_MAX_LENGTH}
-                onChange={(event) => setUsername(event.target.value)}
-                placeholder={l('Enter the account used to sign in')}
-                spellCheck={false}
-                type="text"
-                value={username}
-              />
-            </label>
-
-            <label className="field">
-              <span>{l('Nickname')}</span>
-              <input
-                maxLength={128}
-                onChange={(event) => setNickname(event.target.value)}
-                placeholder={l('Shown in the app header')}
-                type="text"
-                value={nickname}
-              />
-            </label>
-
             {isCreateMode ? (
-              <label className="field">
-                <span>{l('Password')}</span>
-                <input
-                  autoComplete="new-password"
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder={l('At least 8 characters')}
-                  type="password"
-                  value={password}
-                />
-              </label>
+              <>
+                <label className="field">
+                  <span>{l('Account')}</span>
+                  <input
+                    autoComplete="username"
+                    maxLength={USER_ACCOUNT_MAX_LENGTH}
+                    onChange={(event) => setUsername(event.target.value)}
+                    placeholder={l('Enter the account used to sign in')}
+                    spellCheck={false}
+                    type="text"
+                    value={username}
+                  />
+                </label>
+
+                <label className="field">
+                  <span>{l('Password')}</span>
+                  <input
+                    autoComplete="new-password"
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder={l('At least 8 characters')}
+                    type="password"
+                    value={password}
+                  />
+                </label>
+              </>
             ) : null}
 
             {shouldShowRoleField ? (
@@ -262,26 +241,6 @@ export const UserEditorModal = ({
             ) : null}
           </div>
 
-          {canManageEnabledState ? (
-            <label className={isEditingSelf ? 'toggle toggle--disabled' : 'toggle'}>
-              <input
-                checked={isEnabled}
-                disabled={!canManageEnabledState}
-                onChange={(event) => setIsEnabled(event.target.checked)}
-                type="checkbox"
-              />
-              <span>{l('Account enabled')}</span>
-            </label>
-          ) : (
-            <p className="muted">
-              {isEditingSelf
-                ? l('You cannot change your own enabled state here.')
-                : user?.is_primary_admin
-                  ? l('System Administrator stays enabled here.')
-                  : l('This account cannot be enabled or disabled from this dialog.')}
-            </p>
-          )}
-
           {role === 'viewer' ? (
             <div className="field">
               <span>{l('Library Access')}</span>
@@ -295,20 +254,12 @@ export const UserEditorModal = ({
                     const checked = selectedLibraryIds.includes(library.id)
 
                     return (
-                      <label className="user-editor-modal__access-chip" key={library.id}>
-                        <input
-                          aria-label={
-                            checked
-                              ? l('Remove access to {{name}}', { name: library.name })
-                              : l('Grant access to {{name}}', { name: library.name })
-                          }
-                          className="user-editor-modal__access-checkbox"
-                          checked={checked}
-                          onChange={() => toggleLibrary(library.id)}
-                          type="checkbox"
-                        />
-                        <span className="user-editor-modal__access-chip-title">{library.name}</span>
-                      </label>
+                      <LibraryAccessOption
+                        checked={checked}
+                        key={library.id}
+                        library={library}
+                        onToggle={() => toggleLibrary(library.id)}
+                      />
                     )
                   })}
                 </div>
@@ -330,8 +281,7 @@ export const UserEditorModal = ({
               className="button button--primary"
               disabled={
                 isSubmitting ||
-                username.trim().length === 0 ||
-                (isCreateMode && password.length < 8)
+                (isCreateMode && (username.trim().length === 0 || password.length < 8))
               }
               type="submit"
             >

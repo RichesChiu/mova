@@ -86,6 +86,15 @@ export const LoginPage = () => {
   }
 
   const bootstrapRequired = bootstrapStatusQuery.data?.bootstrap_required ?? false
+  const formErrorMessage = authMutation.isError
+    ? authMutation.error instanceof Error
+      ? authMutation.error.message
+      : l('Authentication failed')
+    : bootstrapStatusQuery.isError
+      ? bootstrapStatusQuery.error instanceof Error
+        ? bootstrapStatusQuery.error.message
+        : l('Failed to check bootstrap status')
+      : null
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -104,7 +113,10 @@ export const LoginPage = () => {
             <input
               autoComplete="username"
               maxLength={USER_ACCOUNT_MAX_LENGTH}
-              onChange={(event) => setUsername(event.target.value)}
+              onChange={(event) => {
+                setUsername(event.target.value)
+                authMutation.reset()
+              }}
               placeholder="admin"
               spellCheck={false}
               type="text"
@@ -115,32 +127,26 @@ export const LoginPage = () => {
           <label className="field">
             <span>{l('Password')}</span>
             <input
+              aria-describedby={formErrorMessage ? 'login-password-error' : undefined}
+              aria-invalid={authMutation.isError || undefined}
               autoComplete={bootstrapRequired ? 'new-password' : 'current-password'}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => {
+                setPassword(event.target.value)
+                authMutation.reset()
+              }}
               placeholder={l('At least 8 characters')}
               type="password"
               value={password}
             />
+            {formErrorMessage ? (
+              <small className="login-card__field-error" id="login-password-error" role="alert">
+                {formErrorMessage}
+              </small>
+            ) : null}
           </label>
 
           {bootstrapStatusQuery.isLoading ? (
             <p className="muted">{l('Checking bootstrap status…')}</p>
-          ) : null}
-
-          {bootstrapStatusQuery.isError ? (
-            <p className="callout callout--danger">
-              {bootstrapStatusQuery.error instanceof Error
-                ? bootstrapStatusQuery.error.message
-                : l('Failed to check bootstrap status')}
-            </p>
-          ) : null}
-
-          {authMutation.isError ? (
-            <p className="callout callout--danger">
-              {authMutation.error instanceof Error
-                ? authMutation.error.message
-                : l('Authentication failed')}
-            </p>
           ) : null}
 
           <button

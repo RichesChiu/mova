@@ -255,6 +255,7 @@
 }
 
 .home-sidebar__user {
+  appearance: none;
   align-self: end;
   gap: 10px;
   width: 100%;
@@ -265,10 +266,39 @@
   border-radius: 12px;
   background: color-mix(in srgb, var(--floating-surface) 74%, transparent);
   box-shadow: var(--panel-inset);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
   transition:
     border-color 180ms ease,
     background 180ms ease,
     box-shadow 180ms ease;
+}
+
+.home-sidebar__account-menu {
+  position: relative;
+  z-index: 20;
+  align-self: end;
+  width: 100%;
+  min-width: 0;
+}
+
+.home-sidebar__user:hover,
+.home-sidebar__user[aria-expanded='true'],
+.home-sidebar__user--active {
+  border-color: color-mix(in srgb, var(--button-primary-border) 72%, transparent);
+  background: color-mix(in srgb, var(--floating-surface-strong) 84%, transparent);
+  box-shadow: var(--panel-inset), var(--home-sidebar-toggle-hover-shadow);
+}
+
+.home-sidebar__user:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 78%, transparent);
+  outline-offset: 3px;
+}
+
+.home-sidebar__user[aria-expanded='true'] .home-sidebar__user-arrow svg {
+  transform: rotate(-90deg);
 }
 
 .home-sidebar__avatar {
@@ -322,6 +352,95 @@
 .home-sidebar__user-arrow svg {
   width: 17px;
   height: 17px;
+  transition: transform 160ms ease;
+}
+
+.home-sidebar__account-popover {
+  --floating-transition-origin: bottom left;
+
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 0;
+  z-index: 24;
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-width: 196px;
+  padding: 8px;
+  border-radius: 15px;
+}
+
+.home-sidebar__account-action {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 39px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 740;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.home-sidebar__account-action svg {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted);
+}
+
+.home-sidebar__account-action:hover:not(:disabled),
+.home-sidebar__account-action:focus-visible,
+.home-sidebar__account-action--active {
+  border-color: var(--menu-option-hover-border);
+  outline: none;
+  background: var(--menu-option-hover-background);
+  box-shadow: var(--menu-option-hover-shadow);
+  color: var(--accent-strong);
+}
+
+.home-sidebar__account-action:hover:not(:disabled) svg,
+.home-sidebar__account-action:focus-visible svg,
+.home-sidebar__account-action--active svg {
+  color: currentColor;
+}
+
+.home-sidebar__account-action:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.home-sidebar__account-action--danger {
+  margin-top: 3px;
+  border-top-color: color-mix(in srgb, var(--floating-border) 58%, transparent);
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+  color: var(--danger);
+}
+
+.home-sidebar__account-action--danger svg {
+  color: currentColor;
+}
+
+.home-sidebar__account-error {
+  margin: 0;
+  padding: 3px 10px 2px;
+  color: var(--danger);
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .home-shell--sidebar-collapsed .home-sidebar {
@@ -388,6 +507,11 @@
   justify-content: center;
   gap: 0;
   padding-inline: 0;
+}
+
+.home-shell--sidebar-collapsed .home-sidebar__account-menu {
+  width: 46px;
+  margin-inline: auto;
 }
 
 .home-shell--sidebar-collapsed .home-sidebar__nav-item span {

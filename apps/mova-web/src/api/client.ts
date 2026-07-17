@@ -93,13 +93,15 @@ const requestJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
     return mockResponse.data
   }
 
+  const headers = new Headers(init?.headers)
+  if (init?.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
   const response = await fetch(path, {
     credentials: 'same-origin',
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
     ...init,
+    headers,
   })
 
   let payload: unknown = null

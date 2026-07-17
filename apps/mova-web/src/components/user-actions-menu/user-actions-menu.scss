@@ -1,0 +1,106 @@
+.user-actions-menu {
+  position: relative;
+  z-index: 4;
+  flex: 0 0 auto;
+}
+
+.user-actions-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--library-spotlight-menu-background);
+  color: var(--library-spotlight-menu-color);
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.user-actions-menu__trigger:hover,
+.user-actions-menu__trigger[aria-expanded='true'] {
+  background: var(--library-spotlight-menu-hover-background);
+  box-shadow: var(--library-spotlight-menu-hover-shadow);
+  color: var(--text);
+}
+
+.user-actions-menu__trigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, transparent);
+  outline-offset: 3px;
+}
+
+.user-actions-menu__trigger span {
+  display: block;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: var(--library-spotlight-menu-dot-shadow);
+}
+
+.user-actions-menu__popover {
+  --floating-transition-origin: top right;
+
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  display: grid;
+  gap: 6px;
+  width: max-content;
+  min-width: 164px;
+  padding: 8px;
+  border-radius: 14px;
+}
+
+.user-actions-menu__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 760;
+  text-align: left;
+  white-space: nowrap;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease;
+}
+
+.user-actions-menu__item svg {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+}
+
+.user-actions-menu__item:hover:not(:disabled),
+.user-actions-menu__item:focus-visible {
+  border-color: var(--menu-option-hover-border);
+  outline: none;
+  background: var(--menu-option-hover-background);
+  box-shadow: var(--menu-option-hover-shadow);
+}
+
+.user-actions-menu__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
+.user-actions-menu__item--danger {
+  color: var(--danger);
+}

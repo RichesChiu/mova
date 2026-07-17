@@ -70,8 +70,7 @@
   height: 16px;
 }
 
-.user-editor-modal__grid,
-.user-editor-modal__access-grid {
+.user-editor-modal__grid {
   display: grid;
   gap: 12px;
 }
@@ -85,23 +84,55 @@
 }
 
 .user-editor-modal__access-grid {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
 
 .user-editor-modal__access-chip {
-  display: flex;
-  min-height: 72px;
+  display: inline-flex;
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-height: 38px;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 8px 11px;
   border: 1px solid var(--panel-border);
-  border-radius: 16px;
+  border-radius: 999px;
   background: var(--panel-background-soft);
-  box-shadow: var(--panel-shadow);
+  box-shadow: none;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.user-editor-modal__access-chip:hover {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--panel-border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel-background-soft));
+}
+
+.user-editor-modal__access-chip:has(.user-editor-modal__access-checkbox:checked) {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--panel-border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-background-soft));
+}
+
+.user-editor-modal__access-chip-text-wrap {
+  flex: 0 1 auto;
+  max-width: min(280px, calc(100vw - 140px));
+  overflow: hidden;
 }
 
 .user-editor-modal__access-chip-title {
+  display: block;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
   font-weight: 600;
   line-height: 1.35;
 }
@@ -166,8 +197,4 @@
 .user-editor-modal__footer {
   align-items: center;
   justify-content: flex-end;
-}
-
-.toggle--disabled {
-  opacity: 0.72;
 }

@@ -21,6 +21,7 @@ import { HoverTooltip } from '../../components/hover-tooltip'
 import { LibraryActionsMenu } from '../../components/library-actions-menu'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { StatusPill } from '../../components/status-pill'
+import { UserActionsMenu } from '../../components/user-actions-menu'
 import { UserEditorModal } from '../../components/user-editor-modal'
 import { useI18n } from '../../i18n'
 import {
@@ -36,7 +37,7 @@ import {
   getScanStatusLabel,
   getScanStatusTone,
 } from '../../lib/settings-admin'
-import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
+import { getUserInitial } from '../../lib/user-identity'
 import { getUserRolePresentation } from '../../lib/user-role'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
@@ -63,7 +64,6 @@ const SettingsUserCardSkeleton = () => (
 
         <div className="settings-user-card__controls">
           <span className="settings-user-card__control settings-user-card__control--toggle skeleton-shimmer" />
-          <span className="settings-user-card__control settings-user-card__control--icon skeleton-shimmer" />
           <span className="settings-user-card__control settings-user-card__control--icon skeleton-shimmer" />
         </div>
       </div>
@@ -410,8 +410,7 @@ export const SettingsPage = () => {
 
               {!shouldShowUserSkeleton
                 ? users.map((user) => {
-                    const displayName = getUserDisplayName(user)
-                    const showUsername = displayName !== user.username
+                    const nickname = user.nickname.trim()
                     const rolePresentation = getUserRolePresentation(user)
                     const canManageThisUser = user.role === 'viewer' || canManageAdminAccounts
                     const canEditUser =
@@ -428,8 +427,7 @@ export const SettingsPage = () => {
                         <div className="settings-user-card__body">
                           <div className="settings-user-card__header">
                             <div className="settings-user-card__identity">
-                              <strong>{displayName}</strong>
-                              {showUsername ? <p className="muted">@{user.username}</p> : null}
+                              <strong>{user.username}</strong>
                               <div className="settings-user-card__identity-meta">
                                 <StatusPill
                                   status={l(rolePresentation.label)}
@@ -467,68 +465,35 @@ export const SettingsPage = () => {
                               ) : null}
 
                               {canEditUser ? (
-                                <button
-                                  aria-label={l('Edit {{name}}', { name: user.username })}
-                                  className="settings-user-card__edit-icon"
-                                  onClick={() => setEditingUser(user)}
-                                  type="button"
-                                >
-                                  <svg
-                                    aria-hidden="true"
-                                    fill="none"
-                                    focusable="false"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path
-                                      d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
-                                      stroke="currentColor"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth="1.7"
-                                    />
-                                    <path
-                                      d="M12.75 7.05L16.95 11.25"
-                                      stroke="currentColor"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth="1.7"
-                                    />
-                                  </svg>
-                                </button>
-                              ) : null}
-
-                              {canDeleteUser ? (
-                                <button
-                                  aria-label={l('Delete {{name}}', { name: user.username })}
-                                  className="settings-user-card__delete-icon"
-                                  disabled={deleteUserMutation.isPending}
-                                  onClick={() => {
+                                <UserActionsMenu
+                                  isDeleteDisabled={!canDeleteUser || deleteUserMutation.isPending}
+                                  isDeletePending={
+                                    deleteUserMutation.isPending &&
+                                    deleteUserMutation.variables === user.id
+                                  }
+                                  onDeleteUser={(selectedUser) => {
                                     deleteUserMutation.reset()
                                     setPendingConfirmation({
                                       kind: 'delete-user',
-                                      user,
+                                      user: selectedUser,
                                     })
                                   }}
-                                  type="button"
-                                >
-                                  <svg
-                                    aria-hidden="true"
-                                    fill="none"
-                                    focusable="false"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path
-                                      d="M9 4.5H15M5.5 7H18.5M8 7V18.5C8 19.05 8.45 19.5 9 19.5H15C15.55 19.5 16 19.05 16 18.5V7M10.5 10.5V16M13.5 10.5V16"
-                                      stroke="currentColor"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth="1.7"
-                                    />
-                                  </svg>
-                                </button>
+                                  onEditUser={setEditingUser}
+                                  user={user}
+                                />
                               ) : null}
                             </div>
                           </div>
+                          <p
+                            className={
+                              nickname
+                                ? 'settings-user-card__nickname'
+                                : 'settings-user-card__nickname settings-user-card__nickname--empty'
+                            }
+                            title={nickname || undefined}
+                          >
+                            {nickname ? `@${nickname}` : '—'}
+                          </p>
                         </div>
                       </article>
                     )

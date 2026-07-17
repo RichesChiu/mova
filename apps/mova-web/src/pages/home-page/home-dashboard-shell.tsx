@@ -1,5 +1,7 @@
-import { type ReactNode, useEffect, useState } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { logout } from '../../api/client'
 import type { UserAccount } from '../../api/types'
 import { useI18n } from '../../i18n'
 import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
@@ -12,7 +14,6 @@ const homeNavItems = [
   { icon: 'libraries', label: 'Libraries', to: '/libraries' },
   { icon: 'clock', label: 'Continue', to: '/continue' },
   { icon: 'search', label: 'Search', to: '/search' },
-  { icon: 'settings', label: 'Settings', to: '/settings' },
 ] as const satisfies ReadonlyArray<{
   icon: HomeIconName
   label: string
@@ -46,10 +47,6 @@ const isNavItemActive = (label: string, pathname: string) => {
     return pathname === '/libraries' || pathname.startsWith('/libraries/')
   }
 
-  if (label === 'Settings') {
-    return pathname === '/settings'
-  }
-
   if (label === 'Search') {
     return pathname === '/search'
   }
@@ -78,21 +75,69 @@ export const HomeDashboardShell = ({
 }: HomeDashboardShellProps) => {
   const { l } = useI18n()
   const location = useLocation()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(
     () => autoCollapseSidebar || readStoredSidebarCollapsed(),
   )
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false)
+  const accountMenuRef = useRef<HTMLDivElement | null>(null)
+  const accountMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
   const displayName = getUserDisplayName(currentUser)
   const userInitial = getUserInitial(currentUser)
   const isAdmin = canManageServer(currentUser)
+  const isAccountRoute = location.pathname === '/profile' || location.pathname === '/settings'
+
+  const logoutMutation = useMutation({
+    mutationFn: logout,
+    onSuccess: () => {
+      queryClient.removeQueries()
+      navigate('/login', { replace: true })
+    },
+  })
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: route changes must reapply auto-collapse.
   useEffect(() => {
     if (autoCollapseSidebar) {
       setIsSidebarCollapsed(true)
     }
+
+    setIsAccountMenuOpen(false)
   }, [autoCollapseSidebar, location.pathname])
 
+  useEffect(() => {
+    if (!isAccountMenuOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (event.target instanceof Node && accountMenuRef.current?.contains(event.target)) {
+        return
+      }
+
+      setIsAccountMenuOpen(false)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      setIsAccountMenuOpen(false)
+      accountMenuTriggerRef.current?.focus()
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isAccountMenuOpen])
+
   const handleSidebarToggle = () => {
+    setIsAccountMenuOpen(false)
     setIsSidebarCollapsed((current) => {
       const next = !current
 
@@ -130,10 +175,6 @@ export const HomeDashboardShell = ({
 
         <nav className="home-sidebar__nav">
           {homeNavItems.map((item) => {
-            if (item.label === 'Settings' && !isAdmin) {
-              return null
-            }
-
             return (
               <NavLink
                 className={() =>
@@ -154,22 +195,94 @@ export const HomeDashboardShell = ({
           })}
         </nav>
 
-        <Link
-          className="home-sidebar__user"
-          title={isSidebarCollapsed ? displayName : undefined}
-          to="/profile"
-        >
-          <span className="home-sidebar__avatar" aria-hidden="true">
-            {userInitial}
-          </span>
-          <span className="home-sidebar__user-copy">
-            <strong>{displayName}</strong>
-            <em>{l(getUserRolePresentation(currentUser).label)}</em>
-          </span>
-          <span aria-hidden="true" className="home-sidebar__user-arrow">
-            <HomeIcon name="chevronRight" />
-          </span>
-        </Link>
+        <div className="home-sidebar__account-menu" ref={accountMenuRef}>
+          <button
+            aria-controls="home-sidebar-account-menu"
+            aria-expanded={isAccountMenuOpen}
+            aria-haspopup="menu"
+            aria-label={l('Open account menu')}
+            className={
+              isAccountRoute
+                ? 'home-sidebar__user home-sidebar__user--active'
+                : 'home-sidebar__user'
+            }
+            onClick={() => {
+              logoutMutation.reset()
+              setIsAccountMenuOpen((current) => !current)
+            }}
+            ref={accountMenuTriggerRef}
+            title={isSidebarCollapsed ? displayName : undefined}
+            type="button"
+          >
+            <span className="home-sidebar__avatar" aria-hidden="true">
+              {userInitial}
+            </span>
+            <span className="home-sidebar__user-copy">
+              <strong>{displayName}</strong>
+              <em>{l(getUserRolePresentation(currentUser).label)}</em>
+            </span>
+            <span aria-hidden="true" className="home-sidebar__user-arrow">
+              <HomeIcon name="chevronRight" />
+            </span>
+          </button>
+
+          {isAccountMenuOpen ? (
+            <div
+              aria-label={l('Account menu')}
+              className="home-sidebar__account-popover glass-popover-surface floating-transition"
+              data-state="open"
+              id="home-sidebar-account-menu"
+              role="menu"
+            >
+              {isAdmin ? (
+                <Link
+                  className={
+                    location.pathname === '/settings'
+                      ? 'home-sidebar__account-action home-sidebar__account-action--active'
+                      : 'home-sidebar__account-action'
+                  }
+                  onClick={() => setIsAccountMenuOpen(false)}
+                  role="menuitem"
+                  to="/settings"
+                >
+                  <HomeIcon name="settings" />
+                  <span>{l('Server Settings')}</span>
+                </Link>
+              ) : null}
+
+              <Link
+                className={
+                  location.pathname === '/profile'
+                    ? 'home-sidebar__account-action home-sidebar__account-action--active'
+                    : 'home-sidebar__account-action'
+                }
+                onClick={() => setIsAccountMenuOpen(false)}
+                role="menuitem"
+                to="/profile"
+              >
+                <HomeIcon name="user" />
+                <span>{l('Personal Settings')}</span>
+              </Link>
+
+              <button
+                className="home-sidebar__account-action home-sidebar__account-action--danger"
+                disabled={logoutMutation.isPending}
+                onClick={() => logoutMutation.mutate()}
+                role="menuitem"
+                type="button"
+              >
+                <HomeIcon name="logout" />
+                <span>{logoutMutation.isPending ? l('Logging out…') : l('Log out')}</span>
+              </button>
+
+              {logoutMutation.isError ? (
+                <p className="home-sidebar__account-error" role="alert">
+                  {l('Failed to log out')}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       </aside>
 
       <section className="home-dashboard" aria-label={ariaLabel}>

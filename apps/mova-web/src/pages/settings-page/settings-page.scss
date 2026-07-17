@@ -9,6 +9,7 @@
 
 .settings-library-card {
   position: relative;
+  min-width: 0;
   overflow: visible;
   border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
   border-radius: 20px;
@@ -113,9 +114,11 @@
 }
 
 .settings-library-card__header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
+  min-width: 0;
+  width: 100%;
   min-height: 28px;
   gap: 10px;
 }
@@ -128,8 +131,10 @@
 }
 
 .settings-library-card__title-wrap {
+  min-width: 0;
+  width: 100%;
   max-width: 100%;
-  flex: 0 1 auto;
+  overflow: hidden;
 }
 
 .settings-library-card__menu {
@@ -141,6 +146,8 @@
 .settings-library-card__title {
   display: block;
   min-width: 0;
+  width: 100%;
+  max-width: 100%;
   min-height: 28px;
   color: var(--text);
   font-size: 1.2rem;
@@ -152,6 +159,8 @@
 }
 
 .settings-library-card__description {
+  width: 100%;
+  max-width: 100%;
   min-height: 3em;
   margin: 0;
   color: var(--text-muted);
@@ -161,10 +170,15 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .settings-library-card__description-wrap {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
   min-height: 3em;
+  overflow: hidden;
 }
 
 .settings-library-card__language-note {
@@ -294,10 +308,11 @@
 }
 
 .settings-user-card {
+  position: relative;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  min-height: 124px;
-  padding: 16px 18px;
+  min-height: 92px;
+  padding: 11px 14px;
   border: 1px solid var(--settings-user-card-border);
   border-radius: 20px;
   background: var(--settings-user-card-background);
@@ -305,17 +320,22 @@
   overflow: visible;
 }
 
+.settings-user-card:hover,
+.settings-user-card:focus-within {
+  z-index: 5;
+}
+
 .settings-user-card__avatar {
   display: grid;
   place-items: center;
-  width: 64px;
-  height: 64px;
+  width: 50px;
+  height: 50px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
   border-radius: 999px;
   background: var(--settings-avatar-background);
   box-shadow: var(--panel-inset), var(--floating-shadow-strong);
   color: var(--settings-avatar-text);
-  font-size: 1.3rem;
+  font-size: 1.06rem;
   font-weight: 800;
   letter-spacing: 0.04em;
 }
@@ -323,6 +343,7 @@
 .settings-user-card__body {
   min-width: 0;
   align-content: center;
+  gap: 4px;
 }
 
 .settings-user-card__copy,
@@ -347,7 +368,19 @@
 
 .settings-user-card__identity {
   min-width: 0;
-  align-content: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-user-card__identity > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-user-card__identity-meta {
@@ -355,20 +388,22 @@
   align-items: center;
   justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 2px;
+  gap: 6px;
 }
 
 .settings-user-card__identity-meta .status-pill {
-  padding: 4px 9px;
-  font-size: 0.72rem;
+  min-height: 24px;
+  padding: 0 9px;
+  font-size: 0.68rem;
+  line-height: 1;
 }
 
 .settings-user-card__self-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 9px;
+  min-height: 24px;
+  padding: 0 9px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--floating-surface) 80%, transparent);
@@ -377,6 +412,7 @@
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.04em;
+  line-height: 1;
 }
 
 .settings-user-card__toolbar {
@@ -385,6 +421,23 @@
   flex: 0 0 auto;
   justify-self: end;
   align-self: center;
+  gap: 8px;
+}
+
+.settings-user-card__nickname {
+  min-width: 0;
+  min-height: 1.1rem;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-user-card__nickname--empty {
+  color: var(--text-soft);
 }
 
 .settings-user-card__controls {
@@ -412,7 +465,7 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  width: 76px;
+  width: 58px;
   height: 24px;
   flex: 0 0 auto;
 }
@@ -420,7 +473,7 @@
 .settings-user-card__switch input {
   position: absolute;
   inset: 0;
-  width: 76px;
+  width: 58px;
   height: 24px;
   margin: 0;
   opacity: 0;
@@ -431,7 +484,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  width: 76px;
+  width: 58px;
   height: 24px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 78%, transparent);
   border-radius: 999px;
@@ -455,11 +508,11 @@
 }
 
 .settings-user-card__switch-copy--off {
-  padding-left: 9px;
+  padding-left: 7px;
 }
 
 .settings-user-card__switch-copy--on {
-  padding-right: 9px;
+  padding-right: 7px;
 }
 
 .settings-user-card__switch-track::after {
@@ -467,7 +520,7 @@
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 32px;
+  width: 25px;
   height: 18px;
   border-radius: 999px;
   background: var(--settings-switch-knob-background);
@@ -493,47 +546,11 @@
 }
 
 .settings-user-card__switch input:checked + .settings-user-card__switch-track::after {
-  transform: translateX(40px);
+  transform: translateX(29px);
 }
 
 .settings-user-card__switch input:disabled + .settings-user-card__switch-track {
   opacity: 0.58;
-}
-
-.settings-user-card__edit-icon,
-.settings-user-card__delete-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-muted);
-  transition:
-    color 160ms ease,
-    background 160ms ease,
-    transform 160ms ease;
-}
-
-.settings-user-card__edit-icon:hover,
-.settings-user-card__delete-icon:hover {
-  transform: translateY(-1px);
-  background: var(--settings-icon-hover-background);
-  color: var(--text);
-}
-
-.settings-user-card__edit-icon svg,
-.settings-user-card__delete-icon svg {
-  width: 15px;
-  height: 15px;
-}
-
-.settings-user-card__delete-icon {
-  color: color-mix(in srgb, var(--danger) 84%, var(--text-muted));
 }
 
 .settings-user-card--loading,
@@ -602,16 +619,12 @@
 }
 
 @media (max-width: 720px) {
-  .settings-user-card__header {
-    grid-template-columns: 1fr;
-    gap: 10px;
+  .settings-user-card {
+    padding-inline: 14px;
   }
 
-  .settings-user-card__toolbar,
-  .settings-user-card__controls,
-  .settings-user-card__identity-meta {
-    width: 100%;
-    justify-content: flex-start;
+  .settings-user-card__identity {
+    flex-wrap: wrap;
   }
 }
 

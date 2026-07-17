@@ -8,11 +8,13 @@ export type HomeIconName =
   | 'edit'
   | 'home'
   | 'libraries'
+  | 'logout'
   | 'play'
   | 'scan'
   | 'search'
   | 'settings'
   | 'trash'
+  | 'user'
 
 interface HomeIconProps extends SVGProps<SVGSVGElement> {
   name: HomeIconName
@@ -71,6 +73,13 @@ const iconPaths: Record<HomeIconName, ReactNode> = {
       <path d="M9.5 16h3.5" />
     </>
   ),
+  logout: (
+    <>
+      <path d="M10 5H6.5A2.5 2.5 0 0 0 4 7.5v9A2.5 2.5 0 0 0 6.5 19H10" />
+      <path d="M13 8l4 4-4 4" />
+      <path d="M17 12H8.5" />
+    </>
+  ),
   play: <path d="M9 7.5v9l7-4.5-7-4.5Z" fill="currentColor" stroke="none" />,
   scan: (
     <>
@@ -100,6 +109,12 @@ const iconPaths: Record<HomeIconName, ReactNode> = {
       <path d="m6.5 6 .8 14h9.4l.8-14" />
       <path d="M10 10v6" />
       <path d="M14 10v6" />
+    </>
+  ),
+  user: (
+    <>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
     </>
   ),
 }

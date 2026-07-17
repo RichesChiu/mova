@@ -10,6 +10,7 @@ use crate::{
     state::AppState,
 };
 use axum::{
+    body::Bytes,
     extract::State,
     http::{header, HeaderMap, StatusCode},
     Json,
@@ -165,7 +166,7 @@ pub async fn logout(
     State(state): State<AppState>,
     headers: HeaderMap,
     jar: CookieJar,
-    body: Option<Json<LogoutRequest>>,
+    body: Bytes,
 ) -> Result<(CookieJar, ApiJson<()>), ApiError> {
     if let Ok(credential) = request_auth_credential(&headers, &jar) {
         match credential {
@@ -182,7 +183,7 @@ pub async fn logout(
         }
     }
 
-    if let Some(Json(request)) = body {
+    if let Some(request) = parse_logout_request(&body)? {
         if let Some(refresh_token) = request.refresh_token {
             mova_application::logout_native_client_refresh_token(&state.db, &refresh_token)
                 .await
@@ -191,6 +192,16 @@ pub async fn logout(
     }
 
     Ok((clear_session_cookie(jar), ok_message("logged out", ())))
+}
+
+fn parse_logout_request(body: &[u8]) -> Result<Option<LogoutRequest>, ApiError> {
+    if body.is_empty() {
+        return Ok(None);
+    }
+
+    serde_json::from_slice(body)
+        .map(Some)
+        .map_err(|_| ApiError::BadRequest("invalid logout request body".to_string()))
 }
 
 pub async fn current_user(
@@ -258,4 +269,28 @@ fn request_user_agent(headers: &HeaderMap) -> Option<String> {
         .get(header::USER_AGENT)
         .and_then(|value| value.to_str().ok())
         .map(ToString::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_logout_request;
+
+    #[test]
+    fn logout_request_accepts_an_empty_body() {
+        assert!(parse_logout_request(&[]).unwrap().is_none());
+    }
+
+    #[test]
+    fn logout_request_accepts_an_optional_refresh_token() {
+        let request = parse_logout_request(br#"{"refresh_token":"refresh-token"}"#)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(request.refresh_token.as_deref(), Some("refresh-token"));
+    }
+
+    #[test]
+    fn logout_request_rejects_invalid_json() {
+        assert!(parse_logout_request(b"not-json").is_err());
+    }
 }
