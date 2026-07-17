@@ -4,11 +4,11 @@ export const REALTIME_PROTOCOL_VERSION = 1
 
 export interface LibraryRealtimeResource {
   id: number
-  kind: 'settings' | 'catalog' | 'scan'
+  kind: 'settings' | 'catalog' | 'scan' | 'notifications'
 }
 
 export const parseLibraryRealtimeResource = (resource: string): LibraryRealtimeResource | null => {
-  const match = /^library:(\d+):(settings|catalog|scan)$/.exec(resource)
+  const match = /^library:(\d+):(settings|catalog|scan|notifications)$/.exec(resource)
   if (!match) {
     return null
   }
@@ -63,6 +63,10 @@ export const getRealtimeResourceQueryKeys = (resource: string): QueryKey[] => {
       ['home-library-detail', library.id],
       ['home'],
     ]
+  }
+
+  if (library?.kind === 'notifications' || resource.endsWith(':notifications')) {
+    return [['notifications']]
   }
 
   if (resource.endsWith(':continue-watching')) {

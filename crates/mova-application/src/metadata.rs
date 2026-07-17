@@ -1460,7 +1460,10 @@ fn normalize_title(value: &str) -> String {
 }
 
 fn is_ignorable_title_punctuation(ch: char) -> bool {
-    matches!(ch, '\'' | '’' | '‘' | '`' | 'ʼ')
+    matches!(
+        ch,
+        '\'' | '’' | '‘' | '`' | 'ʼ' | '·' | '・' | '•' | '‧' | '∙' | '⋅'
+    )
 }
 
 fn parse_year(value: Option<&str>) -> Option<i32> {
@@ -1913,6 +1916,9 @@ mod tests {
         assert_eq!(normalize_title("My.Movie: Part-1"), "my movie part 1");
         assert_eq!(normalize_title("All's Fair"), "alls fair");
         assert_eq!(normalize_title("Alls Fair"), "alls fair");
+        assert_eq!(normalize_title("向阳·花"), "向阳花");
+        assert_eq!(normalize_title("新・驯龙高手"), "新驯龙高手");
+        assert_eq!(normalize_title("新•驯龙高手"), "新驯龙高手");
     }
 
     #[test]

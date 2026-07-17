@@ -2,6 +2,7 @@ mod background_jobs;
 mod libraries;
 mod media_cast;
 mod media_items;
+mod notifications;
 mod playback_progress;
 mod pool;
 mod realtime;
@@ -46,6 +47,7 @@ pub use media_items::{
     UpdateMediaItemMetadataParams, UpdateSeriesEpisodeMetadataParams,
     UpdateSeriesSeasonMetadataParams, UpsertSeriesEpisodeOutlineCacheParams,
 };
+pub use notifications::{list_notifications, mark_all_notifications_read, mark_notification_read};
 pub use playback_progress::{
     get_playback_progress_for_media_item, list_continue_watching,
     list_playback_progress_for_media_items, upsert_playback_progress, UpsertPlaybackProgressParams,

@@ -48,14 +48,15 @@
 | `src/pool.rs` | `DatabaseSettings`、`connect`、`migrate`、`ping`。 |
 | `src/libraries.rs` | 媒体库配置读写与删除前 artwork 引用查询；媒体库不再持久化启用/禁用状态；元数据语言变化时还会把该库全部媒体条目标记为 `pending`，确保下一次扫描覆盖全库远端元数据。 |
 | `src/users.rs` | 用户、密码、Web session、原生客户端 access/refresh token 设备会话、媒体库授权。 |
-| `src/scan_jobs.rs` | 扫描任务创建、持久化 phase、任务级文件计数、幂等本地分析检查点、收尾和历史查询；入队时和 `background_jobs` 在同一事务中写入。 |
+| `src/scan_jobs.rs` | 扫描任务创建、持久化 phase、任务级文件计数、幂等本地分析检查点、收尾和历史查询；入队时和 `background_jobs` 在同一事务中写入，worker 提供的摘要在任务终态与 `scan` 类通知原子提交。 |
 | `src/background_jobs.rs` | PostgreSQL 后台任务的 `SKIP LOCKED` 领取、租约续期、完成和延迟重试。 |
+| `src/notifications.rs` | 通用通知可见性查询、分类未读汇总，以及每个用户独立的单条/批量已读持久化。 |
 | `src/realtime.rs` | 读取稳定 `server_epoch`、资源 revisions 和当前用户可见的活跃扫描。 |
 | `src/playback_progress.rs` | 维护逐文件播放进度，并同步维护最多 20 部电影或 Series 的活跃 Continue 队列。 |
 | `src/media_cast.rs` | 演员成员表与演员同步记录表读写；详情页按需补全后会直接持久化到这里。 |
 | `src/media_items.rs` | 媒体条目相关父模块。 |
 | `src/media_items/query.rs` | 媒体列表、详情、文件、音轨、季集、outline cache 等读侧查询，也负责按 `file_path` 读取既有 metadata 摘要、`metadata_status` 复核状态、`scan_hash` 和 `local_analysis_version`；复用本地分析时音轨与字幕按 media file ID 集合各执行一次批量查询。 |
-| `src/media_items/sync.rs` | 按路径 upsert / delete 媒体项、媒体文件、音轨和字幕轨道，并在文件删除或重归属时清理孤立条目；同一 TMDB `provider_item_id` 的电影本地版本会在这里复用同一个 `movie media_item`。扫描组使用单个短事务写入全部成员，任一成员失败时整组回滚，每个组只执行一次孤儿结构清理，并在延迟逐行 trigger 后显式增加一次 catalog revision。 |
+| `src/media_items/sync.rs` | 按路径 upsert / delete 媒体项、媒体文件、音轨和字幕轨道，并在文件删除或重归属时清理孤立条目；同一 TMDB `provider_item_id` 的电影本地版本会在这里复用同一个 `movie media_item`。扫描组使用单个短事务写入全部成员，任一成员失败时整组回滚，每个组只执行一次孤儿结构清理，并在延迟逐行 trigger 后显式增加一次 catalog revision；媒体终态与进度检查点原子一致。 |
 | `src/media_items/series.rs` | 剧集聚合写入与 `series / seasons / episodes` 相关持久化；同一季同一集的多个文件版本会复用同一个 episode 记录，并把剧集级 metadata 复核状态写在 series media item 上；扫描 pending / unmatched 阶段不会用空 artwork 覆盖已有剧集、季或集图片，只有 matched 元数据写入能确认清空缺失图片。 |
 
 ## 5. 主要导出能力
@@ -117,6 +118,8 @@
 `scan_jobs.progress_percent` 保存任务级权威进度。`local_analyzed_files`、`local_committed_files`、`remote_completed_files` 通过 `(scan_job_id, group_key)` 检查点幂等推进，公式为 `floor(10 + 20×analyzed/total + 20×committed/total + 49×remote/total)`。运行中取当前值与新值的较大值并限制到 99，只有 `finalize_scan_job` 写入成功终态时才设置为 100；失败或取消保留最后完成的进度，供重连后的 active scan 和历史任务接口恢复。
 
 可重试执行失败先由 `record_scan_job_attempt_failure` 保存错误上下文；后台任务仍有额度时由 `mark_scan_job_retry_pending` 把父任务恢复为 `pending`，不提前写终态。只有重试耗尽后才调用 `finalize_scan_job(..., "failed", ...)`。
+
+远端组事务成功后，application worker 按文件数在内存中累计 matched / unmatched / failed / skipped，并记录未匹配、失败或包含本地探测警告的问题摘要。`finalize_scan_job` 接收该摘要并直接写入 `notifications.payload`；失败任务只持久化任务级错误，原始 provider、网络和探测诊断保留在 `tracing` 日志。
 
 ### 后台任务
 

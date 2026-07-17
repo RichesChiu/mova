@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
-use mova_domain::ScanJob;
+use mova_domain::{ScanJob, ScanNotificationSummary};
+use serde_json::json;
 use sqlx::{
     postgres::{PgPool, PgRow},
     Postgres, Row, Transaction,
@@ -352,7 +353,12 @@ pub async fn finalize_scan_job(
     total_files: i32,
     scanned_files: i32,
     error_message: Option<&str>,
+    notification_summary: Option<&ScanNotificationSummary>,
 ) -> Result<Option<ScanJob>> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start scan job finalization transaction")?;
     let row = sqlx::query(
         r#"
         update scan_jobs
@@ -386,11 +392,104 @@ pub async fn finalize_scan_job(
     .bind(total_files)
     .bind(scanned_files)
     .bind(error_message)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await
     .context("failed to finalize scan job")?;
 
-    Ok(row.map(map_scan_job_row))
+    let scan_job = row.map(map_scan_job_row);
+    if let Some(scan_job) = scan_job.as_ref() {
+        upsert_scan_job_notification(&mut tx, scan_job, notification_summary).await?;
+        sqlx::query("select mova_bump_realtime_revision($1)")
+            .bind(format!("library:{}:notifications", scan_job.library_id))
+            .fetch_one(&mut *tx)
+            .await
+            .context("failed to bump library notification revision")?;
+    }
+    tx.commit()
+        .await
+        .context("failed to commit scan job finalization transaction")?;
+
+    Ok(scan_job)
+}
+
+async fn upsert_scan_job_notification(
+    tx: &mut Transaction<'_, Postgres>,
+    scan_job: &ScanJob,
+    notification_summary: Option<&ScanNotificationSummary>,
+) -> Result<()> {
+    let context = sqlx::query(
+        r#"
+        select l.name as library_name, sj.reused_files
+        from scan_jobs sj
+        join libraries l on l.id = sj.library_id
+        where sj.id = $1
+        "#,
+    )
+    .bind(scan_job.id)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to load scan notification context")?;
+    let Some(context) = context else {
+        return Ok(());
+    };
+
+    let empty_summary = ScanNotificationSummary::default();
+    let summary = notification_summary.unwrap_or(&empty_summary);
+    let has_issues =
+        summary.failed_files > 0 || summary.unmatched_files > 0 || summary.probe_warning_count > 0;
+    let (notification_type, severity) = if scan_job.status == "failed" {
+        ("scan.failed", "error")
+    } else if has_issues {
+        ("scan.completed_with_issues", "warning")
+    } else {
+        ("scan.completed", "success")
+    };
+    let payload = json!({
+        "scan_job_id": scan_job.id,
+        "library_id": scan_job.library_id,
+        "library_name": context.get::<String, _>("library_name"),
+        "status": scan_job.status,
+        "total_files": scan_job.total_files,
+        "reused_files": context.get::<i32, _>("reused_files"),
+        "matched_files": summary.matched_files,
+        "unmatched_files": summary.unmatched_files,
+        "failed_files": summary.failed_files,
+        "skipped_files": summary.skipped_files,
+        "probe_warning_count": summary.probe_warning_count,
+        "issue_count": summary.issue_count,
+        "error_message": scan_job.error_message,
+        "issues": summary.issues,
+    });
+
+    sqlx::query(
+        r#"
+        insert into notifications (
+            category,
+            notification_type,
+            severity,
+            audience,
+            library_id,
+            source_key,
+            payload
+        )
+        values ('scan', $1, $2, 'library', $3, $4, $5)
+        on conflict (source_key) do update
+        set notification_type = excluded.notification_type,
+            severity = excluded.severity,
+            payload = excluded.payload,
+            updated_at = now()
+        "#,
+    )
+    .bind(notification_type)
+    .bind(severity)
+    .bind(scan_job.library_id)
+    .bind(format!("scan-job:{}", scan_job.id))
+    .bind(payload)
+    .execute(&mut **tx)
+    .await
+    .context("failed to persist scan job notification")?;
+
+    Ok(())
 }
 
 /// 读取某个媒体库的扫描历史，最新任务排在最前面。
@@ -556,6 +655,7 @@ pub async fn initialize_scan_job_work(
         set phase = 'processing',
             total_files = $2,
             scanned_files = $2,
+            reused_files = $3,
             local_analyzed_files = $3,
             local_committed_files = $3,
             remote_completed_files = $3,
@@ -698,6 +798,10 @@ pub async fn mark_scan_group_analyzed(
 }
 
 fn map_scan_job_row(row: PgRow) -> ScanJob {
+    map_scan_job_row_ref(&row)
+}
+
+fn map_scan_job_row_ref(row: &PgRow) -> ScanJob {
     ScanJob {
         id: row.get("id"),
         library_id: row.get("library_id"),

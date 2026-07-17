@@ -5,7 +5,8 @@ use mova_application::{
 };
 use mova_domain::{
     AudioTrack, ContinueWatchingItem, Library, LibraryDetail, MediaCastMember, MediaFile,
-    MediaItem, PlaybackProgress, ScanJob, SubtitleFile, UserProfile,
+    MediaItem, Notification, NotificationFeed, PlaybackProgress, ScanJob, SubtitleFile,
+    UserProfile,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -382,6 +383,26 @@ pub struct ScanJobResponse {
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NotificationFeedResponse {
+    pub items: Vec<NotificationResponse>,
+    pub total_unread: i64,
+    pub unread_by_category: BTreeMap<String, i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NotificationResponse {
+    pub id: i64,
+    pub category: String,
+    pub notification_type: String,
+    pub severity: String,
+    pub library_id: Option<i64>,
+    pub payload: serde_json::Value,
+    pub is_read: bool,
+    pub read_at: Option<String>,
+    pub created_at: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -941,6 +962,36 @@ impl ScanJobResponse {
             started_at: format_optional_datetime(scan_job.started_at, offset),
             finished_at: format_optional_datetime(scan_job.finished_at, offset),
             error_message: scan_job.error_message,
+        }
+    }
+}
+
+impl NotificationFeedResponse {
+    pub fn from_domain(feed: NotificationFeed, offset: UtcOffset) -> Self {
+        Self {
+            items: feed
+                .items
+                .into_iter()
+                .map(|notification| NotificationResponse::from_domain(notification, offset))
+                .collect(),
+            total_unread: feed.total_unread,
+            unread_by_category: feed.unread_by_category,
+        }
+    }
+}
+
+impl NotificationResponse {
+    fn from_domain(notification: Notification, offset: UtcOffset) -> Self {
+        Self {
+            id: notification.id,
+            category: notification.category,
+            notification_type: notification.notification_type,
+            severity: notification.severity,
+            library_id: notification.library_id,
+            payload: notification.payload,
+            is_read: notification.is_read,
+            read_at: format_optional_datetime(notification.read_at, offset),
+            created_at: format_datetime(notification.created_at, offset),
         }
     }
 }

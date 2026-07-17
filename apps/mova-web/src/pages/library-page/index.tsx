@@ -1,5 +1,4 @@
 import { useQuery } from '@tanstack/react-query'
-import { type ReactNode, useEffect, useState } from 'react'
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
 import { getLibrary, listLibraryMediaItems } from '../../api/client'
 import type { MediaItem } from '../../api/types'
@@ -33,6 +32,7 @@ import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 import { HomeIcon } from '../home-page/home-icons'
+import { LibraryDetailTileArtwork } from './library-detail-tile-artwork'
 
 const PAGE_SIZE = 500
 const MEDIA_SECTION_SKELETON_COUNT = 6
@@ -56,53 +56,6 @@ const formatLibraryScanItemSubtitle = (item: ScanRuntimeItem) => {
   }
 
   return null
-}
-
-const LibraryDetailTileArtwork = ({
-  alt,
-  children,
-  placeholderLabel,
-  src,
-}: {
-  alt: string
-  children?: ReactNode
-  placeholderLabel: string
-  src: string | null
-}) => {
-  const [imageState, setImageState] = useState<'idle' | 'loading' | 'loaded' | 'failed'>(
-    src ? 'loading' : 'idle',
-  )
-  const shouldRenderImage = Boolean(src) && imageState !== 'failed'
-  const shouldShowPlaceholder = !src || imageState !== 'loaded'
-
-  useEffect(() => {
-    setImageState(src ? 'loading' : 'idle')
-  }, [src])
-
-  return (
-    <div className="library-detail-tile__poster">
-      {shouldShowPlaceholder ? (
-        <div className="library-detail-tile__placeholder">
-          <span>{placeholderLabel}</span>
-        </div>
-      ) : null}
-      {shouldRenderImage ? (
-        <img
-          alt={alt}
-          className={
-            imageState === 'loaded'
-              ? 'library-detail-tile__image library-detail-tile__image--loaded'
-              : 'library-detail-tile__image'
-          }
-          loading="lazy"
-          onError={() => setImageState('failed')}
-          onLoad={() => setImageState('loaded')}
-          src={src ?? undefined}
-        />
-      ) : null}
-      {children}
-    </div>
-  )
 }
 
 const LibraryDetailMediaTile = ({ item }: { item: MediaItem }) => {

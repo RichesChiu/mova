@@ -4,6 +4,7 @@ mod home;
 mod libraries;
 mod media_files;
 mod media_items;
+mod notifications;
 mod playback_progress;
 mod realtime;
 mod search;
@@ -35,6 +36,10 @@ pub fn libraries() -> Router<crate::state::AppState> {
 /// 注册媒体条目相关路由。
 pub fn media_items() -> Router<crate::state::AppState> {
     media_items::router()
+}
+
+pub fn notifications() -> Router<crate::state::AppState> {
+    notifications::router()
 }
 
 /// 注册媒体文件相关路由。

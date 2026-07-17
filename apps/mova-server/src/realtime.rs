@@ -550,6 +550,7 @@ impl RealtimeDispatcher {
         let resource_keys = vec![
             format!("library:{library_id}:catalog"),
             format!("library:{library_id}:scan"),
+            format!("library:{library_id}:notifications"),
         ];
         match mova_db::list_realtime_revisions(&self.pool, &resource_keys).await {
             Ok(revisions) => {

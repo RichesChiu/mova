@@ -19,6 +19,7 @@ import type {
   MediaItemListResponse,
   MediaItemPlaybackHeader,
   MetadataSearchResult,
+  NotificationFeed,
   PlaybackProgress,
   RealtimeState,
   RecentlyAddedLibraryMediaItems,
@@ -179,6 +180,29 @@ export const changeOwnPassword = (input: ChangeOwnPasswordInput) =>
   })
 
 export const listLibraries = () => requestJson<Library[]>(withApiPrefix('/libraries'))
+
+export const listNotifications = ({
+  category,
+  limit = 20,
+}: {
+  category?: string
+  limit?: number
+} = {}) => {
+  const searchParams = new URLSearchParams({ limit: String(limit) })
+  if (category) {
+    searchParams.set('category', category)
+  }
+  return requestJson<NotificationFeed>(withApiPrefix(`/notifications?${searchParams.toString()}`))
+}
+
+export const markNotificationRead = (notificationId: number) =>
+  requestJson<void>(withApiPrefix(`/notifications/${notificationId}/read`), { method: 'PUT' })
+
+export const markAllNotificationsRead = (category?: string) =>
+  requestJson<number>(withApiPrefix('/notifications'), {
+    method: 'PUT',
+    body: JSON.stringify({ category: category ?? null }),
+  })
 
 export const createLibrary = (input: CreateLibraryInput) =>
   requestJson<Library>(withApiPrefix('/libraries'), {

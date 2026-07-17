@@ -24,6 +24,7 @@ pub fn build_router(state: AppState, web_dist_dir: Option<PathBuf>) -> Router {
         .merge(routes::media_files())
         .merge(routes::subtitle_files())
         .merge(routes::media_items())
+        .merge(routes::notifications())
         .merge(routes::seasons())
         .merge(routes::playback_progress())
         .merge(routes::users())

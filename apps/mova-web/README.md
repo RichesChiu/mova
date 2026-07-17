@@ -13,7 +13,7 @@
 | --- | --- |
 | `src/main.tsx` | 浏览器入口。负责初始化本地主题 / 语言偏好、引入全局样式 `global.scss`、挂载 React 根节点，并包裹前端的 `I18nProvider`。 |
 | `src/App.tsx` | 应用入口。负责创建 `QueryClientProvider`、`BrowserRouter`，并声明完整路由树。 |
-| `src/components/app-shell/index.tsx` | 登录后主壳层。负责查询当前用户、查询可见媒体库、挂载顶栏、处理登出、建立 SSE 连接，并把共享上下文下发给页面；dashboard 路由隐藏通用顶栏，改由 `HomeDashboardShell` 统一渲染左侧导航，各页面再通过 `DashboardPageHeader` 渲染自己的顶部内容和右侧消息入口。 |
+| `src/components/app-shell/index.tsx` | 登录后主壳层。负责查询当前用户、查询可见媒体库、挂载顶栏、处理登出、建立 SSE 连接，并把共享上下文下发给页面；dashboard 路由隐藏通用顶栏，改由 `HomeDashboardShell` 统一渲染左侧导航，各页面再通过 `DashboardPageHeader` 渲染自己的顶部内容和右侧通知中心入口。 |
 | `src/api/client.ts` | 前端统一 API 客户端。负责 mock API 开关接入、`fetch`、错误处理、JSON envelope 解包，以及媒体流/字幕流 URL 构造。播放器这里也会通过它拿字幕列表和音轨列表，并在切换音轨时拼出带 `audio_track_id` 的播放地址。 |
 | `src/api/mock-control.ts` | 前端 mock 开关 gate。生产构建里始终返回关闭，确保发布镜像不能通过 URL/localStorage/env 开启 mock。 |
 | `src/api/mock-api.ts` | 前端开发专用 mock transport。默认关闭，且只在 Vite dev 构建里允许 `VITE_MOVA_MOCK_API=true` 或 URL/localStorage 开关显式开启；它不是请求失败兜底，未覆盖的接口仍然走真实后端。 |
@@ -76,9 +76,9 @@ src/
 | 路由 | 页面文件 | 作用 | 主要数据来源 |
 | --- | --- | --- | --- |
 | `/login` | `src/pages/login-page/index.tsx` | 登录页和首个管理员 bootstrap 入口。根据 `bootstrap-status` 决定是“创建第一个管理员”还是普通登录。 | `getCurrentUser`、`getBootstrapStatus`、`login`、`bootstrapAdmin` |
-| `/` | `src/pages/home-page/index.tsx` | 首页。使用单个 `GET /api/home` 有界快照展示继续观看、`Your Libraries` 摘要和 `Recently Added`，不再为每个库下载完整目录或额外拉取剧集大纲；继续观看没有数据时隐藏整个模块。通用 dashboard shell 负责左侧导航和用户区，页面自己的顶部 header 右侧提供消息入口，顶部不再显示搜索框，搜索只保留在 `/search` 页面内。左侧导航固定在视口高度内，用户入口始终贴近左下角；收起后展开入口改为左下浮动小按钮，并用慢速脉冲提示可展开。左侧导航支持收起/展开，宽度只保留短时过渡，图标方向、文字透明度和位移使用轻量动画，并把偏好保存在浏览器本地。`Your Libraries` 固定为一排 5 等分列，只展示前 5 个库；首页库卡随列宽保持 `16:9` 比例，背景图继续使用 `cover` 填满卡片。总库数超过 5 个时才在标题旁显示进入 `/libraries` 的 `View all`，5 个及以下不显示。时钟导航项和首页继续观看模块的 `View all` 都进入 `/continue`，只展示尚未完成、可以继续播放的内容。最近添加区域不使用分组外框，每组通过 `From “{library}” library` / `来自「{library}」库` 的轻量来源说明区分媒体库，媒体条目继续使用独立横向卡片。 | `getHome` |
+| `/` | `src/pages/home-page/index.tsx` | 首页。使用单个 `GET /api/home` 有界快照展示继续观看、`Your Libraries` 摘要和 `Recently Added`，不再为每个库下载完整目录或额外拉取剧集大纲；继续观看没有数据时隐藏整个模块。通用 dashboard shell 负责左侧导航和用户区，页面自己的顶部 header 右侧提供通用通知中心，按扫描、系统、媒体库和账户分类，红点只表示当前用户仍有未读通知；扫描类通知额外展示严格未匹配、provider 失败和本地分析警告摘要。顶部不再显示搜索框，搜索只保留在 `/search` 页面内。左侧导航固定在视口高度内，用户入口始终贴近左下角；收起后展开入口改为左下浮动小按钮，并用慢速脉冲提示可展开。左侧导航支持收起/展开，宽度只保留短时过渡，图标方向、文字透明度和位移使用轻量动画，并把偏好保存在浏览器本地。`Your Libraries` 固定为一排 5 等分列，只展示前 5 个库；首页库卡随列宽保持 `16:9` 比例，背景图继续使用 `cover` 填满卡片。总库数超过 5 个时才在标题旁显示进入 `/libraries` 的 `View all`，5 个及以下不显示。时钟导航项和首页继续观看模块的 `View all` 都进入 `/continue`，只展示尚未完成、可以继续播放的内容。最近添加区域不使用分组外框，每组通过 `From “{library}” library` / `来自「{library}」库` 的轻量来源说明区分媒体库，媒体条目继续使用独立横向卡片。 | `getHome`、`listNotifications` |
 | `/search` | `src/pages/search-page/index.tsx` | 搜索结果页。复用通用 dashboard 左右布局，并在页面 header 左侧提供唯一搜索输入，右侧保留消息入口；读取 URL 中的 `q` 参数，调用全局搜索接口展示当前用户可见库下的电影、剧集和本地集条目；结果使用竖版海报卡片，图片只使用结果自身的 `poster_path`，没有图时显示明确占位。 | `globalSearch` |
-| `/libraries` | `src/pages/libraries-page/index.tsx` | 全部媒体库页。展示当前用户可见的所有库、库统计、扫描状态和最近新增海报预览；没有最近新增海报的库保持空媒体画布，不借其他字段或其他库图片兜底。 | `listLibraries`、`getLibrary`、`listRecentlyAddedByLibrary`、`scanRuntimeByLibrary` |
+| `/libraries` | `src/pages/libraries-page/index.tsx` | 全部媒体库页。与首页共用 `LibrarySpotlightCard`，展示当前用户可见的所有库、库统计、扫描状态和最近新增海报预览；管理员从卡片右上角三点菜单统一执行编辑、扫描和删除，没有最近新增海报的库保持空媒体画布，不借其他字段或其他库图片兜底。 | `listLibraries`、`getLibrary`、`listRecentlyAddedByLibrary`、`scanRuntimeByLibrary` |
 | `/libraries/:libraryId` | `src/pages/library-page/index.tsx` | 单库详情页。页面 header 左侧展示真实历史返回图标、当前库名和条目总数小字，右侧保留消息入口，不再使用卡片式 hero；直开详情页时返回按钮兜底到 `/libraries`；扫描状态作为标题下方的运行提示单独展示，主体以无大边框分区展示电影/剧集列表和扫描中的占位卡。扫描组处于 `analyzed / pending_committed / metadata / artwork` 阶段时按本地分析出的电影或剧集猜测展示；`completed` 后只有远端类型仍未知、或与本地结构冲突的条目进入 Other，远端类型已经确认且一致的 metadata 失败仍留在对应 Movies / Series 分区，避免刮削期间大量卡片先堆进 Other 再移动。条目网格按 dense 内容处理，侧栏宽度过渡会缩短，列表 section、grid 和 tile 也做布局隔离，避免大量条目放大展开收起的重排成本。 | `getLibrary`、`listLibraryMediaItems`、`scanRuntimeByLibrary` |
 | `/media-items/:mediaItemId` | `src/pages/media-item-page/index.tsx` | 媒体详情页。复用通用 dashboard 左右布局，进入详情页时左侧导航会自动收起以给封面和详情内容更多空间，但用户仍可手动展开；页面 header 左侧提供返回库的 icon，右侧保留消息入口；电影显示详情与播放入口，并在标题旁展示更轻量的年份和带 `IMDb` 标识的评分；背景图挂在整个媒体详情路由容器上，覆盖页面 header 和详情主体，hero 区只用当前条目自己的背景图做内容区内的模糊大底与光晕层，剧集切换季时只更新季海报位，不再让缺少背景图的季清空整页背景，同一详情页内也会保留已经收到的当前条目背景，避免后续 refetch 空响应把整页背景瞬间清掉，海报只用于海报位，不再拿海报顶背景图，让标题、年份、海报和评分形成更完整的电影感头图，资源技术标签挪到年份下方的独立行，剧集可用集数用轻量文案展示，国家/地区、题材类型和工作室放在次级 facts 区里；如果同一部电影存在多个本地版本，播放区会先给版本选择，技术信息区也会跟着当前版本切换；演员区会在主体信息先渲染后再异步加载，服务端会在本地还没有演员数据时按需拉取一次并持久写库，后续详情页直接复用；演员区下方会展示当前资源文件的 source details，原始标题和路径直接放在 Source Files 面板内，并排展示视频、音频、字幕技术卡，不再额外包一层资源文件卡；音轨和字幕卡头部都有小下拉，当前版本本身则只在播放区选择，字幕卡也会展示默认、强制、听障和外挂标记；剧集显示季/集大纲、演员和管理员元数据工具；剧集播放入口会优先沿用最近一次观看的那一集，如果最近一集已经播完则自动跳到下一集；当所在媒体库仍在扫描时，这里也会显示当前条目或当前季的同步状态与占位集卡。 | `getMediaItem`、`getMediaItemCast`、`getMediaItemEpisodeOutline`、`getMediaItemPlaybackProgress`、`getMediaItemPlaybackHeader`、`listMediaItemFiles`、`listMediaFileAudioTracks`、`listMediaFileSubtitles`、`scanRuntimeByLibrary` |
 | `/media-items/:mediaItemId/play` | `src/pages/media-player-page/index.tsx` | 沉浸式播放器页。负责装配播放器标题、副标题、片头跳过区间、集切换选项和“下一集”目标，并把实际播放行为交给 `MediaPlayerPanel`；播放器写入进度后会同步更新剧集 outline 缓存，这样返回详情页时已完成状态和集卡进度条能立刻跟上。 | `getMediaItemPlaybackHeader`、`getMediaItemEpisodeOutline` |
@@ -88,7 +88,8 @@ src/
 
 几个页面内还有“页面级子模块”，但它们不算独立路由：
 
-- `pages/home-page/libraries-section/`：首页 `Your Libraries` 摘要卡，最多展示前几个库，标题旁 `View all` 进入 `/libraries`；库卡和最近添加行左侧库缩略图共用 `home-page/library-artwork.ts` 的同一封面来源。
+- `pages/library-page/library-detail-tile-artwork.tsx`：单库详情卡片的海报加载与失败占位；返回库页重新挂载时会主动识别已经由浏览器缓存完成的图片，不再仅依赖新的 `load` 事件才显示海报。
+- `pages/home-page/libraries-section/`：首页 `Your Libraries` 摘要区，最多展示前几个库，标题旁 `View all` 进入 `/libraries`；具体库卡由共享 `LibrarySpotlightCard` 渲染。
 - `pages/home-page/continue-watching-section/`：继续观看区
 - `pages/home-page/library-content-sections/`：首页按库分组的最近添加列表
 
@@ -103,6 +104,7 @@ src/
 | `AppShell` | `components/app-shell/index.tsx` | 登录后壳层，负责当前用户、媒体库列表、SSE、顶栏和 `Outlet` 上下文；首页路由会隐藏通用顶栏，让首页使用专属 dashboard frame。 | 所有非登录、非沉浸式播放器页面 |
 | `useServerEvents` | `components/app-shell/use-server-events.ts` | 通过 `EventSource('/api/realtime/events')` 订阅 revision 失效通知和临时扫描进度；连接建立、重连或收到 `resync.required` 后读取 `/api/realtime/state`，只为 revision 前进的 resource 串行刷新对应 React Query key，忽略重复和乱序事件。扫描任务直接消费服务端权威 `scan_job.progress_percent`；活跃扫描期间普通 catalog revision 只合并最高值，本地检查点强制刷新一次 pending 目录，扫描终态再刷新最终目录并清理剩余临时卡片。会话失效时关闭连接并回到登录页。 | `AppShell` |
 | `scan-runtime` | `components/app-shell/scan-runtime.ts` | 把 SSE 运行时扫描数据整理成库级进度、条目级占位卡、详情页同步提示和状态文案；库级进度只校验并展示服务端任务值，不再从 phase、文件数或当前条目阶段估算。 | 首页、媒体库页、媒体详情页、设置页 |
+| `NotificationCenter` | `pages/home-page/notification-center.tsx` | dashboard 页面共享的通用通知中心；读取 `GET /api/notifications`，按类别展示通知和当前用户未读数，支持单条与分类批量已读。扫描类事件使用专用 renderer 展示摘要，其他类别共享同一个通知外壳；收到 `*:notifications` revision 后自动失效并刷新。 | 首页、库、详情、搜索、设置、个人设置、继续观看 |
 | `ContentHeader` | `components/content-header/index.tsx` | 顶部品牌和用户菜单；顶栏用户区会优先显示昵称，没有昵称时回退到用户名。语言与主题偏好统一收进个人设置页，不再在 header 里分散放入口。 | `AppShell` |
 
 ### 4.2 媒体展示
@@ -123,7 +125,8 @@ src/
 | `CreateLibraryForm` | `components/create-library-form/index.tsx` | 建库表单，支持目录树选择、类型选择和元数据语言；`Library Type` 和 `Root Path` 也会直接给出轻量提示，减少用户理解容器路径和库类型差异的成本。 | `CreateLibraryModal` |
 | `CreateLibraryModal` | `components/create-library-modal/index.tsx` | 设置页里的建库弹窗，负责承接建库入口，不再把表单长期铺在页面底部。 | 设置页 |
 | `LibraryEditorModal` | `components/library-editor-modal/index.tsx` | 编辑媒体库基础配置，当前支持名称、描述和元数据语言，根路径只读展示；媒体库不再暴露启用/禁用状态。 | 设置页 |
-| `LibraryActionsMenu` | `components/library-actions-menu/index.tsx` | 媒体库三点操作菜单，统一编辑、扫描和删除入口，并处理点击外部或 Escape 关闭。 | 首页、设置页 |
+| `LibrarySpotlightCard` | `components/library-spotlight-card/index.tsx` | 统一媒体库封面、资源统计、扫描状态和管理员三点菜单，避免首页与全部媒体库页复制卡片结构。 | 首页、全部媒体库页 |
+| `LibraryActionsMenu` | `components/library-actions-menu/index.tsx` | 媒体库三点操作菜单，统一编辑、扫描和删除入口，并处理点击外部或 Escape 关闭。 | 首页、全部媒体库页、设置页 |
 | `HoverTooltip` | `components/hover-tooltip/index.tsx` | 普通内容悬浮气泡，使用 Portal、指向箭头和视口碰撞检测，默认向上并在空间不足时自动翻转。 | 设置页库卡片等文本预览 |
 | `UserEditorModal` | `components/user-editor-modal/index.tsx` | 创建/编辑用户，支持用户名、昵称、角色、启停和媒体库授权。 | 设置页 |
 | `ConfirmActionModal` | `components/confirm-action-modal/index.tsx` | 统一承接危险操作确认流和错误提示，当前用于删库、删用户。 | 设置页 |
@@ -147,7 +150,7 @@ src/
 | --- | --- |
 | `api/client.ts` | 统一封装所有 HTTP 请求、mock API 开关、媒体文件流 URL、字幕流 URL，以及 API envelope 解包逻辑。 |
 | `api/mock-control.ts` | 本地 mock 的唯一开关入口。发布构建中固定禁用 mock；开发构建中才读取 `VITE_MOVA_MOCK_API`、`?mova_mock_api=1/0` 和 localStorage。 |
-| `api/mock-api.ts` | 本地 UI 评审用 mock 数据层。默认关闭；开启后覆盖首页、全局搜索、全部库页、库详情、媒体详情、继续观看、季集大纲、演员、资源文件、字幕和音轨等读取接口，以及播放进度写入；媒体图片放在 `src/api/mock-media/`，只随开发 mock chunk 使用。创建/更新/删除库、用户、扫描、元数据替换等管理员写接口不会被 mock 成成功响应。 |
+| `api/mock-api.ts` | 本地 UI 评审用 mock 数据层。默认关闭；开启后覆盖首页、通知中心空列表与已读操作、全局搜索、全部库页、库详情、媒体详情、继续观看、季集大纲、演员、资源文件、字幕和音轨等读取接口，以及播放进度写入；媒体图片放在 `src/api/mock-media/`，只随开发 mock chunk 使用。创建/更新/删除库、用户、扫描、元数据替换等管理员写接口不会被 mock 成成功响应。 |
 | `api/types.ts` | 前端所有 DTO 和请求体类型。页面和组件都依赖这里，而不是在本地重复声明接口。 |
 
 ### `src/lib/`
@@ -209,6 +212,7 @@ src/
 - `components/app-shell/use-server-events.test.tsx`
 - `components/app-shell/scan-runtime.test.ts`
 - `components/media-player-panel/media-player-panel.test.tsx`
+- `pages/library-page/library-detail-tile-artwork.test.tsx`
 - `lib/audio-tracks.test.ts`
 - `lib/media-country.test.ts`
 - `lib/media-file-details.test.ts`

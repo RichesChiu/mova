@@ -1,26 +1,46 @@
-import { useQueries, useQuery } from '@tanstack/react-query'
-import { Link, useOutletContext } from 'react-router-dom'
-import { getLibrary, listRecentlyAddedByLibrary } from '../../api/client'
-import type { AppShellOutletContext } from '../../components/app-shell'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useOutletContext } from 'react-router-dom'
 import {
-  formatScanJobStatusCopy,
-  getEffectiveScanJob,
-  getLibraryScanRuntime,
-  getScanJobProgressPercent,
-  hasFailedLibraryScan,
-  isLibraryScanActive,
-} from '../../components/app-shell/scan-runtime'
+  deleteLibrary,
+  getLibrary,
+  listRecentlyAddedByLibrary,
+  scanLibrary,
+  updateLibrary,
+} from '../../api/client'
+import type { Library, LibraryDetail } from '../../api/types'
+import type { AppShellOutletContext } from '../../components/app-shell'
+import { getLibraryScanRuntime } from '../../components/app-shell/scan-runtime'
+import { ConfirmActionModal } from '../../components/confirm-action-modal'
 import { EmptyState } from '../../components/empty-state'
+import { LibraryEditorModal } from '../../components/library-editor-modal'
+import {
+  LibrarySpotlightCard,
+  LibrarySpotlightCardSkeleton,
+} from '../../components/library-spotlight-card'
 import { useI18n } from '../../i18n'
-import { cssBackgroundImage } from '../../lib/css'
+import {
+  buildDeletedLibraryCacheState,
+  buildDeleteLibraryConfirmationCopy,
+  buildTriggeredScanCacheState,
+  buildUpdatedLibraryCacheState,
+  mergeTriggeredScanLibraryDetail,
+  mergeUpdatedLibraryDetail,
+} from '../../lib/settings-admin'
+import { canManageServer } from '../../lib/viewer'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
-import { getLibraryArtworkSrc } from '../home-page/library-artwork'
+
+const LIBRARY_SKELETON_KEYS = ['library-a', 'library-b', 'library-c', 'library-d'] as const
 
 export const LibrariesPage = () => {
   const { formatNumber, l } = useI18n()
   const { currentUser, libraries, librariesLoading, scanRuntimeByLibrary } =
     useOutletContext<AppShellOutletContext>()
+  const queryClient = useQueryClient()
+  const [editingLibrary, setEditingLibrary] = useState<Library | null>(null)
+  const [pendingDeleteLibrary, setPendingDeleteLibrary] = useState<Library | null>(null)
+  const canManageLibraries = canManageServer(currentUser)
   const libraryDetailQueries = useQueries({
     queries: libraries.map((library) => ({
       queryKey: ['libraries-page-detail', library.id],
@@ -36,179 +56,244 @@ export const LibrariesPage = () => {
     (recentPreviewQuery.data ?? []).map((group) => [group.library.id, group.items]),
   )
 
+  const scanMutation = useMutation({
+    mutationFn: (libraryId: number) => scanLibrary(libraryId),
+    onSuccess: async (scanJob, libraryId) => {
+      const fallbackLibrary = libraries.find((library) => library.id === libraryId)
+
+      if (fallbackLibrary) {
+        const nextScanCache = buildTriggeredScanCacheState({
+          fallbackLibrary,
+          currentLibraryDetail: queryClient.getQueryData<LibraryDetail>([
+            'libraries-page-detail',
+            libraryId,
+          ]),
+          currentHomeLibraryDetail: queryClient.getQueryData<LibraryDetail>([
+            'home-library-detail',
+            libraryId,
+          ]),
+          scanJob,
+        })
+
+        queryClient.setQueryData<LibraryDetail>(
+          ['libraries-page-detail', libraryId],
+          nextScanCache.libraryDetail,
+        )
+        queryClient.setQueryData<LibraryDetail>(
+          ['home-library-detail', libraryId],
+          nextScanCache.homeLibraryDetail,
+        )
+        queryClient.setQueryData<LibraryDetail>(['library', libraryId], (current) =>
+          mergeTriggeredScanLibraryDetail(current, fallbackLibrary, scanJob),
+        )
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['libraries-page-detail', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['home'] }),
+      ])
+    },
+  })
+
+  const updateLibraryMutation = useMutation({
+    mutationFn: ({
+      libraryId,
+      input,
+    }: {
+      libraryId: number
+      input: Parameters<typeof updateLibrary>[1]
+    }) => updateLibrary(libraryId, input),
+    onSuccess: async (updatedLibrary, { libraryId }) => {
+      const nextLibraryCache = buildUpdatedLibraryCacheState({
+        currentLibraries: queryClient.getQueryData<Library[]>(['libraries']),
+        updatedLibrary,
+        currentLibraryDetail: queryClient.getQueryData<LibraryDetail>([
+          'libraries-page-detail',
+          libraryId,
+        ]),
+        currentHomeLibraryDetail: queryClient.getQueryData<LibraryDetail>([
+          'home-library-detail',
+          libraryId,
+        ]),
+      })
+
+      queryClient.setQueryData<Library[]>(['libraries'], nextLibraryCache.libraries)
+      queryClient.setQueryData<LibraryDetail>(
+        ['libraries-page-detail', libraryId],
+        nextLibraryCache.libraryDetail,
+      )
+      queryClient.setQueryData<LibraryDetail>(
+        ['home-library-detail', libraryId],
+        nextLibraryCache.homeLibraryDetail,
+      )
+      queryClient.setQueryData<LibraryDetail>(['library', libraryId], (current) =>
+        mergeUpdatedLibraryDetail(current, updatedLibrary),
+      )
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
+        queryClient.invalidateQueries({ queryKey: ['libraries-page-detail', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
+        queryClient.invalidateQueries({ queryKey: ['home'] }),
+      ])
+    },
+  })
+
+  const deleteLibraryMutation = useMutation({
+    mutationFn: (libraryId: number) => deleteLibrary(libraryId),
+    onSuccess: async (_result, libraryId) => {
+      const nextLibraryCache = buildDeletedLibraryCacheState(
+        queryClient.getQueryData<Library[]>(['libraries']),
+        libraryId,
+      )
+
+      queryClient.setQueryData<Library[]>(['libraries'], nextLibraryCache.libraries)
+      queryClient.removeQueries({ queryKey: ['libraries-page-detail', libraryId] })
+      queryClient.removeQueries({ queryKey: ['library', libraryId] })
+      queryClient.removeQueries({ queryKey: ['library-media', libraryId] })
+      queryClient.removeQueries({ queryKey: ['home-library-detail', libraryId] })
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
+        queryClient.invalidateQueries({ queryKey: ['libraries-page-recently-added'] }),
+        queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
+        queryClient.invalidateQueries({ queryKey: ['home'] }),
+      ])
+    },
+  })
+
+  const activeLibraryModalError =
+    editingLibrary && updateLibraryMutation.error instanceof Error
+      ? updateLibraryMutation.error.message
+      : null
+  const deleteLibraryConfirmationCopy = pendingDeleteLibrary
+    ? buildDeleteLibraryConfirmationCopy(pendingDeleteLibrary)
+    : null
+  const deleteLibraryConfirmationError =
+    pendingDeleteLibrary && deleteLibraryMutation.error instanceof Error
+      ? deleteLibraryMutation.error.message
+      : null
+  const scanErrorMessage = scanMutation.error instanceof Error ? scanMutation.error.message : null
+
   return (
-    <HomeDashboardShell ariaLabel={l('Libraries')} currentUser={currentUser}>
-      <div className="home-dashboard__content home-dashboard__content--libraries">
-        <DashboardPageHeader>
-          <h2>{l('All Libraries')}</h2>
-          <span className="home-dashboard-page-header__meta">
-            {formatNumber(libraries.length)} {l('Libraries')}
-          </span>
-        </DashboardPageHeader>
+    <>
+      <HomeDashboardShell ariaLabel={l('Libraries')} currentUser={currentUser}>
+        <div className="home-dashboard__content home-dashboard__content--libraries">
+          <DashboardPageHeader>
+            <h2>{l('All Libraries')}</h2>
+            <span className="home-dashboard-page-header__meta">
+              {formatNumber(libraries.length)} {l('Libraries')}
+            </span>
+          </DashboardPageHeader>
 
-        <section className="catalog-block libraries-page">
-          {recentPreviewQuery.isError ? (
-            <p className="callout callout--danger">
-              {recentPreviewQuery.error instanceof Error
-                ? recentPreviewQuery.error.message
-                : l('Failed to load recently added media')}
-            </p>
-          ) : null}
+          <section className="catalog-block libraries-page">
+            {recentPreviewQuery.isError ? (
+              <p className="callout callout--danger">
+                {recentPreviewQuery.error instanceof Error
+                  ? recentPreviewQuery.error.message
+                  : l('Failed to load recently added media')}
+              </p>
+            ) : null}
+            {scanErrorMessage ? (
+              <p className="callout callout--danger">{scanErrorMessage}</p>
+            ) : null}
 
-          {librariesLoading ? (
-            <div className="libraries-page__grid">
-              {['library-a', 'library-b', 'library-c', 'library-d'].map((key) => (
-                <div
-                  aria-hidden="true"
-                  className="library-spotlight library-spotlight--loading"
-                  key={key}
-                >
-                  <div className="library-spotlight__backdrop">
-                    <span className="library-spotlight__fallback library-spotlight__fallback--loading skeleton-shimmer" />
-                  </div>
-                  <div className="library-spotlight__content">
-                    <span className="library-spotlight__line library-spotlight__line--title skeleton-shimmer" />
-                    <span className="library-spotlight__line library-spotlight__line--meta skeleton-shimmer" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : libraries.length === 0 ? (
-            <EmptyState
-              description={l('Create a library in Server Settings to start organizing your media.')}
-              title={l('No libraries yet.')}
-            />
-          ) : (
-            <div className="libraries-page__grid">
-              {libraries.map((library, index) => {
-                const detail = libraryDetailQueries[index]?.data ?? null
-                const detailError =
-                  libraryDetailQueries[index]?.error instanceof Error
-                    ? libraryDetailQueries[index].error
-                    : null
-                const detailLoading = libraryDetailQueries[index]?.isLoading ?? false
-                const currentScanRuntime = getLibraryScanRuntime(scanRuntimeByLibrary, library.id)
-                const currentScan = getEffectiveScanJob(
-                  detail?.last_scan ?? null,
-                  currentScanRuntime,
-                )
-                const isScanning = isLibraryScanActive(currentScan, currentScanRuntime)
-                const hasFailedScan = hasFailedLibraryScan(currentScan, currentScanRuntime)
-                const scanCopy = isScanning
-                  ? formatScanJobStatusCopy(currentScan, currentScanRuntime)
-                  : hasFailedScan
-                    ? l('Recent scan failed')
-                    : detailError
-                      ? l('Failed to load library details')
-                      : detailLoading && !detail
-                        ? l('Syncing library state')
-                        : null
-                const scanProgressPercent = isScanning
-                  ? getScanJobProgressPercent(currentScan, currentScanRuntime)
-                  : detailLoading && !detail
-                    ? 10
-                    : 0
-                const mediaCount = detail?.media_count ?? 0
-                const movieCount = detail?.movie_count ?? 0
-                const seriesCount = detail?.series_count ?? 0
-                const otherCount = mediaCount - movieCount - seriesCount
-                const libraryArtworkSrc = getLibraryArtworkSrc(
-                  recentPreviewByLibraryId.get(library.id) ?? [],
-                )
-                const cardClassName = [
-                  'library-spotlight',
-                  'libraries-page__card',
-                  isScanning ? 'library-spotlight--scanning' : '',
-                  libraryArtworkSrc ? '' : 'library-spotlight--empty-artwork',
-                ]
-                  .filter(Boolean)
-                  .join(' ')
+            {librariesLoading ? (
+              <div className="libraries-page__grid">
+                {LIBRARY_SKELETON_KEYS.map((key) => (
+                  <LibrarySpotlightCardSkeleton className="libraries-page__card" key={key} />
+                ))}
+              </div>
+            ) : libraries.length === 0 ? (
+              <EmptyState
+                description={l(
+                  'Create a library in Server Settings to start organizing your media.',
+                )}
+                title={l('No libraries yet.')}
+              />
+            ) : (
+              <div className="libraries-page__grid">
+                {libraries.map((library, index) => {
+                  const detail = libraryDetailQueries[index]?.data ?? null
+                  const detailError =
+                    libraryDetailQueries[index]?.error instanceof Error
+                      ? libraryDetailQueries[index].error
+                      : null
+                  const detailLoading = libraryDetailQueries[index]?.isLoading ?? false
 
-                return (
-                  <article className={cardClassName} key={library.id}>
-                    <Link className="library-spotlight__link" to={`/libraries/${library.id}`}>
-                      <div className="library-spotlight__backdrop" aria-hidden="true">
-                        {libraryArtworkSrc ? (
-                          <span
-                            className="library-spotlight__poster"
-                            style={{ backgroundImage: cssBackgroundImage(libraryArtworkSrc) }}
-                          />
-                        ) : (
-                          <span className="library-spotlight__fallback" />
-                        )}
-                      </div>
+                  return (
+                    <LibrarySpotlightCard
+                      canManageLibraries={canManageLibraries}
+                      className="libraries-page__card"
+                      detail={detail}
+                      detailError={detailError}
+                      detailLoading={detailLoading}
+                      isScanPending={
+                        scanMutation.isPending && scanMutation.variables === library.id
+                      }
+                      key={library.id}
+                      library={library}
+                      onDeleteLibrary={(selectedLibrary) => {
+                        deleteLibraryMutation.reset()
+                        setPendingDeleteLibrary(selectedLibrary)
+                      }}
+                      onEditLibrary={(selectedLibrary) => {
+                        updateLibraryMutation.reset()
+                        setEditingLibrary(selectedLibrary)
+                      }}
+                      onScanLibrary={(selectedLibrary) => {
+                        scanMutation.reset()
+                        scanMutation.mutate(selectedLibrary.id)
+                      }}
+                      recentItems={recentPreviewByLibraryId.get(library.id) ?? []}
+                      scanRuntime={getLibraryScanRuntime(scanRuntimeByLibrary, library.id)}
+                    />
+                  )
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+      </HomeDashboardShell>
 
-                      <div className="library-spotlight__content">
-                        <div className="library-spotlight__summary">
-                          <strong className="library-spotlight__title">{library.name}</strong>
-                          <span className="library-spotlight__resource-count">
-                            {formatNumber(mediaCount)} {l('Resources')}
-                          </span>
-                        </div>
+      <LibraryEditorModal
+        error={activeLibraryModalError}
+        isOpen={editingLibrary !== null}
+        isSubmitting={updateLibraryMutation.isPending}
+        library={editingLibrary}
+        onClose={() => {
+          setEditingLibrary(null)
+          updateLibraryMutation.reset()
+        }}
+        onUpdate={(libraryId, input) => updateLibraryMutation.mutateAsync({ libraryId, input })}
+      />
 
-                        {scanCopy ? (
-                          <div
-                            className={
-                              hasFailedScan
-                                ? 'library-spotlight__scan library-spotlight__scan--failed'
-                                : 'library-spotlight__scan'
-                            }
-                            role="status"
-                          >
-                            <div className="library-spotlight__scan-row">
-                              <span className="library-spotlight__scan-label">{scanCopy}</span>
-                              <span className="library-spotlight__scan-value">
-                                {hasFailedScan ? l('failed') : `${scanProgressPercent}%`}
-                              </span>
-                            </div>
-                            {!hasFailedScan ? (
-                              <div aria-hidden="true" className="library-spotlight__scan-track">
-                                <span
-                                  className="library-spotlight__scan-fill"
-                                  style={{ width: `${scanProgressPercent}%` }}
-                                />
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
+      <ConfirmActionModal
+        confirmLabel={deleteLibraryConfirmationCopy?.confirmLabel ?? l('Confirm')}
+        description={deleteLibraryConfirmationCopy?.description ?? ''}
+        error={deleteLibraryConfirmationError}
+        isOpen={pendingDeleteLibrary !== null}
+        isSubmitting={deleteLibraryMutation.isPending}
+        onClose={() => {
+          setPendingDeleteLibrary(null)
+          deleteLibraryMutation.reset()
+        }}
+        onConfirm={() => {
+          if (!pendingDeleteLibrary) {
+            return
+          }
 
-                        <div className="library-spotlight__stats">
-                          {detailError ? (
-                            <span className="library-spotlight__stat library-spotlight__stat--wide">
-                              {l('Details unavailable')}
-                            </span>
-                          ) : (
-                            <>
-                              <span className="library-spotlight__stat">
-                                {detailLoading && !detail ? (
-                                  l('syncing…')
-                                ) : (
-                                  <>
-                                    <strong>{formatNumber(seriesCount)}</strong>
-                                    <span>{l('Series')}</span>
-                                  </>
-                                )}
-                              </span>
-                              <span className="library-spotlight__stat">
-                                <strong>{formatNumber(movieCount)}</strong>
-                                <span>{l('Movies')}</span>
-                              </span>
-                              <span className="library-spotlight__stat">
-                                <strong>{formatNumber(otherCount)}</strong>
-                                <span>{l('Other')}</span>
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </Link>
-                  </article>
-                )
-              })}
-            </div>
-          )}
-        </section>
-      </div>
-    </HomeDashboardShell>
+          deleteLibraryMutation.mutate(pendingDeleteLibrary.id, {
+            onSuccess: () => setPendingDeleteLibrary(null),
+          })
+        }}
+        title={deleteLibraryConfirmationCopy?.title ?? l('Confirm action')}
+      />
+    </>
   )
 }

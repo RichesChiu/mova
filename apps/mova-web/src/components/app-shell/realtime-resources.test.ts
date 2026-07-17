@@ -8,6 +8,10 @@ import {
 describe('realtime resource query mapping', () => {
   it('parses scoped library resources', () => {
     expect(parseLibraryRealtimeResource('library:7:catalog')).toEqual({ id: 7, kind: 'catalog' })
+    expect(parseLibraryRealtimeResource('library:7:notifications')).toEqual({
+      id: 7,
+      kind: 'notifications',
+    })
     expect(parseLibraryRealtimeResource('admin:libraries')).toBeNull()
   })
 
@@ -37,10 +41,12 @@ describe('realtime resource query mapping', () => {
     const keys = getRealtimeResourcesQueryKeys([
       'library:7:catalog',
       'library:7:scan',
+      'library:7:notifications',
       'user:3:continue-watching',
     ])
 
     expect(keys.filter((queryKey) => JSON.stringify(queryKey) === '["home"]')).toHaveLength(1)
     expect(keys.filter((queryKey) => JSON.stringify(queryKey) === '["library",7]')).toHaveLength(1)
+    expect(keys).toContainEqual(['notifications'])
   })
 })

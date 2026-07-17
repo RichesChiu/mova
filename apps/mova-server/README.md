@@ -3,7 +3,7 @@
 `mova-server` 是 Mova 的后端进程，基于 Axum + Tokio。  
 它的职责不是承载全部业务实现，而是把 HTTP/SSE 请求接进来，做鉴权和协议转换，再把真正的业务分发到 `mova-application`、`mova-db`、`mova-domain` 以及本地运行时模块。
 
-如果你要看接口字段和响应格式，优先看 [`../../docs/API.md`](../../docs/API.md)；Realtime revision、SSE 事件与跨端恢复流程见 [`../../docs/REALTIME.md`](../../docs/REALTIME.md)。
+如果你要看接口字段和响应格式，优先看 [`../../docs/API.md`](../../docs/API.md)；资源 revision、SSE 事件与跨端恢复流程见 [`../../docs/SSE.md`](../../docs/SSE.md)。
 这份 README 更关注代码入口、路由结构、handler 调用链和依赖的 crate。
 
 ## 1. 启动入口与进程链路
@@ -242,11 +242,13 @@ Web 端：
 
 `routes/libraries.rs` -> `handlers::libraries::scan_library` -> `mova_application::enqueue_library_scan` -> `background_jobs` -> worker claim/lease -> `mova_application::execute_scan_job_with_cancellation` -> `RealtimeDispatcher`
 
+扫描 worker 在远端组成功提交后累计任务级通知摘要；扫描结束时，任务终态、摘要 payload、`scan` 类通知和对应 realtime revisions 在同一事务提交。`GET /api/notifications` 通过 `handlers::notifications` 提供按权限过滤的通用通知、分类未读计数和已读操作。通知读取 PostgreSQL 持久化状态，不依赖 SSE 事件历史；完整的底层排障信息由 `tracing` 输出到服务日志。
+
 ### 6.4 SSE 链路
 
 业务事务增加 `realtime_revisions` -> PostgreSQL `NOTIFY` -> `RealtimeDispatcher` 批量合并 -> `state.realtime_hub` -> `handlers::realtime::events` -> Web / macOS / iOS 客户端。断线恢复走 `handlers::realtime::state`，首页首屏走 `handlers::home::get_home`。
 
-完整的事件触发条件、payload、客户端状态机与架构边界见 [`../../docs/REALTIME.md`](../../docs/REALTIME.md)。
+完整的事件触发条件、payload、客户端状态机与架构边界见 [`../../docs/SSE.md`](../../docs/SSE.md)。
 
 ### 6.5 播放链路
 

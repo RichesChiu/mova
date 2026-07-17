@@ -9,6 +9,7 @@ mod media_enrichment;
 mod media_items;
 mod metadata;
 mod metadata_match;
+mod notifications;
 mod playback_header;
 mod playback_progress;
 mod scan_jobs;
@@ -48,6 +49,7 @@ pub use metadata_match::{
     apply_media_item_metadata_match, search_media_item_metadata_matches, ApplyMetadataMatchInput,
     MetadataMatchCandidate, SearchMetadataMatchesInput,
 };
+pub use notifications::{list_notifications, mark_all_notifications_read, mark_notification_read};
 pub use playback_header::{get_media_item_playback_header, MediaItemPlaybackHeader};
 pub use playback_progress::{
     get_playback_progress_for_media_item, list_continue_watching,

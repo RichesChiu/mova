@@ -27,6 +27,58 @@ export interface ScanJob {
   error_message: string | null
 }
 
+export interface ScanNotificationIssue {
+  item_key: string
+  media_type: string
+  title: string
+  year: number | null
+  file_count: number
+  metadata_status: MetadataStatus
+  metadata_failure_reason: string | null
+  failure_detail: string | null
+  probe_warning_count: number
+  probe_warning_file_path: string | null
+  probe_warning_detail: string | null
+}
+
+export type NotificationCategory = 'scan' | 'system' | 'library' | 'account' | string
+export type NotificationSeverity = 'info' | 'success' | 'warning' | 'error' | string
+
+export interface ScanNotificationPayload {
+  scan_job_id: number
+  library_id: number
+  library_name: string
+  status: string
+  total_files: number
+  reused_files: number
+  matched_files: number
+  unmatched_files: number
+  failed_files: number
+  skipped_files: number
+  probe_warning_count: number
+  issue_count: number
+  error_message: string | null
+  issues: ScanNotificationIssue[]
+}
+
+export interface NotificationItem {
+  id: number
+  category: NotificationCategory
+  notification_type: string
+  severity: NotificationSeverity
+  library_id: number | null
+  payload: unknown
+  is_read: boolean
+  read_at: string | null
+  created_at: string
+}
+
+export interface NotificationFeed {
+  items: NotificationItem[]
+  total_unread: number
+  unread_by_category: Record<string, number>
+}
+
 export interface PlaybackProgress {
   id: number
   media_item_id: number

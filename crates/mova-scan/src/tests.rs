@@ -205,6 +205,17 @@ fn parse_media_metadata_does_not_collapse_collection_folder_into_one_movie_title
 }
 
 #[test]
+fn parse_media_metadata_keeps_numeric_movie_title_outside_collection_folder() {
+    let metadata = parse_media_metadata(Path::new(
+        "惊变28年2白骨圣殿(2026)/28.Years.Later.The.Bone.Temple.2026.2160p.mkv",
+    ));
+
+    assert_eq!(metadata.title, "28 Years Later The Bone Temple");
+    assert_eq!(metadata.source_title, "28 Years Later The Bone Temple");
+    assert_eq!(metadata.year, Some(2026));
+}
+
+#[test]
 fn parse_media_metadata_trims_trailing_separator_before_year() {
     let path = Path::new("新驯龙高手 - 2025.mp4");
 
@@ -783,6 +794,7 @@ fn parse_ffprobe_output_extracts_media_probe_fields() {
     assert_eq!(
         probe,
         MediaProbe {
+            error: None,
             duration_seconds: Some(123),
             video_title: Some("Main Video".to_string()),
             video_codec: Some("h264".to_string()),

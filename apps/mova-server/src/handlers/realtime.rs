@@ -170,6 +170,7 @@ fn resource_keys_for_user(
     let mut keys = vec![
         format!("user:{}:profile", user.user.id),
         format!("user:{}:continue-watching", user.user.id),
+        format!("user:{}:notifications", user.user.id),
     ];
     if user.is_admin() {
         keys.push("admin:libraries".to_string());
@@ -181,6 +182,7 @@ fn resource_keys_for_user(
         keys.push(format!("library:{library_id}:settings"));
         keys.push(format!("library:{library_id}:catalog"));
         keys.push(format!("library:{library_id}:scan"));
+        keys.push(format!("library:{library_id}:notifications"));
     }
     keys
 }

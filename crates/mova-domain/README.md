@@ -35,7 +35,8 @@
 | `src/subtitle_file.rs` | `SubtitleFile` |
 | `src/season.rs` | `Season` |
 | `src/episode.rs` | `Episode` |
-| `src/scan_job.rs` | `ScanJob` |
+| `src/scan_job.rs` | `ScanJob` 扫描任务状态。 |
+| `src/notification.rs` | 通用 `Notification`、包含分类未读计数的 `NotificationFeed`，以及扫描终态通知使用的摘要和问题类型。 |
 | `src/playback_progress.rs` | `PlaybackProgress` |
 | `src/continue_watching_item.rs` | `ContinueWatchingItem` |
 | `src/media_cast_member.rs` | `MediaCastMember` |
@@ -55,6 +56,10 @@
 - `Season`
 - `Episode`
 - `ScanJob`
+- `ScanNotificationSummary`
+- `ScanNotificationIssue`
+- `Notification`
+- `NotificationFeed`
 - `PlaybackProgress`
 - `ContinueWatchingItem`
 - `MediaCastMember`

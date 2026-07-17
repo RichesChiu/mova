@@ -171,13 +171,13 @@ struct ParsedNameMetadata {
 
 fn parse_media_name(path: &Path) -> ParsedNameMetadata {
     let normalized = humanize_file_stem(path);
-    let has_leading_collection_index = has_leading_collection_index(path);
+    let has_leading_sequence_index = has_leading_sequence_index(path);
     let parsed_name = parse_title_year_from_humanized_name(&normalized);
     let mut title = parsed_name.title.clone();
     let year = parsed_name.year;
 
-    if has_leading_collection_index {
-        title = strip_leading_collection_index(&title);
+    if has_leading_sequence_index {
+        title = strip_leading_sequence_index(&title);
     }
 
     ParsedNameMetadata {
@@ -479,12 +479,53 @@ fn is_collection_folder_title(value: &str) -> bool {
         || normalized.contains("tetralogy")
         || normalized.contains("saga")
         || matches!(
-            value.trim(),
-            value if value.contains("合集") || value.contains("全集") || value.contains("系列")
+                value.trim(),
+                value if value.contains("合集") || value.contains("全集") || value.contains("系列")
         )
 }
 
-fn has_leading_collection_index(path: &Path) -> bool {
+fn is_season_folder_title(value: &str) -> bool {
+    let normalized = value
+        .chars()
+        .map(|ch| {
+            if is_filename_word_separator_char(ch) {
+                ' '
+            } else {
+                ch
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    let compact = normalized.replace(' ', "");
+
+    normalized
+        .strip_prefix("season ")
+        .and_then(parse_short_number_token)
+        .is_some()
+        || compact
+            .strip_prefix('s')
+            .and_then(parse_short_number_token)
+            .is_some()
+        || compact
+            .strip_prefix('第')
+            .and_then(|value| value.strip_suffix('季'))
+            .and_then(parse_short_number_token)
+            .is_some()
+}
+
+fn has_leading_sequence_index(path: &Path) -> bool {
+    let is_explicit_sequence_path = path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| is_collection_folder_title(value) || is_season_folder_title(value));
+    if !is_explicit_sequence_path {
+        return false;
+    }
+
     let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
         return false;
     };
@@ -503,7 +544,7 @@ fn has_leading_collection_index(path: &Path) -> bool {
         && chars.next().is_some_and(|ch| !ch.is_ascii_digit())
 }
 
-fn strip_leading_collection_index(title: &str) -> String {
+fn strip_leading_sequence_index(title: &str) -> String {
     let tokens = title.split_whitespace().collect::<Vec<_>>();
 
     if tokens.len() >= 3

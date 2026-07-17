@@ -6,6 +6,7 @@ mod library_detail;
 mod media_cast_member;
 mod media_file;
 mod media_item;
+mod notification;
 mod playback_progress;
 mod scan_job;
 mod season;
@@ -25,6 +26,10 @@ pub use media_item::{
     METADATA_FAILURE_PROVIDER_ERROR, METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED,
     METADATA_STATUS_PENDING, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
     REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
+};
+pub use notification::{
+    Notification, NotificationFeed, ScanNotificationIssue, ScanNotificationSummary,
+    MAX_SCAN_NOTIFICATION_ISSUES,
 };
 pub use playback_progress::PlaybackProgress;
 pub use scan_job::ScanJob;

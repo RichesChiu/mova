@@ -5,7 +5,9 @@ use crate::{
     media_enrichment::{MetadataEnrichmentContext, MetadataEnrichmentStage},
     metadata::{MetadataProvider, TMDB_PROVIDER_NAME},
 };
-use mova_domain::{Library, ScanJob};
+use mova_domain::{
+    Library, ScanJob, ScanNotificationIssue, ScanNotificationSummary, MAX_SCAN_NOTIFICATION_ISSUES,
+};
 use mova_domain::{
     METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED,
     METADATA_FAILURE_PROVIDER_ERROR, METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED,
@@ -123,6 +125,12 @@ struct QueuedScanGroup {
     group: ScanDiscoveredGroup,
     item_index: i32,
     total_items: i32,
+}
+
+#[derive(Debug, Default)]
+struct RemoteScanPipelineOutcome {
+    sync: mova_db::SyncLibraryMediaBestEffortOutcome,
+    notification_summary: ScanNotificationSummary,
 }
 
 #[derive(Debug)]
@@ -320,6 +328,7 @@ pub async fn execute_scan_job(
                     scan_job.total_files,
                     scan_job.scanned_files,
                     Some(&error_message),
+                    None,
                 )
                 .await;
             }
@@ -557,10 +566,11 @@ pub async fn execute_scan_job_with_cancellation(
         )
     );
 
-    match pipeline_result {
+    let notification_summary = match pipeline_result {
         Ok((local_outcome, remote_outcome)) => {
             merge_sync_outcome(&mut sync_outcome, local_outcome);
-            merge_sync_outcome(&mut sync_outcome, remote_outcome);
+            merge_sync_outcome(&mut sync_outcome, remote_outcome.sync);
+            remote_outcome.notification_summary
         }
         Err(error) => {
             let message = format_scan_phase_error(
@@ -570,7 +580,7 @@ pub async fn execute_scan_job_with_cancellation(
             record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message).await;
             return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
-    }
+    };
 
     if is_cancelled(&cancellation_flag) {
         if let Some(scan_job) =
@@ -629,8 +639,16 @@ pub async fn execute_scan_job_with_cancellation(
         return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
     }
 
-    match mova_db::finalize_scan_job(pool, scan_job_id, "success", total_files, total_files, None)
-        .await
+    match mova_db::finalize_scan_job(
+        pool,
+        scan_job_id,
+        "success",
+        total_files,
+        total_files,
+        None,
+        Some(&notification_summary),
+    )
+    .await
     {
         Ok(Some(scan_job)) => {
             event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
@@ -870,13 +888,14 @@ async fn enrich_discovered_groups(
     artwork_cache_dir: PathBuf,
     metadata_provider: Arc<dyn MetadataProvider>,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
-) -> ApplicationResult<mova_db::SyncLibraryMediaBestEffortOutcome> {
+) -> ApplicationResult<RemoteScanPipelineOutcome> {
     let mut enrichment = MetadataEnrichmentContext::new(
         artwork_cache_dir,
         metadata_provider.clone(),
         library.metadata_language.clone(),
     );
     let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
+    let mut notification_summary = ScanNotificationSummary::default();
 
     while let Some(queued_group) = group_receiver.recv().await {
         if is_cancelled(&cancellation_flag) {
@@ -917,6 +936,7 @@ async fn enrich_discovered_groups(
             )
             .await?;
             merge_sync_outcome(&mut sync_outcome, group_outcome);
+            record_scan_notification_group(&mut notification_summary, &group, None);
             progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
                 scan_job_id,
                 library.id,
@@ -959,6 +979,7 @@ async fn enrich_discovered_groups(
 
         let remote_media_type = metadata_decision.remote_media_type;
         if let Err(error) = enrichment_result {
+            let failure_detail = compact_scan_failure_detail(error.root_cause().to_string());
             tracing::warn!(
                 library_id = library.id,
                 scan_job_id,
@@ -988,6 +1009,11 @@ async fn enrich_discovered_groups(
             )
             .await?;
             merge_sync_outcome(&mut sync_outcome, group_outcome);
+            record_scan_notification_group(
+                &mut notification_summary,
+                &group,
+                Some(&failure_detail),
+            );
             progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
                 scan_job_id,
                 library.id,
@@ -1025,6 +1051,7 @@ async fn enrich_discovered_groups(
         )
         .await?;
         merge_sync_outcome(&mut sync_outcome, group_outcome);
+        record_scan_notification_group(&mut notification_summary, &group, None);
         progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
             scan_job_id,
             library.id,
@@ -1037,7 +1064,10 @@ async fn enrich_discovered_groups(
         emit_current_scan_job_update(pool, scan_job_id, &progress_listener).await;
     }
 
-    Ok(sync_outcome)
+    Ok(RemoteScanPipelineOutcome {
+        sync: sync_outcome,
+        notification_summary,
+    })
 }
 
 async fn sync_scan_group_media_entries(
@@ -1064,6 +1094,83 @@ async fn sync_scan_group_media_entries(
         upserted_count,
         ..Default::default()
     })
+}
+
+fn record_scan_notification_group(
+    summary: &mut ScanNotificationSummary,
+    group: &ScanDiscoveredGroup,
+    failure_detail: Option<&str>,
+) {
+    let primary_file = group.files.first();
+    let probe_warnings = group
+        .files
+        .iter()
+        .filter_map(|file| {
+            file.probe_error.as_ref().map(|detail| {
+                (
+                    file.file_path.to_string_lossy().to_string(),
+                    compact_scan_failure_detail(detail),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    let first_probe_warning = probe_warnings.first().cloned();
+
+    let metadata_status = primary_file
+        .and_then(|file| file.metadata_status.clone())
+        .unwrap_or_else(|| METADATA_STATUS_FAILED.to_string());
+    let file_count = i32::try_from(group.files.len()).unwrap_or(i32::MAX);
+
+    match metadata_status.as_str() {
+        METADATA_STATUS_MATCHED => summary.matched_files += file_count,
+        METADATA_STATUS_UNMATCHED => summary.unmatched_files += file_count,
+        METADATA_STATUS_SKIPPED => summary.skipped_files += file_count,
+        _ => summary.failed_files += file_count,
+    }
+
+    let probe_warning_count = i32::try_from(probe_warnings.len()).unwrap_or(i32::MAX);
+    summary.probe_warning_count = summary
+        .probe_warning_count
+        .saturating_add(probe_warning_count);
+    let has_issue = matches!(
+        metadata_status.as_str(),
+        METADATA_STATUS_UNMATCHED | METADATA_STATUS_FAILED
+    ) || probe_warning_count > 0;
+    if !has_issue {
+        return;
+    }
+
+    summary.issue_count = summary.issue_count.saturating_add(1);
+    if summary.issues.len() >= MAX_SCAN_NOTIFICATION_ISSUES {
+        return;
+    }
+
+    summary.issues.push(ScanNotificationIssue {
+        item_key: group.presentation.item_key.clone(),
+        media_type: group.presentation.media_type.clone(),
+        title: group.presentation.title.clone(),
+        year: group.presentation.year,
+        file_count,
+        metadata_status,
+        metadata_failure_reason: primary_file.and_then(|file| file.metadata_failure_reason.clone()),
+        failure_detail: failure_detail.map(compact_scan_failure_detail),
+        probe_warning_count,
+        probe_warning_file_path: first_probe_warning
+            .as_ref()
+            .map(|(file_path, _)| file_path.clone()),
+        probe_warning_detail: first_probe_warning.map(|(_, detail)| detail),
+    });
+}
+
+fn compact_scan_failure_detail(detail: impl AsRef<str>) -> String {
+    detail
+        .as_ref()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(500)
+        .collect()
 }
 
 fn merge_sync_outcome(
@@ -1760,6 +1867,7 @@ fn discovered_file_from_existing_local_analysis(
     Ok(DiscoveredMediaFile {
         file_path: inventory.file_path.clone(),
         file_modified_at_ms: inventory.file_modified_at_ms,
+        probe_error: None,
         metadata_provider: effective_existing_metadata_provider(summary).map(str::to_string),
         metadata_provider_item_id: effective_existing_metadata_provider_item_id(summary),
         title,
@@ -2942,9 +3050,10 @@ mod tests {
     use async_trait::async_trait;
     use mova_db::ExistingMediaMetadataSummary;
     use mova_domain::{
-        Library, METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED,
-        METADATA_STATUS_PENDING, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
-        REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
+        Library, METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_ERROR,
+        METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED, METADATA_STATUS_PENDING,
+        METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE,
+        REMOTE_MEDIA_TYPE_SERIES,
     };
     use mova_scan::{
         discovered_media_file_inventory_scan_hash, discovered_media_file_scan_hash,
@@ -2961,6 +3070,7 @@ mod tests {
         DiscoveredMediaFile {
             file_path: PathBuf::from("/media/series/Arcane/Arcane.S01E01.mkv"),
             file_modified_at_ms: Some(1_700_000_000_000),
+            probe_error: None,
             metadata_provider: None,
             metadata_provider_item_id: None,
             title: "Arcane".to_string(),
@@ -3012,6 +3122,77 @@ mod tests {
             audio_tracks: Vec::new(),
             subtitle_tracks: Vec::new(),
         }
+    }
+
+    #[test]
+    fn scan_notification_summary_keeps_provider_failure_and_probe_warning_separate() {
+        let mut file = build_discovered_file();
+        file.metadata_status = Some(METADATA_STATUS_FAILED.to_string());
+        file.metadata_failure_reason = Some(METADATA_FAILURE_PROVIDER_ERROR.to_string());
+        file.probe_error = Some("ffprobe failed:\n EBML header parsing failed".to_string());
+        let group = super::ScanDiscoveredGroup {
+            presentation: super::ScanPresentationGroup {
+                item_key: "movie:a-minecraft-movie:2025".to_string(),
+                media_type: "movie".to_string(),
+                title: "A Minecraft Movie".to_string(),
+                lookup_title: "A Minecraft Movie".to_string(),
+                year: Some(2025),
+            },
+            files: vec![file],
+        };
+
+        let mut summary = mova_domain::ScanNotificationSummary::default();
+        super::record_scan_notification_group(&mut summary, &group, Some("operation\n timed out"));
+        let result = &summary.issues[0];
+
+        assert_eq!(summary.failed_files, 1);
+        assert_eq!(summary.probe_warning_count, 1);
+        assert_eq!(summary.issue_count, 1);
+        assert_eq!(result.metadata_status, METADATA_STATUS_FAILED);
+        assert_eq!(
+            result.metadata_failure_reason.as_deref(),
+            Some(METADATA_FAILURE_PROVIDER_ERROR)
+        );
+        assert_eq!(
+            result.failure_detail.as_deref(),
+            Some("operation timed out")
+        );
+        assert_eq!(result.probe_warning_count, 1);
+        assert_eq!(
+            result.probe_warning_detail.as_deref(),
+            Some("ffprobe failed: EBML header parsing failed")
+        );
+    }
+
+    #[test]
+    fn scan_notification_summary_counts_all_issues_but_bounds_payload_details() {
+        let issue_total = mova_domain::MAX_SCAN_NOTIFICATION_ISSUES + 5;
+        let mut summary = mova_domain::ScanNotificationSummary::default();
+
+        for index in 0..issue_total {
+            let mut file = build_discovered_file();
+            file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
+            file.metadata_failure_reason = Some(METADATA_FAILURE_NO_REMOTE_MATCH.to_string());
+            let group = super::ScanDiscoveredGroup {
+                presentation: super::ScanPresentationGroup {
+                    item_key: format!("movie:unmatched:{index}"),
+                    media_type: "movie".to_string(),
+                    title: format!("Unmatched {index}"),
+                    lookup_title: format!("Unmatched {index}"),
+                    year: None,
+                },
+                files: vec![file],
+            };
+
+            super::record_scan_notification_group(&mut summary, &group, None);
+        }
+
+        assert_eq!(summary.unmatched_files, issue_total as i32);
+        assert_eq!(summary.issue_count, issue_total as i32);
+        assert_eq!(
+            summary.issues.len(),
+            mova_domain::MAX_SCAN_NOTIFICATION_ISSUES
+        );
     }
 
     fn build_pending_scan_file(file: DiscoveredMediaFile) -> super::PendingScanFile {
@@ -4508,6 +4689,7 @@ async fn finalize_cancelled_scan(
         total_files,
         scanned_files,
         Some("scan cancelled"),
+        None,
     )
     .await
     .ok()

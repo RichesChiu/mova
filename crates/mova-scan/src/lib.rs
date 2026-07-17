@@ -52,6 +52,7 @@ pub struct DiscoveredMediaFileInventory {
 pub struct DiscoveredMediaFile {
     pub file_path: PathBuf,
     pub file_modified_at_ms: Option<i64>,
+    pub probe_error: Option<String>,
     pub metadata_provider: Option<String>,
     pub metadata_provider_item_id: Option<i64>,
     pub title: String,

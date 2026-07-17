@@ -10,4 +10,5 @@ sqlx.workspace = true
 time.workspace = true
 anyhow.workspace = true
 mova-domain = { path = "../mova-domain" }
+serde_json.workspace = true
 tracing.workspace = true

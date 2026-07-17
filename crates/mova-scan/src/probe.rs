@@ -3,6 +3,7 @@ use std::{io, path::Path, process::Command};
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct MediaProbe {
+    pub error: Option<String>,
     pub duration_seconds: Option<i32>,
     pub video_title: Option<String>,
     pub video_codec: Option<String>,
@@ -155,20 +156,28 @@ pub(crate) fn probe_media_file(
             probe
         }
         Err(ProbeError::Unavailable(error)) => {
+            let detail = error.to_string();
             tracing::warn!(
                 error = %error,
                 "ffprobe is not available; media probe fields will remain empty"
             );
             *probe_availability = ProbeAvailability::Unavailable;
-            MediaProbe::default()
+            MediaProbe {
+                error: Some(detail),
+                ..MediaProbe::default()
+            }
         }
         Err(error) => {
+            let detail = error.to_string();
             tracing::warn!(
                 file_path = %path.display(),
                 error = %error,
                 "failed to probe media file with ffprobe"
             );
-            MediaProbe::default()
+            MediaProbe {
+                error: Some(detail),
+                ..MediaProbe::default()
+            }
         }
     }
 }
@@ -231,6 +240,7 @@ pub(crate) fn parse_ffprobe_output(output: &[u8]) -> Result<MediaProbe, ProbeErr
         .collect::<Vec<_>>();
 
     Ok(MediaProbe {
+        error: None,
         duration_seconds: parsed
             .format
             .as_ref()

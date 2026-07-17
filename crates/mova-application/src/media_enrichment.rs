@@ -1729,6 +1729,7 @@ mod tests {
         DiscoveredMediaFile {
             file_path: PathBuf::from("/media/series/Show/Season 01/Show.S01E01.mkv"),
             file_modified_at_ms: Some(1_700_000_000_000),
+            probe_error: None,
             metadata_provider: None,
             metadata_provider_item_id: None,
             title: "Show".to_string(),

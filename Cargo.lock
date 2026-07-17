@@ -1039,6 +1039,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "mova-domain",
+ "serde_json",
  "sqlx",
  "time",
  "tracing",
@@ -1049,6 +1050,7 @@ name = "mova-domain"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "time",
 ]
 

@@ -122,6 +122,7 @@ async fn run_background_worker(state: AppState, worker_id: String) {
                                             scan_job.total_files,
                                             scan_job.scanned_files,
                                             Some(&error_message),
+                                            None,
                                         )
                                         .await
                                         {

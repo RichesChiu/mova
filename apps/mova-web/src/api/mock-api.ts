@@ -560,6 +560,9 @@ export const requestMockJson = async <T>(
   }
 
   if (method === 'PUT') {
+    if (pathname === '/notifications' || /^\/notifications\/\d+\/read$/.test(pathname)) {
+      return mockResult((pathname === '/notifications' ? 0 : undefined) as T)
+    }
     const progressMatch = pathname.match(/^\/media-items\/(\d+)\/playback-progress$/)
     if (progressMatch) {
       return mockResult(playbackProgressFromUpdate(Number(progressMatch[1]), init) as T)
@@ -603,6 +606,9 @@ export const requestMockJson = async <T>(
   }
   if (pathname === '/libraries') {
     return mockResult(mockLibraries as T)
+  }
+  if (pathname === '/notifications') {
+    return mockResult({ items: [], total_unread: 0, unread_by_category: {} } as T)
   }
   if (pathname === '/server/media-tree') {
     return mockResult(mockServerMediaTree as T)

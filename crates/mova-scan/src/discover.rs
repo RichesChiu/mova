@@ -305,6 +305,7 @@ fn build_discovered_media_file_from_parts(
 
     DiscoveredMediaFile {
         file_modified_at_ms: inventory.file_modified_at_ms,
+        probe_error: probe.error,
         metadata_provider: None,
         metadata_provider_item_id: None,
         title: parsed.title,
