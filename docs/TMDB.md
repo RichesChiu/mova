@@ -12,7 +12,7 @@
 2. 当标题、年份和类型形成可信的同一作品身份后，应绑定 TMDB ID，并采用 TMDB 的规范标题、原始标题、发行信息、简介、题材、国家、制作方、演员和图片等远端元数据。
 3. “结构权威”和“元数据权威”是两件事：本地负责回答文件怎样播放和怎样组成季集，TMDB 负责回答这个作品是谁以及怎样展示。
 4. 当前实现已经由本地名称解析结果直接决定 TMDB endpoint：明确带季集号只查 TV；不带季集号只查 movie。自动扫描不再同时搜索两种类型，也不再做远端类型评分。
-5. 当前自动匹配不计算分数：名称必须严格对齐；本地有年份时，TMDB 年份也必须完全相同；本地没有年份时，才从严格同名候选中选择正式日期最新者。
+5. 当前自动匹配不计算分数：主标题必须严格对齐；只有本地标题以数字结尾时，才允许 TMDB 在相同主标题后用明确分隔符追加副标题。本地有年份时，TMDB 年份也必须完全相同；本地没有年份时，从严格主标题候选中选择正式日期最新者，日期并列时取 TMDB 顺序中的第一个。
 6. 当前代码已增加 alternative titles 严格验证，但详情字段利用率仍偏低；图片配置、完整海报/背景/Logo 集合、分级、上映信息等尚未接入。
 7. 类型检测和正式查找之间的重复搜索已经删除；一次自动搜索选中的 provider ID 会直接进入详情请求。
 8. 演员不在扫库阶段为全部条目预抓。目标是读取单个 Mova 条目详情时由服务端按需获取并持久化演员，并把演员直接放进条目详情响应，客户端不再额外拼接第二个演员请求。
@@ -67,8 +67,8 @@
 | --- | --- | --- | --- |
 | `GET /3/search/movie` | `query`、`include_adult=false`、`page`、`language`；有年份时带 `primary_release_year` | 无完整季集坐标的自动匹配、手动候选搜索；缺少 provider ID 时的演员查询 | 自动匹配在结果不超过 20 页时遍历全部页；读取 `id`、标题、原始标题、完整发行日期、简介、海报和背景图 |
 | `GET /3/search/tv` | `query`、`include_adult=false`、`page`、`language`；有年份时带 `first_air_date_year` | 明确季集结构的自动匹配、手动候选搜索；缺少 provider ID 时的 outline/演员查询 | 自动匹配在结果不超过 20 页时遍历全部页；读取 `id`、名称、原始名称、完整首播日期、简介、海报和背景图 |
-| `GET /3/movie/{movie_id}/alternative_titles` | movie ID | search 候选的标题和原始标题都不严格相等时 | 只用于把别名验证为严格相等，不计算分数 |
-| `GET /3/tv/{series_id}/alternative_titles` | series ID | search 候选的名称和原始名称都不严格相等时 | 只用于把别名验证为严格相等，不计算分数 |
+| `GET /3/movie/{movie_id}/alternative_titles` | movie ID | search 候选的标题和原始标题都不满足严格主标题规则时 | 只用于把别名验证为严格主标题匹配，不计算分数 |
+| `GET /3/tv/{series_id}/alternative_titles` | series ID | search 候选的名称和原始名称都不满足严格主标题规则时 | 只用于把别名验证为严格主标题匹配，不计算分数 |
 | `GET /3/movie/{movie_id}` | `language`、`append_to_response=external_ids` | 已选电影 ID 的详情补全、手动匹配、刷新元数据 | 标题、原始标题、发行年份、简介、production countries、genres、production companies、poster/backdrop、IMDb ID |
 | `GET /3/tv/{series_id}` | `language`、`append_to_response=external_ids` | 已选剧集 ID 的详情补全；outline 当前会再次请求一次 | 名称、原始名称、首播年份、简介、origin country、genres、production companies、poster/backdrop、IMDb ID、season summaries |
 | `GET /3/tv/{series_id}/season/{season_number}` | `language` | 扫描剧集图片、剧集详情页 outline、手动匹配剧集 | 季名称、日期、简介、季海报；集号、集标题、简介和 still |
@@ -92,20 +92,21 @@
 - 删除英文直/弯单引号，以及 `·`、`・`、`•` 等标题间隔号。
 - 其他标点转为空格并压缩连续空格。
 
-标准化后的本地标题必须与 TMDB 本地化标题、原始标题或 alternative title 完全相等；前缀、包含、编辑距离和 popularity 都不参与自动选择。
+标准化后的本地标题必须与 TMDB 本地化标题、原始标题或 alternative title 完全相等。唯一例外是本地标题以数字结尾的续集：远端标题可以在相同主标题后用 `:`、`：`、`|`、`｜`、`–` 或 `—` 追加非空副标题。这是明确的主标题边界验证，不是普通前缀、包含、编辑距离或 popularity 匹配。
 
 ### 4.2 当前类型与年份选择
 
 1. 本地同时存在 `season_number + episode_number` 时只搜索 TV；其它文件只搜索 movie。
 2. 本地有年份时，请求必须携带年份，候选的正式日期年份也必须完全相同；不会移除年份重试。
-3. 本地没有年份时，自动匹配在搜索结果不超过 20 页时遍历全部页，在严格同名候选中按完整日期选择唯一最新作品；超过上限说明查询过宽，自动匹配按未命中收口，交给手动匹配。
-4. 最新日期并列、全部缺日期或没有严格名称候选时不自动选择。
-5. 已选 provider ID 直接传入详情 endpoint，不再执行第二轮标题搜索。
-6. 先从 localized/original title 中寻找严格候选；只有完全没有直接候选时才请求 alternative titles，且最多验证 40 个候选，避免别名验证形成无界 N+1 请求。
+3. 同名同年的直接候选有多个时，优先保留 `original_title / original_name` 也与本地主标题严格对齐的候选子集。子集为空时保留原候选，不根据元数据语言猜测制作国家。
+4. 本地没有年份时，自动匹配在搜索结果不超过 20 页时遍历全部页，在严格主标题候选中按完整日期选择最新作品；日期并列时保留 TMDB 结果顺序中的第一个。超过上限说明查询过宽，自动匹配按未命中收口，交给手动匹配。
+5. 全部缺日期或没有严格主标题候选时不自动选择。
+6. 已选 provider ID 直接传入详情 endpoint，不再执行第二轮标题搜索。
+7. 先从 localized/original title 中寻找严格候选；只有完全没有直接候选时才请求 alternative titles，且最多验证 40 个候选，避免别名验证形成无界 N+1 请求。
 
 ### 4.3 当前仍需收口
 
-- 当前“最新候选并列”和“没有候选”最终都收敛为 `no_remote_match`；后续状态模型仍要增加独立的 `ambiguous_remote_match`。
+- 当前“所有严格候选都缺少正式日期”和“没有严格候选”最终都收敛为 `no_remote_match`。
 - 当前 `apply_remote_metadata()` 只一定覆盖展示标题；年份、国家、题材、制作公司、简介和图片多数是“本地为空才填”。这不等同于“匹配后由 TMDB 提供规范元数据”，也会让切换元数据语言或刷新后保留旧字段。
 - 当前 outline 会重新请求 TV details，并串行遍历 TMDB 返回的全部正数季，而不是只拉本地实际存在的季。
 - 当前没有统一 provider rate limiter，也没有专门处理 `429 / Retry-After`。
@@ -144,13 +145,17 @@ otherwise
 - Unicode 小写化。
 - 删除首尾空白并压缩连续空白。
 - 统一点号、下划线、连字符、全角/半角空格和常见引号等纯排版差异；`·`、`・`、`•` 等装饰性间隔号直接忽略。
-- 不做前缀、包含、编辑距离、分词相似度或模糊匹配。
+- 不做普通前缀、包含、编辑距离、分词相似度或模糊匹配。
 
-标准化后，本地名称必须与以下任一值完全相等：
+标准化后，本地名称必须与以下任一值的主标题完全相等：
 
 - movie `title` 或 `original_title`。
 - TV `name` 或 `original_name`。
 - 通过对应 `alternative_titles` endpoint 取得的某个别名。
+
+只有本地主标题以 ASCII 数字结尾时，远端值才可以在完全相同的主标题后用 `:`、`：`、`|`、`｜`、`–` 或 `—` 追加非空副标题。例如本地 `东北恋哥3` 可以严格对齐远端 `东北恋哥3：冬天里的一把火`；本地 `Dune` 不会因此匹配 `Dune: Part Two`。
+
+直接候选中同时存在“原始标题严格对齐”和“只有本地化翻译名对齐”的条目时，先保留前者。例如 `奇遇 (2025)` 的中国候选原始标题同样是“奇遇”，法国候选只有中文翻译名是“奇遇”，因此优先中国候选。该规则依赖作品身份字段，不把 `zh-CN` UI 语言等同于“中国影片”。
 
 TMDB search 会参考翻译名和别名，但 search response 不会指出具体命中的别名。因此当 title/original title 不相等时，可以读取该候选的 alternative titles 做“严格相等验证”；验证仍然只有 true/false，不产生分数。
 
@@ -159,36 +164,42 @@ TMDB search 会参考翻译名和别名，但 search response 不会指出具体
 - movie 使用本地年份对齐 `release_date` 的年份，并在搜索时传 `primary_release_year`。
 - TV 使用本地年份对齐 `first_air_date` 的年份，并在搜索时传 `first_air_date_year`。
 - 名称相等且年份完全相同才接受。
+- 同名同年多候选时，优先保留原始标题也严格相等的候选子集；子集仍有多个时不自动选择。
 - 名称相等但年份相差 1 也不接受。
 - 带年份搜索无结果时，不移除年份重试。
 - TMDB 候选缺少日期而本地携带年份时不能自动接受，进入未匹配。
 
-### 5.5 无年份：选择严格同名候选中的最新作品
+### 5.5 无年份：选择严格主标题候选中的最新作品
 
 - 搜索请求不传年份。
-- TMDB search 的默认排序不是发布日期排序，因此服务端必须遍历响应声明的全部结果页，再在本地执行严格同名过滤和日期排序；不能只看第一页就宣称找到了“最新”作品。
+- TMDB search 的默认排序不是发布日期排序，因此服务端必须遍历响应声明的全部结果页，再在本地执行严格主标题过滤和日期排序；不能只看第一页就宣称找到了“最新”作品。
 - 同一个规范化查询应使用短时缓存和 singleflight 合并，避免并发扫描组重复翻页。
-- 先删除所有名称不严格相等的候选。
+- 先删除所有不满足严格主标题规则的候选。
 - movie 按完整 `release_date` 降序；TV 按完整 `first_air_date` 降序。
-- 选择日期最新的候选，不能使用 popularity、vote 或 TMDB 返回顺序替代日期。
+- 选择日期最新的候选，不能使用 popularity、vote 或 TMDB 返回顺序替代日期；只在最新完整日期并列时，保留 TMDB 顺序中的第一个。
 - 有日期的候选优先于缺少日期的候选。
-- 如果所有严格同名候选都没有日期，或最新日期仍对应多个不同 ID，写为 `unmatched / ambiguous_remote_match`，交给手动选择。
+- 如果所有严格主标题候选都没有日期，写为 `unmatched / no_remote_match`，交给手动选择。
 
 ### 5.6 决策伪代码
 
 ```text
 kind = has_explicit_season_and_episode ? tv : movie
 candidates = search(kind, local_title, optional_year)
-exact_name_candidates = candidates.filter(exact_name_or_verified_alias)
+eligible_candidates = candidates.filter(optional_year_is_equal)
+direct_candidates = eligible_candidates.filter(localized_or_original_strict_main_title)
+
+if direct_candidates is not empty:
+    exact_name_candidates = prefer_original_title_matches(direct_candidates)
+else:
+    exact_name_candidates = eligible_candidates.filter(verified_alternative_title)
 
 if local_year exists:
-    matched = exact_name_candidates.filter(remote_year == local_year)
     accept only when exactly one identity remains
 else:
     matched = exact_name_candidates.sort(remote_full_date desc)
-    accept the unique newest identity
+    accept the newest identity; keep the first TMDB result when the newest date is tied
 
-no accepted identity -> unmatched / no_remote_match or ambiguous_remote_match
+no accepted identity -> unmatched / no_remote_match
 ```
 
 整个流程没有 `MatchRank`、title score、year score、popularity tie-breaker，也没有 opposite-type fallback。
@@ -222,7 +233,7 @@ TMDB 官方推荐的基本流程也是“先 search，再使用选中的 ID quer
 
 ### 6.2 严格别名验证
 
-- `GET /3/movie/{id}/alternative_titles` 和 `GET /3/tv/{id}/alternative_titles` 只在 search 命中、但返回的本地化标题和原始标题都与本地名称不相等时使用。
+- `GET /3/movie/{id}/alternative_titles` 和 `GET /3/tv/{id}/alternative_titles` 只在 search 命中、但返回的本地化标题和原始标题都不满足严格主标题规则时使用。
 - 有年份时先按远端年份过滤，再验证别名；年份不等的候选不值得追加请求。
 - 无年份时对返回候选验证别名后，仍按正式日期选择最新者。
 - 别名验证结果缓存到 provider + kind + ID，避免相同候选重复请求。
@@ -349,12 +360,11 @@ provider_artworks
 第一批重构后已经对齐的部分：
 
 - 自动扫描已经删除双类型 detect、候选评分、去掉年份重试和正式 lookup 的重复搜索。
-- 自动扫描已经使用本地结构单类型路由、名称/年份严格相等、alternative titles 严格验证和无年份取最新。
+- 自动扫描已经使用本地结构单类型路由、主标题/年份严格验证、数字结尾续集的显式副标题边界、alternative titles 验证和无年份取最新。
 - `docs/API.md`、`README.md` 和应用层 README 已同步为当前行为。
 
 仍未完全对齐的部分：
 
-- `ambiguous_remote_match` 尚未成为独立持久化失败原因。
 - 当前代码只解析 TMDB 详情响应的一小部分字段，也没有调用 configuration、images、release dates 和 content ratings。
 
 后续每完成一段目标能力，都必须同步本文与 `docs/API.md`，避免“目标”和“当前”再次混在一起。

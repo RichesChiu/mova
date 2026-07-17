@@ -72,7 +72,7 @@
 | `src/intro_detection.rs` | 剧集片头按需检测；只在播放某一集且当前季/当前集还没有片头数据时调用 Python 脚本做分析。 |
 | `src/media_items.rs` | 媒体条目详情、列表、文件、音轨、剧集 outline、季集查询、元数据刷新。 |
 | `src/media_enrichment.rs` | 扫描过程中按本地聚合组做 TMDB / sidecar / 图片补全；远端请求错误会显式标记为 `failed`，等待后续手动扫描重试。 |
-| `src/metadata.rs` | 元数据 provider 抽象、TMDB client、可选 OMDb IMDb 评分补齐、国家/地区/题材类型/工作室补齐、语言归一化和远端请求超时；自动匹配由本地季集坐标选择唯一 endpoint，执行严格名称/年份/别名验证，无年份时选择唯一最新作品。 |
+| `src/metadata.rs` | 元数据 provider 抽象、TMDB client、可选 OMDb IMDb 评分补齐、国家/地区/题材类型/工作室补齐、语言归一化和远端请求超时；自动匹配由本地季集坐标选择唯一 endpoint，执行严格主标题/年份/别名验证，数字结尾续集名可以匹配明确分隔的远端副标题，无年份时选择日期最新作品。 |
 | `src/metadata_match.rs` | 管理员手动搜索候选元数据并应用匹配。 |
 | `src/media_cast.rs` | 演员列表查询与按需持久化同步；详情页首次需要演员信息时才会拉远端并写库。 |
 | `src/media_classification.rs` | 媒体库类型和电影/剧集归类辅助逻辑。 |
@@ -167,12 +167,13 @@
 - 用同路径 `media_files.scan_hash` 和 `media_files.local_analysis_version` 判断是否能跳过本地分析；后续只让新增/变化、本地分析版本过期、未完整匹配、或按前端 Other 规则需要复核的路径进入浅层解析、完整分析和 TMDB 补全
 - 已经完整匹配、文件指纹未变化、本地分析版本未变化、且已有 TMDB 绑定的路径，不会重新跑拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存或数据库 upsert；即使 TMDB 没有可用海报，也保持稳定跳过
 - 对新增、变化、本地分析版本过期的路径先调用 `mova-scan::inspect_media_file_inventory_shallow` 做浅层文件名 / 路径解析，不读取 sidecar、不调用 `ffprobe`，只用来建立稳定的电影或剧集扫描组，避免前端先看到 `A.S01E01` 这类临时错误卡片
+- 本地分析版本过期时使用新规则重新拆名；只有 `matched` 且已绑定 provider ID 的条目保留旧远端展示字段，未匹配、失败或跳过条目不得用旧标题覆盖新拆名结果
 - 对文件指纹和本地分析版本都未变化，但状态仍为中断遗留的 `pending`、`unmatched`、`failed`，旧状态为 `skipped` 且当前已启用 TMDB、缺少 TMDB provider 绑定、按前端 Other 规则缺少可用远端信息、仍保留远端图片 URL，或已绑定 TMDB 但展示名仍等于本地带年份占位名的路径，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时通过一次媒体摘要查询、一次批量音轨查询和一次批量字幕查询恢复上次本地分析，跳过拆名、sidecar、`ffprobe`，只进入后续 TMDB 补全
 - 浅层聚合完成后，一个 local worker 按扫描组完整读取 sidecar、调用 `ffprobe`、补音轨字幕和技术标签；pending 事务提交后经容量为 2 的 channel 交给一个 remote worker，前一组访问 TMDB/缓存图片时下一组可继续本地分析，避免全库阶段屏障又保持资源有界
 - 任务级 `progress_percent` 由数据库中的物理文件计数统一计算并持久化：发现完成为 10，本地分析贡献 20，pending 入库贡献 20，远端终态贡献 49，只有任务成功终结时写入 100；local/remote 可以重叠，更新始终取较大值，重排或重复事件不会让进度回退
 - 扫描执行层只记录单次尝试的错误上下文；后台 worker 统一决定继续重试或写最终失败，仍有额度时父任务回到 `pending` 且不会提前发送 `scan.finished`
 - 完整本地分析后的中间写库统一使用 `metadata_status = pending`；此时电影 / 剧集只代表本地结构，Web 按该结构展示扫描卡，不进入 Other。每个组完成远端匹配后才收敛到最终 metadata 状态；没有严格候选的条目进入 Other
-- 远端补全阶段由完整季集坐标决定唯一 TMDB endpoint：明确季集只查 TV，其它文件只查 movie。自动候选要求标准化名称与本地化标题、原始标题或 alternative title 完全相等；本地有年份时年份必须完全相同且不去掉年份重试，本地无年份时在结果不超过 20 页时遍历全部页并选择完整日期唯一最新作品，查询过宽则不自动匹配。选中的 provider ID 直接获取详情，不再做类型 detect 或第二次标题搜索。成功后标记 `metadata_status = matched`；无严格候选写入 `no_remote_match`，provider 请求错误写入 `metadata_provider_error`
+- 远端补全阶段由完整季集坐标决定唯一 TMDB endpoint：明确季集只查 TV，其它文件只查 movie。自动候选要求标准化名称与本地化标题、原始标题或 alternative title 的主标题严格相等；只有本地标题以数字结尾时，才允许远端在同一主标题后用明确分隔符追加副标题。本地有年份时年份必须完全相同且不去掉年份重试，本地无年份时在结果不超过 20 页时遍历全部页并选择完整日期最新作品，日期并列时保留 TMDB 顺序中的第一个，查询过宽则不自动匹配。选中的 provider ID 直接获取详情，不再做类型 detect 或第二次标题搜索。成功后标记 `metadata_status = matched`；无严格候选写入 `no_remote_match`，provider 请求错误写入 `metadata_provider_error`
 - 本地分析完成、pending 提交和 remote 完成分别通过 `scan_job_groups` 幂等推进任务计数；同一扫描组的本地 pending 写入和远端最终写入各自使用一个短事务，组内任一文件失败时整组回滚，每个事务只执行一次孤儿结构清理和一次 catalog revision bump
 - 每个扫描组进入远端终态并成功提交后，由 remote worker 在任务执行上下文中累计文件状态和非阻断 `ffprobe` 警告；终态事务把统计与最多 20 个问题摘要直接写入通用通知 payload，不维护第二套扫描报告存储
 - 对剧集会从文件名里的 `SxxExx` 先拆出剧名和年份做组级元数据匹配；文件名里的年份只作为匹配提示，不作为剧集身份键，所以 `The Boys (2019) - S01E01` 和 `The Boys (2020) - S02E01` 会聚合到同一剧集；`The.BeautyS01E01` 这类标题后直接跟 `SxxExx` 的文件名也会拆出剧名和季集号
@@ -185,6 +186,8 @@
 - 最后只对缺失路径做删除 reconcile；未变化路径完全保留，不参与重探测和 upsert
 - 媒体库的 `metadata_language` 变化时，应用层会把该库全部 `media_items` 标记为 `pending`；随后自动触发的扫描会覆盖全部本地文件并按新语言重新请求远端元数据，同时继续复用指纹未变化文件的本地分析缓存，避免无意义地重复执行 sidecar / `ffprobe`
 - 媒体库不再维护启用/禁用状态；创建后始终可扫描，配置更新只包含名称、描述和元数据语言
+
+同名同年的严格候选有多个时，先缩小到 `original_title / original_name` 也与本地主标题严格对齐的候选子集；子集为空时保留原候选，子集仍不唯一时不自动猜测国家。
 
 ### 片头检测
 

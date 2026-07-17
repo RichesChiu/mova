@@ -164,13 +164,15 @@
 
 扫描在 `discovering` 阶段先节流发现文件、读取增量计划，再只用文件名和路径完成浅层稳定分组；这个阶段不读取 sidecar、不调用 `ffprobe`、不访问 TMDB。三项都完成后强制写入最终文件数、把任务推进到 `processing = 10`。随后一个 local worker 按组做 sidecar、`ffprobe`、音轨字幕和资源技术分析：分析状态持久化后贡献 10～30 的任务进度，pending 组事务提交后贡献 30～50，并把组放入容量为 2 的 remote channel。一个 remote worker 同时消费前面的组，访问 TMDB、缓存图片并以最终组事务推进 50～99；因此两部分有界重叠，不要求全库本地分析结束后才开始远端处理，也不保证单独显示 50。所有组终结后进入 `finalizing = 99`，任务成功提交才原子更新为 100。任务公式为 `floor(10 + 20×analyzed/total + 20×committed/total + 49×remote/total)`。
 
-本地 pending 阶段的电影 / 剧集类型只是结构猜测，Web 会按猜测类型展示扫描卡，不会提前放入 Other。完整季集坐标只查询 TV，其它文件只查询 movie；自动候选必须严格同名，本地有年份时年份也必须完全一致，本地无年份时选择严格同名作品中完整日期唯一最新者。对应类型没有严格命中时完成为 `unmatched / no_remote_match`，不查询另一类型兜底；TMDB 请求错误写入 `failed / metadata_provider_error`，未启用 provider 写入 `skipped`。这些终态只表示该组已完成本轮处理，因此仍计入任务完成度，但不会被误标记为匹配成功。
+本地 pending 阶段的电影 / 剧集类型只是结构猜测，Web 会按猜测类型展示扫描卡，不会提前放入 Other。完整季集坐标只查询 TV，其它文件只查询 movie；自动候选必须严格对齐主标题，数字结尾的续集名可以对齐远端用明确分隔符追加的副标题。本地有年份时年份也必须完全一致；本地无年份时选择严格候选中完整日期最新者，日期并列时保留 TMDB 顺序中的第一个。对应类型没有严格命中时完成为 `unmatched / no_remote_match`，不查询另一类型兜底；TMDB 请求错误写入 `failed / metadata_provider_error`，未启用 provider 写入 `skipped`。这些终态只表示该组已完成本轮处理，因此仍计入任务完成度，但不会被误标记为匹配成功。
 
 同一剧集组只做一次剧集 metadata 查询，再把 TMDB 标题和剧集级海报应用到组内所有集；同一 TMDB 影片下的电影资源按 `provider_item_id` 归并为一个 movie item，详情页作为多个资源版本切换。图片字段只写当前层级、当前字段自己的图，不用单集截图、其它层级图片、搜索结果图片或另一个图片字段兜底；`pending` 写库不会清空既有 artwork，只有最终 `matched` 写入才允许清理远端确认缺失的图片。临时扫描 item 会携带当前可用的 `year`、`overview`、`metadata_status` 和 `remote_media_type`，`poster_path` / `backdrop_path` 只在确认浏览器可访问时返回；Web 只在 `stage = completed` 且远端类型为空或与本地结构冲突时把扫描卡放入 Other，远端类型一致的 metadata 失败仍留在对应类型分区。`stage = completed` 后媒体写入事务会增加对应 `library:{id}:catalog` revision，客户端按资源失效通知刷新该库和轻量首页。剧集查询仍优先使用文件名中 `SxxExx` 前的剧名和年份，明确季目录会补充上一级的干净剧名，中文元数据库还会优先尝试可识别的中文剧名。所有事件都会按 server/admin/library/user scope 做可见性过滤，再转换成 SSE。
 
 另外，扫描现在先做轻量文件清单和同路径 `scan_hash` / `local_analysis_version` 比对；已匹配且未变化、已经有 TMDB 绑定的路径不会重新跑拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存或数据库 upsert。新增、变更或本地分析版本过期的路径会先进入浅层聚合，再按组完整探测和 upsert。文件指纹与本地分析版本都未变化但未匹配成功、缺少 TMDB provider 绑定、旧状态是 `skipped` 但当前已启用 TMDB、按前端 Other 规则需要复核、或仍保留远端图片 URL 的路径，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时可从数据库恢复上次本地分析结果，跳过拆名、sidecar、`ffprobe`，直接进入有界 remote 流水线补 metadata/海报。自动 metadata 选择保持保守；更宽松的候选复核交给手动搜索 / 替换元数据。缺失路径会在最后统一删除。
 
 `PATCH /api/libraries/{id}` 修改 `metadata_language` 时会先停止该库的活跃扫描，再把库内全部媒体条目标记为 `pending` 并自动入队一次全库元数据重扫。该重扫会复用未变化文件已经缓存的本地分析、音轨和字幕结果，但不会跳过任何已有媒体的远端元数据刷新。媒体库不再维护启用/禁用状态。
+
+同名同年的严格候选有多个时，自动匹配优先保留 `original_title / original_name` 也与本地主标题严格对齐的子集；该子集仍不唯一时保持未匹配，不根据元数据语言猜测制作国家。
 
 ## 5. 路由与 feature 划分
 

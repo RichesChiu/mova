@@ -178,7 +178,7 @@ const SCAN_ITEM_STAGE_COMPLETED: &str = "completed";
 const SCAN_PHASE_INITIALIZING: &str = "initializing";
 const SCAN_DISCOVERY_PROGRESS_MIN_FILE_DELTA: i32 = 25;
 const SCAN_DISCOVERY_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(500);
-pub(crate) const LOCAL_ANALYSIS_VERSION: i32 = 3;
+pub(crate) const LOCAL_ANALYSIS_VERSION: i32 = 4;
 
 fn should_flush_discovery_progress(
     persisted_progress: i32,
@@ -2617,6 +2617,12 @@ fn apply_existing_media_metadata(
     file: &mut DiscoveredMediaFile,
     summary: &mova_db::ExistingMediaMetadataSummary,
 ) {
+    if summary.metadata_status != METADATA_STATUS_MATCHED
+        || effective_existing_metadata_provider_item_id(summary).is_none()
+    {
+        return;
+    }
+
     if summary.media_type.eq_ignore_ascii_case("episode") {
         replace_option_if_present(
             &mut file.metadata_provider,
@@ -4600,6 +4606,32 @@ mod tests {
         assert_eq!(file.studio.as_deref(), Some("Fortiche"));
         assert_eq!(file.imdb_rating.as_deref(), Some("8.5"));
         assert_eq!(file.year, Some(2021));
+    }
+
+    #[test]
+    fn apply_existing_unmatched_metadata_keeps_fresh_local_title() {
+        let mut file = build_discovered_file();
+        file.file_path = PathBuf::from(
+            "/media/movies/惊变28年2白骨圣殿(2026)/28.Years.Later.The.Bone.Temple.2026.mkv",
+        );
+        file.title = "28 Years Later The Bone Temple".to_string();
+        file.source_title = "28 Years Later The Bone Temple".to_string();
+        file.year = Some(2026);
+
+        let mut existing = build_existing_movie_metadata();
+        existing.metadata_provider = None;
+        existing.metadata_provider_item_id = None;
+        existing.metadata_status = METADATA_STATUS_UNMATCHED.to_string();
+        existing.metadata_failure_reason = Some(METADATA_FAILURE_NO_REMOTE_MATCH.to_string());
+        existing.title = "Years Later The Bone Temple".to_string();
+        existing.source_title = "Years Later The Bone Temple".to_string();
+        existing.year = Some(2026);
+
+        super::apply_existing_media_metadata(&mut file, &existing);
+
+        assert_eq!(file.title, "28 Years Later The Bone Temple");
+        assert_eq!(file.source_title, "28 Years Later The Bone Temple");
+        assert_eq!(file.year, Some(2026));
     }
 
     #[test]

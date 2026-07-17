@@ -266,6 +266,8 @@ modified_at
 - `local_analysis_version` 变化。
 - 无法恢复可信本地分析结果。
 
+完整本地分析后，只有 `matched` 且已绑定 provider ID 的条目可以保留已确认的远端展示字段。`pending`、`unmatched`、`failed` 或 `skipped` 条目不得用旧数据库标题覆盖新版本拆名结果。
+
 ## 7. 浅层名称分析
 
 浅层分析只读取文件名和目录路径，用于在执行 `ffprobe` 之前建立稳定扫描组。
@@ -427,12 +429,13 @@ Remote worker 从有界队列领取已经完成 pending 事务的扫描组：
 
 ### 13.2 名称与年份
 
-- 名称与 localized title、original title 或 alternative title 完全相等。
+- 名称与 localized title、original title 或 alternative title 的标准化主标题完全相等。数字结尾的续集名允许远端在同一主标题后用 `:`、`：`、`|`、`｜`、`–`、`—` 追加副标题，不做普通前缀匹配。
+- 同名同年候选有多个时，优先保留 `original_title / original_name` 也与本地主标题严格对齐的子集，不根据 UI 语言硬编码猜测制作国家。
 - 名称标准化只消除大小写、空白、常见标点和全角半角差异；`·`、`・`、`•` 等装饰性间隔号视为纯排版差异。
 - 不使用前缀、包含、编辑距离、popularity 或评分模型。
 - 本地有年份时，候选年份必须完全相同，且不执行无年份重试。
-- 本地无年份时，从严格同名候选中选择完整日期唯一最新者。
-- 最新日期并列或全部缺少日期时，结果为未匹配。
+- 本地无年份时，从严格主标题候选中选择完整日期最新者；日期并列时保留 TMDB 顺序中的第一个。
+- 全部缺少日期时，结果为未匹配。
 
 ### 13.3 Provider binding
 

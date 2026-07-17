@@ -421,7 +421,10 @@ impl TmdbMetadataProvider {
             .filter(|candidate| candidate_matches_title(&lookup.title, *candidate))
             .collect::<Vec<_>>();
         if !direct_candidates.is_empty() {
-            return Ok(select_strict_candidate(lookup.year, direct_candidates));
+            return Ok(select_strict_candidate(
+                lookup.year,
+                prioritize_original_title_matches(&lookup.title, direct_candidates),
+            ));
         }
         if eligible_candidates.len() > TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES {
             tracing::warn!(
@@ -449,7 +452,7 @@ impl TmdbMetadataProvider {
             };
             if alternative_titles
                 .iter()
-                .any(|title| titles_are_equal(&lookup.title, title))
+                .any(|title| titles_match_strictly(&lookup.title, title))
             {
                 exact_candidates.push(candidate);
             }
@@ -473,7 +476,10 @@ impl TmdbMetadataProvider {
             .filter(|candidate| candidate_matches_title(&lookup.title, *candidate))
             .collect::<Vec<_>>();
         if !direct_candidates.is_empty() {
-            return Ok(select_strict_candidate(lookup.year, direct_candidates));
+            return Ok(select_strict_candidate(
+                lookup.year,
+                prioritize_original_title_matches(&lookup.title, direct_candidates),
+            ));
         }
         if eligible_candidates.len() > TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES {
             tracing::warn!(
@@ -501,7 +507,7 @@ impl TmdbMetadataProvider {
             };
             if alternative_titles
                 .iter()
-                .any(|title| titles_are_equal(&lookup.title, title))
+                .any(|title| titles_match_strictly(&lookup.title, title))
             {
                 exact_candidates.push(candidate);
             }
@@ -1384,12 +1390,58 @@ where
     ]
     .into_iter()
     .flatten()
-    .any(|title| titles_are_equal(query_title, title))
+    .any(|title| titles_match_strictly(query_title, title))
 }
 
-fn titles_are_equal(left: &str, right: &str) -> bool {
-    let normalized_left = normalize_title(left);
-    !normalized_left.is_empty() && normalized_left == normalize_title(right)
+fn prioritize_original_title_matches<'a, T>(query_title: &str, candidates: Vec<&'a T>) -> Vec<&'a T>
+where
+    T: TmdbSearchCandidate,
+{
+    let original_title_matches = candidates
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            candidate
+                .candidate_original_title()
+                .is_some_and(|title| titles_match_strictly(query_title, title))
+        })
+        .collect::<Vec<_>>();
+
+    if original_title_matches.is_empty() {
+        candidates
+    } else {
+        original_title_matches
+    }
+}
+
+fn titles_match_strictly(local_title: &str, remote_title: &str) -> bool {
+    let normalized_local_title = normalize_title(local_title);
+    if normalized_local_title.is_empty() {
+        return false;
+    }
+
+    if normalized_local_title == normalize_title(remote_title) {
+        return true;
+    }
+
+    normalized_local_title
+        .chars()
+        .last()
+        .is_some_and(|value| value.is_ascii_digit())
+        && title_before_explicit_subtitle(remote_title)
+            .is_some_and(|title| normalized_local_title == normalize_title(title))
+}
+
+fn title_before_explicit_subtitle(value: &str) -> Option<&str> {
+    value.char_indices().find_map(|(index, separator)| {
+        if !matches!(separator, ':' | '：' | '|' | '｜' | '–' | '—') {
+            return None;
+        }
+
+        let title = value[..index].trim();
+        let subtitle = value[index + separator.len_utf8()..].trim();
+        (!title.is_empty() && !subtitle.is_empty()).then_some(title)
+    })
 }
 
 fn candidate_matches_year<T>(query_year: Option<i32>, candidate: &T) -> bool
@@ -1414,12 +1466,9 @@ where
         .iter()
         .filter_map(|candidate| normalize_tmdb_date(candidate.candidate_date()))
         .max()?;
-    let newest_candidates = candidates
+    candidates
         .into_iter()
-        .filter(|candidate| normalize_tmdb_date(candidate.candidate_date()) == Some(newest_date))
-        .collect::<Vec<_>>();
-
-    (newest_candidates.len() == 1).then(|| newest_candidates[0])
+        .find(|candidate| normalize_tmdb_date(candidate.candidate_date()) == Some(newest_date))
 }
 
 fn normalize_tmdb_date(value: Option<&str>) -> Option<&str> {
@@ -1548,10 +1597,10 @@ mod tests {
         apply_remote_metadata, build_metadata_provider, candidate_matches_title,
         deduplicate_search_results, format_country_codes, normalize_base_url,
         normalize_metadata_language, normalize_optional_value, normalize_title, parse_year,
-        pick_primary_character_name, select_strict_candidate, MetadataLookup,
-        MetadataProviderConfig, RemoteMetadata, TmdbMetadataProvider, TmdbMetadataProviderConfig,
-        TmdbMovieDetails, TmdbMovieSearchResult, TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL,
-        TMDB_PROVIDER_NAME,
+        pick_primary_character_name, prioritize_original_title_matches, select_strict_candidate,
+        titles_match_strictly, MetadataLookup, MetadataProviderConfig, RemoteMetadata,
+        TmdbMetadataProvider, TmdbMetadataProviderConfig, TmdbMovieDetails, TmdbMovieSearchResult,
+        TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL, TMDB_PROVIDER_NAME,
     };
 
     #[test]
@@ -1761,6 +1810,56 @@ mod tests {
     }
 
     #[test]
+    fn strict_title_match_accepts_numbered_main_title_with_explicit_subtitle() {
+        assert!(titles_match_strictly(
+            "东北恋哥3",
+            "东北恋哥3：冬天里的一把火",
+        ));
+        assert!(titles_match_strictly(
+            "Northeastern Bro 3",
+            "Northeastern Bro 3: A Fire in Winter",
+        ));
+        assert!(!titles_match_strictly("Dune", "Dune: Part Two"));
+        assert!(!titles_match_strictly(
+            "东北恋哥3",
+            "东北恋哥30：冬天里的一把火"
+        ));
+    }
+
+    #[test]
+    fn strict_match_prefers_original_title_over_localized_title_only() {
+        let candidates = vec![
+            TmdbMovieSearchResult {
+                id: 1_395_515,
+                title: Some("奇遇".to_string()),
+                original_title: Some("奇遇".to_string()),
+                release_date: Some("2025-08-08".to_string()),
+                overview: None,
+                poster_path: Some("/china-poster.jpg".to_string()),
+                backdrop_path: None,
+            },
+            TmdbMovieSearchResult {
+                id: 1_317_616,
+                title: Some("奇遇".to_string()),
+                original_title: Some("L'Aventura".to_string()),
+                release_date: Some("2025-07-02".to_string()),
+                overview: None,
+                poster_path: Some("/france-poster.jpg".to_string()),
+                backdrop_path: None,
+            },
+        ];
+
+        let prioritized = prioritize_original_title_matches("奇遇", candidates.iter().collect());
+
+        assert_eq!(prioritized.len(), 1);
+        assert_eq!(prioritized[0].id, 1_395_515);
+        assert_eq!(
+            select_strict_candidate(Some(2025), prioritized).map(|candidate| candidate.id),
+            Some(1_395_515)
+        );
+    }
+
+    #[test]
     fn strict_match_requires_exact_title_and_year() {
         let candidates = vec![
             TmdbMovieSearchResult {
@@ -1799,7 +1898,7 @@ mod tests {
     }
 
     #[test]
-    fn strict_match_without_year_selects_unique_newest_exact_title() {
+    fn strict_match_without_year_selects_newest_exact_title() {
         let candidates = vec![
             TmdbMovieSearchResult {
                 id: 1,
@@ -1827,7 +1926,7 @@ mod tests {
     }
 
     #[test]
-    fn strict_match_without_year_rejects_tied_latest_candidates() {
+    fn strict_match_without_year_keeps_first_tied_latest_candidate() {
         let candidates = vec![
             TmdbMovieSearchResult {
                 id: 1,
@@ -1849,7 +1948,9 @@ mod tests {
             },
         ];
 
-        assert!(select_strict_candidate(None, candidates.iter().collect()).is_none());
+        let best_match = select_strict_candidate(None, candidates.iter().collect()).unwrap();
+
+        assert_eq!(best_match.id, 1);
     }
 
     #[test]
