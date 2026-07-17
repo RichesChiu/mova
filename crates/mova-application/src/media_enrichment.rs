@@ -1,6 +1,6 @@
 use crate::metadata::{
-    apply_remote_metadata, MetadataLookup, MetadataLookupCache, MetadataProvider, RemoteMetadata,
-    RemoteSeriesEpisodeOutline,
+    apply_remote_metadata, MetadataLookup, MetadataLookupCache, MetadataProvider,
+    MetadataSeasonAirYearHint, RemoteMetadata, RemoteSeriesEpisodeOutline,
 };
 use mova_scan::DiscoveredMediaFile;
 use reqwest::{header::CONTENT_TYPE, Client, Url};
@@ -61,6 +61,7 @@ impl MetadataEnrichmentContext {
         &mut self,
         lookup_type: &str,
         files: &mut [DiscoveredMediaFile],
+        season_air_year: Option<MetadataSeasonAirYearHint>,
         mut on_progress: F,
     ) -> anyhow::Result<()>
     where
@@ -70,8 +71,12 @@ impl MetadataEnrichmentContext {
             return Ok(());
         }
 
-        let primary_lookup =
-            metadata_group_primary_lookup(lookup_type, &files[0], &self.metadata_language);
+        let primary_lookup = metadata_group_primary_lookup(
+            lookup_type,
+            &files[0],
+            &self.metadata_language,
+            season_air_year,
+        );
         let mut episode_outline_lookup = primary_lookup.clone();
 
         on_progress(MetadataEnrichmentStage::Metadata, &files[0]);
@@ -79,7 +84,7 @@ impl MetadataEnrichmentContext {
         let resolved_remote_metadata =
             if self.metadata_provider.is_enabled() && group_needs_remote_metadata(files) {
                 let metadata = self
-                    .lookup_group_remote_metadata(lookup_type, &files[0])
+                    .lookup_group_remote_metadata(lookup_type, &files[0], season_air_year)
                     .await?;
 
                 if let Some(remote_metadata) = metadata.as_ref() {
@@ -124,10 +129,11 @@ impl MetadataEnrichmentContext {
     where
         F: FnMut(MetadataEnrichmentStage, &DiscoveredMediaFile),
     {
-        let lookups = metadata_lookup_candidates(lookup_type, file, &self.metadata_language);
+        let lookups = metadata_lookup_candidates(lookup_type, file, &self.metadata_language, None);
         let primary_lookup = lookups.first().cloned().unwrap_or_else(|| MetadataLookup {
             title: file.source_title.clone(),
             year: file.year,
+            season_air_year: None,
             library_type: lookup_type.to_string(),
             language: Some(self.metadata_language.clone()),
             provider_item_id: None,
@@ -180,8 +186,10 @@ impl MetadataEnrichmentContext {
         &mut self,
         lookup_type: &str,
         file: &DiscoveredMediaFile,
+        season_air_year: Option<MetadataSeasonAirYearHint>,
     ) -> anyhow::Result<Option<RemoteMetadata>> {
-        let lookups = metadata_lookup_candidates(lookup_type, file, &self.metadata_language);
+        let lookups =
+            metadata_lookup_candidates(lookup_type, file, &self.metadata_language, season_air_year);
 
         for lookup in &lookups {
             let candidate = self.lookup_remote_metadata_cached(lookup).await?;
@@ -574,13 +582,15 @@ fn metadata_group_primary_lookup(
     lookup_type: &str,
     file: &DiscoveredMediaFile,
     metadata_language: &str,
+    season_air_year: Option<MetadataSeasonAirYearHint>,
 ) -> MetadataLookup {
-    metadata_lookup_candidates(lookup_type, file, metadata_language)
+    metadata_lookup_candidates(lookup_type, file, metadata_language, season_air_year)
         .into_iter()
         .next()
         .unwrap_or_else(|| MetadataLookup {
             title: file.source_title.clone(),
             year: file.year,
+            season_air_year,
             library_type: lookup_type.to_string(),
             language: Some(metadata_language.to_string()),
             provider_item_id: None,
@@ -775,14 +785,13 @@ fn metadata_lookup_candidates(
     lookup_type: &str,
     file: &DiscoveredMediaFile,
     metadata_language: &str,
+    season_air_year: Option<MetadataSeasonAirYearHint>,
 ) -> Vec<MetadataLookup> {
-    let series_container_metadata = lookup_type
+    let primary_year = file.year;
+    let season_air_year = lookup_type
         .eq_ignore_ascii_case("series")
-        .then(|| series_container_metadata_for_episode_path(file))
+        .then_some(season_air_year)
         .flatten();
-    let primary_year = file.year.or(series_container_metadata
-        .as_ref()
-        .and_then(|item| item.year));
 
     // 元数据匹配应优先使用文件名解析出的原始标题，而不是已经被远端覆盖过的展示标题。
     let mut candidates = Vec::new();
@@ -793,6 +802,7 @@ fn metadata_lookup_candidates(
             metadata_language,
             file.source_title.clone(),
             primary_year,
+            season_air_year,
             provider_item_id,
         );
     }
@@ -803,6 +813,7 @@ fn metadata_lookup_candidates(
         metadata_language,
         file.source_title.clone(),
         primary_year,
+        season_air_year,
     );
     let normalized_source_title = normalize_lookup_punctuation_candidate(&file.source_title);
     if normalized_source_title != file.source_title {
@@ -812,19 +823,8 @@ fn metadata_lookup_candidates(
             metadata_language,
             normalized_source_title,
             primary_year,
+            season_air_year,
         );
-    }
-
-    if let Some(container_metadata) = series_container_metadata {
-        if !same_lookup_title(&file.source_title, &container_metadata.title) {
-            push_metadata_lookup_candidate(
-                &mut candidates,
-                lookup_type,
-                metadata_language,
-                container_metadata.title,
-                container_metadata.year.or(file.year),
-            );
-        }
     }
 
     if lookup_type.eq_ignore_ascii_case("movie") {
@@ -836,6 +836,7 @@ fn metadata_lookup_candidates(
                     metadata_language,
                     container_metadata.title,
                     container_metadata.year.or(file.year),
+                    None,
                 );
             }
         }
@@ -850,6 +851,7 @@ fn push_metadata_lookup_candidate(
     metadata_language: &str,
     title: String,
     year: Option<i32>,
+    season_air_year: Option<MetadataSeasonAirYearHint>,
 ) {
     let title = title.trim();
     if title.is_empty() {
@@ -860,6 +862,7 @@ fn push_metadata_lookup_candidate(
         candidate.provider_item_id.is_none()
             && same_lookup_title(&candidate.title, title)
             && candidate.year == year
+            && candidate.season_air_year == season_air_year
     }) {
         return;
     }
@@ -867,6 +870,7 @@ fn push_metadata_lookup_candidate(
     candidates.push(MetadataLookup {
         title: title.to_string(),
         year,
+        season_air_year,
         library_type: lookup_type.to_string(),
         language: Some(metadata_language.to_string()),
         provider_item_id: None,
@@ -879,6 +883,7 @@ fn push_metadata_lookup_candidate_with_provider_item_id(
     metadata_language: &str,
     title: String,
     year: Option<i32>,
+    season_air_year: Option<MetadataSeasonAirYearHint>,
     provider_item_id: i64,
 ) {
     let title = title.trim();
@@ -897,6 +902,7 @@ fn push_metadata_lookup_candidate_with_provider_item_id(
     candidates.push(MetadataLookup {
         title: title.to_string(),
         year,
+        season_air_year,
         library_type: lookup_type.to_string(),
         language: Some(metadata_language.to_string()),
         provider_item_id: Some(provider_item_id),
@@ -926,50 +932,6 @@ pub(crate) fn normalize_lookup_punctuation_candidate(value: &str) -> String {
 struct SeriesContainerMetadata {
     title: String,
     year: Option<i32>,
-}
-
-fn series_container_metadata_for_episode_path(
-    file: &DiscoveredMediaFile,
-) -> Option<SeriesContainerMetadata> {
-    if file.season_number.is_none() || file.episode_number.is_none() {
-        return None;
-    }
-
-    let parent = file.file_path.parent()?;
-    let mut directories = parent
-        .components()
-        .filter_map(|component| component.as_os_str().to_str())
-        .filter(|component| !component.trim().is_empty())
-        .collect::<Vec<_>>();
-
-    while directories
-        .last()
-        .is_some_and(|directory| is_series_variant_directory_name(directory))
-    {
-        directories.pop();
-    }
-
-    let season_directory_index = directories
-        .iter()
-        .rposition(|directory| is_season_directory_name(directory));
-
-    if let Some(season_directory_index) = season_directory_index {
-        if season_directory_index == 0 {
-            return None;
-        }
-
-        return parse_series_container_directory_metadata(directories[season_directory_index - 1]);
-    }
-
-    parse_direct_series_container_directory_metadata(directories.last().copied()?)
-}
-
-fn parse_direct_series_container_directory_metadata(
-    value: &str,
-) -> Option<SeriesContainerMetadata> {
-    let metadata = parse_series_container_directory_metadata(value)?;
-
-    contains_cjk_character(&metadata.title).then_some(metadata)
 }
 
 fn movie_container_metadata_for_file_path(
@@ -1152,49 +1114,17 @@ fn normalize_lookup_title(value: &str) -> String {
         .to_ascii_lowercase()
 }
 
-fn is_series_variant_directory_name(name: &str) -> bool {
-    let normalized = normalize_lookup_title(name);
-
-    matches!(
-        normalized.as_str(),
-        "dv" | "dovi" | "dolby vision" | "hdr" | "hdr10" | "hdr10+" | "sdr"
-    ) || normalized.contains("杜比")
-}
-
-fn is_season_directory_name(name: &str) -> bool {
-    let normalized = name.trim().replace(['.', '_', '-', '—', '–'], " ");
-    let normalized_lower = normalized.to_ascii_lowercase();
-    let has_ascii_digit = normalized_lower.chars().any(|value| value.is_ascii_digit());
-
-    if has_ascii_digit && normalized_lower.contains("season") {
-        return true;
-    }
-
-    if has_ascii_digit && normalized.contains('季') {
-        return true;
-    }
-
-    normalized_lower.split_whitespace().any(|token| {
-        token.strip_prefix('s').is_some_and(|suffix| {
-            !suffix.is_empty()
-                && suffix.len() <= 2
-                && suffix.chars().all(|value| value.is_ascii_digit())
-        })
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         artwork_file_extension, build_artwork_cache_path, is_generated_episode_still_path,
         is_generic_backdrop_artwork_path, is_generic_poster_artwork_path,
         metadata_lookup_candidates, needs_remote_metadata, needs_remote_title_refresh,
-        series_container_metadata_for_episode_path, should_replace_episode_artwork,
-        stable_artwork_cache_key, MetadataEnrichmentContext,
+        should_replace_episode_artwork, stable_artwork_cache_key, MetadataEnrichmentContext,
     };
     use crate::metadata::{
-        MetadataLookup, MetadataProvider, RemoteMetadata, RemoteSeriesEpisode,
-        RemoteSeriesEpisodeOutline, RemoteSeriesSeason,
+        MetadataLookup, MetadataProvider, MetadataSeasonAirYearHint, RemoteMetadata,
+        RemoteSeriesEpisode, RemoteSeriesEpisodeOutline, RemoteSeriesSeason,
     };
     use async_trait::async_trait;
     use mova_scan::DiscoveredMediaFile;
@@ -1295,54 +1225,19 @@ mod tests {
     }
 
     #[test]
-    fn series_container_metadata_for_episode_path_uses_parent_above_season_directory() {
-        let mut file = build_discovered_episode();
-        file.file_path = PathBuf::from("/media/模范出租车/S01/Taxi.Driver.S01E01.mkv");
-
-        assert_eq!(
-            series_container_metadata_for_episode_path(&file),
-            Some(super::SeriesContainerMetadata {
-                title: "模范出租车".to_string(),
-                year: None,
-            })
-        );
-
-        file.file_path = PathBuf::from("/media/Fallout/S02/DV/Fallout.S02E01.mkv");
-        assert_eq!(
-            series_container_metadata_for_episode_path(&file),
-            Some(super::SeriesContainerMetadata {
-                title: "Fallout".to_string(),
-                year: None,
-            })
-        );
-
-        file.file_path = PathBuf::from(
-            "/media/overseas_tv/莎拉的真伪人生(2026)/The.Art.of.Sarah.S01E01.2160p.NF.WEB-DL.DDP.5.1.DV.H.265.mkv",
-        );
-        assert_eq!(
-            series_container_metadata_for_episode_path(&file),
-            Some(super::SeriesContainerMetadata {
-                title: "莎拉的真伪人生".to_string(),
-                year: Some(2026),
-            })
-        );
-    }
-
-    #[test]
-    fn metadata_lookup_candidates_keep_file_title_first_for_non_chinese_language() {
+    fn metadata_lookup_candidates_ignore_series_directory_title_for_non_chinese_language() {
         let mut file = build_discovered_episode();
         file.file_path = PathBuf::from("/media/模范出租车/S01/Taxi.Driver.S01E01.mkv");
         file.source_title = "Taxi Driver".to_string();
 
-        let lookups = metadata_lookup_candidates("series", &file, "en-US");
+        let lookups = metadata_lookup_candidates("series", &file, "en-US", None);
 
-        assert_eq!(lookups.len(), 2);
+        assert_eq!(lookups.len(), 1);
         assert_eq!(lookups[0].title, "Taxi Driver");
-        assert_eq!(lookups[1].title, "模范出租车");
     }
 
     #[test]
-    fn metadata_lookup_candidates_keep_file_title_first_for_chinese_libraries() {
+    fn metadata_lookup_candidates_ignore_series_directory_title_for_chinese_libraries() {
         let mut file = build_discovered_episode();
         file.file_path = PathBuf::from(
             "/media/overseas_tv/都是她的错.2025/Season 01/All.Her.Fault.2025.S01E01.2160p.PCOK.WEB-DL.DDP5.1.H.265-KRATOS.mkv",
@@ -1350,17 +1245,15 @@ mod tests {
         file.source_title = "All Her Fault".to_string();
         file.year = Some(2025);
 
-        let lookups = metadata_lookup_candidates("series", &file, "zh-CN");
+        let lookups = metadata_lookup_candidates("series", &file, "zh-CN", None);
 
-        assert_eq!(lookups.len(), 2);
+        assert_eq!(lookups.len(), 1);
         assert_eq!(lookups[0].title, "All Her Fault");
         assert_eq!(lookups[0].year, Some(2025));
-        assert_eq!(lookups[1].title, "都是她的错");
-        assert_eq!(lookups[1].year, Some(2025));
     }
 
     #[test]
-    fn metadata_lookup_candidates_use_container_year_for_file_and_container_titles() {
+    fn metadata_lookup_candidates_ignore_series_directory_year() {
         let mut file = build_discovered_episode();
         file.file_path = PathBuf::from(
             "/media/overseas_tv/流氓读书会 (2025)/第 1 季 - 1080p WEB-DL AVC AAC/Study Group S01E01 - 第 1 集 - 1080p WEB-DL AVC AAC.mp4",
@@ -1368,17 +1261,15 @@ mod tests {
         file.source_title = "Study Group".to_string();
         file.year = None;
 
-        let lookups = metadata_lookup_candidates("series", &file, "zh-CN");
+        let lookups = metadata_lookup_candidates("series", &file, "zh-CN", None);
 
-        assert_eq!(lookups.len(), 2);
+        assert_eq!(lookups.len(), 1);
         assert_eq!(lookups[0].title, "Study Group");
-        assert_eq!(lookups[0].year, Some(2025));
-        assert_eq!(lookups[1].title, "流氓读书会");
-        assert_eq!(lookups[1].year, Some(2025));
+        assert_eq!(lookups[0].year, None);
     }
 
     #[test]
-    fn metadata_lookup_candidates_use_cjk_direct_parent_for_flat_episode_layouts() {
+    fn metadata_lookup_candidates_keep_file_year_without_directory_fallback() {
         let mut file = build_discovered_episode();
         file.file_path = PathBuf::from(
             "/media/overseas_tv/莎拉的真伪人生(2026)/The.Art.of.Sarah.S01E01.2160p.NF.WEB-DL.DDP.5.1.DV.H.265.mkv",
@@ -1386,13 +1277,31 @@ mod tests {
         file.source_title = "The Art of Sarah".to_string();
         file.year = Some(2026);
 
-        let lookups = metadata_lookup_candidates("series", &file, "zh-CN");
+        let lookups = metadata_lookup_candidates("series", &file, "zh-CN", None);
 
-        assert_eq!(lookups.len(), 2);
+        assert_eq!(lookups.len(), 1);
         assert_eq!(lookups[0].title, "The Art of Sarah");
         assert_eq!(lookups[0].year, Some(2026));
-        assert_eq!(lookups[1].title, "莎拉的真伪人生");
-        assert_eq!(lookups[1].year, Some(2026));
+    }
+
+    #[test]
+    fn metadata_lookup_candidates_keep_later_season_year_out_of_series_year() {
+        let mut file = build_discovered_episode();
+        file.file_path = PathBuf::from("/media/Fallout/S02/Fallout.S02E01.2025.mkv");
+        file.source_title = "Fallout".to_string();
+        file.year = None;
+        file.season_number = Some(2);
+
+        let hint = MetadataSeasonAirYearHint {
+            season_number: 2,
+            year: 2025,
+        };
+        let lookups = metadata_lookup_candidates("series", &file, "zh-CN", Some(hint));
+
+        assert_eq!(lookups.len(), 1);
+        assert_eq!(lookups[0].title, "Fallout");
+        assert_eq!(lookups[0].year, None);
+        assert_eq!(lookups[0].season_air_year, Some(hint));
     }
 
     #[test]
@@ -1406,7 +1315,7 @@ mod tests {
         file.season_number = None;
         file.episode_number = None;
 
-        let lookups = metadata_lookup_candidates("movie", &file, "zh-CN");
+        let lookups = metadata_lookup_candidates("movie", &file, "zh-CN", None);
 
         assert_eq!(lookups.len(), 3);
         assert_eq!(lookups[0].title, "Avatar： Fire and Ash");
@@ -1427,7 +1336,7 @@ mod tests {
         file.episode_number = None;
         file.metadata_provider_item_id = Some(123_456);
 
-        let lookups = metadata_lookup_candidates("movie", &file, "zh-CN");
+        let lookups = metadata_lookup_candidates("movie", &file, "zh-CN", None);
 
         assert_eq!(lookups[0].title, "狂野时代");
         assert_eq!(lookups[0].year, Some(2025));
@@ -1449,7 +1358,7 @@ mod tests {
         file.season_number = None;
         file.episode_number = None;
 
-        let lookups = metadata_lookup_candidates("movie", &file, "zh-CN");
+        let lookups = metadata_lookup_candidates("movie", &file, "zh-CN", None);
 
         assert_eq!(lookups.len(), 2);
         assert_eq!(lookups[0].title, "Unexpected Family");
@@ -1548,7 +1457,7 @@ mod tests {
         let mut files = vec![first, second];
 
         context
-            .enrich_group_with_progress("series", &mut files, |_, _| {})
+            .enrich_group_with_progress("series", &mut files, None, |_, _| {})
             .await
             .expect("group metadata enrichment should succeed");
 
@@ -1719,6 +1628,7 @@ mod tests {
         MetadataLookup {
             title: "Show".to_string(),
             year: Some(2024),
+            season_air_year: None,
             library_type: "series".to_string(),
             language: Some("zh-CN".to_string()),
             provider_item_id: Some(123),
@@ -1736,6 +1646,8 @@ mod tests {
             source_title: "Show".to_string(),
             original_title: None,
             sort_title: None,
+            series_sidecar_title: None,
+            series_sidecar_year: None,
             year: Some(2024),
             imdb_rating: None,
             metadata_status: None,

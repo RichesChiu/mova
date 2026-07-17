@@ -117,6 +117,7 @@ async fn sync_media_item_cast(
     let lookup = MetadataLookup {
         title: media_item.title.clone(),
         year: media_item.year,
+        season_air_year: None,
         library_type: metadata_lookup_type_for_media_type(&media_item.media_type).to_string(),
         language: Some(library.metadata_language),
         provider_item_id: media_item.metadata_provider_item_id,

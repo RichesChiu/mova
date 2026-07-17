@@ -50,6 +50,35 @@ pub(crate) fn read_sidecar_metadata(path: &Path) -> ParsedSidecarMetadata {
     )
 }
 
+pub(crate) fn read_series_sidecar_metadata(path: &Path) -> ParsedSidecarMetadata {
+    let Some(nfo_path) = path
+        .parent()
+        .into_iter()
+        .flat_map(|parent| parent.ancestors().take(5))
+        .map(|directory| directory.join("tvshow.nfo"))
+        .find(|candidate| candidate.is_file())
+    else {
+        return ParsedSidecarMetadata::default();
+    };
+
+    let contents = match fs::read_to_string(&nfo_path) {
+        Ok(contents) => contents,
+        Err(error) => {
+            tracing::warn!(
+                file_path = %nfo_path.display(),
+                error = %error,
+                "failed to read series sidecar nfo file"
+            );
+            return ParsedSidecarMetadata::default();
+        }
+    };
+
+    parse_nfo_metadata(
+        &contents,
+        nfo_path.parent().unwrap_or_else(|| Path::new("/")),
+    )
+}
+
 fn find_sidecar_nfo(video_path: &Path) -> Option<PathBuf> {
     let mut candidates = vec![video_path.with_extension("nfo")];
 

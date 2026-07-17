@@ -10,7 +10,10 @@ pub use discover::{
     discover_media_files_with_progress_item_and_cancel, discover_media_paths, inspect_media_file,
     inspect_media_file_inventory, inspect_media_file_inventory_shallow,
 };
-pub use parse::{infer_series_file_metadata, is_likely_episode_path, SeriesFileMetadata};
+pub use parse::{
+    infer_series_file_metadata, infer_series_sidecar_metadata, is_likely_episode_path,
+    SeriesFileMetadata, SeriesSidecarMetadata,
+};
 
 use std::path::PathBuf;
 
@@ -59,6 +62,8 @@ pub struct DiscoveredMediaFile {
     pub source_title: String,
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
+    pub series_sidecar_title: Option<String>,
+    pub series_sidecar_year: Option<i32>,
     pub year: Option<i32>,
     pub imdb_rating: Option<String>,
     pub metadata_status: Option<String>,

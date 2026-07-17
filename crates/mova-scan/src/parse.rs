@@ -1,6 +1,6 @@
 use super::sidecar::{
-    find_local_artwork, find_local_artwork_with_scope, read_sidecar_metadata, ArtworkKind,
-    ArtworkScope,
+    find_local_artwork, find_local_artwork_with_scope, read_series_sidecar_metadata,
+    read_sidecar_metadata, ArtworkKind, ArtworkScope,
 };
 use std::path::Path;
 
@@ -69,6 +69,16 @@ pub(crate) struct ParsedMediaMetadata {
 pub struct SeriesFileMetadata {
     pub display_title: String,
     pub title: String,
+    pub season_number: i32,
+    /// 只有第一季文件中的年份才能直接表示系列首播年。
+    pub year: Option<i32>,
+    /// 后续季文件中的年份只表示该季播出年，不能覆盖系列首播年。
+    pub season_air_year: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeriesSidecarMetadata {
+    pub title: Option<String>,
     pub year: Option<i32>,
 }
 
@@ -222,12 +232,28 @@ pub fn infer_series_file_metadata(path: &Path) -> Option<SeriesFileMetadata> {
         return None;
     }
 
+    let parsed_year = parsed_name
+        .year
+        .or_else(|| parse_year_after_episode_token(&tokens, episode_token_index + 1));
+    let is_first_season = episode_token.season_number == 1;
+
     Some(SeriesFileMetadata {
         display_title,
         title: parsed_name.title,
-        year: parsed_name
-            .year
-            .or_else(|| parse_year_after_episode_token(&tokens, episode_token_index + 1)),
+        season_number: episode_token.season_number,
+        year: is_first_season.then_some(parsed_year).flatten(),
+        season_air_year: (!is_first_season).then_some(parsed_year).flatten(),
+    })
+}
+
+/// 读取剧集路径最近的 `tvshow.nfo` 身份字段。目录名称不会参与该结果。
+pub fn infer_series_sidecar_metadata(path: &Path) -> Option<SeriesSidecarMetadata> {
+    let metadata = read_series_sidecar_metadata(path);
+    let title = metadata.title.filter(|value| !value.trim().is_empty());
+
+    (title.is_some() || metadata.year.is_some()).then_some(SeriesSidecarMetadata {
+        title,
+        year: metadata.year,
     })
 }
 

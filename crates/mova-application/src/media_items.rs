@@ -405,6 +405,7 @@ pub async fn series_episode_outline_for_media_item(
     let lookup = MetadataLookup {
         title: lookup_title,
         year: media_item.year,
+        season_air_year: None,
         library_type: "series".to_string(),
         language: Some(library.metadata_language.clone()),
         provider_item_id: media_item.metadata_provider_item_id,

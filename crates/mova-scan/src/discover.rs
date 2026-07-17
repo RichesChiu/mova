@@ -294,10 +294,10 @@ fn build_discovered_media_file_from_parts(
     inventory: DiscoveredMediaFileInventory,
     parsed: crate::parse::ParsedMediaMetadata,
     probe: MediaProbe,
-    discover_sidecar_subtitles: bool,
+    discover_local_sidecars: bool,
 ) -> DiscoveredMediaFile {
     let path = inventory.file_path;
-    let subtitle_tracks = if discover_sidecar_subtitles {
+    let subtitle_tracks = if discover_local_sidecars {
         discover_subtitle_tracks(&path, &probe.subtitle_streams)
     } else {
         Vec::new()
@@ -312,6 +312,8 @@ fn build_discovered_media_file_from_parts(
         source_title: parsed.source_title,
         original_title: parsed.original_title,
         sort_title: parsed.sort_title,
+        series_sidecar_title: None,
+        series_sidecar_year: None,
         year: parsed.year,
         imdb_rating: None,
         metadata_status: None,

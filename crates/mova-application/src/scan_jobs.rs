@@ -3,7 +3,7 @@ use crate::{
     libraries::get_library,
     media_classification::classify_media_type,
     media_enrichment::{MetadataEnrichmentContext, MetadataEnrichmentStage},
-    metadata::{MetadataProvider, TMDB_PROVIDER_NAME},
+    metadata::{MetadataProvider, MetadataSeasonAirYearHint, TMDB_PROVIDER_NAME},
 };
 use mova_domain::{
     Library, ScanJob, ScanNotificationIssue, ScanNotificationSummary, MAX_SCAN_NOTIFICATION_ISSUES,
@@ -16,8 +16,8 @@ use mova_domain::{
 };
 use mova_scan::{
     discovered_media_file_inventory_scan_hash, discovered_media_file_scan_hash,
-    infer_series_file_metadata, DiscoveredAudioTrack, DiscoveredMediaFile,
-    DiscoveredMediaFileInventory, DiscoveredSubtitleTrack,
+    infer_series_file_metadata, infer_series_sidecar_metadata, DiscoveredAudioTrack,
+    DiscoveredMediaFile, DiscoveredMediaFileInventory, DiscoveredSubtitleTrack,
 };
 use sqlx::postgres::PgPool;
 use std::{
@@ -101,6 +101,11 @@ struct LocalSeriesGroup {
     lookup_title: String,
     display_title: String,
     year: Option<i32>,
+    year_priority: u8,
+    identity_from_sidecar: bool,
+    identity_season_number: i32,
+    has_first_season: bool,
+    season_air_year: Option<MetadataSeasonAirYearHint>,
     file_indexes: Vec<usize>,
     classified_episode_count: usize,
 }
@@ -112,6 +117,7 @@ struct ScanPresentationGroup {
     title: String,
     lookup_title: String,
     year: Option<i32>,
+    season_air_year: Option<MetadataSeasonAirYearHint>,
 }
 
 #[derive(Debug)]
@@ -178,7 +184,7 @@ const SCAN_ITEM_STAGE_COMPLETED: &str = "completed";
 const SCAN_PHASE_INITIALIZING: &str = "initializing";
 const SCAN_DISCOVERY_PROGRESS_MIN_FILE_DELTA: i32 = 25;
 const SCAN_DISCOVERY_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(500);
-pub(crate) const LOCAL_ANALYSIS_VERSION: i32 = 4;
+pub(crate) const LOCAL_ANALYSIS_VERSION: i32 = 5;
 
 fn should_flush_discovery_progress(
     persisted_progress: i32,
@@ -951,30 +957,36 @@ async fn enrich_discovered_groups(
         };
 
         let enrichment_progress_listener = progress_listener.clone();
+        let season_air_year = group.presentation.season_air_year;
         let enrichment_result = enrichment
-            .enrich_group_with_progress(lookup_type, &mut group.files, move |stage, file| {
-                if stage != MetadataEnrichmentStage::Metadata {
-                    if !file.title.trim().is_empty() {
-                        presentation.title = file.title.clone();
+            .enrich_group_with_progress(
+                lookup_type,
+                &mut group.files,
+                season_air_year,
+                move |stage, file| {
+                    if stage != MetadataEnrichmentStage::Metadata {
+                        if !file.title.trim().is_empty() {
+                            presentation.title = file.title.clone();
+                        }
                     }
-                }
 
-                if stage == MetadataEnrichmentStage::Completed {
-                    return;
-                }
+                    if stage == MetadataEnrichmentStage::Completed {
+                        return;
+                    }
 
-                enrichment_progress_listener(ScanJobEvent::ItemUpdated(
-                    build_scan_group_progress_update(
-                        scan_job_id,
-                        library.id,
-                        &presentation,
-                        Some(file),
-                        item_index,
-                        total_items,
-                        stage.into(),
-                    ),
-                ));
-            })
+                    enrichment_progress_listener(ScanJobEvent::ItemUpdated(
+                        build_scan_group_progress_update(
+                            scan_job_id,
+                            library.id,
+                            &presentation,
+                            Some(file),
+                            item_index,
+                            total_items,
+                            stage.into(),
+                        ),
+                    ));
+                },
+            )
             .await;
 
         let remote_media_type = metadata_decision.remote_media_type;
@@ -1508,7 +1520,7 @@ fn can_skip_existing_media_summary(
 fn should_rescan_unchanged_existing_media_summary(
     summary: &mova_db::ExistingMediaMetadataSummary,
     metadata_provider_enabled: bool,
-    metadata_language: &str,
+    _metadata_language: &str,
     file_path: &std::path::Path,
 ) -> bool {
     if is_existing_summary_in_other_review_section(summary) {
@@ -1520,12 +1532,6 @@ fn should_rescan_unchanged_existing_media_summary(
     }
 
     if metadata_provider_enabled && should_retry_incomplete_remote_match(summary) {
-        return true;
-    }
-
-    if metadata_provider_enabled
-        && should_retry_localized_series_metadata(summary, metadata_language, file_path)
-    {
         return true;
     }
 
@@ -1650,37 +1656,6 @@ fn is_external_artwork_path(path: &str) -> bool {
     path.starts_with("http://") || path.starts_with("https://")
 }
 
-fn should_retry_localized_series_metadata(
-    summary: &mova_db::ExistingMediaMetadataSummary,
-    metadata_language: &str,
-    file_path: &std::path::Path,
-) -> bool {
-    if !is_chinese_metadata_language(metadata_language) {
-        return false;
-    }
-
-    if !summary.media_type.eq_ignore_ascii_case("episode")
-        && !summary
-            .remote_media_type
-            .as_deref()
-            .is_some_and(|value| value.eq_ignore_ascii_case(REMOTE_MEDIA_TYPE_SERIES))
-    {
-        return false;
-    }
-
-    let current_title = summary
-        .series_title
-        .as_deref()
-        .unwrap_or(summary.title.as_str());
-    if contains_cjk_character(current_title) {
-        return false;
-    }
-
-    localized_series_container_title_for_path(file_path)
-        .as_deref()
-        .is_some_and(contains_cjk_character)
-}
-
 fn should_retry_local_series_title_override(
     summary: &mova_db::ExistingMediaMetadataSummary,
     file_path: &std::path::Path,
@@ -1722,16 +1697,20 @@ async fn inspect_incremental_scan_files(
 ) -> ApplicationResult<Vec<DiscoveredMediaFile>> {
     tokio::task::spawn_blocking(move || {
         let mut discovered_files = Vec::with_capacity(changed_files.len());
+        let mut series_sidecars =
+            HashMap::<String, Option<mova_scan::SeriesSidecarMetadata>>::new();
 
         for changed_file in changed_files {
             let file_path = changed_file.inventory.file_path.display().to_string();
             if let Some(existing_metadata) = changed_file.existing_metadata.as_ref() {
                 let scan_hash = discovered_media_file_inventory_scan_hash(&changed_file.inventory);
                 if can_reuse_cached_local_analysis(existing_metadata, scan_hash.as_str()) {
-                    discovered_files.push(discovered_file_from_existing_local_analysis(
+                    let mut discovered_file = discovered_file_from_existing_local_analysis(
                         &changed_file.inventory,
                         existing_metadata,
-                    )?);
+                    )?;
+                    populate_series_sidecar_metadata(&mut discovered_file, &mut series_sidecars);
+                    discovered_files.push(discovered_file);
                     continue;
                 }
             }
@@ -1751,6 +1730,7 @@ async fn inspect_incremental_scan_files(
                 apply_existing_media_metadata(&mut discovered_file, existing_metadata);
             }
 
+            populate_series_sidecar_metadata(&mut discovered_file, &mut series_sidecars);
             discovered_files.push(discovered_file);
         }
 
@@ -1763,6 +1743,31 @@ async fn inspect_incremental_scan_files(
             error
         ))
     })?
+}
+
+fn populate_series_sidecar_metadata(
+    file: &mut DiscoveredMediaFile,
+    cache: &mut HashMap<String, Option<mova_scan::SeriesSidecarMetadata>>,
+) {
+    if file.season_number.is_none() || file.episode_number.is_none() {
+        return;
+    }
+
+    let cache_key = series_container_item_key(&file.file_path).unwrap_or_else(|| {
+        file.file_path
+            .parent()
+            .unwrap_or(file.file_path.as_path())
+            .to_string_lossy()
+            .to_string()
+    });
+    let metadata = cache
+        .entry(cache_key)
+        .or_insert_with(|| infer_series_sidecar_metadata(&file.file_path));
+
+    file.series_sidecar_title = metadata
+        .as_ref()
+        .and_then(|metadata| metadata.title.clone());
+    file.series_sidecar_year = metadata.as_ref().and_then(|metadata| metadata.year);
 }
 
 async fn inspect_incremental_scan_files_shallow(
@@ -1807,7 +1812,6 @@ fn discovered_file_from_existing_local_analysis(
             summary.file_path
         ))
     })?;
-
     let (
         title,
         source_title,
@@ -1874,6 +1878,8 @@ fn discovered_file_from_existing_local_analysis(
         source_title,
         original_title,
         sort_title,
+        series_sidecar_title: None,
+        series_sidecar_year: None,
         year,
         imdb_rating,
         metadata_status: Some(summary.metadata_status.clone()),
@@ -2189,8 +2195,11 @@ fn normalize_discovered_files_for_local_structure(
     discovered_files.sort_by(|left, right| left.file_path.cmp(&right.file_path));
 
     let mut groups = HashMap::<String, LocalSeriesGroup>::new();
-
     for (index, file) in discovered_files.iter().enumerate() {
+        if file.season_number.is_none() || file.episode_number.is_none() {
+            continue;
+        }
+
         let Some(group_seed) = local_series_group_seed_for_file(file) else {
             continue;
         };
@@ -2201,6 +2210,11 @@ fn normalize_discovered_files_for_local_structure(
                 lookup_title: group_seed.lookup_title.clone(),
                 display_title: group_seed.display_title.clone(),
                 year: group_seed.year,
+                year_priority: group_seed.year_priority,
+                identity_from_sidecar: group_seed.identity_from_sidecar,
+                identity_season_number: group_seed.season_number,
+                has_first_season: group_seed.season_number == 1,
+                season_air_year: group_seed.season_air_year,
                 file_indexes: Vec::new(),
                 classified_episode_count: 0,
             });
@@ -2208,18 +2222,23 @@ fn normalize_discovered_files_for_local_structure(
         apply_local_series_group_seed(group, &group_seed);
         group.file_indexes.push(index);
 
-        if classify_media_type(&library.library_type, &file.file_path)
-            .eq_ignore_ascii_case("episode")
+        if file.season_number.is_some() && file.episode_number.is_some()
+            || classify_media_type(&library.library_type, &file.file_path)
+                .eq_ignore_ascii_case("episode")
         {
             group.classified_episode_count += 1;
         }
     }
 
-    for group in groups.into_values() {
+    for mut group in groups.into_values() {
         let should_promote_to_series = should_promote_local_series_group(&group);
 
         if !should_promote_to_series {
             continue;
+        }
+
+        if group.year.is_some() || group.has_first_season {
+            group.season_air_year = None;
         }
 
         assign_local_series_structure(&mut discovered_files, &group);
@@ -2234,35 +2253,101 @@ struct LocalSeriesGroupSeed {
     lookup_title: String,
     display_title: String,
     year: Option<i32>,
+    year_priority: u8,
+    identity_from_sidecar: bool,
+    season_number: i32,
+    season_air_year: Option<MetadataSeasonAirYearHint>,
 }
 
 fn local_series_group_seed_for_file(file: &DiscoveredMediaFile) -> Option<LocalSeriesGroupSeed> {
     if file.season_number.is_some() && file.episode_number.is_some() {
-        if let Some(file_metadata) = infer_series_file_metadata(&file.file_path) {
-            let year = file_metadata.year.or(file.year);
-            return Some(LocalSeriesGroupSeed {
-                item_key: series_group_item_key(&file.file_path, &file_metadata.title),
-                lookup_title: file_metadata.title,
-                display_title: file_metadata.display_title,
-                year,
-            });
-        }
+        let file_metadata = infer_series_file_metadata(&file.file_path);
+        let sidecar_title = file
+            .series_sidecar_title
+            .as_deref()
+            .map(str::trim)
+            .filter(|title| !title.is_empty());
+        let fallback_title = file_metadata
+            .as_ref()
+            .map(|metadata| metadata.title.as_str());
+        let lookup_title = sidecar_title.or(fallback_title)?.to_string();
+        let display_title = sidecar_title
+            .map(str::to_string)
+            .or_else(|| {
+                file_metadata
+                    .as_ref()
+                    .map(|metadata| metadata.display_title.clone())
+            })
+            .unwrap_or_else(|| lookup_title.clone());
+        let season_number = file_metadata
+            .as_ref()
+            .map(|metadata| metadata.season_number)
+            .or(file.season_number)?;
+        let sidecar_year = file.series_sidecar_year;
+        let file_first_air_year = file_metadata.as_ref().and_then(|metadata| metadata.year);
+        let year = sidecar_year.or(file_first_air_year);
+        let year_priority = if sidecar_year.is_some() {
+            2
+        } else if season_number == 1 && file_first_air_year.is_some() {
+            1
+        } else {
+            0
+        };
+        let season_air_year = sidecar_year
+            .is_none()
+            .then(|| {
+                file_metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.season_air_year)
+                    .map(|year| MetadataSeasonAirYearHint {
+                        season_number,
+                        year,
+                    })
+            })
+            .flatten();
+
+        return Some(LocalSeriesGroupSeed {
+            item_key: series_group_item_key(&file.file_path, &lookup_title),
+            lookup_title,
+            display_title,
+            year,
+            year_priority,
+            identity_from_sidecar: sidecar_title.is_some(),
+            season_number,
+            season_air_year,
+        });
     }
 
     None
 }
 
 fn apply_local_series_group_seed(group: &mut LocalSeriesGroup, group_seed: &LocalSeriesGroupSeed) {
-    let should_replace_identity = match (group.year, group_seed.year) {
-        (None, Some(_)) => true,
-        (Some(current_year), Some(candidate_year)) => candidate_year < current_year,
-        _ => false,
-    };
+    group.has_first_season |= group_seed.season_number == 1;
+
+    if group_seed.year_priority > group.year_priority {
+        group.year = group_seed.year;
+        group.year_priority = group_seed.year_priority;
+    }
+
+    if let Some(candidate) = group_seed.season_air_year {
+        let should_replace_season_hint = group
+            .season_air_year
+            .is_none_or(|current| candidate.season_number < current.season_number);
+        if should_replace_season_hint {
+            group.season_air_year = Some(candidate);
+        }
+    }
+
+    let should_replace_identity = (group_seed.identity_from_sidecar
+        && !group.identity_from_sidecar)
+        || (group_seed.identity_from_sidecar == group.identity_from_sidecar
+            && group_seed.season_number < group.identity_season_number);
 
     if should_replace_identity {
         group.lookup_title = group_seed.lookup_title.clone();
         group.display_title = group_seed.display_title.clone();
-        group.year = group_seed.year;
+        group.identity_from_sidecar = group_seed.identity_from_sidecar;
+        group.identity_season_number = group_seed.season_number;
     }
 }
 
@@ -2318,177 +2403,6 @@ fn normalize_series_key_component(value: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
         .to_ascii_lowercase()
-}
-
-fn localized_series_container_title_for_path(file_path: &std::path::Path) -> Option<String> {
-    let parent = file_path.parent()?;
-    let mut directories = parent
-        .components()
-        .filter_map(|component| component.as_os_str().to_str())
-        .filter(|component| !component.trim().is_empty())
-        .collect::<Vec<_>>();
-
-    while directories
-        .last()
-        .is_some_and(|directory| is_series_variant_directory_name(directory))
-    {
-        directories.pop();
-    }
-
-    let season_directory_index = directories
-        .iter()
-        .rposition(|directory| is_season_directory_name(directory));
-    let directory_title = if let Some(season_directory_index) = season_directory_index {
-        if season_directory_index == 0 {
-            return None;
-        }
-
-        directories[season_directory_index - 1]
-    } else {
-        let candidate = directories.last().copied()?;
-        let parsed = localized_title_from_container_directory(candidate)?;
-
-        return contains_cjk_character(&parsed).then_some(parsed);
-    };
-
-    localized_title_from_container_directory(directory_title)
-}
-
-fn localized_title_from_container_directory(directory_title: &str) -> Option<String> {
-    let title = directory_title
-        .replace(['.', '_', '-', '—', '–'], " ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let parsed_title = strip_year_from_localized_container_title(&title);
-
-    (!parsed_title.trim().is_empty()).then_some(parsed_title)
-}
-
-fn strip_year_from_localized_container_title(value: &str) -> String {
-    let mut tokens = value
-        .split_whitespace()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    let mut title_end = tokens.len();
-
-    for index in 0..tokens.len() {
-        if parse_localized_container_year_token(tokens[index].as_str()).is_some() {
-            title_end = index;
-            break;
-        }
-
-        if let Some(prefix) = split_localized_container_trailing_year(tokens[index].as_str()) {
-            tokens[index] = prefix;
-            title_end = index + 1;
-            break;
-        }
-    }
-
-    while title_end > 0
-        && tokens[title_end - 1]
-            .chars()
-            .all(is_container_separator_char)
-    {
-        title_end -= 1;
-    }
-
-    let title = tokens[..title_end].join(" ");
-    if title.trim().is_empty() {
-        value.to_string()
-    } else {
-        title
-    }
-}
-
-fn split_localized_container_trailing_year(token: &str) -> Option<String> {
-    let trimmed = token.trim_matches(|ch| {
-        matches!(
-            ch,
-            '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '（' | '）' | '【' | '】' | '《' | '》'
-        )
-    });
-    let characters = trimmed.chars().collect::<Vec<_>>();
-
-    if characters.len() <= 4 {
-        return None;
-    }
-
-    let suffix = characters[characters.len() - 4..]
-        .iter()
-        .collect::<String>();
-    parse_localized_container_year_token(&suffix)?;
-
-    let prefix = characters[..characters.len() - 4]
-        .iter()
-        .collect::<String>();
-    let prefix = prefix
-        .trim_matches(|ch| {
-            matches!(
-                ch,
-                '(' | ')'
-                    | '['
-                    | ']'
-                    | '{'
-                    | '}'
-                    | '<'
-                    | '>'
-                    | '（'
-                    | '）'
-                    | '【'
-                    | '】'
-                    | '《'
-                    | '》'
-            ) || is_container_separator_char(ch)
-        })
-        .trim()
-        .to_string();
-    (!prefix.is_empty() && !prefix.chars().all(|ch| ch.is_ascii_digit())).then_some(prefix)
-}
-
-fn parse_localized_container_year_token(token: &str) -> Option<i32> {
-    let token = token.trim_matches(|ch| {
-        matches!(
-            ch,
-            '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | '（' | '）' | '【' | '】' | '《' | '》'
-        )
-    });
-
-    if token.len() != 4 || !token.chars().all(|ch| ch.is_ascii_digit()) {
-        return None;
-    }
-
-    let year = token.parse::<i32>().ok()?;
-    (1900..=2100).contains(&year).then_some(year)
-}
-
-fn is_container_separator_char(ch: char) -> bool {
-    matches!(
-        ch,
-        '-' | '|' | ':' | '：' | '·' | '•' | '~' | '–' | '—' | '/' | '\\'
-    )
-}
-
-fn is_chinese_metadata_language(metadata_language: &str) -> bool {
-    metadata_language
-        .trim()
-        .to_ascii_lowercase()
-        .starts_with("zh")
-}
-
-fn contains_cjk_character(value: &str) -> bool {
-    value.chars().any(|ch| {
-        matches!(
-            ch,
-            '\u{3400}'..='\u{4dbf}'
-                | '\u{4e00}'..='\u{9fff}'
-                | '\u{f900}'..='\u{faff}'
-                | '\u{20000}'..='\u{2a6df}'
-                | '\u{2a700}'..='\u{2b73f}'
-                | '\u{2b740}'..='\u{2b81f}'
-                | '\u{2b820}'..='\u{2ceaf}'
-        )
-    })
 }
 
 fn is_series_variant_directory_name(name: &str) -> bool {
@@ -2810,21 +2724,39 @@ fn build_scan_presentation_group(
                     file.title.clone()
                 };
             let year = file.year.or(file_metadata.year);
+            let season_air_year = year
+                .is_none()
+                .then(|| {
+                    file_metadata
+                        .season_air_year
+                        .map(|year| MetadataSeasonAirYearHint {
+                            season_number: file_metadata.season_number,
+                            year,
+                        })
+                })
+                .flatten();
             return ScanPresentationGroup {
                 item_key: series_group_item_key(&file.file_path, &lookup_title),
                 media_type: "series".to_string(),
                 title,
                 lookup_title,
                 year,
+                season_air_year,
             };
         }
 
         return ScanPresentationGroup {
-            item_key: file.file_path.to_string_lossy().to_string(),
+            item_key: series_group_item_key(&file.file_path, &file.source_title),
             media_type: "series".to_string(),
-            title: file.source_title.clone(),
+            title: file
+                .title
+                .trim()
+                .is_empty()
+                .then(|| file.source_title.clone())
+                .unwrap_or_else(|| file.title.clone()),
             lookup_title: file.source_title.clone(),
             year: file.year,
+            season_air_year: None,
         };
     }
 
@@ -2839,6 +2771,7 @@ fn build_scan_presentation_group(
             .unwrap_or_else(|| file.title.clone()),
         lookup_title: file.source_title.clone(),
         year: file.year,
+        season_air_year: None,
     }
 }
 
@@ -3083,6 +3016,8 @@ mod tests {
             source_title: "Arcane.S01E01".to_string(),
             original_title: None,
             sort_title: None,
+            series_sidecar_title: None,
+            series_sidecar_year: None,
             year: Some(2021),
             imdb_rating: None,
             metadata_status: Some(METADATA_STATUS_MATCHED.to_string()),
@@ -3143,6 +3078,7 @@ mod tests {
                 title: "A Minecraft Movie".to_string(),
                 lookup_title: "A Minecraft Movie".to_string(),
                 year: Some(2025),
+                season_air_year: None,
             },
             files: vec![file],
         };
@@ -3186,6 +3122,7 @@ mod tests {
                     title: format!("Unmatched {index}"),
                     lookup_title: format!("Unmatched {index}"),
                     year: None,
+                    season_air_year: None,
                 },
                 files: vec![file],
             };
@@ -3667,13 +3604,13 @@ mod tests {
     }
 
     #[test]
-    fn can_skip_existing_media_summary_retries_english_series_title_with_chinese_container() {
+    fn can_skip_existing_media_summary_ignores_series_directory_title() {
         let mut summary = build_existing_episode_metadata();
         summary.scan_hash = Some("same-hash".to_string());
-        summary.series_title = Some("All Her Fault 2025".to_string());
+        summary.series_title = Some("Resolved Series".to_string());
         summary.series_source_title = Some("All Her Fault".to_string());
 
-        assert!(!super::can_skip_existing_media_summary(
+        assert!(super::can_skip_existing_media_summary(
             &summary,
             "same-hash",
             true,
@@ -3683,35 +3620,13 @@ mod tests {
             ),
         ));
 
-        assert!(!super::can_skip_existing_media_summary(
+        assert!(super::can_skip_existing_media_summary(
             &summary,
             "same-hash",
             true,
             "zh-CN",
             Path::new(
                 "/media/overseas_tv/莎拉的真伪人生(2026)/The.Art.of.Sarah.S01E01.2160p.NF.WEB-DL.DDP.5.1.DV.H.265.mkv",
-            ),
-        ));
-
-        summary.series_title = Some("都是她的错".to_string());
-        assert!(super::can_skip_existing_media_summary(
-            &summary,
-            "same-hash",
-            true,
-            "zh-CN",
-            Path::new(
-                "/media/overseas_tv/都是她的错.2025/Season 01/All.Her.Fault.2025.S01E01.2160p.PCOK.WEB-DL.DDP5.1.H.265-KRATOS.mkv",
-            ),
-        ));
-
-        summary.series_title = Some("All Her Fault".to_string());
-        assert!(super::can_skip_existing_media_summary(
-            &summary,
-            "same-hash",
-            true,
-            "en-US",
-            Path::new(
-                "/media/overseas_tv/都是她的错.2025/Season 01/All.Her.Fault.2025.S01E01.2160p.PCOK.WEB-DL.DDP5.1.H.265-KRATOS.mkv",
             ),
         ));
     }
@@ -4059,7 +3974,7 @@ mod tests {
     }
 
     #[test]
-    fn group_discovered_files_for_scan_uses_earliest_series_year_as_metadata_hint() {
+    fn group_discovered_files_for_scan_prefers_first_season_year_as_series_year() {
         let mut later_file = build_discovered_file();
         later_file.file_path = PathBuf::from("The Boys/A Season 02/The Boys (2020) - S02E01.mkv");
         later_file.title = "The Boys".to_string();
@@ -4086,6 +4001,101 @@ mod tests {
         assert_eq!(groups[0].presentation.lookup_title, "The Boys");
         assert_eq!(groups[0].presentation.year, Some(2019));
         assert!(groups[0].files.iter().all(|file| file.year == Some(2019)));
+    }
+
+    #[test]
+    fn group_discovered_files_for_scan_does_not_promote_later_season_year_when_s01_exists() {
+        let mut first_season = build_discovered_file();
+        first_season.file_path = PathBuf::from("Fallout/S01/Fallout.S01E01.mkv");
+        first_season.title = "Fallout".to_string();
+        first_season.source_title = "Fallout".to_string();
+        first_season.year = None;
+        first_season.season_number = Some(1);
+        first_season.episode_number = Some(1);
+
+        let mut second_season = build_discovered_file();
+        second_season.file_path = PathBuf::from("Fallout/S02/Fallout.S02E01.2025.2160p.mkv");
+        second_season.title = "Fallout".to_string();
+        second_season.source_title = "Fallout".to_string();
+        second_season.year = Some(2025);
+        second_season.season_number = Some(2);
+        second_season.episode_number = Some(1);
+
+        let groups = super::group_discovered_files_for_scan(
+            &build_library(LIBRARY_TYPE_MIXED),
+            vec![second_season, first_season],
+        );
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].presentation.lookup_title, "Fallout");
+        assert_eq!(groups[0].presentation.year, None);
+        assert_eq!(groups[0].presentation.season_air_year, None);
+        assert!(groups[0].files.iter().all(|file| file.year.is_none()));
+    }
+
+    #[test]
+    fn group_discovered_files_for_scan_uses_later_season_year_only_when_s01_is_absent() {
+        let mut second_season = build_discovered_file();
+        second_season.file_path = PathBuf::from("Fallout/S02/Fallout.S02E01.2025.2160p.mkv");
+        second_season.title = "Fallout".to_string();
+        second_season.source_title = "Fallout".to_string();
+        second_season.year = Some(2025);
+        second_season.season_number = Some(2);
+        second_season.episode_number = Some(1);
+
+        let groups = super::group_discovered_files_for_scan(
+            &build_library(LIBRARY_TYPE_MIXED),
+            vec![second_season],
+        );
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].presentation.lookup_title, "Fallout");
+        assert_eq!(groups[0].presentation.year, None);
+        assert_eq!(
+            groups[0].presentation.season_air_year,
+            Some(crate::metadata::MetadataSeasonAirYearHint {
+                season_number: 2,
+                year: 2025,
+            })
+        );
+        assert!(groups[0].files.iter().all(|file| file.year.is_none()));
+    }
+
+    #[test]
+    fn group_discovered_files_for_scan_prefers_tvshow_nfo_identity() {
+        let root = std::env::temp_dir().join(format!(
+            "mova-series-nfo-{}",
+            OffsetDateTime::now_utc().unix_timestamp_nanos()
+        ));
+        let series_root = root.join("目录标题 2030");
+        let file_path = series_root
+            .join("S02")
+            .join("Fallback.Title.S02E01.2025.mkv");
+        fs::create_dir_all(file_path.parent().unwrap()).unwrap();
+        fs::write(
+            series_root.join("tvshow.nfo"),
+            "<tvshow><title>Authoritative Show</title><year>2021</year></tvshow>",
+        )
+        .unwrap();
+
+        let mut file = build_discovered_file();
+        file.file_path = file_path;
+        file.title = "Fallback Title".to_string();
+        file.source_title = "Fallback Title".to_string();
+        super::populate_series_sidecar_metadata(&mut file, &mut std::collections::HashMap::new());
+        file.year = Some(2025);
+        file.season_number = Some(2);
+        file.episode_number = Some(1);
+
+        let groups =
+            super::group_discovered_files_for_scan(&build_library(LIBRARY_TYPE_MIXED), vec![file]);
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].presentation.lookup_title, "Authoritative Show");
+        assert_eq!(groups[0].presentation.title, "Authoritative Show");
+        assert_eq!(groups[0].presentation.year, Some(2021));
+        assert_eq!(groups[0].presentation.season_air_year, None);
     }
 
     #[test]

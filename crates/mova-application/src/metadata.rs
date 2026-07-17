@@ -28,10 +28,19 @@ pub enum MetadataProviderConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MetadataLookup {
     pub title: String,
+    /// 电影发行年或剧集首播年。
     pub year: Option<i32>,
+    /// 缺少第一季时，后续季文件年份仅用于验证对应季，不参与系列首播年比较。
+    pub season_air_year: Option<MetadataSeasonAirYearHint>,
     pub library_type: String,
     pub language: Option<String>,
     pub provider_item_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MetadataSeasonAirYearHint {
+    pub season_number: i32,
+    pub year: i32,
 }
 
 /// 第三方元数据源返回的统一结构。
@@ -349,8 +358,8 @@ impl TmdbMetadataProvider {
             ("language", request_language.to_string()),
         ];
 
-        if let Some(year) = lookup.year {
-            query.push(("first_air_date_year", year.to_string()));
+        if let Some((parameter, year)) = tv_search_year_filter(lookup) {
+            query.push((parameter, year.to_string()));
         }
 
         let response = self
@@ -476,8 +485,11 @@ impl TmdbMetadataProvider {
             .filter(|candidate| candidate_matches_title(&lookup.title, *candidate))
             .collect::<Vec<_>>();
         if !direct_candidates.is_empty() {
-            return Ok(select_strict_candidate(
-                lookup.year,
+            let direct_candidates = self
+                .filter_tv_candidates_by_season_air_year(lookup, direct_candidates)
+                .await;
+            return Ok(select_strict_tv_candidate(
+                lookup,
                 prioritize_original_title_matches(&lookup.title, direct_candidates),
             ));
         }
@@ -513,7 +525,58 @@ impl TmdbMetadataProvider {
             }
         }
 
-        Ok(select_strict_candidate(lookup.year, exact_candidates))
+        let exact_candidates = self
+            .filter_tv_candidates_by_season_air_year(lookup, exact_candidates)
+            .await;
+
+        Ok(select_strict_tv_candidate(lookup, exact_candidates))
+    }
+
+    async fn filter_tv_candidates_by_season_air_year<'a>(
+        &self,
+        lookup: &MetadataLookup,
+        candidates: Vec<&'a TmdbTvSearchResult>,
+    ) -> Vec<&'a TmdbTvSearchResult> {
+        let Some(hint) = lookup.season_air_year else {
+            return candidates;
+        };
+
+        if candidates.len() > TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES {
+            tracing::warn!(
+                title = %lookup.title,
+                season_number = hint.season_number,
+                season_air_year = hint.year,
+                candidate_count = candidates.len(),
+                max_candidates = TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES,
+                "tmdb tv candidates are too broad for season-year verification"
+            );
+            return Vec::new();
+        }
+
+        let request_language = self.request_language(lookup);
+        let mut verified = Vec::new();
+        for candidate in candidates {
+            match self
+                .fetch_tv_season_details(candidate.id, hint.season_number, request_language)
+                .await
+            {
+                Ok(details) if tmdb_tv_season_matches_air_year(&details, hint.year) => {
+                    verified.push(candidate);
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        tv_id = candidate.id,
+                        season_number = hint.season_number,
+                        season_air_year = hint.year,
+                        error = ?error,
+                        "failed to verify tmdb tv season air year"
+                    );
+                }
+            }
+        }
+
+        verified
     }
 
     async fn fetch_movie_details(
@@ -1346,6 +1409,7 @@ struct TmdbTvSeasonDetails {
 struct TmdbTvEpisodeDetails {
     episode_number: i32,
     name: Option<String>,
+    air_date: Option<String>,
     overview: Option<String>,
     still_path: Option<String>,
 }
@@ -1420,7 +1484,8 @@ fn titles_match_strictly(local_title: &str, remote_title: &str) -> bool {
         return false;
     }
 
-    if normalized_local_title == normalize_title(remote_title) {
+    let normalized_remote_title = normalize_title(remote_title);
+    if normalized_local_title == normalized_remote_title {
         return true;
     }
 
@@ -1454,6 +1519,21 @@ where
     }
 }
 
+fn tv_search_year_filter(lookup: &MetadataLookup) -> Option<(&'static str, i32)> {
+    lookup
+        .year
+        .map(|year| ("first_air_date_year", year))
+        .or_else(|| lookup.season_air_year.map(|hint| ("year", hint.year)))
+}
+
+fn tmdb_tv_season_matches_air_year(details: &TmdbTvSeasonDetails, year: i32) -> bool {
+    parse_year(details.air_date.as_deref()) == Some(year)
+        || details
+            .episodes
+            .iter()
+            .any(|episode| parse_year(episode.air_date.as_deref()) == Some(year))
+}
+
 fn select_strict_candidate<'a, T>(query_year: Option<i32>, candidates: Vec<&'a T>) -> Option<&'a T>
 where
     T: TmdbSearchCandidate,
@@ -1466,9 +1546,23 @@ where
         .iter()
         .filter_map(|candidate| normalize_tmdb_date(candidate.candidate_date()))
         .max()?;
-    candidates
+    let newest_candidates = candidates
         .into_iter()
-        .find(|candidate| normalize_tmdb_date(candidate.candidate_date()) == Some(newest_date))
+        .filter(|candidate| normalize_tmdb_date(candidate.candidate_date()) == Some(newest_date))
+        .collect::<Vec<_>>();
+
+    (newest_candidates.len() == 1).then(|| newest_candidates[0])
+}
+
+fn select_strict_tv_candidate<'a>(
+    lookup: &MetadataLookup,
+    candidates: Vec<&'a TmdbTvSearchResult>,
+) -> Option<&'a TmdbTvSearchResult> {
+    if lookup.season_air_year.is_some() {
+        return (candidates.len() == 1).then(|| candidates[0]);
+    }
+
+    select_strict_candidate(lookup.year, candidates)
 }
 
 fn normalize_tmdb_date(value: Option<&str>) -> Option<&str> {
@@ -1488,10 +1582,17 @@ fn normalize_tmdb_date(value: Option<&str>) -> Option<&str> {
 }
 
 fn normalize_title(value: &str) -> String {
-    value
-        .chars()
-        .filter_map(|ch| {
-            if is_ignorable_title_punctuation(ch) {
+    let characters = value.chars().collect::<Vec<_>>();
+
+    characters
+        .iter()
+        .enumerate()
+        .filter_map(|(index, ch)| {
+            if is_intra_word_stylized_dollar(&characters, index) {
+                return Some("s".to_string());
+            }
+
+            if is_ignorable_title_punctuation(*ch) {
                 return None;
             }
 
@@ -1506,6 +1607,17 @@ fn normalize_title(value: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn is_intra_word_stylized_dollar(characters: &[char], index: usize) -> bool {
+    characters.get(index) == Some(&'$')
+        && index > 0
+        && characters
+            .get(index - 1)
+            .is_some_and(|ch| ch.is_ascii_alphabetic())
+        && characters
+            .get(index + 1)
+            .is_some_and(|ch| ch.is_ascii_alphabetic())
 }
 
 fn is_ignorable_title_punctuation(ch: char) -> bool {
@@ -1598,9 +1710,11 @@ mod tests {
         deduplicate_search_results, format_country_codes, normalize_base_url,
         normalize_metadata_language, normalize_optional_value, normalize_title, parse_year,
         pick_primary_character_name, prioritize_original_title_matches, select_strict_candidate,
-        titles_match_strictly, MetadataLookup, MetadataProviderConfig, RemoteMetadata,
-        TmdbMetadataProvider, TmdbMetadataProviderConfig, TmdbMovieDetails, TmdbMovieSearchResult,
-        TmdbTvAggregateRole, DEFAULT_OMDB_API_BASE_URL, TMDB_PROVIDER_NAME,
+        select_strict_tv_candidate, titles_match_strictly, tmdb_tv_season_matches_air_year,
+        tv_search_year_filter, MetadataLookup, MetadataProviderConfig, MetadataSeasonAirYearHint,
+        RemoteMetadata, TmdbMetadataProvider, TmdbMetadataProviderConfig, TmdbMovieDetails,
+        TmdbMovieSearchResult, TmdbTvAggregateRole, TmdbTvEpisodeDetails, TmdbTvSearchResult,
+        TmdbTvSeasonDetails, DEFAULT_OMDB_API_BASE_URL, TMDB_PROVIDER_NAME,
     };
 
     #[test]
@@ -1860,6 +1974,36 @@ mod tests {
     }
 
     #[test]
+    fn strict_match_rejects_multiple_original_title_matches() {
+        let candidates = vec![
+            TmdbMovieSearchResult {
+                id: 1,
+                title: Some("Same Title".to_string()),
+                original_title: Some("Same Title".to_string()),
+                release_date: Some("2025-01-01".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+            TmdbMovieSearchResult {
+                id: 2,
+                title: Some("Same Title".to_string()),
+                original_title: Some("Same Title".to_string()),
+                release_date: Some("2025-08-01".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+        ];
+
+        let prioritized =
+            prioritize_original_title_matches("Same Title", candidates.iter().collect());
+
+        assert_eq!(prioritized.len(), 2);
+        assert!(select_strict_candidate(Some(2025), prioritized).is_none());
+    }
+
+    #[test]
     fn strict_match_requires_exact_title_and_year() {
         let candidates = vec![
             TmdbMovieSearchResult {
@@ -1926,7 +2070,7 @@ mod tests {
     }
 
     #[test]
-    fn strict_match_without_year_keeps_first_tied_latest_candidate() {
+    fn strict_match_without_year_rejects_tied_latest_candidates() {
         let candidates = vec![
             TmdbMovieSearchResult {
                 id: 1,
@@ -1948,9 +2092,48 @@ mod tests {
             },
         ];
 
-        let best_match = select_strict_candidate(None, candidates.iter().collect()).unwrap();
+        assert!(select_strict_candidate(None, candidates.iter().collect()).is_none());
+    }
 
-        assert_eq!(best_match.id, 1);
+    #[test]
+    fn strict_tv_match_with_season_year_requires_one_verified_candidate() {
+        let lookup = MetadataLookup {
+            title: "Fallout".to_string(),
+            year: None,
+            season_air_year: Some(MetadataSeasonAirYearHint {
+                season_number: 2,
+                year: 2025,
+            }),
+            library_type: "series".to_string(),
+            language: Some("zh-CN".to_string()),
+            provider_item_id: None,
+        };
+        let candidates = [
+            TmdbTvSearchResult {
+                id: 1,
+                name: Some("Fallout".to_string()),
+                original_name: None,
+                first_air_date: Some("2024-01-01".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+            TmdbTvSearchResult {
+                id: 2,
+                name: Some("Fallout".to_string()),
+                original_name: None,
+                first_air_date: Some("2020-01-01".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+        ];
+
+        assert!(select_strict_tv_candidate(&lookup, candidates.iter().collect()).is_none());
+        assert_eq!(
+            select_strict_tv_candidate(&lookup, vec![&candidates[0]]).map(|item| item.id),
+            Some(1)
+        );
     }
 
     #[test]
@@ -2013,6 +2196,57 @@ mod tests {
     }
 
     #[test]
+    fn tv_search_year_filter_distinguishes_series_and_season_years() {
+        let mut lookup = MetadataLookup {
+            title: "Fallout".to_string(),
+            year: Some(2024),
+            season_air_year: Some(MetadataSeasonAirYearHint {
+                season_number: 2,
+                year: 2025,
+            }),
+            library_type: "series".to_string(),
+            language: Some("zh-CN".to_string()),
+            provider_item_id: None,
+        };
+
+        assert_eq!(
+            tv_search_year_filter(&lookup),
+            Some(("first_air_date_year", 2024))
+        );
+
+        lookup.year = None;
+        assert_eq!(tv_search_year_filter(&lookup), Some(("year", 2025)));
+    }
+
+    #[test]
+    fn tmdb_season_year_validation_accepts_season_or_episode_air_date() {
+        let season_date = TmdbTvSeasonDetails {
+            name: None,
+            air_date: Some("2025-10-01".to_string()),
+            overview: None,
+            poster_path: None,
+            episodes: Vec::new(),
+        };
+        assert!(tmdb_tv_season_matches_air_year(&season_date, 2025));
+
+        let episode_date = TmdbTvSeasonDetails {
+            name: None,
+            air_date: None,
+            overview: None,
+            poster_path: None,
+            episodes: vec![TmdbTvEpisodeDetails {
+                episode_number: 1,
+                name: None,
+                air_date: Some("2025-10-01".to_string()),
+                overview: None,
+                still_path: None,
+            }],
+        };
+        assert!(tmdb_tv_season_matches_air_year(&episode_date, 2025));
+        assert!(!tmdb_tv_season_matches_air_year(&episode_date, 2024));
+    }
+
+    #[test]
     fn normalize_title_drops_punctuation_and_lowercases() {
         assert_eq!(normalize_title("My.Movie: Part-1"), "my movie part 1");
         assert_eq!(normalize_title("All's Fair"), "alls fair");
@@ -2020,6 +2254,15 @@ mod tests {
         assert_eq!(normalize_title("向阳·花"), "向阳花");
         assert_eq!(normalize_title("新・驯龙高手"), "新驯龙高手");
         assert_eq!(normalize_title("新•驯龙高手"), "新驯龙高手");
+        assert_eq!(normalize_title("Ca$hero"), "cashero");
+        assert_eq!(normalize_title("$100"), "100");
+    }
+
+    #[test]
+    fn strict_match_accepts_intra_word_dollar_as_stylized_s() {
+        assert!(titles_match_strictly("Cashero", "Ca$hero"));
+        assert!(!titles_match_strictly("S100", "$100"));
+        assert!(!titles_match_strictly("No Where", "Nowhere"));
     }
 
     #[test]
@@ -2032,6 +2275,7 @@ mod tests {
         let movie_lookup = MetadataLookup {
             title: "Dune".to_string(),
             year: Some(2021),
+            season_air_year: None,
             library_type: "movie".to_string(),
             language: Some("zh-CN".to_string()),
             provider_item_id: None,
@@ -2039,6 +2283,7 @@ mod tests {
         let series_lookup = MetadataLookup {
             title: "Dune".to_string(),
             year: Some(2021),
+            season_air_year: None,
             library_type: "series".to_string(),
             language: Some("zh-CN".to_string()),
             provider_item_id: None,

@@ -4,7 +4,7 @@ use super::{
         discover_media_files_with_progress_item_and_cancel, discover_media_paths,
         inspect_media_file,
     },
-    infer_series_file_metadata, is_likely_episode_path,
+    infer_series_file_metadata, infer_series_sidecar_metadata, is_likely_episode_path,
     parse::{humanize_file_stem, parse_media_metadata, ParsedMediaMetadata},
     probe::{parse_ffprobe_output, MediaProbe},
     sidecar::{parse_nfo_metadata, ParsedSidecarMetadata},
@@ -591,7 +591,9 @@ fn infer_series_file_metadata_extracts_title_before_sxxexx_token() {
 
     assert_eq!(metadata.display_title, "我是电视剧");
     assert_eq!(metadata.title, "我是电视剧");
+    assert_eq!(metadata.season_number, 1);
     assert_eq!(metadata.year, None);
+    assert_eq!(metadata.season_air_year, None);
 }
 
 #[test]
@@ -606,7 +608,9 @@ fn infer_series_file_metadata_accepts_common_episode_separators() {
 
         assert_eq!(metadata.display_title, "我是电视剧", "path: {path}");
         assert_eq!(metadata.title, "我是电视剧", "path: {path}");
+        assert_eq!(metadata.season_number, 1, "path: {path}");
         assert_eq!(metadata.year, None, "path: {path}");
+        assert_eq!(metadata.season_air_year, None, "path: {path}");
     }
 }
 
@@ -617,7 +621,9 @@ fn infer_series_file_metadata_extracts_year_before_sxxexx_token() {
 
     assert_eq!(metadata.display_title, "Alls Fair (2025)");
     assert_eq!(metadata.title, "Alls Fair");
+    assert_eq!(metadata.season_number, 1);
     assert_eq!(metadata.year, Some(2025));
+    assert_eq!(metadata.season_air_year, None);
 }
 
 #[test]
@@ -629,7 +635,9 @@ fn infer_series_file_metadata_extracts_dotted_year_before_sxxexx_token() {
 
     assert_eq!(metadata.display_title, "All Her Fault 2025");
     assert_eq!(metadata.title, "All Her Fault");
+    assert_eq!(metadata.season_number, 1);
     assert_eq!(metadata.year, Some(2025));
+    assert_eq!(metadata.season_air_year, None);
 }
 
 #[test]
@@ -641,7 +649,48 @@ fn infer_series_file_metadata_extracts_embedded_sxxexx_suffix() {
 
     assert_eq!(metadata.display_title, "The Beauty");
     assert_eq!(metadata.title, "The Beauty");
+    assert_eq!(metadata.season_number, 1);
     assert_eq!(metadata.year, Some(2026));
+    assert_eq!(metadata.season_air_year, None);
+}
+
+#[test]
+fn infer_series_file_metadata_keeps_later_season_year_separate() {
+    let metadata = infer_series_file_metadata(Path::new(
+        "/media/overseas_tv/Fallout/S02/Fallout.S02E01.2025.2160p.mkv",
+    ))
+    .expect("later-season metadata should be inferred");
+
+    assert_eq!(metadata.title, "Fallout");
+    assert_eq!(metadata.season_number, 2);
+    assert_eq!(metadata.year, None);
+    assert_eq!(metadata.season_air_year, Some(2025));
+}
+
+#[test]
+fn infer_series_sidecar_metadata_has_priority_fields_without_using_directories() {
+    let root = unique_temp_path("series-sidecar-identity");
+    let video_path = root
+        .join("错误目录 2030")
+        .join("Fallback.Title.S02E01.2025.mkv");
+
+    let result = (|| {
+        fs::create_dir_all(video_path.parent().unwrap()).unwrap();
+        fs::write(&video_path, b"video").unwrap();
+        fs::write(
+            video_path.parent().unwrap().join("tvshow.nfo"),
+            "<tvshow><title>Authoritative Show</title><year>2021</year></tvshow>",
+        )
+        .unwrap();
+
+        infer_series_sidecar_metadata(&video_path)
+    })();
+
+    let _ = fs::remove_dir_all(&root);
+
+    let metadata = result.expect("sidecar identity should be inferred");
+    assert_eq!(metadata.title.as_deref(), Some("Authoritative Show"));
+    assert_eq!(metadata.year, Some(2021));
 }
 
 #[test]

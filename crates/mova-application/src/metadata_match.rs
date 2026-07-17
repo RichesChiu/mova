@@ -56,6 +56,7 @@ pub async fn search_media_item_metadata_matches(
     let lookup = MetadataLookup {
         title: query,
         year,
+        season_air_year: None,
         library_type: lookup_type.to_string(),
         language: Some(library.metadata_language),
         provider_item_id: None,
@@ -89,6 +90,7 @@ pub async fn apply_media_item_metadata_match(
     let lookup = MetadataLookup {
         title: media_item.source_title.clone(),
         year: media_item.year,
+        season_air_year: None,
         library_type: lookup_type.to_string(),
         language: Some(library.metadata_language.clone()),
         provider_item_id: Some(input.provider_item_id),
