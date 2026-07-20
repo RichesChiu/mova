@@ -4,14 +4,17 @@
   overflow: visible;
 }
 
-.continue-watching-section__viewport {
-  scroll-padding-inline: 2px;
+.home-dashboard .continue-watching-section__viewport {
+  width: calc(100% + 48px);
+  margin-inline: -24px;
+  padding-inline: 24px;
+  scroll-padding-inline: 24px;
 }
 
 .continue-watching-section__viewport .scrollable-rail__track {
   grid-auto-columns: clamp(136px, 13.5vw, 158px);
   gap: clamp(10px, 1vw, 13px);
-  padding: 1px 1px 4px;
+  padding: 20px 0 46px;
 }
 
 .continue-watching-section__overflow {

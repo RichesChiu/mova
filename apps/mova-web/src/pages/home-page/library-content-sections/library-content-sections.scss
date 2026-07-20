@@ -27,7 +27,25 @@
 .recently-added-row__header {
   display: flex;
   align-items: center;
+  gap: 0.25em;
+  overflow: visible;
   min-height: 20px;
+}
+
+.recently-added-row__source-tooltip {
+  flex: 0 1 200px;
+  max-width: 200px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.recently-added-row__source-name {
+  display: block;
+  max-width: 200px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recently-added-card__body strong {
@@ -142,17 +160,22 @@
 .recently-added-row__source {
   display: inline-flex;
   align-items: center;
-  overflow: hidden;
+  gap: 0.25em;
+  width: auto;
   max-width: 100%;
+  min-width: 0;
   color: var(--text-dim);
   font-size: 0.78rem;
   font-weight: 760;
   letter-spacing: 0.025em;
   line-height: 1.35;
   text-decoration: none;
-  text-overflow: ellipsis;
   white-space: nowrap;
   transition: color 160ms ease;
+}
+
+.recently-added-row__source > span {
+  flex: 0 0 auto;
 }
 
 .recently-added-row__source:hover {

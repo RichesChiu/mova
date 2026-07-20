@@ -192,7 +192,14 @@
   --media-tile-sync-border: color-mix(in srgb, var(--mova-color-rgba-255-214-145-a4) 70%, transparent);
   --media-tile-sync-background: var(--mova-color-rgba-6-11-17-a72);
   --media-overlay-artwork: linear-gradient(180deg, transparent 45%, var(--mova-color-rgba-4-7-12-a22) 58%, var(--mova-color-rgba-4-7-12-a86));
-  --continue-watching-card-shadow: 0 10px 24px color-mix(in srgb, var(--color-black) 24%, transparent);
+  --continue-watching-card-border: color-mix(in srgb, var(--floating-border) 82%, transparent);
+  --continue-watching-card-shadow:
+    var(--panel-inset),
+    0 10px 24px color-mix(in srgb, var(--color-black) 24%, transparent);
+  --continue-watching-card-hover-shadow:
+    var(--panel-inset),
+    0 14px 30px color-mix(in srgb, var(--color-black) 32%, transparent),
+    0 6px 16px color-mix(in srgb, var(--accent) 12%, transparent);
   --media-play-button-border: color-mix(in srgb, var(--color-white) 22%, transparent);
   --media-play-button-background: var(--mova-color-rgba-0-0-0-a64);
   --media-play-button-shadow: 0 12px 28px var(--mova-color-rgba-0-0-0-a34);
@@ -745,7 +752,13 @@
     var(--panel-inset),
     0 20px 42px var(--mova-color-rgba-104-129-172-a18),
     0 7px 18px var(--mova-color-rgba-89-120-197-a1);
-  --continue-watching-card-shadow: 0 10px 24px var(--mova-color-rgba-104-129-172-a12);
+  --continue-watching-card-border: var(--mova-color-rgba-100-126-174-a16);
+  --continue-watching-card-shadow:
+    0 4px 10px var(--mova-color-rgba-100-126-174-a18),
+    0 14px 30px var(--mova-color-rgba-104-129-172-a2);
+  --continue-watching-card-hover-shadow:
+    0 6px 14px var(--mova-color-rgba-100-126-174-a24),
+    0 18px 36px var(--mova-color-rgba-89-120-197-a18);
   --search-form-border: var(--mova-color-rgba-255-255-255-a64);
   --search-form-background:
     linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a72), var(--mova-color-rgba-238-246-255-a52)),

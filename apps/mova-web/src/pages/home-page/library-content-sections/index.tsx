@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { MediaItem, RecentlyAddedLibraryMediaItems } from '../../../api/types'
 import { EmptyState } from '../../../components/empty-state'
+import { HoverTooltip } from '../../../components/hover-tooltip'
 import { useI18n } from '../../../i18n'
 import { mediaItemPrimaryPath } from '../../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../../lib/media-type-label'
@@ -139,21 +140,38 @@ export const LibraryContentSections = ({
 
       {groups.length > 0 ? (
         <div className="recently-added-list">
-          {groups.map((group) => (
-            <section className="recently-added-row" key={group.library.id}>
-              <div className="recently-added-row__header">
-                <Link className="recently-added-row__source" to={`/libraries/${group.library.id}`}>
-                  {l('From “{{name}}” library', { name: group.library.name })}
-                </Link>
-              </div>
+          {groups.map((group) => {
+            const sourceLabel = l('From “{{name}}” library', { name: group.library.name })
 
-              <div className="recently-added-row__cards">
-                {group.items.map((item) => (
-                  <RecentlyAddedMediaCard item={item} key={item.id} />
-                ))}
-              </div>
-            </section>
-          ))}
+            return (
+              <section className="recently-added-row" key={group.library.id}>
+                <div className="recently-added-row__header">
+                  <Link
+                    aria-label={sourceLabel}
+                    className="recently-added-row__source"
+                    to={`/libraries/${group.library.id}`}
+                  >
+                    <span>{l('From')}</span>
+                    <HoverTooltip
+                      className="recently-added-row__source-tooltip"
+                      content={group.library.name}
+                    >
+                      <span className="recently-added-row__source-name">
+                        {l('“{{name}}”', { name: group.library.name })}
+                      </span>
+                    </HoverTooltip>
+                    <span>{l('library')}</span>
+                  </Link>
+                </div>
+
+                <div className="recently-added-row__cards">
+                  {group.items.map((item) => (
+                    <RecentlyAddedMediaCard item={item} key={item.id} />
+                  ))}
+                </div>
+              </section>
+            )
+          })}
         </div>
       ) : null}
     </section>

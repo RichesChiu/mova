@@ -92,8 +92,8 @@ src/
 
 - `pages/library-page/library-detail-tile-artwork.tsx`：单库详情卡片的海报加载与失败占位；返回库页重新挂载时会主动识别已经由浏览器缓存完成的图片，不再仅依赖新的 `load` 事件才显示海报。
 - `pages/home-page/libraries-section/`：首页 `Your Libraries` 摘要区，最多展示前几个库，标题旁 `View all` 进入 `/libraries`；具体库卡由共享 `LibrarySpotlightCard` 渲染。
-- `pages/home-page/continue-watching-section/`：继续观看区
-- `pages/home-page/library-content-sections/`：首页按库分组的最近添加列表
+- `pages/home-page/continue-watching-section/`：继续观看区，横向视口向内容区外扩展阴影裁切边界，并为卡片 hover 位移和外部阴影保留安全间距；浅色主题使用低对比蓝灰描边、近远两层柔和投影，且不叠加白色内高光。
+- `pages/home-page/library-content-sections/`：首页按库分组的最近添加列表；来源文案由固定前后缀与独立库名称片段组成，仅库名称最多占用 200px，超出后省略并可悬浮查看全名。
 
 ## 4. 共享组件
 
