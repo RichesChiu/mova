@@ -1,4 +1,3 @@
-import { DashboardPreview } from '../DashboardPreview'
 import { MovaIcon } from '../MovaIcon'
 import { heroBadges } from '../../data/homeContent'
 
@@ -45,7 +44,15 @@ export function HeroSection({
         </div>
       </div>
 
-      <DashboardPreview />
+      <div className="hero-preview">
+        <img
+          src="/screenshots/hero-dashboard.jpg"
+          width="1440"
+          height="723"
+          alt="MOVA 网页端媒体库首页界面"
+          decoding="async"
+        />
+      </div>
     </section>
   )
 }

@@ -33,16 +33,24 @@ export const apiOverviewCards = [
   {
     label: '实时事件',
     value: 'text/event-stream',
-    text: 'GET /api/events 用于扫描任务、媒体库和元数据变化通知。',
+    text: 'GET /api/realtime/events 推送资源失效与临时扫描进度。',
   },
 ]
 
 export const apiCommonNotes = [
-  'GET /api/health、bootstrap、login、token-login 可匿名访问，其余接口都要求登录态。',
+  'health、bootstrap-status、bootstrap-admin、login、token-login 和 refresh 可匿名访问，其余接口都要求登录态。',
   '用户管理、建库、删库、触发扫描、服务器根目录等管理类接口要求 admin 权限。',
+  'Web 端使用 session cookie；原生客户端使用 access token，refresh token 仅用于调用 refresh 接口。',
+  'realtime/events 返回 text/event-stream，不使用统一 JSON envelope；重连后应先请求 realtime/state。',
   '媒体条目图片 URL 会带版本参数，浏览器可长期缓存；元数据更新后版本会变化。',
   'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；可选 MOVA_OMDB_API_KEY 用于补齐 IMDb 评分。',
 ]
+
+export const apiSourceLinks = {
+  repository: 'https://github.com/RichesChiu/mova',
+  api: 'https://github.com/RichesChiu/mova/blob/master/docs/API.md',
+  sse: 'https://github.com/RichesChiu/mova/blob/master/docs/SSE.md',
+}
 
 export const apiStatusCodes = [
   ['200', 'OK，请求成功'],
@@ -80,45 +88,78 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     endpoints: [{ method: 'GET', path: '/api/health', description: '健康检查' }],
   },
   {
-    id: 'auth-users',
-    title: '认证与用户',
-    summary: '覆盖首次初始化、登录登出、当前用户资料、SSE 事件订阅、密码修改和管理员用户管理。',
+    id: 'auth-realtime',
+    title: '认证、用户与实时同步',
+    summary: '覆盖首次初始化、Cookie / Bearer 登录、Token 轮换、首页快照、资源 revision、SSE 和管理员用户管理。',
     highlights: [
       'bootstrap 只在系统没有管理员时允许创建首个 admin，并直接建立登录态。',
-      'Web 端继续使用 session cookie；原生客户端通过 token-login 获取 Bearer token。',
-      '主管理员可以管理普通管理员；普通管理员主要管理 viewer 和媒体库授权。',
-      'GET /api/events 需要登录态，返回 text/event-stream，不使用 JSON envelope。',
+      'token-login 返回短期 access token 和长期 refresh token，refresh 会轮换两者。',
+      '/api/home 返回当前用户的有界首页快照，并携带 realtime revision 基线。',
+      'SSE 只承载资源失效与临时进度；断线恢复必须使用 /api/realtime/state。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/auth/bootstrap-status', description: '查询是否需要初始化首个管理员' },
       { method: 'POST', path: '/api/auth/bootstrap-admin', description: '初始化首个管理员并登录' },
       { method: 'POST', path: '/api/auth/login', description: '登录' },
-      { method: 'POST', path: '/api/auth/token-login', description: '为原生客户端创建 Bearer token' },
+      { method: 'POST', path: '/api/auth/token-login', description: '为原生客户端创建 access token 和 refresh token' },
+      { method: 'POST', path: '/api/auth/refresh', description: '使用 refresh token 轮换并获取新的 token' },
       { method: 'POST', path: '/api/auth/logout', description: '登出' },
       { method: 'GET', path: '/api/auth/me', description: '查询当前用户' },
       { method: 'PATCH', path: '/api/auth/me', description: '更新当前用户昵称' },
-      { method: 'GET', path: '/api/events', description: '订阅服务端实时事件流（SSE）' },
+      { method: 'GET', path: '/api/home', description: '查询当前用户的轻量首页快照' },
+      { method: 'GET', path: '/api/realtime/state', description: '查询当前可见资源版本和活跃扫描' },
+      { method: 'GET', path: '/api/realtime/events', description: '订阅资源失效与临时扫描进度（SSE）' },
       { method: 'PUT', path: '/api/auth/password', description: '当前用户修改自己的密码' },
       { method: 'GET', path: '/api/users', description: '查询用户列表（管理员）' },
       { method: 'POST', path: '/api/users', description: '创建用户（管理员）' },
       { method: 'PATCH', path: '/api/users/{id}', description: '更新用户基础信息（管理员）' },
       { method: 'DELETE', path: '/api/users/{id}', description: '删除用户（管理员）' },
       { method: 'PUT', path: '/api/users/{id}/password', description: '管理员重置指定用户密码' },
-      { method: 'PUT', path: '/api/users/{id}/library-access', description: '更新普通用户的媒体库访问范围（管理员）' },
+    ],
+  },
+  {
+    id: 'notifications',
+    title: '通知中心',
+    summary: '返回当前用户可见的持久化通知、总未读数和分类未读数，并支持单条或批量标记已读。',
+    highlights: [
+      '标准类别包括 scan、system、library 和 account，未知类别也必须保留展示。',
+      '通知和已读状态持久化在 PostgreSQL，SSE 只通知客户端重新读取。',
+      'GET 响应的未读统计不受 category 筛选影响。',
+      '标记已读操作幂等，只有状态首次变化时才推进 revision。',
+    ],
+    endpoints: [
+      { method: 'GET', path: '/api/notifications', description: '查询当前用户可见的通知和分类未读数' },
+      { method: 'PUT', path: '/api/notifications', description: '批量标记当前用户的通知为已读' },
+      { method: 'PUT', path: '/api/notifications/{id}/read', description: '标记一条可见通知为已读' },
+    ],
+  },
+  {
+    id: 'server-media',
+    title: '服务器媒体目录',
+    summary: '供管理员查询容器内当前可用于建库的媒体文件夹树。',
+    highlights: [
+      '仅 admin 可访问。',
+      '只返回文件夹，不返回普通文件。',
+      '返回的 path 可直接用作创建媒体库的 root_path。',
+      '客户端不得把本机文件系统路径作为服务端 root_path。',
+    ],
+    endpoints: [
+      { method: 'GET', path: '/api/server/media-tree', description: '查询服务端当前可用于建库的媒体文件夹树' },
     ],
   },
   {
     id: 'libraries',
-    title: '媒体库',
-    summary: '围绕媒体库配置、列表详情、扫描历史和异步扫描任务展开，是 MOVA 入库流程的入口。',
+    title: '媒体库与搜索',
+    summary: '围绕媒体库配置、最新添加、列表详情、扫描历史、异步扫描和全局搜索展开。',
     highlights: [
       '媒体库统一自动识别电影和剧集，不再要求用户手动选择库类型。',
       'metadata_language 支持 zh-CN / en-US，影响扫描和 TMDB 元数据补全语言。',
-      '创建且启用的媒体库会自动触发一次后台扫描，后续也可手动扫描。',
-      '扫描会按文件路径和稳定指纹做增量同步，缺失路径删除，移动改名表现为旧删新建。',
+      '创建媒体库后会自动触发一次后台扫描；媒体库不提供启用/禁用状态。',
+      '搜索会在当前用户可见库内匹配电影、剧集和本地可用的集条目。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/libraries', description: '查询媒体库列表' },
+      { method: 'GET', path: '/api/libraries/recently-added', description: '查询按库分组的最新添加内容' },
       { method: 'POST', path: '/api/libraries', description: '创建媒体库' },
       { method: 'GET', path: '/api/libraries/{id}', description: '查询单个媒体库详情' },
       { method: 'PATCH', path: '/api/libraries/{id}', description: '更新媒体库基础配置' },
@@ -127,6 +168,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       { method: 'GET', path: '/api/libraries/{id}/scan-jobs', description: '查询媒体库扫描历史' },
       { method: 'GET', path: '/api/libraries/{id}/scan-jobs/{scan_job_id}', description: '查询单个扫描任务状态' },
       { method: 'POST', path: '/api/libraries/{id}/scan', description: '触发异步扫描' },
+      { method: 'GET', path: '/api/search', description: '搜索当前用户可见库下的电影、剧集和集条目' },
     ],
   },
   {
@@ -144,8 +186,6 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       { method: 'GET', path: '/api/media-items/{id}/cast', description: '查询单个媒体条目的演员列表' },
       { method: 'GET', path: '/api/media-items/{id}/playback-header', description: '查询播放器页头部信息' },
       { method: 'GET', path: '/api/media-items/{id}/files', description: '查询媒体条目关联文件列表' },
-      { method: 'GET', path: '/api/media-items/{id}/seasons', description: '查询某个剧集条目的季列表' },
-      { method: 'GET', path: '/api/seasons/{id}/episodes', description: '查询某一季下的集列表' },
       { method: 'GET', path: '/api/media-items/{id}/episode-outline', description: '查询剧集全集大纲并标记本地可用集' },
       { method: 'GET', path: '/api/media-items/{id}/metadata-search', description: '手动搜索单条媒体的候选元数据（管理员）' },
       { method: 'POST', path: '/api/media-items/{id}/metadata-match', description: '选择候选结果并替换当前媒体元数据（管理员）' },
@@ -159,18 +199,17 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
   {
     id: 'playback',
     title: '播放进度',
-    summary: '记录当前用户的播放位置、继续观看列表和观看历史，所有进度都按登录用户隔离。',
+    summary: '记录当前用户的播放位置和继续观看列表，所有进度都按登录用户隔离。',
     highlights: [
       '查询进度返回 null 是正常语义，表示当前用户尚未观看该内容。',
-      '播放器可按 5s 心跳上报，并在暂停、结束、切源、页面隐藏或离开时强制 flush。',
+      '写入进度时同时提交 media_file_id、position_seconds 和 duration_seconds。',
       'continue-watching 只返回未看完内容，剧集会按 series 聚合到最近观看的一集。',
-      'watch-history 独立于 playback_progress，一条记录代表一次观看会话。',
+      '已看完内容不会出现在继续观看列表中。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/media-items/{id}/playback-progress', description: '查询单条内容的最近播放进度' },
       { method: 'PUT', path: '/api/media-items/{id}/playback-progress', description: '写入或更新播放进度' },
       { method: 'GET', path: '/api/playback-progress/continue-watching', description: '查询继续观看列表' },
-      { method: 'GET', path: '/api/watch-history', description: '查询当前用户自己的观看历史' },
     ],
   },
   {

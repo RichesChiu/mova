@@ -15,7 +15,8 @@ type Device = {
   icon: IconName
   title: string
   text: string
-  image: string
+  images: string[]
+  notices?: string[]
 }
 
 type Stat = {
@@ -83,28 +84,33 @@ export const features: Feature[] = [
 
 export const devices: Device[] = [
   {
-    icon: 'tv',
-    title: '智能电视',
-    text: '大屏观影，沉浸体验',
-    image: '/screenshots/mova-home.png',
-  },
-  {
-    icon: 'mobile',
-    title: '手机',
-    text: '随时随地，想看就看',
-    image: '/screenshots/mova-theme.png',
-  },
-  {
-    icon: 'tablet',
-    title: '平板',
-    text: '完美适配，舒适观看',
-    image: '/screenshots/mova-home.png',
+    icon: 'desktop',
+    title: '网页端',
+    text: '首页浏览、影片详情与沉浸播放，在浏览器中即开即用。',
+    images: [
+      '/screenshots/web-home.jpg',
+      '/screenshots/web-detail.jpg',
+      '/screenshots/web-play.jpg',
+    ],
   },
   {
     icon: 'desktop',
-    title: '电脑',
-    text: '高效管理，尽在掌握',
-    image: '/screenshots/mova-server-setting.png',
+    title: 'macOS 端',
+    text: '适用于 macOS 的原生客户端，提供媒体浏览、详情查看与播放体验。',
+    images: ['/screenshots/macos-home.jpg', '/screenshots/macos-detail.jpg'],
+    notices: ['请前往 Mac App Store 安装', '原生客户端暂不支持 Android'],
+  },
+  {
+    icon: 'mobile',
+    title: '手机端',
+    text: '作者正在积极开发中，敬请期待。',
+    images: [],
+  },
+  {
+    icon: 'tablet',
+    title: 'Pad 端',
+    text: '作者正在积极开发中，敬请期待。',
+    images: [],
   },
 ]
 

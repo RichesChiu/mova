@@ -6,6 +6,7 @@ import {
   apiIdRelations,
   apiOverviewCards,
   apiPlaybackFlow,
+  apiSourceLinks,
   apiStatusCodes,
   apiSuccessExample,
   type ApiEndpoint,
@@ -69,6 +70,32 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
           </div>
         </div>
       </section>
+
+      <aside className="api-source-notice" aria-labelledby="api-source-title">
+        <div>
+          <p className="eyebrow">Source of Truth</p>
+          <h2 id="api-source-title">完整细节请以 MOVA 项目文档为准</h2>
+          <p>
+            本页提供便于快速查阅的接口摘要。SSE 的 revision 同步、断线恢复、
+            <code>resync.required</code>、<code>session.invalidated</code>、扫描进度事件，
+            以及扫描和元数据规则不在此完整展开，请前往项目仓库查看最新文档。
+          </p>
+        </div>
+        <div className="api-source-links">
+          <a href={apiSourceLinks.api} target="_blank" rel="noreferrer">
+            完整 API.md
+            <MovaIcon name="arrow-right" />
+          </a>
+          <a href={apiSourceLinks.sse} target="_blank" rel="noreferrer">
+            完整 SSE.md
+            <MovaIcon name="arrow-right" />
+          </a>
+          <a href={apiSourceLinks.repository} target="_blank" rel="noreferrer">
+            MOVA 项目仓库
+            <MovaIcon name="arrow-right" />
+          </a>
+        </div>
+      </aside>
 
       <section className="api-layout" aria-label="API 文档内容">
         <aside className="api-sidebar">
