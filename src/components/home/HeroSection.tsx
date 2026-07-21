@@ -1,5 +1,5 @@
 import { MovaIcon } from '../MovaIcon'
-import { dockerUrl, heroBadges } from '../../data/homeContent'
+import { heroBadges } from '../../data/homeContent'
 import { useI18n } from '../../i18n-context'
 import './HeroSection.css'
 
@@ -11,8 +11,10 @@ const heroBadgeIconSources = {
 } as const
 
 export function HeroSection({
+  onOpenDeployment,
   onOpenApiDocs,
 }: {
+  onOpenDeployment: () => void
   onOpenApiDocs: () => void
 }) {
   const { t } = useI18n()
@@ -29,7 +31,14 @@ export function HeroSection({
           </p>
 
           <div className="hero-actions" aria-label={t('首屏操作')}>
-            <a className="primary-action" href={dockerUrl} target="_blank" rel="noreferrer">
+            <a
+              className="primary-action"
+              href="/deploy"
+              onClick={(event) => {
+                event.preventDefault()
+                onOpenDeployment()
+              }}
+            >
               {t('开始部署')}
               <MovaIcon name="arrow-right" className="button-icon" />
             </a>

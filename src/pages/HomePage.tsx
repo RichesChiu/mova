@@ -4,13 +4,15 @@ import { HeroSection } from '../components/home/HeroSection'
 import './HomePage.css'
 
 export function HomePage({
+  onOpenDeployment,
   onOpenApiDocs,
 }: {
+  onOpenDeployment: () => void
   onOpenApiDocs: () => void
 }) {
   return (
     <>
-      <HeroSection onOpenApiDocs={onOpenApiDocs} />
+      <HeroSection onOpenDeployment={onOpenDeployment} onOpenApiDocs={onOpenApiDocs} />
       <FeatureSection />
       <DeviceSection />
     </>

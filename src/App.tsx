@@ -169,7 +169,7 @@ function App() {
         ) : page === 'support' ? (
           <SupportPage onOpenPrivacy={() => openPage('privacy')} />
         ) : (
-          <HomePage onOpenApiDocs={openApiDocs} />
+          <HomePage onOpenDeployment={() => openPage('deploy')} onOpenApiDocs={openApiDocs} />
         )}
       </main>
 
