@@ -99,6 +99,16 @@ export interface LibraryDetail extends Library {
 export type MediaType = 'movie' | 'series' | 'episode' | string
 export type MetadataStatus = 'matched' | 'unmatched' | 'failed' | 'skipped' | string
 
+export interface MediaRating {
+  source: string
+  kind: string
+  score: number
+  scale: number
+  rating_count: number | null
+  attributes: Record<string, unknown>
+  fetched_at: string
+}
+
 export interface MediaItem {
   id: number
   library_id: number
@@ -113,7 +123,7 @@ export interface MediaItem {
   metadata_failure_reason: string | null
   remote_media_type: string | null
   year: number | null
-  imdb_rating?: string | null
+  ratings: MediaRating[]
   country?: string | null
   genres?: string | null
   studio?: string | null

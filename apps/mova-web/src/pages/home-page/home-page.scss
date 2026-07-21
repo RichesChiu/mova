@@ -17,7 +17,7 @@
   border-radius: 0;
   background: var(--home-shell-background);
   box-shadow: none;
-  transition: grid-template-columns 150ms cubic-bezier(0.2, 0.82, 0.2, 1);
+  transition: grid-template-columns var(--motion-duration-standard) var(--motion-ease-emphasized);
 }
 
 .home-shell--sidebar-collapsed {
@@ -27,7 +27,7 @@
 }
 
 .home-shell--dense-content {
-  transition-duration: 90ms;
+  transition-duration: var(--motion-duration-instant);
 }
 
 :root[data-theme='glass-frost'] .home-shell {
@@ -53,7 +53,7 @@
   box-shadow:
     var(--home-sidebar-edge-shadow),
     var(--home-sidebar-shadow);
-  transition: background 160ms ease;
+  transition: background var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .home-sidebar__brand,
@@ -111,9 +111,9 @@
 .home-sidebar__user-copy,
 .home-sidebar__user-arrow {
   transition:
-    max-width 150ms cubic-bezier(0.2, 0.82, 0.2, 1),
-    opacity 150ms ease,
-    transform 150ms ease;
+    max-width var(--motion-duration-standard) var(--motion-ease-emphasized),
+    opacity var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
   will-change: opacity, transform;
 }
 
@@ -145,15 +145,15 @@
   height: 34px;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--floating-border) 72%, transparent);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--home-sidebar-toggle-background);
   box-shadow: var(--home-sidebar-toggle-shadow);
   color: var(--text-muted);
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    color var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .home-sidebar__toggle::after {
@@ -172,7 +172,7 @@
   width: 16px;
   height: 16px;
   transform: rotate(180deg);
-  transition: transform 160ms ease;
+  transition: transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .home-sidebar__toggle:hover {
@@ -197,7 +197,7 @@
   min-height: 45px;
   padding: 0 14px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -206,10 +206,10 @@
   letter-spacing: 0;
   text-align: left;
   transition:
-    background 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    color var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .home-sidebar__nav-item span {
@@ -219,8 +219,8 @@
   color: color-mix(in srgb, var(--text) 74%, var(--text-muted));
   line-height: 1;
   transition:
-    color 160ms ease,
-    transform 160ms ease;
+    color var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .home-sidebar__nav-item svg {
@@ -263,7 +263,7 @@
   min-height: 58px;
   padding: 9px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 72%, transparent);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--floating-surface) 74%, transparent);
   box-shadow: var(--panel-inset);
   color: inherit;
@@ -271,9 +271,9 @@
   font: inherit;
   text-align: left;
   transition:
-    border-color 180ms ease,
-    background 180ms ease,
-    box-shadow 180ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .home-sidebar__account-menu {
@@ -304,7 +304,7 @@
 .home-sidebar__avatar {
   display: grid;
   place-items: center;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--accent) 14%, var(--floating-surface-strong));
   color: var(--accent-strong);
   font-weight: 820;
@@ -352,7 +352,7 @@
 .home-sidebar__user-arrow svg {
   width: 17px;
   height: 17px;
-  transition: transform 160ms ease;
+  transition: transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .home-sidebar__account-popover {
@@ -367,7 +367,7 @@
   width: 100%;
   min-width: 196px;
   padding: 8px;
-  border-radius: 15px;
+  border-radius: var(--radius-card);
 }
 
 .home-sidebar__account-action {
@@ -378,7 +378,7 @@
   min-height: 39px;
   padding: 0 10px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--text);
   cursor: pointer;
@@ -389,10 +389,10 @@
   text-decoration: none;
   white-space: nowrap;
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    box-shadow 160ms ease,
-    color 160ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard),
+    color var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .home-sidebar__account-action svg {
@@ -483,13 +483,13 @@
   left: 23px;
   width: 36px;
   height: 36px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   opacity: 0.66;
   transform: none;
 }
 
 .home-shell--sidebar-collapsed .home-sidebar__toggle::after {
-  animation: home-sidebar-expand-pulse 3.2s ease-in-out infinite;
+  animation: home-sidebar-expand-pulse 3.2s var(--motion-ease-standard) infinite;
   will-change: opacity, transform;
 }
 
@@ -563,15 +563,15 @@
   width: 34px;
   height: 34px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 72%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--home-icon-button-background);
   box-shadow: var(--home-icon-button-shadow);
   color: var(--text-muted);
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    color var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .home-icon-button svg {
@@ -630,17 +630,17 @@
   height: 34px;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--floating-border) 72%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--home-back-button-background);
   box-shadow: var(--panel-inset);
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    color var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .home-dashboard-page-header__back svg {
@@ -687,7 +687,7 @@
   width: 7px;
   height: 7px;
   border: 1.5px solid var(--panel-background-strong);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--danger);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 18%, transparent);
 }
@@ -700,7 +700,7 @@
   display: grid;
   width: min(430px, calc(100vw - 44px));
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: var(--radius-card);
 }
 
 .notification-center__panel-heading {
@@ -732,7 +732,7 @@
   flex: 0 0 auto;
   padding: 5px 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--accent-strong);
   cursor: pointer;
@@ -770,7 +770,7 @@
   gap: 5px;
   padding: 6px 9px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: transparent;
   color: var(--text-soft);
   cursor: pointer;
@@ -787,7 +787,7 @@
 .notification-center__categories button span {
   min-width: 16px;
   padding: 1px 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: color-mix(in srgb, currentcolor 11%, transparent);
   font-size: 0.62rem;
   text-align: center;
@@ -813,11 +813,11 @@
   gap: 9px;
   padding: 13px 11px 14px;
   border-bottom: 1px solid color-mix(in srgb, var(--floating-border) 56%, transparent);
-  border-radius: 11px;
+  border-radius: var(--radius-control);
   box-shadow: inset 3px 0 transparent;
   transition:
-    background 150ms ease,
-    opacity 150ms ease;
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    opacity var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .notification-center__report:hover,
@@ -869,14 +869,14 @@
   flex: 0 0 auto;
   width: 6px;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--accent);
 }
 
 .notification-center__title-row small {
   flex: 0 0 auto;
   padding: 2px 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--accent-strong);
   font-size: 0.6rem;
@@ -908,7 +908,7 @@
 .notification-center__meta button {
   padding: 3px 6px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--accent-strong);
   cursor: pointer;
@@ -944,7 +944,7 @@
 
 .notification-center__summary span {
   padding: 3px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--floating-surface-strong) 74%, transparent);
   color: var(--text-muted);
   font-size: 0.68rem;
@@ -974,7 +974,7 @@
   gap: 3px;
   min-width: 0;
   padding: 8px 9px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--warning) 8%, transparent);
 }
 

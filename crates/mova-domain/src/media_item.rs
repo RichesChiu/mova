@@ -1,6 +1,8 @@
 use serde::Serialize;
 use time::OffsetDateTime;
 
+use crate::MediaRating;
+
 pub const METADATA_STATUS_MATCHED: &str = "matched";
 pub const METADATA_STATUS_PENDING: &str = "pending";
 pub const METADATA_STATUS_UNMATCHED: &str = "unmatched";
@@ -31,7 +33,7 @@ pub struct MediaItem {
     pub metadata_failure_reason: Option<String>,
     pub remote_media_type: Option<String>,
     pub year: Option<i32>,
-    pub imdb_rating: Option<String>,
+    pub ratings: Vec<MediaRating>,
     pub country: Option<String>,
     pub genres: Option<String>,
     pub studio: Option<String>,

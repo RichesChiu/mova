@@ -61,9 +61,9 @@
   - `416 Range Not Satisfiable`：媒体流的 `Range` 请求越界
   - `500 Internal Server Error`：服务内部错误
 - TMDB provider 从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取，值必须是 TMDB 账户 API 设置页中的 **API Read Access Token**，不是较短的 `API Key (v3 auth)`。变量为空或只含空白时服务仍正常启动，本地扫描、NFO/sidecar、入库和播放保持可用；扫描不会发起 TMDB 请求，条目以 `skipped / metadata_provider_disabled` 完成。后续配置 Token、重启并重扫后，这些条目会进入远端补全。每个媒体库可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。TMDB endpoint、严格候选规则和字段覆盖见 [`TMDB.md`](TMDB.md)。
-- 如果额外配置了可选的 `MOVA_OMDB_API_KEY`，服务端会在已拿到 `imdb_id` 的前提下补齐 `imdb_rating`；不配置时该字段保持为空，不影响扫描、入库和播放。
+- TMDB 详情响应中的 `vote_average` 和 `vote_count` 会写入通用 `ratings` 集合，评分来源明确标记为 `tmdb`。`imdb_id` 只作为外部身份保存，不代表 IMDb 评分；当前不请求 IMDb、OMDb 或其他评分来源。
 - 本地海报和背景图的 URL 带版本参数（例如 `/api/media-items/42/poster?v=1704164645`）。浏览器可以长期缓存；媒体元数据更新时版本参数随之变化。
-- pre-1.0 数据库 schema 只维护 `migrations/0001_init.sql`。数据模型保存扫描本地分析版本、原生客户端 access/refresh token 设备会话、逐文件播放进度、有上限的继续观看队列、PostgreSQL 后台任务和资源 revisions。TMDB/provider 返回的标题、国家、题材、制作公司和演员角色等自由文本字段使用 `text`。schema 发生变化时需要重建数据库、重置数据目录并重新扫描媒体库。
+- pre-1.0 数据库 schema 只维护 `migrations/0001_init.sql`。数据模型保存扫描本地分析版本、原生客户端 access/refresh token 设备会话、逐文件播放进度、有上限的继续观看队列、外部媒体身份、通用评分、PostgreSQL 后台任务和资源 revisions。TMDB/provider 返回的标题、国家、题材、制作公司和演员角色等自由文本字段使用 `text`。schema 发生变化时需要重建数据库、重置数据目录并重新扫描媒体库。
 
 ## 接口总览
 
@@ -834,7 +834,17 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
         "metadata_failure_reason": null,
         "remote_media_type": "series",
         "year": 2023,
-        "imdb_rating": "8.6",
+        "ratings": [
+          {
+            "source": "tmdb",
+            "kind": "audience",
+            "score": 8.6,
+            "scale": 10.0,
+            "rating_count": 12345,
+            "attributes": {},
+            "fetched_at": "2026-06-05T09:20:00+08:00"
+          }
+        ],
         "country": "US",
         "genres": "Drama, Adventure",
         "studio": null,
@@ -1100,7 +1110,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - 扫描请求和 PostgreSQL `background_jobs` 后台任务在同一事务内持久化；服务重启后 worker 重新领取未完成任务。客户端可以通过 `/api/libraries/{id}/scan-jobs/{scan_job_id}`、realtime state 和临时扫描事件读取进度
 - 扫描按 `(library_id, file_path)` 增量同步：同路径文件原地更新，缺失路径删除，改名或移动表现为路径删除和新增
 - `discovering` 会依次完成文件树、增量计划和浅层分组，三者都成功后才进入 `processing` 并建立 10% 的任务进度基线
-- 成功匹配的路径按文件大小和修改时间生成稳定指纹；同路径指纹一致、本地分析版本一致且具有 TMDB binding 时，跳过拆名、sidecar、`ffprobe`、TMDB、OMDb、图片缓存和数据库 upsert。新增、变化或本地分析版本过期的路径先做浅层分组，再按扫描组完整探测和写入。`unmatched`、`failed`、缺少 provider binding、provider 启用后的 `skipped`、需要复核或保存远端图片 URL 的条目进入远端重试；文件指纹未变化时，通过一次媒体摘要、一次批量音轨和一次批量字幕查询恢复本地分析。具有相同 TMDB `provider_item_id` 的电影资源合并为同一个 `media_item`。严格匹配规则见 [`TMDB.md`](TMDB.md)
+- 成功匹配的路径按文件大小和修改时间生成稳定指纹；同路径指纹一致、本地分析版本一致且具有 TMDB binding 时，跳过拆名、sidecar、`ffprobe`、TMDB、图片缓存和数据库 upsert。新增、变化或本地分析版本过期的路径先做浅层分组，再按扫描组完整探测和写入。`unmatched`、`failed`、缺少 provider binding、provider 启用后的 `skipped`、需要复核或保存远端图片 URL 的条目进入远端重试；文件指纹未变化时，通过一次媒体摘要、一次批量音轨和一次批量字幕查询恢复本地分析。具有相同 TMDB `provider_item_id` 的电影资源合并为同一个 `media_item`。严格匹配规则见 [`TMDB.md`](TMDB.md)
 - 同一扫描组的本地 pending 写入和远端最终写入各使用一个短事务；组内任一媒体文件写入失败时整组回滚，每个事务只执行一次孤儿季集结构清理
 - local worker 与 remote worker 通过容量为 2 的有界通道形成流水线：组 A 的 pending 事务提交后进入 TMDB/图片处理，同时 local worker 分析组 B
 - 每个本地或远端组事务通过事务内会话标记关闭逐行 catalog trigger，并在组末显式增加一次 `library:{id}:catalog` revision；不会因为同一组更新 media item、file、season、episode 多张表而重复发送逐行 revision
@@ -1168,7 +1178,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - `metadata_status`：使用 `pending` / `matched` / `unmatched` / `failed` / `skipped`；`pending` 表示扫描中的远端确认中间态
 - `metadata_failure_reason`：`unmatched` 或 `failed` 的原因，使用 `no_remote_match` 或 `metadata_provider_error`
 - `remote_media_type`：使用 `movie` / `series`；没有远端判断或 TMDB 未启用时为 `null`
-- `imdb_rating`：可选的 IMDb 评分字符串；只有在配置了 `MOVA_OMDB_API_KEY` 且当前条目能解析到 `imdb_id` 时才会有值
+- `ratings`：评分数组；`source` 是评分品牌，`kind` 是评分类型，`score` 与 `scale` 保留来源原始量纲，`rating_count` 是投票/评价数量。当前只返回 `source=tmdb`、`kind=audience`；无有效投票时返回空数组
 - `country`：可选的国家/地区信息；电影会优先使用 TMDB 的 production countries，剧集会优先使用 TMDB 的 origin country；服务端按自由文本存储，不做 255 字符截断
 - `genres`：可选的题材类型字符串；来自 TMDB genres，会按展示顺序拼接；服务端按自由文本存储，不做 255 字符截断
 - `studio`：可选的制作公司字符串；来自 TMDB production companies，会按展示顺序拼接；服务端按自由文本存储，不做 255 字符截断
@@ -1193,7 +1203,17 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
   "metadata_failure_reason": null,
   "remote_media_type": "series",
   "year": 2021,
-  "imdb_rating": "9.0",
+  "ratings": [
+    {
+      "source": "tmdb",
+      "kind": "audience",
+      "score": 9.0,
+      "scale": 10.0,
+      "rating_count": 24680,
+      "attributes": {},
+      "fetched_at": "2026-03-24T12:00:00+08:00"
+    }
+  ],
   "country": "US",
   "genres": "Animation · Action & Adventure · Sci-Fi & Fantasy",
   "studio": "Fortiche Production",

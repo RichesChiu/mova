@@ -46,7 +46,7 @@
   min-height: var(--control-height);
   padding: 4px 8px 4px 14px;
   border: 1px solid color-mix(in srgb, var(--input-border) 88%, transparent);
-  border-radius: 18px;
+  border-radius: var(--radius-card);
   background: var(--profile-editor-background);
   box-shadow: var(--profile-editor-shadow);
 }
@@ -116,12 +116,12 @@
   height: 30px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: transparent;
   color: var(--text-soft);
   transition:
-    color 160ms ease,
-    background 160ms ease;
+    color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .profile-page__icon-button svg {

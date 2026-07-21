@@ -1303,7 +1303,8 @@ fn clear_remote_metadata_for_review(
     }
     file.original_title = None;
     file.sort_title = None;
-    file.imdb_rating = None;
+    file.external_ids.clear();
+    file.ratings.clear();
     file.country = None;
     file.genres = None;
     file.studio = None;
@@ -1818,7 +1819,6 @@ fn discovered_file_from_existing_local_analysis(
         original_title,
         sort_title,
         year,
-        imdb_rating,
         country,
         genres,
         studio,
@@ -1840,7 +1840,6 @@ fn discovered_file_from_existing_local_analysis(
             summary.series_original_title.clone(),
             summary.series_sort_title.clone(),
             summary.series_year,
-            summary.series_imdb_rating.clone(),
             summary.series_country.clone(),
             summary.series_genres.clone(),
             summary.series_studio.clone(),
@@ -1858,7 +1857,6 @@ fn discovered_file_from_existing_local_analysis(
             summary.original_title.clone(),
             summary.sort_title.clone(),
             summary.year,
-            summary.imdb_rating.clone(),
             summary.country.clone(),
             summary.genres.clone(),
             summary.studio.clone(),
@@ -1881,7 +1879,8 @@ fn discovered_file_from_existing_local_analysis(
         series_sidecar_title: None,
         series_sidecar_year: None,
         year,
-        imdb_rating,
+        external_ids: Vec::new(),
+        ratings: Vec::new(),
         metadata_status: Some(summary.metadata_status.clone()),
         metadata_failure_reason: summary.metadata_failure_reason.clone(),
         remote_media_type: summary.remote_media_type.clone(),
@@ -2063,6 +2062,7 @@ fn build_media_entries(
     let discovered_files =
         normalize_discovered_files_for_local_structure(library, discovered_files);
     let mut entries = Vec::new();
+    let mut remote_data_pending = allow_artwork_clear;
 
     for file in discovered_files {
         let media_type = effective_media_type(&library.library_type, &file).to_string();
@@ -2093,6 +2093,12 @@ fn build_media_entries(
         })?;
         let entry_allow_artwork_clear =
             allow_artwork_clear && metadata_status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED);
+        let replace_remote_data = remote_data_pending
+            && (metadata_status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED)
+                || metadata_status.eq_ignore_ascii_case(METADATA_STATUS_UNMATCHED));
+        if replace_remote_data {
+            remote_data_pending = false;
+        }
 
         entries.push(mova_db::CreateMediaEntryParams {
             library_id: library.id,
@@ -2102,13 +2108,15 @@ fn build_media_entries(
             metadata_status,
             metadata_failure_reason: file.metadata_failure_reason,
             allow_artwork_clear: entry_allow_artwork_clear,
+            replace_remote_data,
             remote_media_type: file.remote_media_type,
             title: file.title,
             source_title: file.source_title,
             original_title: file.original_title,
             sort_title: file.sort_title,
             year: file.year,
-            imdb_rating: file.imdb_rating,
+            external_ids: file.external_ids,
+            ratings: file.ratings,
             country: file.country,
             genres: file.genres,
             studio: file.studio,
@@ -2569,7 +2577,6 @@ fn apply_existing_media_metadata(
         );
         replace_option_if_present(&mut file.sort_title, summary.series_sort_title.as_ref());
         replace_copy_if_present(&mut file.year, summary.series_year);
-        replace_option_if_present(&mut file.imdb_rating, summary.series_imdb_rating.as_ref());
         replace_option_if_present(&mut file.country, summary.series_country.as_ref());
         replace_option_if_present(&mut file.genres, summary.series_genres.as_ref());
         replace_option_if_present(&mut file.studio, summary.series_studio.as_ref());
@@ -2623,7 +2630,6 @@ fn apply_existing_media_metadata(
     replace_option_if_present(&mut file.original_title, summary.original_title.as_ref());
     replace_option_if_present(&mut file.sort_title, summary.sort_title.as_ref());
     replace_copy_if_present(&mut file.year, summary.year);
-    replace_option_if_present(&mut file.imdb_rating, summary.imdb_rating.as_ref());
     replace_option_if_present(&mut file.country, summary.country.as_ref());
     replace_option_if_present(&mut file.genres, summary.genres.as_ref());
     replace_option_if_present(&mut file.studio, summary.studio.as_ref());
@@ -3019,7 +3025,8 @@ mod tests {
             series_sidecar_title: None,
             series_sidecar_year: None,
             year: Some(2021),
-            imdb_rating: None,
+            external_ids: Vec::new(),
+            ratings: Vec::new(),
             metadata_status: Some(METADATA_STATUS_MATCHED.to_string()),
             metadata_failure_reason: None,
             remote_media_type: None,
@@ -3196,7 +3203,6 @@ mod tests {
             original_title: Some("Arcane Original".to_string()),
             sort_title: Some("Arcane, The".to_string()),
             year: Some(2021),
-            imdb_rating: Some("8.5".to_string()),
             country: Some("United States".to_string()),
             genres: Some("Animation, Drama".to_string()),
             studio: Some("Fortiche".to_string()),
@@ -3256,7 +3262,6 @@ mod tests {
             series_original_title: None,
             series_sort_title: None,
             series_year: None,
-            series_imdb_rating: None,
             series_country: None,
             series_genres: None,
             series_studio: None,
@@ -3288,7 +3293,6 @@ mod tests {
             original_title: None,
             sort_title: None,
             year: None,
-            imdb_rating: None,
             country: None,
             genres: None,
             studio: None,
@@ -3338,7 +3342,6 @@ mod tests {
             series_original_title: Some("Arcane Original".to_string()),
             series_sort_title: Some("Arcane, The".to_string()),
             series_year: Some(2021),
-            series_imdb_rating: Some("9.0".to_string()),
             series_country: Some("United States".to_string()),
             series_genres: Some("Animation, Drama".to_string()),
             series_studio: Some("Fortiche".to_string()),
@@ -4173,6 +4176,10 @@ mod tests {
         file.metadata_status = Some(METADATA_STATUS_MATCHED.to_string());
         file.metadata_provider_item_id = Some(259909);
 
+        let mut second_file = file.clone();
+        second_file.file_path = PathBuf::from("shows/example/S01E02.mkv");
+        second_file.episode_number = Some(2);
+
         let pending_entries = super::build_media_entries(
             &build_library(LIBRARY_TYPE_MIXED),
             vec![file.clone()],
@@ -4183,11 +4190,20 @@ mod tests {
 
         let matched_entries = super::build_media_entries(
             &build_library(LIBRARY_TYPE_MIXED),
-            vec![file.clone()],
+            vec![file.clone(), second_file],
             true,
         )
         .unwrap();
-        assert!(matched_entries[0].allow_artwork_clear);
+        assert!(matched_entries
+            .iter()
+            .all(|entry| entry.allow_artwork_clear));
+        assert_eq!(
+            matched_entries
+                .iter()
+                .filter(|entry| entry.replace_remote_data)
+                .count(),
+            1
+        );
 
         file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
         file.metadata_provider_item_id = None;
@@ -4195,6 +4211,7 @@ mod tests {
             super::build_media_entries(&build_library(LIBRARY_TYPE_MIXED), vec![file], true)
                 .unwrap();
         assert!(!unmatched_entries[0].allow_artwork_clear);
+        assert!(unmatched_entries[0].replace_remote_data);
     }
 
     #[test]
@@ -4602,7 +4619,6 @@ mod tests {
         file.country = None;
         file.genres = None;
         file.studio = None;
-        file.imdb_rating = None;
 
         super::apply_existing_media_metadata(&mut file, &build_existing_movie_metadata());
 
@@ -4614,7 +4630,6 @@ mod tests {
         assert_eq!(file.country.as_deref(), Some("United States"));
         assert_eq!(file.genres.as_deref(), Some("Animation, Drama"));
         assert_eq!(file.studio.as_deref(), Some("Fortiche"));
-        assert_eq!(file.imdb_rating.as_deref(), Some("8.5"));
         assert_eq!(file.year, Some(2021));
     }
 
@@ -4652,7 +4667,6 @@ mod tests {
         file.original_title = None;
         file.sort_title = None;
         file.year = Some(2020);
-        file.imdb_rating = None;
         file.country = None;
         file.genres = None;
         file.studio = None;
@@ -4672,7 +4686,6 @@ mod tests {
         assert_eq!(file.original_title.as_deref(), Some("Arcane Original"));
         assert_eq!(file.sort_title.as_deref(), Some("Arcane, The"));
         assert_eq!(file.year, Some(2021));
-        assert_eq!(file.imdb_rating.as_deref(), Some("9.0"));
         assert_eq!(file.overview.as_deref(), Some("Series overview"));
         assert_eq!(
             file.series_poster_path.as_deref(),

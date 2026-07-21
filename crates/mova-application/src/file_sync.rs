@@ -243,6 +243,8 @@ fn build_media_entry(
         ))
     })?;
     let allow_artwork_clear = metadata_status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED);
+    let replace_remote_data = metadata_status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED)
+        || metadata_status.eq_ignore_ascii_case(METADATA_STATUS_UNMATCHED);
 
     Ok(Some(mova_db::CreateMediaEntryParams {
         library_id: library.id,
@@ -252,13 +254,15 @@ fn build_media_entry(
         metadata_status,
         metadata_failure_reason: file.metadata_failure_reason,
         allow_artwork_clear,
+        replace_remote_data,
         remote_media_type: file.remote_media_type,
         title: file.title,
         source_title: file.source_title,
         original_title: file.original_title,
         sort_title: file.sort_title,
         year: file.year,
-        imdb_rating: file.imdb_rating,
+        external_ids: file.external_ids,
+        ratings: file.ratings,
         country: file.country,
         genres: file.genres,
         studio: file.studio,

@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { Library } from '../../../api/types'
-import { EmptyState } from '../../../components/empty-state'
+import { LibraryEmptyState } from '../../../components/library-empty-state'
 import {
   LibrarySpotlightCard,
   LibrarySpotlightCardSkeleton,
@@ -70,10 +70,7 @@ export const LibrariesSection = ({
           </div>
         </>
       ) : libraryModules.length === 0 ? (
-        <EmptyState
-          description={l('Create a library in Server Settings to start organizing your media.')}
-          title={l('No libraries yet.')}
-        />
+        <LibraryEmptyState canManageLibraries={canManageLibraries} />
       ) : (
         <>
           {actionErrorMessage ? (

@@ -10,9 +10,9 @@
   max-height: calc(100vh - 24px);
   padding: 9px 11px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   background: var(--tooltip-background);
-  backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: var(--glass-filter-strong);
   box-shadow: var(--tooltip-shadow);
   color: var(--text-muted);
   font-size: 0.78rem;

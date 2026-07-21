@@ -5,12 +5,14 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc, time::Duration};
+use time::OffsetDateTime;
+
+use mova_domain::{MediaExternalId, MediaRating, RATING_KIND_AUDIENCE, RATING_SOURCE_TMDB};
 
 pub const DEFAULT_TMDB_LANGUAGE: &str = "zh-CN";
 pub const SUPPORTED_TMDB_LANGUAGES: &[&str] = &["zh-CN", "en-US"];
 pub const DEFAULT_TMDB_API_BASE_URL: &str = "https://api.themoviedb.org/3";
 pub const DEFAULT_TMDB_IMAGE_BASE_URL: &str = "https://image.tmdb.org/t/p/original";
-pub const DEFAULT_OMDB_API_BASE_URL: &str = "https://www.omdbapi.com";
 pub const TMDB_PROVIDER_NAME: &str = "tmdb";
 const TMDB_MAX_AUTO_MATCH_PAGES: u32 = 20;
 const TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES: usize = 40;
@@ -44,13 +46,14 @@ pub struct MetadataSeasonAirYearHint {
 }
 
 /// 第三方元数据源返回的统一结构。
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct RemoteMetadata {
     pub provider_item_id: Option<i64>,
     pub title: Option<String>,
     pub original_title: Option<String>,
     pub year: Option<i32>,
-    pub imdb_rating: Option<String>,
+    pub external_ids: Vec<MediaExternalId>,
+    pub ratings: Vec<MediaRating>,
     pub country: Option<String>,
     pub genres: Option<String>,
     pub studio: Option<String>,
@@ -176,20 +179,15 @@ pub struct TmdbMetadataProviderConfig {
     pub language: String,
     pub api_base_url: String,
     pub image_base_url: String,
-    pub omdb_api_key: Option<String>,
-    pub omdb_api_base_url: String,
 }
 
 /// 基于 TMDB 的电影/剧集元数据 provider。
 #[derive(Clone)]
 pub struct TmdbMetadataProvider {
     client: Client,
-    omdb_client: Client,
     language: String,
     api_base_url: String,
     image_base_url: String,
-    omdb_api_key: Option<String>,
-    omdb_api_base_url: String,
 }
 
 impl TmdbMetadataProvider {
@@ -210,16 +208,9 @@ impl TmdbMetadataProvider {
 
         Ok(Self {
             client,
-            omdb_client: Client::builder()
-                .user_agent(format!("mova/{}", env!("CARGO_PKG_VERSION")))
-                .connect_timeout(METADATA_PROVIDER_CONNECT_TIMEOUT)
-                .timeout(METADATA_PROVIDER_REQUEST_TIMEOUT)
-                .build()?,
             language: config.language.trim().to_string(),
             api_base_url: config.api_base_url.trim_end_matches('/').to_string(),
             image_base_url: config.image_base_url.trim_end_matches('/').to_string(),
-            omdb_api_key: normalize_optional_value(Some(config.omdb_api_key.unwrap_or_default())),
-            omdb_api_base_url: config.omdb_api_base_url.trim_end_matches('/').to_string(),
         })
     }
 
@@ -242,15 +233,7 @@ impl TmdbMetadataProvider {
         };
 
         let details = self.fetch_movie_details(movie_id, request_language).await?;
-        let imdb_rating = self
-            .fetch_imdb_rating(
-                details
-                    .external_ids
-                    .as_ref()
-                    .and_then(|external_ids| external_ids.imdb_id.as_deref()),
-            )
-            .await;
-        Ok(Some(self.map_movie_details(movie_id, details, imdb_rating)))
+        Ok(Some(self.map_movie_details(movie_id, details)))
     }
 
     async fn search_movie_candidates(
@@ -693,21 +676,14 @@ impl TmdbMetadataProvider {
         let details = self
             .fetch_tv_details(tv_id, self.request_language(lookup))
             .await?;
-        let imdb_rating = self
-            .fetch_imdb_rating(
-                details
-                    .external_ids
-                    .as_ref()
-                    .and_then(|external_ids| external_ids.imdb_id.as_deref()),
-            )
-            .await;
 
         Ok(Some(RemoteMetadata {
             provider_item_id: Some(tv_id),
             title: empty_to_none(details.name),
             original_title: empty_to_none(details.original_name),
             year: parse_year(details.first_air_date.as_deref()),
-            imdb_rating,
+            external_ids: tmdb_external_ids(tv_id, details.external_ids.as_ref()),
+            ratings: tmdb_ratings(details.vote_average, details.vote_count),
             country: format_country_codes(&details.origin_country),
             genres: format_named_items(&details.genres),
             studio: format_named_items(&details.production_companies),
@@ -905,55 +881,7 @@ impl TmdbMetadataProvider {
         }
     }
 
-    async fn fetch_imdb_rating(&self, imdb_id: Option<&str>) -> Option<String> {
-        let imdb_id =
-            imdb_id.and_then(|value| normalize_optional_value(Some(value.to_string())))?;
-        let api_key = self.omdb_api_key.as_deref()?;
-        let response = match self
-            .omdb_client
-            .get(&self.omdb_api_base_url)
-            .query(&[("apikey", api_key), ("i", imdb_id.as_str())])
-            .send()
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => {
-                tracing::warn!(imdb_id, error = ?error, "failed to fetch imdb rating from omdb");
-                return None;
-            }
-        };
-        let payload = match response.error_for_status() {
-            Ok(response) => match response.json::<OmdbRatingResponse>().await {
-                Ok(payload) => payload,
-                Err(error) => {
-                    tracing::warn!(
-                        imdb_id,
-                        error = ?error,
-                        "failed to decode imdb rating payload from omdb"
-                    );
-                    return None;
-                }
-            },
-            Err(error) => {
-                tracing::warn!(imdb_id, error = ?error, "omdb imdb rating request failed");
-                return None;
-            }
-        };
-
-        payload
-            .response
-            .filter(|response| response.eq_ignore_ascii_case("true"))?;
-
-        normalize_optional_value(payload.imdb_rating)
-            .filter(|value| !value.eq_ignore_ascii_case("n/a"))
-    }
-
-    fn map_movie_details(
-        &self,
-        movie_id: i64,
-        details: TmdbMovieDetails,
-        imdb_rating: Option<String>,
-    ) -> RemoteMetadata {
+    fn map_movie_details(&self, movie_id: i64, details: TmdbMovieDetails) -> RemoteMetadata {
         let poster_path = details
             .poster_path
             .as_deref()
@@ -968,7 +896,8 @@ impl TmdbMetadataProvider {
             title: empty_to_none(details.title),
             original_title: empty_to_none(details.original_title),
             year: parse_year(details.release_date.as_deref()),
-            imdb_rating,
+            external_ids: tmdb_external_ids(movie_id, details.external_ids.as_ref()),
+            ratings: tmdb_ratings(details.vote_average, details.vote_count),
             country: format_production_countries(&details.production_countries),
             genres: format_named_items(&details.genres),
             studio: format_named_items(&details.production_companies),
@@ -1123,7 +1052,8 @@ pub fn apply_remote_metadata(
     title: &mut String,
     original_title: &mut Option<String>,
     year: &mut Option<i32>,
-    imdb_rating: &mut Option<String>,
+    external_ids: &mut Vec<MediaExternalId>,
+    ratings: &mut Vec<MediaRating>,
     country: &mut Option<String>,
     genres: &mut Option<String>,
     studio: &mut Option<String>,
@@ -1155,9 +1085,8 @@ pub fn apply_remote_metadata(
         *year = metadata.year;
     }
 
-    if imdb_rating.is_none() {
-        *imdb_rating = metadata.imdb_rating;
-    }
+    *external_ids = metadata.external_ids;
+    *ratings = metadata.ratings;
 
     if country.is_none() {
         *country = metadata.country;
@@ -1336,6 +1265,8 @@ struct TmdbMovieDetails {
     #[serde(default)]
     production_companies: Vec<TmdbNamedItem>,
     external_ids: Option<TmdbExternalIds>,
+    vote_average: Option<f64>,
+    vote_count: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1368,6 +1299,8 @@ struct TmdbTvDetails {
     #[serde(default)]
     production_companies: Vec<TmdbNamedItem>,
     external_ids: Option<TmdbExternalIds>,
+    vote_average: Option<f64>,
+    vote_count: Option<i64>,
     #[serde(default)]
     seasons: Vec<TmdbTvSeasonSummary>,
 }
@@ -1434,14 +1367,6 @@ struct TmdbTvAggregateCastCredit {
 struct TmdbTvAggregateRole {
     character: Option<String>,
     episode_count: Option<i32>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OmdbRatingResponse {
-    #[serde(rename = "Response")]
-    response: Option<String>,
-    #[serde(rename = "imdbRating")]
-    imdb_rating: Option<String>,
 }
 
 fn candidate_matches_title<T>(query_title: &str, candidate: &T) -> bool
@@ -1627,6 +1552,47 @@ fn is_ignorable_title_punctuation(ch: char) -> bool {
     )
 }
 
+fn tmdb_external_ids(tmdb_id: i64, external_ids: Option<&TmdbExternalIds>) -> Vec<MediaExternalId> {
+    let mut ids = vec![MediaExternalId {
+        provider: TMDB_PROVIDER_NAME.to_string(),
+        external_id: tmdb_id.to_string(),
+    }];
+
+    if let Some(imdb_id) = external_ids
+        .and_then(|ids| ids.imdb_id.as_deref())
+        .and_then(|value| normalize_optional_value(Some(value.to_string())))
+    {
+        ids.push(MediaExternalId {
+            provider: "imdb".to_string(),
+            external_id: imdb_id,
+        });
+    }
+
+    ids
+}
+
+fn tmdb_ratings(vote_average: Option<f64>, vote_count: Option<i64>) -> Vec<MediaRating> {
+    let Some(score) =
+        vote_average.filter(|score| score.is_finite() && (0.0..=10.0).contains(score))
+    else {
+        return Vec::new();
+    };
+    let Some(rating_count) = vote_count.filter(|count| *count > 0) else {
+        return Vec::new();
+    };
+
+    vec![MediaRating {
+        source: RATING_SOURCE_TMDB.to_string(),
+        kind: RATING_KIND_AUDIENCE.to_string(),
+        score,
+        scale: 10.0,
+        rating_count: Some(rating_count),
+        retrieved_via: TMDB_PROVIDER_NAME.to_string(),
+        attributes: serde_json::json!({}),
+        fetched_at: OffsetDateTime::now_utc(),
+    }]
+}
+
 fn parse_year(value: Option<&str>) -> Option<i32> {
     let value = value?.trim();
     if value.len() < 4 {
@@ -1710,12 +1676,14 @@ mod tests {
         deduplicate_search_results, format_country_codes, normalize_base_url,
         normalize_metadata_language, normalize_optional_value, normalize_title, parse_year,
         pick_primary_character_name, prioritize_original_title_matches, select_strict_candidate,
-        select_strict_tv_candidate, titles_match_strictly, tmdb_tv_season_matches_air_year,
-        tv_search_year_filter, MetadataLookup, MetadataProviderConfig, MetadataSeasonAirYearHint,
-        RemoteMetadata, TmdbMetadataProvider, TmdbMetadataProviderConfig, TmdbMovieDetails,
-        TmdbMovieSearchResult, TmdbTvAggregateRole, TmdbTvEpisodeDetails, TmdbTvSearchResult,
-        TmdbTvSeasonDetails, DEFAULT_OMDB_API_BASE_URL, TMDB_PROVIDER_NAME,
+        select_strict_tv_candidate, titles_match_strictly, tmdb_ratings,
+        tmdb_tv_season_matches_air_year, tv_search_year_filter, MetadataLookup,
+        MetadataProviderConfig, MetadataSeasonAirYearHint, RemoteMetadata, TmdbMetadataProvider,
+        TmdbMetadataProviderConfig, TmdbMovieDetails, TmdbMovieSearchResult, TmdbTvAggregateRole,
+        TmdbTvEpisodeDetails, TmdbTvSearchResult, TmdbTvSeasonDetails, TMDB_PROVIDER_NAME,
     };
+    use mova_domain::{MediaExternalId, MediaRating};
+    use time::OffsetDateTime;
 
     #[test]
     fn build_metadata_provider_returns_disabled_provider() {
@@ -1760,7 +1728,8 @@ mod tests {
         let mut title = "Spirited Away".to_string();
         let mut original_title = None;
         let mut year = Some(2001);
-        let mut imdb_rating = None;
+        let mut external_ids = Vec::new();
+        let mut ratings = Vec::new();
         let mut country = None;
         let mut genres = None;
         let mut studio = None;
@@ -1774,7 +1743,20 @@ mod tests {
                 title: Some("Sen to Chihiro no Kamikakushi".to_string()),
                 original_title: Some("Sen to Chihiro no Kamikakushi".to_string()),
                 year: Some(2001),
-                imdb_rating: Some("8.6".to_string()),
+                external_ids: vec![MediaExternalId {
+                    provider: "tmdb".to_string(),
+                    external_id: "129".to_string(),
+                }],
+                ratings: vec![MediaRating {
+                    source: "tmdb".to_string(),
+                    kind: "audience".to_string(),
+                    score: 8.6,
+                    scale: 10.0,
+                    rating_count: Some(1_000),
+                    retrieved_via: "tmdb".to_string(),
+                    attributes: serde_json::json!({}),
+                    fetched_at: OffsetDateTime::UNIX_EPOCH,
+                }],
                 country: Some("Japan".to_string()),
                 genres: Some("Animation · Fantasy".to_string()),
                 studio: Some("Studio Ghibli".to_string()),
@@ -1787,7 +1769,8 @@ mod tests {
             &mut title,
             &mut original_title,
             &mut year,
-            &mut imdb_rating,
+            &mut external_ids,
+            &mut ratings,
             &mut country,
             &mut genres,
             &mut studio,
@@ -1804,7 +1787,8 @@ mod tests {
             Some("Sen to Chihiro no Kamikakushi")
         );
         assert_eq!(year, Some(2001));
-        assert_eq!(imdb_rating.as_deref(), Some("8.6"));
+        assert_eq!(external_ids[0].external_id, "129");
+        assert_eq!(ratings[0].score, 8.6);
         assert_eq!(country.as_deref(), Some("Japan"));
         assert_eq!(genres.as_deref(), Some("Animation · Fantasy"));
         assert_eq!(studio.as_deref(), Some("Studio Ghibli"));
@@ -1823,7 +1807,8 @@ mod tests {
         let mut title = "Local Title".to_string();
         let mut original_title = None;
         let mut year = None;
-        let mut imdb_rating = None;
+        let mut external_ids = Vec::new();
+        let mut ratings = Vec::new();
         let mut country = None;
         let mut genres = None;
         let mut studio = None;
@@ -1837,7 +1822,8 @@ mod tests {
                 title: Some("   ".to_string()),
                 original_title: None,
                 year: None,
-                imdb_rating: None,
+                external_ids: Vec::new(),
+                ratings: Vec::new(),
                 country: None,
                 genres: None,
                 studio: None,
@@ -1850,7 +1836,8 @@ mod tests {
             &mut title,
             &mut original_title,
             &mut year,
-            &mut imdb_rating,
+            &mut external_ids,
+            &mut ratings,
             &mut country,
             &mut genres,
             &mut studio,
@@ -1871,8 +1858,6 @@ mod tests {
             language: "zh-CN".to_string(),
             api_base_url: "https://api.themoviedb.org/3".to_string(),
             image_base_url: "https://image.tmdb.org/t/p/original".to_string(),
-            omdb_api_key: None,
-            omdb_api_base_url: DEFAULT_OMDB_API_BASE_URL.to_string(),
         })
         .unwrap();
 
@@ -1889,8 +1874,6 @@ mod tests {
             language: "zh-CN".to_string(),
             api_base_url: "https://api.themoviedb.org/3".to_string(),
             image_base_url: "https://image.tmdb.org/t/p/original".to_string(),
-            omdb_api_key: None,
-            omdb_api_base_url: DEFAULT_OMDB_API_BASE_URL.to_string(),
         })
         .unwrap();
 
@@ -1907,12 +1890,27 @@ mod tests {
                 genres: Vec::new(),
                 production_companies: Vec::new(),
                 external_ids: None,
+                vote_average: None,
+                vote_count: None,
             },
-            None,
         );
 
         assert_eq!(metadata.poster_path, None);
         assert_eq!(metadata.backdrop_path, None);
+    }
+
+    #[test]
+    fn tmdb_ratings_require_real_votes_and_keep_native_scale() {
+        assert!(tmdb_ratings(Some(0.0), Some(0)).is_empty());
+
+        let ratings = tmdb_ratings(Some(8.4), Some(12_345));
+
+        assert_eq!(ratings.len(), 1);
+        assert_eq!(ratings[0].source, "tmdb");
+        assert_eq!(ratings[0].kind, "audience");
+        assert_eq!(ratings[0].score, 8.4);
+        assert_eq!(ratings[0].scale, 10.0);
+        assert_eq!(ratings[0].rating_count, Some(12_345));
     }
 
     #[test]

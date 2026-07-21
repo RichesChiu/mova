@@ -39,6 +39,24 @@ import { MediaItemSourceFilesSection } from './source-files-section'
 
 const GENERATED_EPISODE_STILL_SEGMENT = '/generated/episode-stills/'
 
+const RATING_SOURCE_LABELS: Record<string, string> = {
+  imdb: 'IMDb',
+  rotten_tomatoes: 'Rotten Tomatoes',
+  tmdb: 'TMDB',
+}
+
+const formatRatingSource = (source: string) => {
+  const normalizedSource = source.trim().toLowerCase()
+  return (
+    RATING_SOURCE_LABELS[normalizedSource] ??
+    normalizedSource
+      .split('_')
+      .filter(Boolean)
+      .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+      .join(' ')
+  )
+}
+
 function preferHeroArtwork(path: string | null | undefined): string | null {
   if (!path) {
     return null
@@ -319,7 +337,14 @@ export const MediaItemPage = () => {
       } as CSSProperties)
     : undefined
   const heroTitle = mediaItemQuery.data?.title ?? ''
-  const heroImdbRating = mediaItemQuery.data?.imdb_rating?.trim() || null
+  const heroRatings = (mediaItemQuery.data?.ratings ?? []).filter(
+    (rating) =>
+      Number.isFinite(rating.score) &&
+      Number.isFinite(rating.scale) &&
+      rating.scale > 0 &&
+      rating.score >= 0 &&
+      rating.score <= rating.scale,
+  )
   const heroCountry = formatMediaCountry(mediaItemQuery.data?.country)
   const heroGenres = mediaItemQuery.data?.genres?.trim() || null
   const heroStudio = mediaItemQuery.data?.studio?.trim() || null
@@ -452,15 +477,30 @@ export const MediaItemPage = () => {
                   {heroAvailabilityText}
                 </span>
               ) : null}
-              {heroImdbRating ? (
-                <span
-                  className="detail-hero__rating-badge"
-                  title={l('IMDb rating {{value}}', { value: heroImdbRating })}
-                >
-                  <span className="detail-hero__rating-label">IMDb</span>
-                  <strong>{heroImdbRating}</strong>
-                </span>
-              ) : null}
+              {heroRatings.map((rating) => {
+                const sourceLabel = formatRatingSource(rating.source)
+                const scoreLabel = Number.isInteger(rating.score)
+                  ? String(rating.score)
+                  : rating.score.toFixed(1)
+                const scaleLabel = Number.isInteger(rating.scale)
+                  ? String(rating.scale)
+                  : rating.scale.toFixed(1)
+
+                return (
+                  <span
+                    className="detail-hero__rating-badge"
+                    key={`${rating.source}:${rating.kind}`}
+                    title={l('{{source}} rating {{value}} out of {{scale}}', {
+                      source: sourceLabel,
+                      value: scoreLabel,
+                      scale: scaleLabel,
+                    })}
+                  >
+                    <span className="detail-hero__rating-label">{sourceLabel}</span>
+                    <strong>{scoreLabel}</strong>
+                  </span>
+                )
+              })}
             </div>
             {isSeriesView && availableSeasons.length > 0 ? (
               <div className="detail-hero__season-picker">

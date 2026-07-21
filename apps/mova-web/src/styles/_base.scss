@@ -48,7 +48,7 @@ body::after {
   z-index: 0;
   width: 34rem;
   height: 34rem;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   filter: blur(60px);
 }
 

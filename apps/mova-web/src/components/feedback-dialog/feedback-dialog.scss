@@ -13,7 +13,7 @@
   width: min(380px, calc(100vw - 32px));
   min-height: 76px;
   padding: 14px 16px;
-  border-radius: 22px;
+  border-radius: var(--radius-surface);
   pointer-events: auto;
   --floating-transition-origin: top right;
 }
@@ -25,7 +25,7 @@
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   color: var(--feedback-marker-text);
   font-size: 1.05rem;
   font-weight: 900;
@@ -77,14 +77,14 @@
   height: 30px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
   transition:
-    background 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease;
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    color var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .feedback-dialog__close:hover {

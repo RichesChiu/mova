@@ -12,9 +12,9 @@
   gap: 16px;
   padding: 30px;
   border: 1px solid var(--panel-border);
-  border-radius: 28px;
+  border-radius: var(--radius-surface);
   background: var(--panel-background-soft);
-  backdrop-filter: blur(30px) saturate(140%);
+  backdrop-filter: var(--glass-filter-strong);
   box-shadow: var(--panel-shadow);
 }
 
@@ -37,7 +37,7 @@
   .login-card {
     width: min(100%, 480px);
     padding: 24px;
-    border-radius: 24px;
+    border-radius: var(--radius-surface);
   }
 
   .login-card h2 {

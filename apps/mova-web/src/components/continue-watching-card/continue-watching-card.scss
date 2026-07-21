@@ -6,14 +6,14 @@
   padding: 0;
   overflow: hidden;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--floating-surface) 74%, transparent);
   box-shadow: var(--continue-watching-card-shadow);
   scroll-snap-align: start;
   transition:
-    transform 160ms ease,
-    background 160ms ease,
-    box-shadow 160ms ease;
+    transform var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .continue-watching-card::after {
@@ -24,7 +24,7 @@
   border: 1px solid var(--continue-watching-card-border);
   border-radius: inherit;
   pointer-events: none;
-  transition: border-color 160ms ease;
+  transition: border-color var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .continue-watching-card:hover {
@@ -81,7 +81,7 @@
   width: 40px;
   height: 40px;
   border: 1px solid var(--media-play-button-border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--media-play-button-background);
   box-shadow: var(--media-play-button-shadow);
   color: var(--media-play-button-text);
@@ -155,14 +155,14 @@
 .continue-watching-card__progress span {
   display: block;
   height: 100%;
-  border-radius: 0 999px 999px 0;
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
   background: var(--media-progress-fill-strong);
   box-shadow: 0 0 7px color-mix(in srgb, var(--mova-color-hex-5aa5dd) 52%, transparent);
 }
 
 .continue-watching-card__line {
   display: block;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .continue-watching-card__line--title {

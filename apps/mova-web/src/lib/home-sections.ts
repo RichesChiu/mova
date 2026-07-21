@@ -14,3 +14,13 @@ export const shouldRenderHomeContinueWatching = ({
   isLoading: boolean
   itemCount: number
 }) => isLoading || hasError || itemCount > 0
+
+export const shouldRenderHomeRecentlyAdded = ({
+  hasError,
+  isLoading,
+  libraryCount,
+}: {
+  hasError: boolean
+  isLoading: boolean
+  libraryCount: number
+}) => isLoading || hasError || libraryCount > 0

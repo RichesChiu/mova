@@ -112,8 +112,8 @@ const zhCN: Record<string, string> = {
   'View all': '查看全部',
   'Loading libraries…': '正在加载媒体库…',
   'No libraries yet.': '还没有媒体库。',
-  'Create a library in Server Settings to start organizing your media.':
-    '在服务器设置中创建媒体库后，即可开始整理媒体内容。',
+  'No media libraries are available to your account yet.': '当前没有可供此账户访问的媒体库。',
+  'Open Server Settings': '打开服务器设置',
   'Recent scan failed': '最近一次扫描失败',
   'Failed to load library details': '加载媒体库详情失败',
   'Failed to scan library': '扫描媒体库失败',
@@ -461,7 +461,7 @@ const zhCN: Record<string, string> = {
   'Expand {{name}}': '展开 {{name}}',
   '{{title}} artwork': '{{title}} 图片',
   '{{title}} poster': '{{title}} 海报',
-  'IMDb rating {{value}}': 'IMDb 评分 {{value}}',
+  '{{source}} rating {{value}} out of {{scale}}': '{{source}} 评分 {{value}} / {{scale}}',
   'Use horizontal scrolling or click arrows to move through episodes.':
     '可横向滚动或点击箭头浏览剧集列表。',
   'Use horizontal scrolling or click arrows to move through the cast list.':

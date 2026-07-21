@@ -12,9 +12,9 @@
   min-width: 0;
   overflow: visible;
   border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
-  border-radius: 20px;
+  border-radius: var(--radius-card);
   background: var(--settings-library-card-background);
-  backdrop-filter: blur(22px) saturate(150%);
+  backdrop-filter: var(--glass-filter-strong);
   box-shadow: var(--settings-library-card-shadow);
 }
 
@@ -108,7 +108,7 @@
   inset: auto -12% -20% auto;
   width: 180px;
   height: 180px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: radial-gradient(circle, color-mix(in srgb, var(--accent) 24%, transparent), transparent 68%);
   filter: blur(4px);
 }
@@ -200,7 +200,7 @@
   min-height: 28px;
   padding: 0 10px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   font-size: 0.74rem;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -211,7 +211,7 @@
   width: 6px;
   height: 6px;
   flex: 0 0 auto;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: currentColor;
   box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 12%, transparent);
 }
@@ -266,7 +266,7 @@
   padding: 10px 12px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--floating-border) 76%, transparent);
-  border-radius: 14px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--floating-surface) 68%, transparent);
   color: var(--text-muted);
   font-size: 0.8rem;
@@ -314,7 +314,7 @@
   min-height: 92px;
   padding: 11px 14px;
   border: 1px solid var(--settings-user-card-border);
-  border-radius: 20px;
+  border-radius: var(--radius-card);
   background: var(--settings-user-card-background);
   box-shadow: var(--settings-user-card-shadow);
   overflow: visible;
@@ -331,7 +331,7 @@
   width: 50px;
   height: 50px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 90%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--settings-avatar-background);
   box-shadow: var(--panel-inset), var(--floating-shadow-strong);
   color: var(--settings-avatar-text);
@@ -405,7 +405,7 @@
   min-height: 24px;
   padding: 0 9px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--floating-surface) 80%, transparent);
   box-shadow: var(--panel-inset);
   color: var(--text-soft);
@@ -448,7 +448,7 @@
 .settings-user-card__line,
 .settings-library-card__line {
   display: block;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .settings-user-card__line--title {
@@ -487,13 +487,13 @@
   width: 58px;
   height: 24px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 78%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--settings-switch-off-background);
   box-shadow: var(--settings-switch-track-shadow);
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    box-shadow 160ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .settings-user-card__switch-copy {
@@ -503,7 +503,7 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--settings-switch-copy);
-  transition: color 160ms ease;
+  transition: color var(--motion-duration-standard) var(--motion-ease-standard);
   pointer-events: none;
 }
 
@@ -522,12 +522,12 @@
   left: 2px;
   width: 25px;
   height: 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--settings-switch-knob-background);
   box-shadow: var(--settings-switch-knob-shadow);
   transition:
-    transform 160ms ease,
-    background 160ms ease;
+    transform var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .settings-user-card__switch input:checked + .settings-user-card__switch-track {
@@ -566,7 +566,7 @@
 .settings-user-card__control,
 .settings-library-card__button {
   display: inline-flex;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .settings-user-card__control--toggle {
@@ -577,7 +577,7 @@
 .settings-user-card__control--icon {
   width: 30px;
   height: 30px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .settings-library-card__button--icon {

@@ -10,7 +10,7 @@
   min-height: 44px;
   padding: 0 8px 0 14px;
   border: 1px solid var(--search-form-border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--search-form-background);
   box-shadow: var(--search-form-shadow);
 }
@@ -34,16 +34,16 @@
   min-height: 32px;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--button-primary-border) 74%, transparent);
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--button-primary-background) 76%, transparent);
   color: var(--button-primary-text);
   box-shadow: var(--panel-inset);
   font-size: 0.78rem;
   font-weight: 820;
   transition:
-    background 160ms ease,
-    border-color 160ms ease,
-    transform 160ms ease;
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .search-page__submit svg {
@@ -72,7 +72,7 @@
   place-items: center;
   min-height: 220px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 76%, transparent);
-  border-radius: 14px;
+  border-radius: var(--radius-control);
   background: var(--search-empty-background);
   box-shadow: var(--panel-inset);
   color: var(--text-soft);
@@ -93,15 +93,15 @@
   min-width: 0;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--floating-border) 86%, transparent);
-  border-radius: 10px;
+  border-radius: var(--radius-control);
   background: var(--search-card-background);
   box-shadow: var(--search-card-shadow);
   color: var(--text);
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .search-card:hover,
@@ -207,7 +207,7 @@
   display: block;
   height: 12px;
   margin: 0 11px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .search-card__line--title {

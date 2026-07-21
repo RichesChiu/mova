@@ -20,7 +20,7 @@
   gap: 18px;
   width: min(100%, 420px);
   padding: 24px;
-  border-radius: 24px;
+  border-radius: var(--radius-surface);
 }
 
 .confirm-action-modal__header {

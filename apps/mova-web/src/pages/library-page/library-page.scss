@@ -5,7 +5,7 @@
 
 .library-detail-header,
 .library-detail-section {
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .library-detail-header {
@@ -21,7 +21,7 @@
   gap: 6px;
   padding: 9px 11px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 78%, transparent);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--scan-panel-background);
 }
 
@@ -66,7 +66,7 @@
 .library-detail-scan__track {
   overflow: hidden;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--scan-progress-track-background);
   box-shadow: var(--scan-progress-track-shadow);
 }
@@ -126,13 +126,13 @@
   overflow: hidden;
   aspect-ratio: 2 / 3;
   border: 1px solid var(--media-tile-poster-border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--media-tile-poster-background);
   box-shadow: var(--media-tile-poster-shadow);
   transition:
-    border-color 160ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .library-detail-tile:hover .library-detail-tile__poster {
@@ -156,7 +156,7 @@
   height: 100%;
   object-fit: cover;
   opacity: 0;
-  transition: opacity 180ms ease;
+  transition: opacity var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .library-detail-tile__image--loaded {
@@ -224,9 +224,9 @@
   gap: 5px;
   padding: 7px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--media-tile-sync-background);
-  backdrop-filter: blur(12px) saturate(130%);
+  backdrop-filter: var(--glass-filter-soft);
 }
 
 .library-detail-tile__sync-row {
@@ -258,7 +258,7 @@
 .library-detail-tile__sync-track {
   overflow: hidden;
   height: 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--scan-progress-track-background);
   box-shadow: var(--scan-progress-track-shadow);
 }
@@ -272,7 +272,7 @@
 
 .library-detail-tile__line {
   display: block;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .library-detail-tile__line--title {

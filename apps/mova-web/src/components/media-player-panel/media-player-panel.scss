@@ -9,9 +9,9 @@
 .player-panel {
   padding: 18px;
   border: 1px solid var(--panel-border);
-  border-radius: 26px;
+  border-radius: var(--radius-surface);
   background: var(--panel-background-soft);
-  backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: var(--glass-filter-strong);
   box-shadow: var(--panel-shadow);
 }
 
@@ -71,17 +71,17 @@
   min-height: 42px;
   padding: 0 18px;
   border: 1px solid var(--player-floating-border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--player-floating-background);
   color: var(--player-floating-text);
   font-size: 0.88rem;
   font-weight: 800;
   letter-spacing: 0.01em;
   box-shadow: var(--player-floating-shadow);
-  backdrop-filter: blur(18px) saturate(120%);
+  backdrop-filter: var(--glass-filter-standard);
   transition:
-    background 160ms ease,
-    border-color 160ms ease;
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    border-color var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .player-panel__floating-action:hover {
@@ -110,7 +110,7 @@
   margin: 0;
   padding: 9px 14px;
   border: 1px solid var(--player-floating-border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--player-status-background);
   color: var(--player-status-text);
   font-size: 0.82rem;
@@ -118,7 +118,7 @@
   letter-spacing: 0.01em;
   text-align: center;
   box-shadow: var(--player-status-shadow);
-  backdrop-filter: blur(18px) saturate(120%);
+  backdrop-filter: var(--glass-filter-standard);
 }
 
 .player-panel__center-status {
@@ -180,7 +180,7 @@
   position: relative;
   overflow: hidden;
   border: 1px solid var(--floating-border);
-  border-radius: 24px;
+  border-radius: var(--radius-surface);
   background: var(--player-stage-background);
   box-shadow: var(--panel-inset), var(--floating-shadow-strong);
 }
@@ -245,8 +245,8 @@
   pointer-events: none;
   transform: translateY(10px);
   transition:
-    opacity 160ms ease,
-    transform 180ms ease;
+    opacity var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .player-stage__controls--visible {
@@ -289,10 +289,10 @@
   min-height: 40px;
   padding: 3px;
   border: 1px solid var(--player-toolbar-pill-border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--player-toolbar-pill-background);
   box-shadow: var(--player-toolbar-pill-shadow);
-  backdrop-filter: blur(18px) saturate(120%);
+  backdrop-filter: var(--glass-filter-standard);
 }
 
 .player-toolbar-pill--primary,
@@ -308,17 +308,17 @@
   min-height: 38px;
   padding: 0 14px;
   border: 1px solid var(--player-control-border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--player-control-background);
   color: var(--text);
   font-size: 0.86rem;
   font-weight: 700;
   letter-spacing: 0.01em;
-  backdrop-filter: blur(18px) saturate(115%);
+  backdrop-filter: var(--glass-filter-standard);
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    color 160ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    color var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .player-control-button--icon {
@@ -377,8 +377,8 @@
   min-width: 34px;
   overflow: hidden;
   transition:
-    width 180ms ease,
-    min-width 180ms ease;
+    width var(--motion-duration-standard) var(--motion-ease-standard),
+    min-width var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .player-volume-control:hover,
@@ -402,7 +402,7 @@
   min-width: 220px;
   max-width: min(32vw, 320px);
   padding: 10px;
-  border-radius: 18px;
+  border-radius: var(--radius-card);
   --floating-transition-origin: bottom right;
 }
 
@@ -430,14 +430,14 @@
   width: 100%;
   padding: 10px 12px;
   border: 1px solid transparent;
-  border-radius: 14px;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--text);
   text-align: left;
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    box-shadow 160ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .player-popover-menu__option span,
@@ -482,9 +482,9 @@
   opacity: 0;
   overflow: hidden;
   transition:
-    width 180ms ease,
-    min-width 180ms ease,
-    opacity 140ms ease;
+    width var(--motion-duration-standard) var(--motion-ease-standard),
+    min-width var(--motion-duration-standard) var(--motion-ease-standard),
+    opacity var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .player-volume-control:hover .player-volume-control__slider,
@@ -519,7 +519,7 @@
 
 .player-range--timeline::-webkit-slider-runnable-track {
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: linear-gradient(
     90deg,
     var(--player-range-accent) 0 var(--player-range-played),
@@ -533,7 +533,7 @@
   height: 14px;
   margin-top: -5px;
   border: 1px solid var(--player-range-thumb-border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   appearance: none;
   background: var(--player-range-thumb-background);
   box-shadow: var(--player-range-thumb-shadow);
@@ -542,7 +542,7 @@
 .player-range--timeline::-moz-range-track {
   height: 4px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: linear-gradient(
     90deg,
     var(--player-range-accent) 0 var(--player-range-played),
@@ -553,7 +553,7 @@
 
 .player-range--timeline::-moz-range-progress {
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--player-range-accent);
 }
 
@@ -561,7 +561,7 @@
   width: 14px;
   height: 14px;
   border: 1px solid var(--player-range-thumb-border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--player-range-thumb-background);
   box-shadow: var(--player-range-thumb-shadow);
 }
@@ -631,7 +631,7 @@
   gap: 4px;
   padding: 12px 14px;
   border: 1px solid var(--floating-border);
-  border-radius: 18px;
+  border-radius: var(--radius-card);
   background: var(--floating-surface);
   box-shadow: var(--panel-inset), var(--floating-shadow);
 }
@@ -650,15 +650,15 @@
   min-height: 72px;
   padding: 12px 14px;
   border: 1px solid var(--floating-border);
-  border-radius: 18px;
+  border-radius: var(--radius-card);
   background: var(--floating-surface);
   color: var(--text);
   text-align: left;
   box-shadow: var(--panel-inset), var(--floating-shadow);
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    color 160ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    color var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .player-source:hover {

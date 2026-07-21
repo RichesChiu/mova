@@ -6,6 +6,7 @@ mod library_detail;
 mod media_cast_member;
 mod media_file;
 mod media_item;
+mod media_rating;
 mod notification;
 mod playback_progress;
 mod scan_job;
@@ -27,6 +28,7 @@ pub use media_item::{
     METADATA_STATUS_PENDING, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
     REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
 };
+pub use media_rating::{MediaExternalId, MediaRating, RATING_KIND_AUDIENCE, RATING_SOURCE_TMDB};
 pub use notification::{
     Notification, NotificationFeed, ScanNotificationIssue, ScanNotificationSummary,
     MAX_SCAN_NOTIFICATION_ISSUES,

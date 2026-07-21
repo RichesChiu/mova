@@ -131,7 +131,20 @@ const createMediaItem = ({
   metadata_failure_reason: null,
   remote_media_type: mediaType,
   year,
-  imdb_rating: id % 3 === 0 ? '8.6' : null,
+  ratings:
+    id % 3 === 0
+      ? [
+          {
+            source: 'tmdb',
+            kind: 'audience',
+            score: 8.6,
+            scale: 10,
+            rating_count: 12_345,
+            attributes: {},
+            fetched_at: MOCK_NOW,
+          },
+        ]
+      : [],
   country: mediaType === 'movie' ? 'US' : null,
   genres: mediaType === 'movie' ? 'Drama, Adventure' : 'Drama',
   studio: null,

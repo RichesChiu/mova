@@ -13,8 +13,8 @@
   font-weight: 820;
   line-height: 1;
   transition:
-    color 160ms ease,
-    transform 160ms ease;
+    color var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .libraries-section__title-action::before {
@@ -22,7 +22,7 @@
   display: block;
   width: 4px;
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--text-soft) 62%, transparent);
 }
 
@@ -33,13 +33,13 @@
   bottom: -5px;
   width: calc(100% - 13px);
   height: 1px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: currentColor;
   opacity: 0.46;
   transform-origin: left center;
   transition:
-    opacity 160ms ease,
-    transform 160ms ease;
+    opacity var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .libraries-section__title-action:hover {
@@ -82,15 +82,15 @@
   display: grid;
   min-height: clamp(190px, 18.8vw, 204px);
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--library-spotlight-card-background);
   background-clip: padding-box;
   box-shadow: var(--floating-shadow);
   transition:
-    transform 180ms ease,
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-  background 180ms ease;
+    transform var(--motion-duration-standard) var(--motion-ease-standard),
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard),
+  background var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .library-spotlight__link {
@@ -215,7 +215,7 @@
 
 .library-spotlight__line {
   display: block;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .library-spotlight__line--title {
@@ -245,7 +245,7 @@
 .library-spotlight__scan--failed {
   padding: 10px 12px;
   border: 1px solid var(--library-spotlight-scan-failed-border);
-  border-radius: 14px;
+  border-radius: var(--radius-control);
   background: var(--library-spotlight-scan-failed-background);
 }
 
@@ -294,7 +294,7 @@
 .library-spotlight__scan-track {
   overflow: hidden;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--library-spotlight-scan-track-background);
   box-shadow: var(--library-spotlight-scan-track-shadow);
 }

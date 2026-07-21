@@ -12,8 +12,8 @@ import type { Library, LibraryDetail } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import { getLibraryScanRuntime } from '../../components/app-shell/scan-runtime'
 import { ConfirmActionModal } from '../../components/confirm-action-modal'
-import { EmptyState } from '../../components/empty-state'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
+import { LibraryEmptyState } from '../../components/library-empty-state'
 import {
   LibrarySpotlightCard,
   LibrarySpotlightCardSkeleton,
@@ -210,12 +210,7 @@ export const LibrariesPage = () => {
                 ))}
               </div>
             ) : libraries.length === 0 ? (
-              <EmptyState
-                description={l(
-                  'Create a library in Server Settings to start organizing your media.',
-                )}
-                title={l('No libraries yet.')}
-              />
+              <LibraryEmptyState canManageLibraries={canManageLibraries} />
             ) : (
               <div className="libraries-page__grid">
                 {libraries.map((library, index) => {

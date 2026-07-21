@@ -1,4 +1,4 @@
-use super::{series, CreateMediaEntryParams};
+use super::{ratings::replace_media_item_remote_data, series, CreateMediaEntryParams};
 use anyhow::{Context, Result};
 use sqlx::{postgres::PgPool, Postgres, Row, Transaction};
 use std::collections::{HashMap, HashSet};
@@ -706,7 +706,6 @@ async fn insert_media_item(
             metadata_failure_reason,
             remote_media_type,
             year,
-            imdb_rating,
             country,
             genres,
             studio,
@@ -715,8 +714,8 @@ async fn insert_media_item(
             backdrop_path
         )
         values (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-            $15, $16, $17, $18, $19
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+            $14, $15, $16, $17, $18
         )
         returning id
         "#,
@@ -733,7 +732,6 @@ async fn insert_media_item(
     .bind(&entry.metadata_failure_reason)
     .bind(&entry.remote_media_type)
     .bind(entry.year)
-    .bind(&entry.imdb_rating)
     .bind(&entry.country)
     .bind(&entry.genres)
     .bind(&entry.studio)
@@ -744,7 +742,19 @@ async fn insert_media_item(
     .await
     .context("failed to insert media item")?;
 
-    Ok(row.get("id"))
+    let media_item_id = row.get("id");
+    if entry.replace_remote_data {
+        replace_media_item_remote_data(
+            tx,
+            media_item_id,
+            entry.metadata_provider.as_deref(),
+            &entry.external_ids,
+            &entry.ratings,
+        )
+        .await?;
+    }
+
+    Ok(media_item_id)
 }
 
 async fn update_media_item_from_entry(
@@ -769,13 +779,12 @@ async fn update_media_item_from_entry(
             metadata_failure_reason = $10,
             remote_media_type = $11,
             year = $12,
-            imdb_rating = $13,
-            country = $14,
-            genres = $15,
-            studio = $16,
-            overview = $17,
-            poster_path = $18,
-            backdrop_path = $19,
+            country = $13,
+            genres = $14,
+            studio = $15,
+            overview = $16,
+            poster_path = $17,
+            backdrop_path = $18,
             updated_at = now()
         where id = $1
         "#,
@@ -792,7 +801,6 @@ async fn update_media_item_from_entry(
     .bind(&entry.metadata_failure_reason)
     .bind(&entry.remote_media_type)
     .bind(entry.year)
-    .bind(&entry.imdb_rating)
     .bind(&entry.country)
     .bind(&entry.genres)
     .bind(&entry.studio)
@@ -802,6 +810,17 @@ async fn update_media_item_from_entry(
     .execute(&mut **tx)
     .await
     .context("failed to update media item during library sync")?;
+
+    if entry.replace_remote_data {
+        replace_media_item_remote_data(
+            tx,
+            media_item_id,
+            entry.metadata_provider.as_deref(),
+            &entry.external_ids,
+            &entry.ratings,
+        )
+        .await?;
+    }
 
     Ok(())
 }
@@ -1219,13 +1238,15 @@ mod tests {
             metadata_status: METADATA_STATUS_MATCHED.to_string(),
             metadata_failure_reason: None,
             allow_artwork_clear: true,
+            replace_remote_data: true,
             remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE.to_string()),
             title: "A Writer's Odyssey".to_string(),
             source_title: "A Writer's Odyssey".to_string(),
             original_title: Some("刺杀小说家".to_string()),
             sort_title: None,
             year: Some(2025),
-            imdb_rating: Some("6.8".to_string()),
+            external_ids: Vec::new(),
+            ratings: Vec::new(),
             country: Some("China".to_string()),
             genres: Some("Fantasy · Adventure".to_string()),
             studio: Some("Huayi Brothers".to_string()),
@@ -1280,13 +1301,15 @@ mod tests {
             metadata_status: METADATA_STATUS_MATCHED.to_string(),
             metadata_failure_reason: None,
             allow_artwork_clear: true,
+            replace_remote_data: true,
             remote_media_type: Some(REMOTE_MEDIA_TYPE_SERIES.to_string()),
             title: "Interstellar Classroom".to_string(),
             source_title: "Interstellar Classroom".to_string(),
             original_title: Some("Interstellar Classroom".to_string()),
             sort_title: None,
             year: Some(2024),
-            imdb_rating: None,
+            external_ids: Vec::new(),
+            ratings: Vec::new(),
             country: Some("Japan".to_string()),
             genres: Some("Animation · Sci-Fi".to_string()),
             studio: Some("Studio Trigger".to_string()),

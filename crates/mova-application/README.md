@@ -72,7 +72,7 @@
 | `src/intro_detection.rs` | 剧集片头按需检测；只在播放某一集且当前季/当前集还没有片头数据时调用 Python 脚本做分析。 |
 | `src/media_items.rs` | 媒体条目详情、列表、文件、音轨、剧集 outline、季集查询、元数据刷新。 |
 | `src/media_enrichment.rs` | 扫描过程中按本地聚合组做 TMDB / sidecar / 图片补全；远端请求错误会显式标记为 `failed`，等待后续手动扫描重试。 |
-| `src/metadata.rs` | 元数据 provider 抽象、TMDB client、可选 OMDb IMDb 评分补齐、国家/地区/题材类型/工作室补齐、语言归一化和远端请求超时；自动匹配由本地季集坐标选择唯一 endpoint，执行严格主标题/年份/别名验证，数字结尾续集名可以匹配明确分隔的远端副标题，无年份时选择日期最新作品。 |
+| `src/metadata.rs` | 元数据 provider 抽象、TMDB client、TMDB 评分与外部 ID 提取、国家/地区/题材类型/工作室补齐、语言归一化和远端请求超时；自动匹配由本地季集坐标选择唯一 endpoint，执行严格主标题/年份/别名验证，数字结尾续集名可以匹配明确分隔的远端副标题，无年份时选择日期最新作品。 |
 | `src/metadata_match.rs` | 管理员手动搜索候选元数据并应用匹配。 |
 | `src/media_cast.rs` | 演员列表查询与按需持久化同步；详情页首次需要演员信息时才会拉远端并写库。 |
 | `src/media_classification.rs` | 媒体库类型和电影/剧集归类辅助逻辑。 |
@@ -165,7 +165,7 @@
 - 重新扫描会先读取数据库里已经入库的 `media_files.file_path`，逐条核对真实文件是否仍存在且仍是文件；路径失效的条目会立即删除并清理关联条目
 - 然后调用 `mova-scan` 做轻量文件清单发现，只读取路径、大小和修改时间，用来发现新增文件和文件指纹变化
 - 用同路径 `media_files.scan_hash` 和 `media_files.local_analysis_version` 判断是否能跳过本地分析；后续只让新增/变化、本地分析版本过期、未完整匹配、或按前端 Other 规则需要复核的路径进入浅层解析、完整分析和 TMDB 补全
-- 已经完整匹配、文件指纹未变化、本地分析版本未变化、且已有 TMDB 绑定的路径，不会重新跑拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存或数据库 upsert；即使 TMDB 没有可用海报，也保持稳定跳过
+- 已经完整匹配、文件指纹未变化、本地分析版本未变化、且已有 TMDB 绑定的路径，不会重新跑拆名、sidecar、`ffprobe`、TMDB、图片缓存或数据库 upsert；即使 TMDB 没有可用海报，也保持稳定跳过
 - 对新增、变化、本地分析版本过期的路径先调用 `mova-scan::inspect_media_file_inventory_shallow` 做浅层文件名 / 路径解析，不读取 sidecar、不调用 `ffprobe`，只用来建立稳定的电影或剧集扫描组，避免前端先看到 `A.S01E01` 这类临时错误卡片
 - 本地分析版本过期时使用新规则重新拆名；只有 `matched` 且已绑定 provider ID 的条目保留旧远端展示字段，未匹配、失败或跳过条目不得用旧标题覆盖新拆名结果
 - 对文件指纹和本地分析版本都未变化，但状态仍为中断遗留的 `pending`、`unmatched`、`failed`，旧状态为 `skipped` 且当前已启用 TMDB、缺少 TMDB provider 绑定、按前端 Other 规则缺少可用远端信息、仍保留远端图片 URL，或已绑定 TMDB 但展示名仍等于本地带年份占位名的路径，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时通过一次媒体摘要查询、一次批量音轨查询和一次批量字幕查询恢复上次本地分析，跳过拆名、sidecar、`ffprobe`，只进入后续 TMDB 补全

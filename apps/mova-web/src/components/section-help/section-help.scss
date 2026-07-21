@@ -13,13 +13,13 @@
   height: 20px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: transparent;
   color: var(--text-soft);
   transition:
-    background 160ms ease,
-    color 160ms ease,
-    transform 160ms ease;
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    color var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .section-help__trigger:hover,
@@ -50,7 +50,7 @@
   width: min(300px, calc(100vw - 24px));
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--floating-border) 84%, transparent);
-  border-radius: 14px;
+  border-radius: var(--radius-control);
   background: var(--tooltip-background);
   box-shadow: var(--tooltip-shadow);
   color: var(--text-muted);

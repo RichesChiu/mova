@@ -5,8 +5,8 @@ use mova_application::{
 };
 use mova_domain::{
     AudioTrack, ContinueWatchingItem, Library, LibraryDetail, MediaCastMember, MediaFile,
-    MediaItem, Notification, NotificationFeed, PlaybackProgress, ScanJob, SubtitleFile,
-    UserProfile,
+    MediaItem, MediaRating, Notification, NotificationFeed, PlaybackProgress, ScanJob,
+    SubtitleFile, UserProfile,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -133,7 +133,7 @@ pub struct MediaItemResponse {
     pub metadata_failure_reason: Option<String>,
     pub remote_media_type: Option<String>,
     pub year: Option<i32>,
-    pub imdb_rating: Option<String>,
+    pub ratings: Vec<MediaRatingResponse>,
     pub country: Option<String>,
     pub genres: Option<String>,
     pub studio: Option<String>,
@@ -142,6 +142,17 @@ pub struct MediaItemResponse {
     pub backdrop_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MediaRatingResponse {
+    pub source: String,
+    pub kind: String,
+    pub score: f64,
+    pub scale: f64,
+    pub rating_count: Option<i64>,
+    pub attributes: serde_json::Value,
+    pub fetched_at: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -168,7 +179,7 @@ pub struct MediaItemDetailResponse {
     pub metadata_failure_reason: Option<String>,
     pub remote_media_type: Option<String>,
     pub year: Option<i32>,
-    pub imdb_rating: Option<String>,
+    pub ratings: Vec<MediaRatingResponse>,
     pub country: Option<String>,
     pub genres: Option<String>,
     pub studio: Option<String>,
@@ -531,7 +542,11 @@ impl MediaItemResponse {
             metadata_failure_reason: media_item.metadata_failure_reason,
             remote_media_type: media_item.remote_media_type,
             year: media_item.year,
-            imdb_rating: media_item.imdb_rating,
+            ratings: media_item
+                .ratings
+                .into_iter()
+                .map(|rating| MediaRatingResponse::from_domain(rating, offset))
+                .collect(),
             country: media_item.country,
             genres: media_item.genres,
             studio: media_item.studio,
@@ -550,6 +565,20 @@ impl MediaItemResponse {
             ),
             created_at: format_datetime(media_item.created_at, offset),
             updated_at: format_datetime(media_item.updated_at, offset),
+        }
+    }
+}
+
+impl MediaRatingResponse {
+    pub fn from_domain(rating: MediaRating, offset: UtcOffset) -> Self {
+        Self {
+            source: rating.source,
+            kind: rating.kind,
+            score: rating.score,
+            scale: rating.scale,
+            rating_count: rating.rating_count,
+            attributes: rating.attributes,
+            fetched_at: format_datetime(rating.fetched_at, offset),
         }
     }
 }
@@ -584,7 +613,11 @@ impl MediaItemDetailResponse {
             metadata_failure_reason: media_item.metadata_failure_reason,
             remote_media_type: media_item.remote_media_type,
             year: media_item.year,
-            imdb_rating: media_item.imdb_rating,
+            ratings: media_item
+                .ratings
+                .into_iter()
+                .map(|rating| MediaRatingResponse::from_domain(rating, offset))
+                .collect(),
             country: media_item.country,
             genres: media_item.genres,
             studio: media_item.studio,
@@ -1172,7 +1205,7 @@ mod tests {
         public_media_item_asset_path, public_season_asset_path, MediaItemDetailResponse,
         MediaItemResponse,
     };
-    use mova_domain::{MediaItem, METADATA_STATUS_MATCHED, REMOTE_MEDIA_TYPE_MOVIE};
+    use mova_domain::{MediaItem, MediaRating, METADATA_STATUS_MATCHED, REMOTE_MEDIA_TYPE_MOVIE};
     use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
 
     fn sample_media_item() -> MediaItem {
@@ -1196,7 +1229,16 @@ mod tests {
             metadata_failure_reason: None,
             remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE.to_string()),
             year: Some(2001),
-            imdb_rating: Some("8.6".to_string()),
+            ratings: vec![MediaRating {
+                source: "tmdb".to_string(),
+                kind: "audience".to_string(),
+                score: 8.6,
+                scale: 10.0,
+                rating_count: Some(1_000),
+                retrieved_via: "tmdb".to_string(),
+                attributes: serde_json::json!({}),
+                fetched_at: timestamp,
+            }],
             country: Some("Japan".to_string()),
             genres: Some("Animation · Fantasy".to_string()),
             studio: Some("Studio Ghibli".to_string()),
@@ -1289,6 +1331,9 @@ mod tests {
         assert_eq!(response.metadata_provider_item_id, Some(129));
         assert_eq!(response.metadata_status, METADATA_STATUS_MATCHED);
         assert_eq!(response.metadata_failure_reason, None);
+        assert_eq!(response.ratings.len(), 1);
+        assert_eq!(response.ratings[0].source, "tmdb");
+        assert_eq!(response.ratings[0].score, 8.6);
         assert_eq!(
             response.remote_media_type.as_deref(),
             Some(REMOTE_MEDIA_TYPE_MOVIE)

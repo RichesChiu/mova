@@ -903,6 +903,12 @@ pub async fn refresh_media_item_metadata(
         metadata_provider_enabled,
         remote_media_type_for_lookup_type(lookup_type),
     );
+    let metadata_status = discovered_file
+        .metadata_status
+        .clone()
+        .unwrap_or_else(|| media_item.metadata_status.clone());
+    let replace_remote_data = metadata_status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED)
+        || metadata_status.eq_ignore_ascii_case(METADATA_STATUS_UNMATCHED);
 
     mova_db::update_media_file_metadata(
         pool,
@@ -953,17 +959,17 @@ pub async fn refresh_media_item_metadata(
             metadata_provider_item_id: discovered_file
                 .metadata_provider_item_id
                 .or(media_item.metadata_provider_item_id),
-            metadata_status: discovered_file
-                .metadata_status
-                .unwrap_or(media_item.metadata_status),
+            metadata_status,
             metadata_failure_reason: discovered_file
                 .metadata_failure_reason
                 .or(media_item.metadata_failure_reason),
+            replace_remote_data,
             remote_media_type: discovered_file
                 .remote_media_type
                 .or(media_item.remote_media_type),
             year: discovered_file.year,
-            imdb_rating: discovered_file.imdb_rating,
+            external_ids: discovered_file.external_ids,
+            ratings: discovered_file.ratings,
             country: discovered_file.country,
             genres: discovered_file.genres,
             studio: discovered_file.studio,

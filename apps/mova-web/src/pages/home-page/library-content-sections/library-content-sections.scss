@@ -78,15 +78,15 @@
   min-height: 124px;
   padding: clamp(8px, 0.75vw, 12px);
   border: 1px solid var(--recently-added-card-border);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--recently-added-card-background);
   box-shadow: var(--recently-added-card-shadow);
   color: inherit;
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    filter 160ms ease,
-    transform 160ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    filter var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .recently-added-card:hover {
@@ -102,7 +102,7 @@
   width: 100%;
   aspect-ratio: 2 / 3;
   border: 1px solid var(--recently-added-artwork-border);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--recently-added-artwork-background);
   box-shadow: var(--recently-added-artwork-shadow);
 }
@@ -171,7 +171,7 @@
   line-height: 1.35;
   text-decoration: none;
   white-space: nowrap;
-  transition: color 160ms ease;
+  transition: color var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .recently-added-row__source > span {
@@ -185,7 +185,7 @@
 .recently-added-row__line,
 .recently-added-card__line {
   display: block;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .recently-added-row__line--title {

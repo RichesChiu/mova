@@ -8,7 +8,7 @@
 
 Mova 使用 TMDB 账户 API 设置页提供的 **API Read Access Token** 作为 Bearer Token。部署者需要注册并验证 [TMDB](https://www.themoviedb.org/) 账户，进入 [API 设置](https://www.themoviedb.org/settings/api) 申请访问权限，然后把 API Read Access Token 写入运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN`。不要把较短的 `API Key (v3 auth)` 填入该变量，也不要把 Token 提交到仓库。官方认证契约见 [Application Authentication](https://developer.themoviedb.org/v4/docs/authentication-application)。
 
-Token 缺失或只含空白时，服务端构造 disabled provider，不阻止 HTTP 服务、后台 worker 或媒体库扫描启动。扫描保留本地名称解析、NFO/sidecar、`ffprobe`、入库和播放，远端 lookup、详情、outline、OMDb 补充和 TMDB 图片下载全部跳过，条目终态为 `skipped / metadata_provider_disabled`。配置 Token 并重启后，下一次扫描会重试此前跳过且没有 provider binding 的条目。
+Token 缺失或只含空白时，服务端构造 disabled provider，不阻止 HTTP 服务、后台 worker 或媒体库扫描启动。扫描保留本地名称解析、NFO/sidecar、`ffprobe`、入库和播放，远端 lookup、详情、outline、评分和 TMDB 图片下载全部跳过，条目终态为 `skipped / metadata_provider_disabled`。配置 Token 并重启后，下一次扫描会重试此前跳过且没有 provider binding 的条目。
 
 ## 1. 核心结论
 
@@ -45,7 +45,7 @@ Token 缺失或只含空白时，服务端构造 disabled provider，不阻止 H
 - 题材、制作公司；剧集还包括 networks。
 - 海报、背景图、季海报和单集剧照。
 - 演员、角色和必要的主创信息。
-- TMDB 评分统计、外部 ID；配置 OMDb 时再用 IMDb ID 获取 IMDb 评分。
+- TMDB 评分统计和外部 ID。IMDb ID 只作为跨来源身份保存，当前不请求 IMDb 或其他评分服务。
 
 优先级应为：用户手动覆盖或明确本地 NFO > 已接受的 TMDB 身份与字段 > 文件名解析回退值。`source_title` 永远保留本地解析结果，不能被 TMDB 标题覆盖。
 
@@ -73,15 +73,15 @@ Token 缺失或只含空白时，服务端构造 disabled provider，不阻止 H
 | `GET /3/search/tv` | `query`、`include_adult=false`、`page`、`language`；有系列首播年时带 `first_air_date_year`；仅有后续季年份时带 `year` | 明确季集结构的自动匹配、手动候选搜索；缺少 provider ID 时的 outline/演员查询 | 自动匹配在结果不超过 20 页时遍历全部页；读取 `id`、名称、原始名称、完整首播日期、简介、海报和背景图 |
 | `GET /3/movie/{movie_id}/alternative_titles` | movie ID | search 候选的标题和原始标题都不满足严格主标题规则时 | 只用于把别名验证为严格主标题匹配，不计算分数 |
 | `GET /3/tv/{series_id}/alternative_titles` | series ID | search 候选的名称和原始名称都不满足严格主标题规则时 | 只用于把别名验证为严格主标题匹配，不计算分数 |
-| `GET /3/movie/{movie_id}` | `language`、`append_to_response=external_ids` | 已选电影 ID 的详情补全、手动匹配、刷新元数据 | 标题、原始标题、发行年份、简介、production countries、genres、production companies、poster/backdrop、IMDb ID |
-| `GET /3/tv/{series_id}` | `language`、`append_to_response=external_ids` | 已选剧集 ID 的详情补全；outline 当前会再次请求一次 | 名称、原始名称、首播年份、简介、origin country、genres、production companies、poster/backdrop、IMDb ID、season summaries |
+| `GET /3/movie/{movie_id}` | `language`、`append_to_response=external_ids` | 已选电影 ID 的详情补全、手动匹配、刷新元数据 | 标题、原始标题、发行年份、简介、production countries、genres、production companies、poster/backdrop、TMDB 评分、IMDb ID |
+| `GET /3/tv/{series_id}` | `language`、`append_to_response=external_ids` | 已选剧集 ID 的详情补全；outline 当前会再次请求一次 | 名称、原始名称、首播年份、简介、origin country、genres、production companies、poster/backdrop、TMDB 评分、IMDb ID、season summaries |
 | `GET /3/tv/{series_id}/season/{season_number}` | `language` | 后续季年份自动匹配验证、扫描剧集图片、剧集详情页 outline、手动匹配剧集 | 自动匹配验证 season `air_date` 或 episode `air_date`；大纲读取季名称、日期、简介、季海报、集号、集标题、简介和 still |
 | `GET /3/movie/{movie_id}/credits` | `language` | 电影演员列表首次按需加载或手动替换元数据后 | 演员 ID、姓名、角色、头像和顺序；最多持久化 20 人 |
 | `GET /3/tv/{series_id}/aggregate_credits` | `language` | 剧集演员列表首次按需加载或手动替换元数据后 | 跨全部季集的演员 ID、姓名、角色、头像和顺序；角色优先取覆盖集数最多者，最多持久化 20 人 |
 
 图片并没有通过 `/images` API 获取。当前代码直接把详情响应中的单个 `poster_path / backdrop_path / still_path` 拼接到配置的 `https://image.tmdb.org/t/p/original`，然后下载并缓存。
 
-配置了 `MOVA_OMDB_API_KEY` 时，还会调用 OMDb 的 `GET /?apikey=...&i=<imdb_id>` 获取 `imdbRating`。这是可选增强，不属于 TMDB API。
+当前评分不产生额外 HTTP 请求：电影和剧集详情响应中的 `vote_average / vote_count` 会作为 `tmdb / audience` 写入通用评分表。`vote_count` 为零或评分无效时不创建评分记录。
 
 ## 4. 自动匹配规则
 
@@ -292,10 +292,19 @@ TMDB 官方推荐的基本流程也是“先 search，再使用选中的 ID quer
 | 国家/地区 | movie `production_countries` / TV `origin_country` |
 | 题材 | `genres`，保留 TMDB genre ID 和本地化名称 |
 | 制作方 | `production_companies`，保留 ID、名称和 logo path |
-| 评分 | `vote_average`、`vote_count`；IMDb 评分继续作为独立来源 |
+| 评分 | `vote_average`、`vote_count`，保存为来源明确的 TMDB 观众评分 |
 | 状态 | movie/TV `status` |
 | 图片 | `images.posters / backdrops / logos` 中选定资源及其原始 path、语言、尺寸和 vote |
 | 外部身份 | `external_ids` 中 IMDb、Wikidata；TV 可额外保留 TVDB |
+
+评分与主元数据字段解耦存储：
+
+- `media_item_external_ids` 使用 `(media_item_id, provider)` 唯一保存 TMDB、IMDb 等外部身份。
+- `media_item_ratings` 使用 `(media_item_id, source, kind)` 唯一保存来源原始分值、量纲、评价数量、获取渠道和获取时间。
+- 当前只写入 `source=tmdb`、`kind=audience`、`scale=10`；`retrieved_via=tmdb`。
+- `source` 和 `kind` 不使用数据库枚举。未来增加 IMDb、Rotten Tomatoes critics/audience 等来源时不修改表结构。
+- 同一 TMDB 身份刷新时只替换 TMDB 评分；外部身份发生变化时清除旧身份关联的全部评分，避免手动换片后残留旧分数。
+- 第三方用户聚合评分与 Mova 用户自己的个人打分是不同数据域，个人打分不得写入 `media_item_ratings`。
 
 ### 7.2 电影专有字段
 
@@ -370,7 +379,7 @@ provider_artworks
 - 详情缓存 key 包含 provider、类型、ID、语言；图片列表还要包含 image language 策略版本。
 - TMDB 使用进程级全局有界并发和 rate limiter。官方当前说明仍可能在约每秒 40 请求附近限制批量抓取，必须尊重 `429` 和 `Retry-After`，并使用带抖动退避。
 - `404` 表示绑定可能失效，应进入待复核；`401/403` 是服务配置错误；`429/5xx/timeout` 是可重试 provider 故障，不能写成“无匹配”。
-- OMDb 失败只影响 IMDb 评分，不得让已成功的 TMDB 匹配变成 failed。
+- 评分写入失败不得把已经成功的 TMDB 身份匹配误报成无匹配；网络和 provider 错误继续按可重试故障处理。
 - `/configuration` 使用长 TTL 缓存；已有有效缓存时 TMDB 暂时不可用可以继续构造图片地址，首次启动且没有配置时只暂停远端图片下载，不影响本地扫描。
 - 图片下载使用 TMDB configuration 返回的合适尺寸。Mova 自己缓存后对客户端提供稳定 URL，不让客户端依赖 TMDB CDN。
 

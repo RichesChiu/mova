@@ -9,7 +9,7 @@ import { ConfirmActionModal } from '../../components/confirm-action-modal'
 import type { ContinueWatchingCardData } from '../../components/continue-watching-card'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { useI18n } from '../../i18n'
-import { getVisibleHomeLibraries } from '../../lib/home-sections'
+import { getVisibleHomeLibraries, shouldRenderHomeRecentlyAdded } from '../../lib/home-sections'
 import { mediaItemDetailPath, mediaItemPrimaryPath } from '../../lib/media-routes'
 import {
   buildDeletedLibraryCacheState,
@@ -147,6 +147,11 @@ export const HomePage = () => {
   const continueWatchingItems = homeQuery.data?.continue_watching ?? []
   const homeLibraries = getVisibleHomeLibraries(libraries)
   const recentlyAddedGroups = homeQuery.data?.recently_added ?? []
+  const shouldShowRecentlyAdded = shouldRenderHomeRecentlyAdded({
+    hasError: homeQuery.isError,
+    isLoading: homeQuery.isLoading,
+    libraryCount: libraries.length,
+  })
   const recentlyAddedByLibraryId = new Map(
     recentlyAddedGroups.map((group) => [group.library.id, group.items]),
   )
@@ -257,11 +262,13 @@ export const HomePage = () => {
             }}
           />
 
-          <LibraryContentSections
-            errorMessage={recentlyAddedErrorMessage}
-            groups={recentlyAddedGroups}
-            isLoading={homeQuery.isLoading}
-          />
+          {shouldShowRecentlyAdded ? (
+            <LibraryContentSections
+              errorMessage={recentlyAddedErrorMessage}
+              groups={recentlyAddedGroups}
+              isLoading={homeQuery.isLoading}
+            />
+          ) : null}
         </div>
       </HomeDashboardShell>
 

@@ -61,13 +61,13 @@
   min-height: 52px;
   padding: 10px 16px;
   background: var(--player-chrome-background);
-  backdrop-filter: blur(18px) saturate(120%);
+  backdrop-filter: var(--glass-filter-standard);
   opacity: 0;
   pointer-events: none;
   transform: translateY(-8px);
   transition:
-    opacity 160ms ease,
-    transform 180ms ease;
+    opacity var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .player-screen__back {
@@ -77,12 +77,12 @@
   width: 34px;
   height: 34px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--player-chrome-button-background);
   color: var(--text);
   transition:
-    background 160ms ease,
-    color 160ms ease;
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    color var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .player-screen__back:hover {

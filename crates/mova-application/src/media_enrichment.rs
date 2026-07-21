@@ -617,7 +617,8 @@ fn apply_remote_metadata_to_file(
         &mut file.title,
         &mut file.original_title,
         &mut file.year,
-        &mut file.imdb_rating,
+        &mut file.external_ids,
+        &mut file.ratings,
         &mut file.country,
         &mut file.genres,
         &mut file.studio,
@@ -651,9 +652,8 @@ fn apply_remote_series_metadata_to_episode_file(
         file.year = metadata.year;
     }
 
-    if file.imdb_rating.is_none() {
-        file.imdb_rating = metadata.imdb_rating.clone();
-    }
+    file.external_ids = metadata.external_ids.clone();
+    file.ratings = metadata.ratings.clone();
 
     if file.country.is_none() {
         file.country = metadata.country.clone();
@@ -1684,7 +1684,8 @@ mod tests {
             series_sidecar_title: None,
             series_sidecar_year: None,
             year: Some(2024),
-            imdb_rating: None,
+            external_ids: Vec::new(),
+            ratings: Vec::new(),
             metadata_status: None,
             metadata_failure_reason: None,
             remote_media_type: None,

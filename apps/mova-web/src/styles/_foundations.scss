@@ -1,0 +1,21 @@
+:root {
+  --radius-control: 10px;
+  --radius-card: 16px;
+  --radius-surface: 24px;
+  --radius-full: 999px;
+
+  --control-height: 46px;
+  --control-height-compact: 36px;
+
+  --motion-duration-instant: 90ms;
+  --motion-duration-standard: 160ms;
+  --motion-duration-slow: 220ms;
+  --motion-ease-standard: ease;
+  --motion-ease-emphasized: cubic-bezier(0.2, 0.82, 0.2, 1);
+  --motion-ease-enter: ease-out;
+  --motion-ease-exit: ease-in;
+
+  --glass-filter-soft: blur(12px) saturate(120%);
+  --glass-filter-standard: blur(18px) saturate(120%);
+  --glass-filter-strong: blur(24px) saturate(140%);
+}

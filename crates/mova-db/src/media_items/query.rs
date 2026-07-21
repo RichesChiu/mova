@@ -1,4 +1,5 @@
 use super::{
+    ratings::{list_media_item_ratings, replace_media_item_remote_data},
     CreateAudioTrackParams, CreateSubtitleTrackParams, ExistingMediaMetadataSummary,
     GlobalSearchParams, GlobalSearchResult, LibraryMediaTypeCounts, ListMediaItemsForLibraryParams,
     ListMediaItemsForLibraryResult, MediaItemPlaybackHeader, RecentlyAddedLibraryMediaItems,
@@ -58,7 +59,6 @@ pub async fn list_media_items_for_library(
             metadata_failure_reason,
             remote_media_type,
             year,
-            imdb_rating,
             country,
             genres,
             studio,
@@ -91,8 +91,11 @@ pub async fn list_media_items_for_library(
     .await
     .context("failed to list media items for library")?;
 
+    let mut items = rows.into_iter().map(map_media_item_row).collect::<Vec<_>>();
+    attach_media_item_ratings(pool, &mut items).await?;
+
     Ok(ListMediaItemsForLibraryResult {
-        items: rows.into_iter().map(map_media_item_row).collect(),
+        items,
         total: total_row.get("total"),
     })
 }
@@ -124,7 +127,6 @@ pub async fn list_media_item_previews_by_library(
                 metadata_failure_reason,
                 remote_media_type,
                 year,
-                imdb_rating,
                 country,
                 genres,
                 studio,
@@ -155,7 +157,6 @@ pub async fn list_media_item_previews_by_library(
             metadata_failure_reason,
             remote_media_type,
             year,
-            imdb_rating,
             country,
             genres,
             studio,
@@ -182,6 +183,16 @@ pub async fn list_media_item_previews_by_library(
             .entry(item.library_id)
             .or_insert_with(Vec::new)
             .push(item);
+    }
+    let media_item_ids = items_by_library
+        .values()
+        .flat_map(|items| items.iter().map(|item| item.id))
+        .collect::<Vec<_>>();
+    let mut ratings_by_media_item = list_media_item_ratings(pool, &media_item_ids).await?;
+    for items in items_by_library.values_mut() {
+        for item in items {
+            item.ratings = ratings_by_media_item.remove(&item.id).unwrap_or_default();
+        }
     }
     Ok(items_by_library)
 }
@@ -224,7 +235,6 @@ pub async fn list_recently_added_media_items_by_library(
                 mi.metadata_failure_reason,
                 mi.remote_media_type,
                 mi.year,
-                mi.imdb_rating,
                 mi.country,
                 mi.genres,
                 mi.studio,
@@ -275,7 +285,6 @@ pub async fn list_recently_added_media_items_by_library(
             ri.metadata_failure_reason as media_item_metadata_failure_reason,
             ri.remote_media_type as media_item_remote_media_type,
             ri.year as media_item_year,
-            ri.imdb_rating as media_item_imdb_rating,
             ri.country as media_item_country,
             ri.genres as media_item_genres,
             ri.studio as media_item_studio,
@@ -316,6 +325,17 @@ pub async fn list_recently_added_media_items_by_library(
 
         if let Some(group) = groups.last_mut() {
             group.items.push(map_recently_added_media_item_row(&row));
+        }
+    }
+
+    let media_item_ids = groups
+        .iter()
+        .flat_map(|group| group.items.iter().map(|item| item.id))
+        .collect::<Vec<_>>();
+    let mut ratings_by_media_item = list_media_item_ratings(pool, &media_item_ids).await?;
+    for group in &mut groups {
+        for item in &mut group.items {
+            item.ratings = ratings_by_media_item.remove(&item.id).unwrap_or_default();
         }
     }
 
@@ -452,7 +472,6 @@ pub async fn get_media_item(pool: &PgPool, media_item_id: i64) -> Result<Option<
             metadata_failure_reason,
             remote_media_type,
             year,
-            imdb_rating,
             country,
             genres,
             studio,
@@ -470,7 +489,12 @@ pub async fn get_media_item(pool: &PgPool, media_item_id: i64) -> Result<Option<
     .await
     .context("failed to get media item")?;
 
-    Ok(row.map(map_media_item_row))
+    let mut media_item = row.map(map_media_item_row);
+    if let Some(media_item) = media_item.as_mut() {
+        attach_media_item_ratings(pool, std::slice::from_mut(media_item)).await?;
+    }
+
+    Ok(media_item)
 }
 
 pub async fn get_media_item_playback_header(
@@ -528,6 +552,14 @@ pub async fn update_media_item_metadata(
     media_item_id: i64,
     params: UpdateMediaItemMetadataParams,
 ) -> Result<Option<MediaItem>> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start media metadata update transaction")?;
+    sqlx::query("select set_config('mova.defer_catalog_revision', 'on', true)")
+        .fetch_one(&mut *tx)
+        .await
+        .context("failed to defer catalog revision for media metadata update")?;
     let row = sqlx::query(
         r#"
         update media_items
@@ -542,13 +574,12 @@ pub async fn update_media_item_metadata(
             metadata_failure_reason = $9,
             remote_media_type = $10,
             year = $11,
-            imdb_rating = $12,
-            country = $13,
-            genres = $14,
-            studio = $15,
-            overview = $16,
-            poster_path = $17,
-            backdrop_path = $18,
+            country = $12,
+            genres = $13,
+            studio = $14,
+            overview = $15,
+            poster_path = $16,
+            backdrop_path = $17,
             updated_at = now()
         where id = $1
         returning
@@ -565,7 +596,6 @@ pub async fn update_media_item_metadata(
             metadata_failure_reason,
             remote_media_type,
             year,
-            imdb_rating,
             country,
             genres,
             studio,
@@ -587,18 +617,45 @@ pub async fn update_media_item_metadata(
     .bind(&params.metadata_failure_reason)
     .bind(&params.remote_media_type)
     .bind(params.year)
-    .bind(&params.imdb_rating)
     .bind(&params.country)
     .bind(&params.genres)
     .bind(&params.studio)
     .bind(&params.overview)
     .bind(&params.poster_path)
     .bind(&params.backdrop_path)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await
     .context("failed to update media item metadata")?;
 
-    Ok(row.map(map_media_item_row))
+    if row.is_some() && params.replace_remote_data {
+        replace_media_item_remote_data(
+            &mut tx,
+            media_item_id,
+            params.metadata_provider.as_deref(),
+            &params.external_ids,
+            &params.ratings,
+        )
+        .await?;
+    }
+
+    if let Some(row) = row.as_ref() {
+        let library_id: i64 = row.get("library_id");
+        sqlx::query("select mova_bump_realtime_revision($1)")
+            .bind(format!("library:{library_id}:catalog"))
+            .fetch_one(&mut *tx)
+            .await
+            .context("failed to bump media metadata catalog revision")?;
+    }
+
+    tx.commit()
+        .await
+        .context("failed to commit media metadata update transaction")?;
+
+    let mut media_item = row.map(map_media_item_row);
+    if let Some(media_item) = media_item.as_mut() {
+        attach_media_item_ratings(pool, std::slice::from_mut(media_item)).await?;
+    }
+    Ok(media_item)
 }
 
 /// 按主键读取单个媒体文件。
@@ -1584,7 +1641,6 @@ pub async fn list_existing_media_metadata_for_file_paths(
             mi.original_title,
             mi.sort_title,
             mi.year,
-            mi.imdb_rating,
             mi.country,
             mi.genres,
             mi.studio,
@@ -1622,7 +1678,6 @@ pub async fn list_existing_media_metadata_for_file_paths(
             series_mi.original_title as series_original_title,
             series_mi.sort_title as series_sort_title,
             series_mi.year as series_year,
-            series_mi.imdb_rating as series_imdb_rating,
             series_mi.country as series_country,
             series_mi.genres as series_genres,
             series_mi.studio as series_studio,
@@ -1673,7 +1728,7 @@ fn map_media_item_row(row: PgRow) -> MediaItem {
         metadata_failure_reason: row.get("metadata_failure_reason"),
         remote_media_type: row.get("remote_media_type"),
         year: row.get("year"),
-        imdb_rating: row.get("imdb_rating"),
+        ratings: Vec::new(),
         country: row.get("country"),
         genres: row.get("genres"),
         studio: row.get("studio"),
@@ -1713,7 +1768,7 @@ fn map_recently_added_media_item_row(row: &PgRow) -> MediaItem {
         metadata_failure_reason: row.get("media_item_metadata_failure_reason"),
         remote_media_type: row.get("media_item_remote_media_type"),
         year: row.get("media_item_year"),
-        imdb_rating: row.get("media_item_imdb_rating"),
+        ratings: Vec::new(),
         country: row.get("media_item_country"),
         genres: row.get("media_item_genres"),
         studio: row.get("media_item_studio"),
@@ -1723,6 +1778,15 @@ fn map_recently_added_media_item_row(row: &PgRow) -> MediaItem {
         created_at: row.get("media_item_created_at"),
         updated_at: row.get("media_item_updated_at"),
     }
+}
+
+async fn attach_media_item_ratings(pool: &PgPool, items: &mut [MediaItem]) -> Result<()> {
+    let media_item_ids = items.iter().map(|item| item.id).collect::<Vec<_>>();
+    let mut ratings_by_media_item = list_media_item_ratings(pool, &media_item_ids).await?;
+    for item in items {
+        item.ratings = ratings_by_media_item.remove(&item.id).unwrap_or_default();
+    }
+    Ok(())
 }
 
 fn map_media_item_playback_header_row(row: PgRow) -> MediaItemPlaybackHeader {
@@ -1848,7 +1912,6 @@ fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataS
         original_title: row.get("original_title"),
         sort_title: row.get("sort_title"),
         year: row.get("year"),
-        imdb_rating: row.get("imdb_rating"),
         country: row.get("country"),
         genres: row.get("genres"),
         studio: row.get("studio"),
@@ -1888,7 +1951,6 @@ fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataS
         series_original_title: row.get("series_original_title"),
         series_sort_title: row.get("series_sort_title"),
         series_year: row.get("series_year"),
-        series_imdb_rating: row.get("series_imdb_rating"),
         series_country: row.get("series_country"),
         series_genres: row.get("series_genres"),
         series_studio: row.get("series_studio"),

@@ -6,14 +6,14 @@
   min-height: 148px;
   padding: 10px;
   border: 1px solid var(--floating-border);
-  border-radius: 18px;
+  border-radius: var(--radius-card);
   background: var(--floating-surface);
   box-shadow: var(--panel-inset), var(--floating-shadow);
   scroll-snap-align: start;
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    transform 160ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .episode-card__artwork {
@@ -22,7 +22,7 @@
   aspect-ratio: 2 / 3;
   overflow: hidden;
   border: 1px solid var(--episode-artwork-border);
-  border-radius: 12px;
+  border-radius: var(--radius-control);
   background: var(--episode-artwork-background);
 }
 
@@ -63,7 +63,7 @@
   display: grid;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--floating-border) 78%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--floating-surface) 88%, transparent);
   box-shadow: var(--panel-inset);
 }
@@ -72,7 +72,7 @@
   content: '';
   width: 8px;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--text-soft) 72%, transparent);
 }
 
@@ -143,7 +143,7 @@
 .episode-card__line {
   display: block;
   width: 100%;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .episode-card__line--title,
@@ -176,7 +176,7 @@
   align-self: end;
   height: 6px;
   overflow: hidden;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--episode-progress-track);
 }
 

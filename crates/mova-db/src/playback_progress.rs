@@ -6,6 +6,8 @@ use sqlx::{
 };
 use std::collections::HashMap;
 
+use crate::media_items::list_media_item_ratings;
+
 const CONTINUE_WATCHING_LIMIT: i64 = 20;
 
 /// 写入或更新播放进度时需要的参数。
@@ -41,7 +43,6 @@ pub async fn list_continue_watching(
             mi.metadata_failure_reason,
             mi.remote_media_type,
             mi.year,
-            mi.imdb_rating,
             mi.country,
             mi.genres,
             mi.studio,
@@ -89,7 +90,22 @@ pub async fn list_continue_watching(
     .await
     .context("failed to list continue watching items")?;
 
-    Ok(rows.into_iter().map(map_continue_watching_row).collect())
+    let mut items = rows
+        .into_iter()
+        .map(map_continue_watching_row)
+        .collect::<Vec<_>>();
+    let media_item_ids = items
+        .iter()
+        .map(|item| item.media_item.id)
+        .collect::<Vec<_>>();
+    let mut ratings_by_media_item = list_media_item_ratings(pool, &media_item_ids).await?;
+    for item in &mut items {
+        item.media_item.ratings = ratings_by_media_item
+            .remove(&item.media_item.id)
+            .unwrap_or_default();
+    }
+
+    Ok(items)
 }
 
 /// 读取某个媒体条目最近一次观看进度。
@@ -315,7 +331,7 @@ fn map_continue_watching_row(row: PgRow) -> ContinueWatchingItem {
             metadata_failure_reason: row.get("metadata_failure_reason"),
             remote_media_type: row.get("remote_media_type"),
             year: row.get("year"),
-            imdb_rating: row.get("imdb_rating"),
+            ratings: Vec::new(),
             country: row.get("country"),
             genres: row.get("genres"),
             studio: row.get("studio"),

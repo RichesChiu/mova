@@ -11,7 +11,6 @@ services:
       MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
       MOVA_WEB_DIST_DIR: /app/web
       MOVA_TMDB_ACCESS_TOKEN: ${MOVA_TMDB_ACCESS_TOKEN:-}
-      MOVA_OMDB_API_KEY: ${MOVA_OMDB_API_KEY:-}
       MOVA_WORKER_CONCURRENCY: ${MOVA_WORKER_CONCURRENCY:-2}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}

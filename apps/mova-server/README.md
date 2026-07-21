@@ -14,7 +14,7 @@
 | --- | --- |
 | `src/main.rs` | 进程入口。负责加载环境变量、初始化 tracing、连接数据库、执行 migration、启动 realtime dispatcher 与后台 worker 池、准备缓存目录、创建 `AppState`，并启动 Axum 服务。 |
 | `src/config.rs` | 读取 `MOVA_HTTP_HOST`、`MOVA_HTTP_PORT`、`MOVA_TIMEZONE`、`MOVA_CACHE_DIR`、`MOVA_WEB_DIST_DIR`、`MOVA_WORKER_CONCURRENCY` 等运行时配置。 |
-| `src/metadata_provider_config.rs` | 解析元数据 provider 相关环境变量，并交给 `mova-application` 构建具体 provider；当前会处理 TMDB token、可选的 OMDb key，以及对应的 base URL。 |
+| `src/metadata_provider_config.rs` | 解析 TMDB token、语言和 endpoint 环境变量，并交给 `mova-application` 构建具体 provider。 |
 | `src/app.rs` | 组装顶层 `Router`，把所有子路由统一挂到 `/api` 下，并在有前端构建产物时托管静态文件。 |
 | `src/state.rs` | 定义 `AppState`、进程内扫描租约注册表、后台任务唤醒器以及 realtime 依赖。 |
 | `src/auth.rs` | 公用鉴权与访问控制助手，包括 Web session cookie、原生客户端 Bearer access token、`require_user`、`require_admin`、媒体库/媒体项/媒体文件访问校验。 |
@@ -170,7 +170,7 @@
 
 同一剧集组只做一次剧集 metadata 查询，再把 TMDB 标题和剧集级海报应用到组内所有集；同一 TMDB 影片下的电影资源按 `provider_item_id` 归并为一个 movie item，详情页作为多个资源版本切换。图片字段只写当前层级、当前字段自己的图，不用单集截图、其它层级图片、搜索结果图片或另一个图片字段兜底；`pending` 写库不会清空既有 artwork，只有最终 `matched` 写入才允许清理远端确认缺失的图片。临时扫描 item 会携带当前可用的 `year`、`overview`、`metadata_status` 和 `remote_media_type`，`poster_path` / `backdrop_path` 只在确认浏览器可访问时返回；Web 只在 `stage = completed` 且远端类型为空或与本地结构冲突时把扫描卡放入 Other，远端类型一致的 metadata 失败仍留在对应类型分区。`stage = completed` 后媒体写入事务会增加对应 `library:{id}:catalog` revision，客户端按资源失效通知刷新该库和轻量首页。剧集身份优先读取最近的 `tvshow.nfo`，否则使用文件名中 `SxxExx` 前的标题；目录文字不参与标题或年份候选。S01 年份是系列首播年，后续季年份只在缺少 S01 时作为对应季的 TMDB 严格验证提示。所有事件都会按 server/admin/library/user scope 做可见性过滤，再转换成 SSE。
 
-另外，扫描现在先做轻量文件清单和同路径 `scan_hash` / `local_analysis_version` 比对；已匹配且未变化、已经有 TMDB 绑定的路径不会重新跑拆名、sidecar、`ffprobe`、TMDB / OMDb、图片缓存或数据库 upsert。新增、变更或本地分析版本过期的路径会先进入浅层聚合，再按组完整探测和 upsert。文件指纹与本地分析版本都未变化但未匹配成功、缺少 TMDB provider 绑定、旧状态是 `skipped` 但当前已启用 TMDB、按前端 Other 规则需要复核、或仍保留远端图片 URL 的路径，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时可从数据库恢复上次本地分析结果，跳过拆名、sidecar、`ffprobe`，直接进入有界 remote 流水线补 metadata/海报。自动 metadata 选择保持保守；更宽松的候选复核交给手动搜索 / 替换元数据。缺失路径会在最后统一删除。
+另外，扫描现在先做轻量文件清单和同路径 `scan_hash` / `local_analysis_version` 比对；已匹配且未变化、已经有 TMDB 绑定的路径不会重新跑拆名、sidecar、`ffprobe`、TMDB、图片缓存或数据库 upsert。新增、变更或本地分析版本过期的路径会先进入浅层聚合，再按组完整探测和 upsert。文件指纹与本地分析版本都未变化但未匹配成功、缺少 TMDB provider 绑定、旧状态是 `skipped` 但当前已启用 TMDB、按前端 Other 规则需要复核、或仍保留远端图片 URL 的路径，浅层聚合仍只看当前文件名 / 路径；进入组内完整分析时可从数据库恢复上次本地分析结果，跳过拆名、sidecar、`ffprobe`，直接进入有界 remote 流水线补 metadata/海报。自动 metadata 选择保持保守；更宽松的候选复核交给手动搜索 / 替换元数据。缺失路径会在最后统一删除。
 
 `PATCH /api/libraries/{id}` 修改 `metadata_language` 时会先停止该库的活跃扫描，再把库内全部媒体条目标记为 `pending` 并自动入队一次全库元数据重扫。该重扫会复用未变化文件已经缓存的本地分析、音轨和字幕结果，但不会跳过任何已有媒体的远端元数据刷新。媒体库不再维护启用/禁用状态。
 

@@ -1,4 +1,5 @@
 use super::{
+    ratings::replace_media_item_remote_data,
     sync::{
         cleanup_media_item_if_no_files, delete_media_item, display_title_for_entry,
         insert_media_file, reassign_media_file_to_media_item, update_media_file_from_entry,
@@ -209,7 +210,19 @@ async fn insert_series_item_from_entry(
     .await
     .context("failed to insert series item")?;
 
-    Ok(row.get("id"))
+    let series_id = row.get("id");
+    if entry.replace_remote_data {
+        replace_media_item_remote_data(
+            tx,
+            series_id,
+            entry.metadata_provider.as_deref(),
+            &entry.external_ids,
+            &entry.ratings,
+        )
+        .await?;
+    }
+
+    Ok(series_id)
 }
 
 async fn update_series_item_from_entry(
@@ -273,6 +286,17 @@ async fn update_series_item_from_entry(
     .execute(&mut **tx)
     .await
     .context("failed to update series item during library sync")?;
+
+    if entry.replace_remote_data {
+        replace_media_item_remote_data(
+            tx,
+            series_id,
+            entry.metadata_provider.as_deref(),
+            &entry.external_ids,
+            &entry.ratings,
+        )
+        .await?;
+    }
 
     Ok(())
 }

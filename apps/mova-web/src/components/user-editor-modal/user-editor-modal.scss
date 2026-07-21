@@ -22,7 +22,7 @@
   gap: 18px;
   overflow: auto;
   padding: 22px;
-  border-radius: 28px;
+  border-radius: var(--radius-surface);
 }
 
 .user-editor-modal__header,
@@ -49,14 +49,14 @@
   padding: 0;
   appearance: none;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: transparent;
   box-shadow: none;
   color: var(--text-muted);
   transition:
-    color 160ms ease,
-    background 160ms ease,
-    transform 160ms ease;
+    color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .user-editor-modal__close:hover {
@@ -101,13 +101,13 @@
   overflow: hidden;
   padding: 8px 11px;
   border: 1px solid var(--panel-border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--panel-background-soft);
   box-shadow: none;
   cursor: pointer;
   transition:
-    border-color 160ms ease,
-    background 160ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .user-editor-modal__access-chip:hover {
@@ -149,15 +149,15 @@
   padding: 0;
   appearance: none;
   border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
-  border-radius: 6px;
+  border-radius: var(--radius-control);
   background: var(--checkbox-background);
   box-shadow: var(--checkbox-shadow);
   cursor: pointer;
   transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    box-shadow 160ms ease,
-    transform 160ms ease;
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .field .user-editor-modal__access-checkbox {

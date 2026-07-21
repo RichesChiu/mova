@@ -1,7 +1,9 @@
 mod query;
+mod ratings;
 mod series;
 mod sync;
 
+use mova_domain::{MediaExternalId, MediaRating};
 pub use query::{
     count_media_items_for_library, delete_series_episode_outline_cache, get_audio_track,
     get_library_media_type_counts, get_media_file, get_media_item, get_media_item_playback_header,
@@ -17,6 +19,7 @@ pub use query::{
     update_series_episode_metadata, update_series_season_metadata,
     upsert_series_episode_outline_cache,
 };
+pub use ratings::list_media_item_ratings;
 pub use sync::{
     delete_library_media_by_file_path, delete_library_media_by_path_prefix, sync_library_media,
     sync_library_media_best_effort, sync_library_media_changes,
@@ -61,13 +64,15 @@ pub struct CreateMediaEntryParams {
     pub metadata_status: String,
     pub metadata_failure_reason: Option<String>,
     pub allow_artwork_clear: bool,
+    pub replace_remote_data: bool,
     pub remote_media_type: Option<String>,
     pub title: String,
     pub source_title: String,
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
     pub year: Option<i32>,
-    pub imdb_rating: Option<String>,
+    pub external_ids: Vec<MediaExternalId>,
+    pub ratings: Vec<MediaRating>,
     pub country: Option<String>,
     pub genres: Option<String>,
     pub studio: Option<String>,
@@ -123,9 +128,11 @@ pub struct UpdateMediaItemMetadataParams {
     pub metadata_provider_item_id: Option<i64>,
     pub metadata_status: String,
     pub metadata_failure_reason: Option<String>,
+    pub replace_remote_data: bool,
     pub remote_media_type: Option<String>,
     pub year: Option<i32>,
-    pub imdb_rating: Option<String>,
+    pub external_ids: Vec<MediaExternalId>,
+    pub ratings: Vec<MediaRating>,
     pub country: Option<String>,
     pub genres: Option<String>,
     pub studio: Option<String>,
@@ -273,7 +280,6 @@ pub struct ExistingMediaMetadataSummary {
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
     pub year: Option<i32>,
-    pub imdb_rating: Option<String>,
     pub country: Option<String>,
     pub genres: Option<String>,
     pub studio: Option<String>,
@@ -313,7 +319,6 @@ pub struct ExistingMediaMetadataSummary {
     pub series_original_title: Option<String>,
     pub series_sort_title: Option<String>,
     pub series_year: Option<i32>,
-    pub series_imdb_rating: Option<String>,
     pub series_country: Option<String>,
     pub series_genres: Option<String>,
     pub series_studio: Option<String>,

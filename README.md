@@ -43,7 +43,6 @@ cp .env.example .env
 ```env
 MOVA_MEDIA_ROOT=/absolute/path/to/media
 MOVA_TMDB_ACCESS_TOKEN=
-MOVA_OMDB_API_KEY=
 MOVA_WORKER_CONCURRENCY=2
 HTTP_PROXY=
 HTTPS_PROXY=
@@ -51,7 +50,6 @@ HTTPS_PROXY=
 
 - `MOVA_MEDIA_ROOT` 必填，会只读挂载到容器内固定目录 `/media`。
 - `MOVA_TMDB_ACCESS_TOKEN` 用于启用 TMDB 自动刮削、远端海报/背景图以及元数据搜索与替换。不配置时服务仍可启动，并保留本地扫描、NFO/sidecar 读取、入库和播放能力，但会自动跳过所有 TMDB 请求。
-- `MOVA_OMDB_API_KEY` 可选，配置后会在拿到 `imdb_id` 时补 IMDb 评分。
 - `MOVA_WORKER_CONCURRENCY` 控制进程内后台 worker 池并发数，默认值为 `2`。
 
 ### 获取 TMDB Access Token

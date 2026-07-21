@@ -3,6 +3,7 @@ import {
   getVisibleHomeLibraries,
   HOME_LIBRARY_LIMIT,
   shouldRenderHomeContinueWatching,
+  shouldRenderHomeRecentlyAdded,
   shouldShowAllHomeLibraries,
 } from './home-sections'
 
@@ -30,6 +31,21 @@ describe('home-sections', () => {
     ).toBe(true)
     expect(
       shouldRenderHomeContinueWatching({ hasError: false, isLoading: false, itemCount: 1 }),
+    ).toBe(true)
+  })
+
+  it('hides recently added only after an empty library snapshot completes', () => {
+    expect(
+      shouldRenderHomeRecentlyAdded({ hasError: false, isLoading: false, libraryCount: 0 }),
+    ).toBe(false)
+    expect(
+      shouldRenderHomeRecentlyAdded({ hasError: false, isLoading: true, libraryCount: 0 }),
+    ).toBe(true)
+    expect(
+      shouldRenderHomeRecentlyAdded({ hasError: true, isLoading: false, libraryCount: 0 }),
+    ).toBe(true)
+    expect(
+      shouldRenderHomeRecentlyAdded({ hasError: false, isLoading: false, libraryCount: 1 }),
     ).toBe(true)
   })
 })

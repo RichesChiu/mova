@@ -17,6 +17,8 @@ pub use parse::{
 
 use std::path::PathBuf;
 
+use mova_domain::{MediaExternalId, MediaRating};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredSubtitleTrack {
     pub source_kind: String,
@@ -65,7 +67,8 @@ pub struct DiscoveredMediaFile {
     pub series_sidecar_title: Option<String>,
     pub series_sidecar_year: Option<i32>,
     pub year: Option<i32>,
-    pub imdb_rating: Option<String>,
+    pub external_ids: Vec<MediaExternalId>,
+    pub ratings: Vec<MediaRating>,
     pub metadata_status: Option<String>,
     pub metadata_failure_reason: Option<String>,
     pub remote_media_type: Option<String>,

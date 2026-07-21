@@ -9,7 +9,7 @@
   min-height: 132px;
   padding: clamp(24px, 3vw, 38px) clamp(18px, 2.4vw, 30px);
   border: 1px dashed color-mix(in srgb, var(--button-primary-border) 72%, transparent);
-  border-radius: 18px;
+  border-radius: var(--radius-card);
   background: color-mix(in srgb, var(--panel-background-soft) 88%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--panel-rim-highlight) 78%, transparent);
   text-align: center;
@@ -44,4 +44,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.library-empty-state__settings-link {
+  min-height: var(--control-height-compact);
+  padding-inline: 14px;
+  gap: 7px;
+  border-radius: var(--radius-control);
+  font-size: 0.82rem;
+}
+
+.library-empty-state__settings-link .button__icon {
+  width: 16px;
+  height: 16px;
 }

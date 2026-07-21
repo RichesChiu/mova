@@ -1058,6 +1058,7 @@ dependencies = [
 name = "mova-scan"
 version = "0.1.0"
 dependencies = [
+ "mova-domain",
  "serde",
  "serde_json",
  "tracing",
