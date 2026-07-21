@@ -106,6 +106,7 @@ docker compose up -d --build
 - SSE 同步协议: [docs/SSE.md](docs/SSE.md)
 - 媒体库扫描与刮削设计: [docs/MEDIA_LIBRARY_SCAN.md](docs/MEDIA_LIBRARY_SCAN.md)
 - TMDB 对接审查与目标契约: [docs/TMDB.md](docs/TMDB.md)
+- Docker Hub Overview: [docs/DOCKER_HUB.md](docs/DOCKER_HUB.md)
 - 前端: [apps/mova-web/README.md](apps/mova-web/README.md)
 - 后端: [apps/mova-server/README.md](apps/mova-server/README.md)
 - Crates: [crates/README.md](crates/README.md)

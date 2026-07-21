@@ -1,0 +1,171 @@
+# Mova
+
+> 把本地影视库，变成你的私人流媒体。
+
+**语言 / Language：中文 · [English](#english)**
+
+Mova 是一个使用 Rust 构建的轻量、自托管媒体服务器，用于扫描、整理和播放本地电影与剧集。Web 端已集成在镜像中，macOS 和 iOS 客户端正在开发。
+
+## 核心能力
+
+- 扫描、整理电影和剧集媒体库
+- 获取 TMDB 元数据、海报和背景图
+- 多用户、媒体库访问权限和跨设备会话
+- 继续观看、播放进度、最近添加、搜索和通知
+- 后台扫描任务、实时进度和增量同步
+- 只读挂载媒体目录，不修改原始媒体文件
+- 同时支持 `linux/amd64` 和 `linux/arm64`
+
+## 快速开始
+
+推荐使用项目提供的 Docker Compose 配置：
+
+```bash
+git clone https://github.com/RichesChiu/mova.git
+cd mova
+cp .env.example .env
+```
+
+编辑 `.env`，至少配置宿主机媒体目录：
+
+```env
+MOVA_MEDIA_ROOT=/absolute/path/to/media
+MOVA_TMDB_ACCESS_TOKEN=
+```
+
+启动 Mova：
+
+```bash
+docker compose up -d
+```
+
+打开 Web 页面：
+
+```text
+http://localhost:36080
+```
+
+首次打开后，创建首个系统管理员，然后进入服务器设置创建媒体库。
+
+## Docker 镜像
+
+```bash
+docker pull richeschiu/mova:latest
+```
+
+当前发布平台：
+
+- `linux/amd64`
+- `linux/arm64`
+
+Windows 和 macOS 用户可以通过 Docker Desktop 运行该 Linux 镜像，Linux 用户可以通过 Docker Engine 或 Docker Desktop 运行。
+
+升级到最新镜像：
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+## 数据与隐私
+
+媒体目录以只读方式挂载。Mova 会将用户、媒体库、元数据、播放进度、通知和后台任务状态保存在独立的 PostgreSQL 数据库中，并将图片等资源保存在独立缓存目录中，不会修改原始媒体文件。
+
+## 项目状态
+
+Mova 目前处于 pre-1.0 预览阶段，适合本机、家庭服务器和私人媒体库场景。快速迭代期间可能出现破坏性数据库结构调整，升级后可能需要重建数据库并重新扫描媒体库。
+
+## 相关链接
+
+- [GitHub 源码](https://github.com/RichesChiu/mova)
+- [部署与首次使用](https://github.com/RichesChiu/mova#部署)
+- [API 与技术文档](https://github.com/RichesChiu/mova/tree/master/docs)
+- [问题反馈](https://github.com/RichesChiu/mova/issues)
+- [AGPL-3.0-only 许可证](https://github.com/RichesChiu/mova/blob/master/LICENSE)
+
+---
+
+## English
+
+[返回中文](#mova)
+
+> Turn your local media library into your own streaming service.
+
+Mova is a lightweight, self-hosted media server built with Rust for scanning, organizing, and streaming local movies and TV shows. The Web app is included in the image, with macOS and iOS clients in development.
+
+### Features
+
+- Scan and organize movie and TV libraries
+- Fetch TMDB metadata, posters, and backdrops
+- Multi-user library access and cross-device sessions
+- Continue watching, playback progress, recently added, search, and notifications
+- Background scan jobs, realtime progress, and incremental synchronization
+- Read-only media mounts that leave original files untouched
+- Multi-platform images for `linux/amd64` and `linux/arm64`
+
+### Quick Start
+
+The provided Docker Compose configuration is the recommended way to run Mova:
+
+```bash
+git clone https://github.com/RichesChiu/mova.git
+cd mova
+cp .env.example .env
+```
+
+Edit `.env` and configure at least the host media directory:
+
+```env
+MOVA_MEDIA_ROOT=/absolute/path/to/media
+MOVA_TMDB_ACCESS_TOKEN=
+```
+
+Start Mova:
+
+```bash
+docker compose up -d
+```
+
+Open the Web app:
+
+```text
+http://localhost:36080
+```
+
+On first launch, create the initial system administrator and then create a media library from Server Settings.
+
+### Docker Image
+
+```bash
+docker pull richeschiu/mova:latest
+```
+
+Published platforms:
+
+- `linux/amd64`
+- `linux/arm64`
+
+Windows and macOS users can run the Linux image through Docker Desktop. Linux users can run the same image through Docker Engine or Docker Desktop.
+
+Upgrade to the latest image:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+### Data and Privacy
+
+Media directories are mounted read-only. Mova stores users, libraries, metadata, playback progress, notifications, and background job state in a separate PostgreSQL database. Artwork and generated resources are stored in a separate cache without modifying original media files.
+
+### Project Status
+
+Mova is currently a pre-1.0 preview for local machines, home servers, and private media libraries. Breaking database changes may occur during rapid development and can require rebuilding the database and rescanning media libraries.
+
+### Links
+
+- [GitHub Repository](https://github.com/RichesChiu/mova)
+- [Deployment and First Run](https://github.com/RichesChiu/mova#部署)
+- [API and Technical Documentation](https://github.com/RichesChiu/mova/tree/master/docs)
+- [Issue Tracker](https://github.com/RichesChiu/mova/issues)
+- [AGPL-3.0-only License](https://github.com/RichesChiu/mova/blob/master/LICENSE)

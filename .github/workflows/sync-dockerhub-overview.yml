@@ -1,0 +1,34 @@
+name: Sync Docker Hub Overview
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - docs/DOCKER_HUB.md
+      - .github/workflows/sync-dockerhub-overview.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-dockerhub-overview
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: Update Docker Hub repository description
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Update Docker Hub Overview
+        uses: peter-evans/dockerhub-description@e98e4d1628a5f3be2be7c231e50981aee98723ae # v4.0.0
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: richeschiu/mova
+          short-description: 用 Rust 构建的轻量自托管媒体服务器，整理并播放本地电影与剧集。
+          readme-filepath: ./docs/DOCKER_HUB.md
