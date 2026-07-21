@@ -1,0 +1,79 @@
+@layer legacy, redesign;
+
+@layer redesign {
+
+  #features .section-title h2 {
+    max-width: 340px;
+    font-size: clamp(32px, 2.7vw, 38px);
+  }
+
+  .section-title {
+    margin-bottom: 0;
+    text-align: left;
+  }
+
+  .section-title h2 {
+    max-width: 420px;
+    margin: 0;
+    color: var(--ink);
+    font-size: clamp(30px, 3.2vw, 44px);
+    letter-spacing: -0.04em;
+    line-height: 1.17;
+  }
+
+  .section-title span {
+    width: 44px;
+    height: 3px;
+    margin: 22px 0 0;
+    background: linear-gradient(90deg, #6846f4, #20b3ed);
+  }
+
+  .platform-heading .section-title {
+    text-align: center;
+  }
+
+  .platform-heading .section-title h2 {
+    max-width: none;
+  }
+
+  .platform-heading .section-title span {
+    margin-inline: auto;
+  }
+
+  :lang(en) #features .section-title h2 {
+    font-size: clamp(30px, 2.5vw, 36px);
+  }
+
+  @media (max-width: 640px) {
+
+    .section-title h2 {
+      font-size: 34px;
+    }
+
+  }
+}
+
+@layer legacy {
+
+.section-title {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  margin-bottom: 30px;
+  text-align: center;
+}
+
+.section-title h2 {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 900;
+  line-height: 1.18;
+}
+
+.section-title span {
+  width: 46px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #7c43ff, #12c7f7);
+}
+}

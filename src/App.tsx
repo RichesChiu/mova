@@ -1,64 +1,59 @@
 import { useEffect, useRef, useState } from 'react'
 import { Header } from './components/Header'
-import { navItems } from './data/homeContent'
+import { SiteFooter } from './components/SiteFooter'
 import { ApiDocsPage } from './pages/ApiDocsPage'
 import { HomePage } from './pages/HomePage'
+import { PrivacyPage } from './pages/PrivacyPage'
+import { SupportPage } from './pages/SupportPage'
+import { useI18n } from './i18n-context'
 import './App.css'
 
-type Page = 'home' | 'api'
+type Page = 'home' | 'api' | 'privacy' | 'support'
+
+const pagePaths: Record<Exclude<Page, 'home'>, string> = {
+  api: '/api',
+  privacy: '/privacy',
+  support: '/support',
+}
 
 const getRoutePage = (): Page => {
   if (typeof window === 'undefined') {
     return 'home'
   }
 
-  return window.location.pathname.replace(/\/$/, '') === '/api' || window.location.hash === '#api'
-    ? 'api'
-    : 'home'
+  const path = window.location.pathname.replace(/\/$/, '')
+  const hashRoute = window.location.hash.replace(/^#/, '')
+
+  if (path === '/api' || hashRoute === 'api') return 'api'
+  if (path === '/privacy' || hashRoute === 'privacy') return 'privacy'
+  if (path === '/support' || hashRoute === 'support') return 'support'
+  return 'home'
 }
 
 function App() {
+  const { language } = useI18n()
   const [page, setPage] = useState<Page>(() => getRoutePage())
-  const [activeSection, setActiveSection] = useState('home')
   const [isHeaderHidden, setIsHeaderHidden] = useState(false)
   const lastScrollY = useRef(0)
 
   useEffect(() => {
-    if (page !== 'home') {
-      return undefined
+    const titles: Record<Page, { zh: string; en: string }> = {
+      home: { zh: 'MOVA 自托管媒体服务', en: 'MOVA Self-hosted Media Service' },
+      api: { zh: 'API 文档 · MOVA', en: 'API Documentation · MOVA' },
+      privacy: { zh: '隐私政策 · MOVA', en: 'Privacy Policy · MOVA' },
+      support: { zh: '支持 · MOVA', en: 'Support · MOVA' },
     }
 
-    const sectionIds = navItems.map((item) => item.id)
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visibleEntry = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
-
-        if (visibleEntry?.target.id) {
-          setActiveSection(visibleEntry.target.id)
-        }
-      },
-      { rootMargin: '-35% 0px -50% 0px', threshold: [0.1, 0.35, 0.6] },
-    )
-
-    sectionIds.forEach((id) => {
-      const section = document.getElementById(id)
-      if (section) {
-        observer.observe(section)
-      }
-    })
-
-    return () => observer.disconnect()
-  }, [page])
+    document.title = titles[page][language]
+  }, [language, page])
 
   useEffect(() => {
     const syncPageFromLocation = () => {
       const nextPage = getRoutePage()
       setPage(nextPage)
 
-      if (nextPage === 'api' && window.location.hash === '#api') {
-        window.history.replaceState(null, '', '/api')
+      if (nextPage !== 'home' && window.location.hash === `#${nextPage}`) {
+        window.history.replaceState(null, '', pagePaths[nextPage])
       }
     }
 
@@ -117,6 +112,16 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  const openPage = (nextPage: Exclude<Page, 'home'>) => {
+    const path = pagePaths[nextPage]
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, '', path)
+    }
+
+    setPage(nextPage)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   const handleHeaderNavigate = (targetId: string) => {
     if (targetId === 'api') {
       openApiDocs()
@@ -140,18 +145,28 @@ function App() {
   return (
     <div className="app-shell">
       <Header
-        activeSection={page === 'api' ? 'api' : activeSection}
+        activeSection={page === 'home' ? 'home' : page === 'api' ? 'api' : ''}
         isHidden={isHeaderHidden}
         onNavigate={handleHeaderNavigate}
       />
 
       <main>
         {page === 'api' ? (
-          <ApiDocsPage onNavigate={scrollToSection} />
+          <ApiDocsPage onNavigate={handleHeaderNavigate} />
+        ) : page === 'privacy' ? (
+          <PrivacyPage />
+        ) : page === 'support' ? (
+          <SupportPage onOpenPrivacy={() => openPage('privacy')} />
         ) : (
-          <HomePage onNavigate={scrollToSection} onOpenApiDocs={openApiDocs} />
+          <HomePage onOpenApiDocs={openApiDocs} />
         )}
       </main>
+
+      <SiteFooter
+        onOpenHome={() => scrollToSection('home')}
+        onOpenPrivacy={() => openPage('privacy')}
+        onOpenSupport={() => openPage('support')}
+      />
     </div>
   )
 }

@@ -1,3 +1,5 @@
+import './MovaIcon.css'
+
 const ICON_SPRITE = '/assets/mova-icons/sprite/mova-icons-sprite.svg'
 
 export type IconName =
@@ -7,28 +9,12 @@ export type IconName =
   | 'permissions'
   | 'metadata'
   | 'self-host'
-  | 'tv'
-  | 'mobile'
-  | 'tablet'
-  | 'desktop'
   | 'rocket'
   | 'multi-terminal'
   | 'data-shield'
   | 'scalable'
   | 'home'
-  | 'library'
-  | 'movie'
-  | 'series'
-  | 'music'
-  | 'photo'
-  | 'playlist'
-  | 'user'
-  | 'settings'
-  | 'search'
-  | 'bell'
-  | 'docs'
   | 'arrow-right'
-  | 'play'
 
 export function MovaIcon({
   name,

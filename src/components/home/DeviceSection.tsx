@@ -1,66 +1,72 @@
 import { MovaIcon } from '../MovaIcon'
 import { SectionTitle } from '../SectionTitle'
-import { devices, stats } from '../../data/homeContent'
+import { devices, macAppStoreUrl } from '../../data/homeContent'
+import { useI18n } from '../../i18n-context'
+import './DeviceSection.css'
 
 export function DeviceSection() {
-  return (
-    <section className="section-block" aria-labelledby="devices-title">
-      <SectionTitle id="devices-title" title="在所有设备上，随时随地享受" />
+  const macDevice = devices.find((device) => device.title === 'macOS 端')
+  const { t } = useI18n()
 
-      <div className="device-grid">
+  return (
+    <section className="platform-section" aria-labelledby="devices-title">
+      <div className="macos-showcase">
+        <div className="macos-copy">
+          <p className="eyebrow">{t('macOS 客户端')}</p>
+          <h2>{t('专为 macOS 打造的')}<br />{t('原生体验')}</h2>
+          <p>{macDevice ? t(macDevice.text) : null}</p>
+          <div className="macos-actions" aria-label={t('macOS 平台说明')}>
+            <a className="macos-store-note" href={macAppStoreUrl}>
+              {t('前往 Mac App Store 安装')}
+              <MovaIcon name="arrow-right" />
+            </a>
+            <span className="android-note">{t('原生客户端暂不支持 Android')}</span>
+          </div>
+        </div>
+        <div className="macos-preview">
+          <img
+            src="/screenshots/macos-detail.png"
+            width="1920"
+            height="1080"
+            loading="lazy"
+            decoding="async"
+            alt={t('MOVA macOS 原生客户端详情界面')}
+          />
+        </div>
+      </div>
+
+      <div className="platform-heading">
+        <SectionTitle id="devices-title" title={t('跨平台支持')} />
+        <p>{t('在你常用的设备上，随时访问你的媒体库')}</p>
+      </div>
+
+      <div className="device-grid" aria-label={t('MOVA 平台状态')}>
         {devices.map((device) => (
           <article
-            className={`device-card ${device.images.length ? 'device-card--showcase' : 'device-card--upcoming'}`}
+            className={`device-card device-card--${device.id} ${device.available ? 'device-card--showcase' : 'device-card--upcoming'}`}
             key={device.title}
           >
-            {device.images.length ? (
-              <div
-                className={`device-gallery ${device.images.length === 2 ? 'device-gallery--two' : ''}`}
-              >
-                {device.images.map((image, index) => (
-                  <div className="device-frame" key={image}>
-                    <img
-                      src={image}
-                      alt={`${device.title} MOVA 界面预览 ${index + 1}`}
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="device-coming-soon" aria-hidden="true">
-                <span>开发中</span>
-              </div>
-            )}
-            <span className="device-icon">
-              <MovaIcon name={device.icon} />
+            <span className={`device-status ${device.available ? 'is-ready' : 'is-upcoming'}`}>
+              {t(device.available ? '现在即可使用' : '积极开发中')}
             </span>
-            <h3>{device.title}</h3>
-            <p>{device.text}</p>
-            {device.notices && (
-              <div className="device-notices" aria-label="平台支持说明">
-                {device.notices.map((notice) => (
-                  <span key={notice}>{notice}</span>
-                ))}
-              </div>
-            )}
+            <span className={`device-icon device-icon--${device.id}`} aria-hidden="true">
+              <img src={`/assets/mova-icons/platform/${device.id}.svg`} alt="" />
+            </span>
+            <h3>{t(device.title)}</h3>
+            <p>{t(device.text)}</p>
+            {device.action ? (
+              <a
+                className={`device-action device-action--${device.action.variant}`}
+                href={device.action.href}
+              >
+                {t(device.action.label)}
+                <MovaIcon name="arrow-right" />
+              </a>
+            ) : null}
           </article>
         ))}
       </div>
 
-      <div className="stats-strip">
-        {stats.map((stat) => (
-          <article className="stat-item" key={stat.title}>
-            <MovaIcon name={stat.icon} className="stat-icon" />
-            <div>
-              <strong>{stat.value}</strong>
-              <span>{stat.title}</span>
-            </div>
-            <p>{stat.text}</p>
-          </article>
-        ))}
-      </div>
     </section>
   )
 }

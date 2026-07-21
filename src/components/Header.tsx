@@ -1,4 +1,6 @@
 import { dockerUrl, githubUrl, navItems } from '../data/homeContent'
+import { useI18n } from '../i18n-context'
+import './Header.css'
 
 export function Header({
   activeSection,
@@ -9,27 +11,33 @@ export function Header({
   isHidden: boolean
   onNavigate: (sectionId: string) => void
 }) {
+  const { language, setLanguage, t } = useI18n()
+
   return (
     <header className={`site-header${isHidden ? ' site-header-hidden' : ''}`}>
       <button
         className="brand"
         type="button"
         onClick={() => onNavigate('home')}
-        aria-label="返回 MOVA 首页"
+        aria-label={t('返回 MOVA 首页')}
       >
         <img className="brand-mark" src="/mova-logo-transparent-128.png" width="42" height="42" alt="" />
         <span>MOVA</span>
       </button>
 
-      <nav className="site-nav" aria-label="主要导航">
-        {navItems.map((item) => (
+      <nav className="site-nav" aria-label={t('主要导航')}>
+        {navItems.map((item) => item.id === 'deploy' ? (
+          <a key={item.id} href={dockerUrl} target="_blank" rel="noreferrer">
+            {t(item.label)}
+          </a>
+        ) : (
           <button
             key={item.id}
             className={activeSection === item.id ? 'active' : ''}
             type="button"
             onClick={() => onNavigate(item.id)}
           >
-            {item.label}
+            {t(item.label)}
           </button>
         ))}
       </nav>
@@ -40,7 +48,7 @@ export function Header({
           href={githubUrl}
           target="_blank"
           rel="noreferrer"
-          aria-label="打开 GitHub 仓库"
+          aria-label={t('打开 GitHub 仓库')}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -54,7 +62,7 @@ export function Header({
           href={dockerUrl}
           target="_blank"
           rel="noreferrer"
-          aria-label="打开 Docker 镜像"
+          aria-label={t('打开 Docker 镜像')}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -63,6 +71,26 @@ export function Header({
             />
           </svg>
         </a>
+        <div className="language-switch" role="group" aria-label={language === 'zh' ? '语言' : 'Language'}>
+          <button
+            className={language === 'zh' ? 'active' : ''}
+            type="button"
+            onClick={() => setLanguage('zh')}
+            aria-label={t('切换为中文')}
+            aria-pressed={language === 'zh'}
+          >
+            中
+          </button>
+          <button
+            className={language === 'en' ? 'active' : ''}
+            type="button"
+            onClick={() => setLanguage('en')}
+            aria-label={t('切换为英文')}
+            aria-pressed={language === 'en'}
+          >
+            EN
+          </button>
+        </div>
       </div>
     </header>
   )

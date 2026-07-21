@@ -12,18 +12,15 @@ type Feature = {
 }
 
 type Device = {
-  icon: IconName
+  id: 'web' | 'macos' | 'phone' | 'pad'
   title: string
   text: string
-  images: string[]
-  notices?: string[]
-}
-
-type Stat = {
-  icon: IconName
-  value: string
-  title: string
-  text: string
+  available: boolean
+  action?: {
+    href: string
+    label: string
+    variant: 'primary' | 'secondary'
+  }
 }
 
 export const navItems: NavItem[] = [
@@ -34,20 +31,15 @@ export const navItems: NavItem[] = [
 
 export const githubUrl = 'https://github.com/RichesChiu/mova'
 export const dockerUrl = 'https://hub.docker.com/repository/docker/richeschiu/mova/general'
-
-export const mediaCards = [
-  { title: '奥本海默', meta: '1:32:40 / 3:00:00', tone: 'ember' },
-  { title: '沙丘 2', meta: '1:15:20 / 2:46:00', tone: 'sand' },
-  { title: '星际穿越', meta: '0:48:10 / 2:49:00', tone: 'ice' },
-  { title: '怪奇物语', meta: '第 5 季 / 第 9 集', tone: 'neon' },
-]
+export const macAppStoreUrl =
+  'macappstore://search.itunes.apple.com/WebObjects/MZSearch.woa/wa/search?term=MOVA'
 
 export const heroBadges = [
-  { icon: 'rocket', label: '开箱免费' },
-  { icon: 'data-shield', label: '隐私安全' },
-  { icon: 'multi-terminal', label: '跨平台' },
-  { icon: 'scalable', label: '高度可扩展' },
-] satisfies { icon: IconName; label: string }[]
+  { icon: 'data-shield', label: '隐私优先', text: '媒体和账户数据始终由你掌控。' },
+  { icon: 'rocket', label: '开源可信', text: '完整开源透明，安全可审阅。' },
+  { icon: 'multi-terminal', label: '跨设备访问', text: '网页与 macOS 随时访问媒体库。' },
+  { icon: 'scalable', label: '持续进化', text: '社区与作者持续完善产品体验。' },
+] satisfies { icon: IconName; label: string; text: string }[]
 
 export const features: Feature[] = [
   {
@@ -84,92 +76,37 @@ export const features: Feature[] = [
 
 export const devices: Device[] = [
   {
-    icon: 'desktop',
+    id: 'web',
     title: '网页端',
-    text: '首页浏览、影片详情与沉浸播放，在浏览器中即开即用。',
-    images: [
-      '/screenshots/web-home.jpg',
-      '/screenshots/web-detail.jpg',
-      '/screenshots/web-play.jpg',
-    ],
+    text: '在浏览器中随时访问，无需安装。',
+    available: true,
+    action: {
+      href: '#home',
+      label: '现在即可使用',
+      variant: 'primary',
+    },
   },
   {
-    icon: 'desktop',
+    id: 'macos',
     title: 'macOS 端',
-    text: '适用于 macOS 的原生客户端，提供媒体浏览、详情查看与播放体验。',
-    images: ['/screenshots/macos-home.jpg', '/screenshots/macos-detail.jpg'],
-    notices: ['请前往 Mac App Store 安装', '原生客户端暂不支持 Android'],
+    text: '原生 macOS 客户端，更优雅的体验。',
+    available: true,
+    action: {
+      href: macAppStoreUrl,
+      label: '前往 Mac App Store 安装',
+      variant: 'secondary',
+    },
   },
   {
-    icon: 'mobile',
+    id: 'phone',
     title: '手机端',
-    text: '作者正在积极开发中，敬请期待。',
-    images: [],
+    text: '积极开发中，敬请期待。',
+    available: false,
   },
   {
-    icon: 'tablet',
+    id: 'pad',
     title: 'Pad 端',
-    text: '作者正在积极开发中，敬请期待。',
-    images: [],
+    text: '积极开发中，敬请期待。',
+    available: false,
   },
 ]
-
-export const stats: Stat[] = [
-  { icon: 'rocket', value: '10 分钟', title: '快速部署', text: '一键安装，极速上线' },
-  { icon: 'multi-terminal', value: '多终端支持', title: '全平台覆盖', text: '无需同步，体验一致' },
-  { icon: 'data-shield', value: '自主管理数据', title: '隐私安全可控', text: '媒体文件只读挂载' },
-  { icon: 'scalable', value: '高可扩展', title: '灵活扩展', text: '插件升级，功能无限' },
-]
-
-export const docs = [
-  {
-    icon: 'docs',
-    title: 'API 文档',
-    text: '查看 HTTP 接口、鉴权方式、响应格式、媒体流与播放进度说明。',
-  },
-  {
-    icon: 'desktop',
-    title: '前端指南',
-    text: '整理 Web 端页面、播放器、状态同步和客户端交互边界。',
-  },
-  {
-    icon: 'self-host',
-    title: '后端说明',
-    text: '了解服务端模块、部署变量、扫描流程和媒体元数据处理逻辑。',
-  },
-  {
-    icon: 'settings',
-    title: 'Crates 模块',
-    text: '跟踪 Rust crate 分层、核心类型和后续扩展路径。',
-  },
-] satisfies { icon: IconName; title: string; text: string }[]
-
-export const deploySteps = [
-  { icon: 'settings', text: '配置 MOVA_MEDIA_ROOT' },
-  { icon: 'self-host', text: 'docker compose up -d' },
-  { icon: 'user', text: '创建管理员' },
-  { icon: 'library', text: '创建媒体库并扫描' },
-] satisfies { icon: IconName; text: string }[]
-
-export const dashboardPrimaryMenu = [
-  { icon: 'home', label: '概览' },
-  { icon: 'library', label: '媒体库' },
-  { icon: 'movie', label: '电影' },
-  { icon: 'series', label: '剧集' },
-  { icon: 'music', label: '音乐' },
-  { icon: 'photo', label: '照片' },
-  { icon: 'playlist', label: '播放列表' },
-] satisfies { icon: IconName; label: string }[]
-
-export const dashboardAdminMenu = [
-  { icon: 'user', label: '用户管理' },
-  { icon: 'transcode', label: '转码任务' },
-  { icon: 'settings', label: '系统设置' },
-] satisfies { icon: IconName; label: string }[]
-
-export const dashboardMetrics = [
-  { icon: 'movie', label: '电影', value: '1,248' },
-  { icon: 'series', label: '剧集', value: '326' },
-  { icon: 'music', label: '音乐', value: '2,156' },
-  { icon: 'photo', label: '照片', value: '4,892' },
-] satisfies { icon: IconName; label: string; value: string }[]

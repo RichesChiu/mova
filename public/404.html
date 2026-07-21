@@ -7,8 +7,8 @@
     <script>
       const path = window.location.pathname.replace(/\/+$/, '')
 
-      if (path === '/api') {
-        window.location.replace('/#api')
+      if (path === '/api' || path === '/privacy' || path === '/support') {
+        window.location.replace('/#' + path.slice(1))
       } else {
         window.location.replace('/')
       }

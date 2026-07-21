@@ -1,4 +1,7 @@
 import { MovaIcon } from '../components/MovaIcon'
+import { dockerUrl } from '../data/homeContent'
+import { useI18n } from '../i18n-context'
+import './ApiDocsPage.css'
 import {
   apiCommonNotes,
   apiEndpointGroups,
@@ -14,6 +17,7 @@ import {
 } from '../data/apiDocs'
 
 export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) => void }) {
+  const { language, t } = useI18n()
   const endpointTotal = apiEndpointGroups.reduce((total, group) => total + group.endpoints.length, 0)
   const methodCounts = apiEndpointGroups
     .flatMap((group) => group.endpoints)
@@ -34,39 +38,38 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
       <section className="api-hero" aria-labelledby="api-title">
         <div>
           <p className="eyebrow">API Reference</p>
-          <h1 id="api-title">MOVA API 文档</h1>
+          <h1 id="api-title">{t('MOVA API 文档')}</h1>
           <p className="api-hero-lede">
-            根据服务端文档整理当前 mova-server 已实现的 HTTP 接口，覆盖鉴权、媒体库扫描、
-            媒体条目、播放进度、媒体流和播放器接入需要的 ID 流转。
+            {t('根据服务端文档整理当前 mova-server 已实现的 HTTP 接口，覆盖鉴权、媒体库扫描、媒体条目、播放进度、媒体流和播放器接入需要的 ID 流转。')}
           </p>
           <div className="api-hero-actions">
-            <button className="primary-action" type="button" onClick={() => onNavigate('deploy')}>
-              查看部署方式
+            <a className="primary-action" href={dockerUrl} target="_blank" rel="noreferrer">
+              {t('查看部署方式')}
               <MovaIcon name="arrow-right" className="button-icon" />
-            </button>
+            </a>
             <button className="secondary-action" type="button" onClick={() => onNavigate('home')}>
-              返回首页
+              {t('返回首页')}
               <MovaIcon name="home" className="button-icon" />
             </button>
           </div>
         </div>
 
-        <div className="api-hero-panel" aria-label="API 摘要">
+        <div className="api-hero-panel" aria-label={t('API 摘要')}>
           <div>
             <strong>{endpointTotal}</strong>
-            <span>已整理接口</span>
+            <span>{t('已整理接口')}</span>
           </div>
           <div>
             <strong>{apiEndpointGroups.length}</strong>
-            <span>接口分组</span>
+            <span>{t('接口分组')}</span>
           </div>
           <div>
             <strong>{methodCounts.GET}</strong>
-            <span>GET 接口</span>
+            <span>{t('GET 接口')}</span>
           </div>
           <div>
             <strong>2</strong>
-            <span>登录方式</span>
+            <span>{t('登录方式')}</span>
           </div>
         </div>
       </section>
@@ -74,42 +77,50 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
       <aside className="api-source-notice" aria-labelledby="api-source-title">
         <div>
           <p className="eyebrow">Source of Truth</p>
-          <h2 id="api-source-title">完整细节请以 MOVA 项目文档为准</h2>
-          <p>
-            本页提供便于快速查阅的接口摘要。SSE 的 revision 同步、断线恢复、
-            <code>resync.required</code>、<code>session.invalidated</code>、扫描进度事件，
-            以及扫描和元数据规则不在此完整展开，请前往项目仓库查看最新文档。
-          </p>
+          <h2 id="api-source-title">{t('完整细节请以项目文档为准')}</h2>
+          <p>{language === 'zh' ? (
+            <>
+              本页提供便于快速查阅的接口摘要。SSE 的 revision 同步、断线恢复、
+              <code>resync.required</code>、<code>session.invalidated</code>、扫描进度事件，
+              以及扫描和元数据规则不在此完整展开，请前往项目仓库查看最新文档。
+            </>
+          ) : (
+            <>
+              This page is a quick endpoint reference. For SSE revision synchronization, reconnect behavior,
+              <code>resync.required</code>, <code>session.invalidated</code>, scan progress events, scanning rules,
+              and metadata details, see the latest project documentation.
+            </>
+          )}</p>
         </div>
         <div className="api-source-links">
           <a href={apiSourceLinks.api} target="_blank" rel="noreferrer">
-            完整 API.md
+            {t('完整 API.md')}
             <MovaIcon name="arrow-right" />
           </a>
           <a href={apiSourceLinks.sse} target="_blank" rel="noreferrer">
-            完整 SSE.md
+            {t('完整 SSE.md')}
             <MovaIcon name="arrow-right" />
           </a>
           <a href={apiSourceLinks.repository} target="_blank" rel="noreferrer">
-            MOVA 项目仓库
+            {t('MOVA 项目仓库')}
             <MovaIcon name="arrow-right" />
           </a>
         </div>
       </aside>
 
-      <section className="api-layout" aria-label="API 文档内容">
+      <section className="api-layout" aria-label={t('API 文档内容')}>
         <aside className="api-sidebar">
-          <strong>文档目录</strong>
+          <strong>{t('文档目录')}</strong>
           <button type="button" onClick={() => scrollToApiSection('api-overview')}>
-            通用说明
+            {t('通用说明')}
           </button>
           {apiEndpointGroups.map((group) => (
             <button type="button" key={group.id} onClick={() => scrollToApiSection(`api-${group.id}`)}>
-              {group.title}
+              {t(group.title)}
             </button>
           ))}
           <button type="button" onClick={() => scrollToApiSection('api-id-relations')}>
-            ID 关系
+            {t('ID 关系')}
           </button>
         </aside>
 
@@ -117,35 +128,35 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
           <section className="api-doc-card" id="api-overview">
             <div className="api-section-heading">
               <p className="eyebrow">General</p>
-              <h2>通用说明</h2>
+              <h2>{t('通用说明')}</h2>
             </div>
 
             <div className="api-overview-grid">
               {apiOverviewCards.map((card) => (
                 <article key={card.label}>
-                  <span>{card.label}</span>
+                  <span>{t(card.label)}</span>
                   <strong>{card.value}</strong>
-                  <p>{card.text}</p>
+                  <p>{t(card.text)}</p>
                 </article>
               ))}
             </div>
 
             <div className="api-note-grid">
               <div>
-                <h3>关键规则</h3>
+                <h3>{t('关键规则')}</h3>
                 <ul>
                   {apiCommonNotes.map((note) => (
-                    <li key={note}>{note}</li>
+                    <li key={note}>{t(note)}</li>
                   ))}
                 </ul>
               </div>
               <div>
-                <h3>常见状态码</h3>
+                <h3>{t('常见状态码')}</h3>
                 <div className="status-code-grid">
                   {apiStatusCodes.map(([code, text]) => (
                     <span key={code}>
                       <strong>{code}</strong>
-                      {text}
+                      {t(text)}
                     </span>
                   ))}
                 </div>
@@ -154,13 +165,13 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
 
             <div className="api-code-grid">
               <div>
-                <h3>成功响应</h3>
+                <h3>{t('成功响应')}</h3>
                 <pre>
                   <code>{apiSuccessExample}</code>
                 </pre>
               </div>
               <div>
-                <h3>错误响应</h3>
+                <h3>{t('错误响应')}</h3>
                 <pre>
                   <code>{apiErrorExample}</code>
                 </pre>
@@ -172,13 +183,13 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
             <section className="api-doc-card" id={`api-${group.id}`} key={group.id}>
               <div className="api-section-heading">
                 <p className="eyebrow">Endpoint Group</p>
-                <h2>{group.title}</h2>
-                <p>{group.summary}</p>
+                <h2>{t(group.title)}</h2>
+                <p>{t(group.summary)}</p>
               </div>
 
               <div className="api-highlight-list">
                 {group.highlights.map((highlight) => (
-                  <span key={highlight}>{highlight}</span>
+                  <span key={highlight}>{t(highlight)}</span>
                 ))}
               </div>
 
@@ -193,10 +204,9 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
           <section className="api-doc-card" id="api-id-relations">
             <div className="api-section-heading">
               <p className="eyebrow">Player Flow</p>
-              <h2>ID 关系与播放流转</h2>
+              <h2>{t('ID 关系与播放流转')}</h2>
               <p>
-                前端接入播放器时最容易混淆的是媒体库、媒体条目、媒体文件、音轨和字幕的 ID。
-                下面按使用顺序整理一遍。
+                {t('前端接入播放器时最容易混淆的是媒体库、媒体条目、媒体文件、音轨和字幕的 ID。下面按使用顺序整理一遍。')}
               </p>
             </div>
 
@@ -204,7 +214,7 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
               {apiIdRelations.map(([id, text]) => (
                 <article key={id}>
                   <strong>{id}</strong>
-                  <p>{text}</p>
+                  <p>{t(text)}</p>
                 </article>
               ))}
             </div>
@@ -222,11 +232,13 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
 }
 
 function EndpointRow({ endpoint }: { endpoint: ApiEndpoint }) {
+  const { t } = useI18n()
+
   return (
     <article className="endpoint-row">
       <span className={`method-badge method-${endpoint.method.toLowerCase()}`}>{endpoint.method}</span>
       <code>{endpoint.path}</code>
-      <p>{endpoint.description}</p>
+      <p>{t(endpoint.description)}</p>
     </article>
   )
 }
