@@ -13,7 +13,7 @@ mod sync_runtime;
 use crate::config::AppConfig;
 use mova_db::{connect, migrate, ping};
 use state::AppState;
-use tracing::info;
+use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -32,10 +32,14 @@ async fn main() -> anyhow::Result<()> {
     info!(cache_dir = %config.cache_dir.display(), "artwork cache directory ensured");
     let metadata_provider =
         mova_application::build_metadata_provider(config.metadata_provider.clone())?;
-    info!(
-        enabled = metadata_provider.is_enabled(),
-        "metadata provider initialized"
-    );
+    if metadata_provider.is_enabled() {
+        info!(provider = "tmdb", "metadata provider initialized");
+    } else {
+        warn!(
+            environment_variable = "MOVA_TMDB_ACCESS_TOKEN",
+            "TMDB metadata scraping is disabled; local scanning and playback remain available"
+        );
+    }
 
     let realtime_hub = state::RealtimeHub::default();
     let realtime_dispatcher = realtime::start_realtime_dispatcher(

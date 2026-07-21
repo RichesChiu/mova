@@ -1431,6 +1431,7 @@ mod tests {
     #[tokio::test]
     async fn enrich_group_fetches_remote_metadata_once_and_applies_to_all_files() {
         let provider = Arc::new(CountingMetadataProvider {
+            enabled: true,
             lookup_count: AtomicUsize::new(0),
         });
         let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
@@ -1480,6 +1481,35 @@ mod tests {
         );
         assert!(files.iter().all(|file| file.poster_path.is_none()));
         assert!(files.iter().all(|file| file.backdrop_path.is_none()));
+    }
+
+    #[tokio::test]
+    async fn enrich_group_skips_remote_lookup_when_provider_is_disabled() {
+        let provider = Arc::new(CountingMetadataProvider {
+            enabled: false,
+            lookup_count: AtomicUsize::new(0),
+        });
+        let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
+        let mut context = MetadataEnrichmentContext::new(
+            std::env::temp_dir().join("mova-test-disabled-artwork-cache"),
+            provider_for_context,
+            "zh-CN".to_string(),
+        );
+        let mut file = build_discovered_episode();
+        file.title = "Local Series".to_string();
+        file.source_title = "Local Series".to_string();
+        file.overview = Some("Local overview".to_string());
+        let mut files = vec![file];
+
+        context
+            .enrich_group_with_progress("series", &mut files, None, |_, _| {})
+            .await
+            .expect("disabled provider should not block local enrichment");
+
+        assert_eq!(provider.lookup_count.load(Ordering::SeqCst), 0);
+        assert_eq!(files[0].title, "Local Series");
+        assert_eq!(files[0].overview.as_deref(), Some("Local overview"));
+        assert_eq!(files[0].metadata_provider_item_id, None);
     }
 
     #[tokio::test]
@@ -1540,11 +1570,16 @@ mod tests {
 
     #[derive(Debug)]
     struct CountingMetadataProvider {
+        enabled: bool,
         lookup_count: AtomicUsize,
     }
 
     #[async_trait]
     impl MetadataProvider for CountingMetadataProvider {
+        fn is_enabled(&self) -> bool {
+            self.enabled
+        }
+
         async fn lookup(&self, _lookup: &MetadataLookup) -> anyhow::Result<Option<RemoteMetadata>> {
             self.lookup_count.fetch_add(1, Ordering::SeqCst);
 

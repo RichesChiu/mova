@@ -60,7 +60,7 @@
   - `404 Not Found`：资源不存在
   - `416 Range Not Satisfiable`：媒体流的 `Range` 请求越界
   - `500 Internal Server Error`：服务内部错误
-- TMDB provider 从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取；每个媒体库可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。TMDB endpoint、严格候选规则和字段覆盖见 [`TMDB.md`](TMDB.md)。
+- TMDB provider 从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取，值必须是 TMDB 账户 API 设置页中的 **API Read Access Token**，不是较短的 `API Key (v3 auth)`。变量为空或只含空白时服务仍正常启动，本地扫描、NFO/sidecar、入库和播放保持可用；扫描不会发起 TMDB 请求，条目以 `skipped / metadata_provider_disabled` 完成。后续配置 Token、重启并重扫后，这些条目会进入远端补全。每个媒体库可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。TMDB endpoint、严格候选规则和字段覆盖见 [`TMDB.md`](TMDB.md)。
 - 如果额外配置了可选的 `MOVA_OMDB_API_KEY`，服务端会在已拿到 `imdb_id` 的前提下补齐 `imdb_rating`；不配置时该字段保持为空，不影响扫描、入库和播放。
 - 本地海报和背景图的 URL 带版本参数（例如 `/api/media-items/42/poster?v=1704164645`）。浏览器可以长期缓存；媒体元数据更新时版本参数随之变化。
 - pre-1.0 数据库 schema 只维护 `migrations/0001_init.sql`。数据模型保存扫描本地分析版本、原生客户端 access/refresh token 设备会话、逐文件播放进度、有上限的继续观看队列、PostgreSQL 后台任务和资源 revisions。TMDB/provider 返回的标题、国家、题材、制作公司和演员角色等自由文本字段使用 `text`。schema 发生变化时需要重建数据库、重置数据目录并重新扫描媒体库。

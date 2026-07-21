@@ -33,6 +33,15 @@ MOVA_MEDIA_ROOT=/absolute/path/to/media
 MOVA_TMDB_ACCESS_TOKEN=
 ```
 
+`MOVA_TMDB_ACCESS_TOKEN` 用于启用 TMDB 自动刮削、海报/背景图以及元数据搜索与替换。获取方式：
+
+1. 注册并登录 [TMDB](https://www.themoviedb.org/)，完成邮箱验证。
+2. 进入账户设置的 [API 页面](https://www.themoviedb.org/settings/api)，申请 API 访问权限。
+3. 复制 **API Read Access Token**，不要使用较短的 `API Key (v3 auth)`。
+4. 把 Token 填入 `.env` 的 `MOVA_TMDB_ACCESS_TOKEN`，不要提交到 Git 仓库。
+
+TMDB 官方说明：[Application Authentication](https://developer.themoviedb.org/v4/docs/authentication-application)。不配置 Token 时 Mova 仍可启动、扫描本地文件、读取 NFO/sidecar、入库和播放，但会自动跳过 TMDB 刮削，条目不会获得 TMDB 标题、简介和远端图片。后续配置 Token 并重启服务、重新扫描媒体库即可补做刮削。
+
 启动 Mova：
 
 ```bash
@@ -119,6 +128,15 @@ Edit `.env` and configure at least the host media directory:
 MOVA_MEDIA_ROOT=/absolute/path/to/media
 MOVA_TMDB_ACCESS_TOKEN=
 ```
+
+`MOVA_TMDB_ACCESS_TOKEN` enables automatic TMDB scraping, remote artwork, and metadata search/replacement:
+
+1. Create and verify a [TMDB](https://www.themoviedb.org/) account.
+2. Open the account [API settings](https://www.themoviedb.org/settings/api) and apply for API access.
+3. Copy the **API Read Access Token**, not the shorter `API Key (v3 auth)`.
+4. Store it in `MOVA_TMDB_ACCESS_TOKEN` inside `.env` and never commit it to Git.
+
+See TMDB's [Application Authentication](https://developer.themoviedb.org/v4/docs/authentication-application) documentation. Without the token, Mova still starts and supports local scanning, NFO/sidecar metadata, importing, and playback, but skips all TMDB scraping. Add the token later, restart Mova, and rescan the library to enrich previously skipped items.
 
 Start Mova:
 

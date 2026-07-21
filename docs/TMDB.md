@@ -4,6 +4,12 @@
 
 本文只讨论 Mova 服务端与 TMDB v3 API 的集成。Web、macOS 和 iOS 不应直接访问 TMDB，也不需要知道 TMDB endpoint；三端只消费 Mova 自己的 HTTP API 和 Realtime/SSE 协议。
 
+## 0. 启用方式
+
+Mova 使用 TMDB 账户 API 设置页提供的 **API Read Access Token** 作为 Bearer Token。部署者需要注册并验证 [TMDB](https://www.themoviedb.org/) 账户，进入 [API 设置](https://www.themoviedb.org/settings/api) 申请访问权限，然后把 API Read Access Token 写入运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN`。不要把较短的 `API Key (v3 auth)` 填入该变量，也不要把 Token 提交到仓库。官方认证契约见 [Application Authentication](https://developer.themoviedb.org/v4/docs/authentication-application)。
+
+Token 缺失或只含空白时，服务端构造 disabled provider，不阻止 HTTP 服务、后台 worker 或媒体库扫描启动。扫描保留本地名称解析、NFO/sidecar、`ffprobe`、入库和播放，远端 lookup、详情、outline、OMDb 补充和 TMDB 图片下载全部跳过，条目终态为 `skipped / metadata_provider_disabled`。配置 Token 并重启后，下一次扫描会重试此前跳过且没有 provider binding 的条目。
+
 ## 1. 核心结论
 
 1. TMDB 命中不会等同于“推翻本地结构”。本地文件路径、物理文件版本、剧集季号和集号仍由文件名、NFO 和本地探测决定。

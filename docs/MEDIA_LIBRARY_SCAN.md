@@ -597,6 +597,8 @@ library:{id}:notifications
 
 - 单实例通过进程内 local/remote 队列发送临时进度。
 - background job、scan job 和 revisions 保存在 PostgreSQL。
+- `MOVA_TMDB_ACCESS_TOKEN` 为空或只含空白时 metadata provider 处于 disabled 状态。服务和扫描任务仍正常运行，local worker 继续完成名称解析、sidecar、`ffprobe` 和 pending 写入；remote worker 不发起 TMDB 请求，只完成本地图片缓存和 `skipped / metadata_provider_disabled` 终态提交。
+- 后续配置 Token 并重启服务后，重新扫描会把此前 `skipped` 且缺少 provider binding 的条目纳入远端补全，不需要重建数据库。
 - 服务重启后可以重新领取未完成 background job。
 - 扫描组完整分析上下文不做跨进程恢复，重试会重新建立文件计划。
 - 多实例需要为临时扫描进度提供跨实例 `ProgressBus`。
