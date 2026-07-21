@@ -47,9 +47,6 @@ const translations: Record<string, string> = {
   元数据整理: 'Metadata enrichment',
   '按文件名归组电影与剧集，可接入 TMDB、OMDB 补齐海报、评分和背景图。':
     'Group movies and series by filename, with TMDB and OMDB support for artwork, ratings, and backdrops.',
-  'Docker 自托管部署': 'Docker self-hosting',
-  '一键拉取发布镜像，在服务器或 NAS 上快速运行属于自己的媒体中心。':
-    'Pull the published image and run your own media center quickly on a server or NAS.',
   'macOS 客户端': 'macOS client',
   'macOS 平台说明': 'macOS platform details',
   'MOVA macOS 原生客户端详情界面': 'MOVA native macOS client detail screen',
@@ -83,8 +80,6 @@ const translations: Record<string, string> = {
   'API 摘要': 'API summary',
   'API 文档内容': 'API documentation content',
   完整细节请以项目文档为准: 'Use the project documentation as the source of truth',
-  '本页提供便于快速查阅的接口摘要。SSE 的 revision 同步、断线恢复、扫描进度事件，以及扫描和元数据规则不在此完整展开，请前往项目仓库查看最新文档。':
-    'This page is a quick endpoint reference. For SSE revision synchronization, reconnect behavior, scan progress events, scanning rules, and metadata details, see the latest documentation in the project repository.',
   '完整 API.md': 'Complete API.md',
   '完整 SSE.md': 'Complete SSE.md',
   'MOVA 项目仓库': 'MOVA repository',
@@ -119,6 +114,8 @@ const translations: Record<string, string> = {
     'realtime/events returns text/event-stream instead of the JSON envelope; request realtime/state first after reconnecting.',
   '媒体条目图片 URL 会带版本参数，浏览器可长期缓存；元数据更新后版本会变化。':
     'Media image URLs include a version parameter for long-lived browser caching; the version changes after metadata updates.',
+  '认证错误可能使用 TOKEN_EXPIRED、TOKEN_INVALID 或 REFRESH_TOKEN_INVALID 等字符串 code，客户端应按 code 处理重新登录或刷新。':
+    'Authentication errors may use string codes such as TOKEN_EXPIRED, TOKEN_INVALID, or REFRESH_TOKEN_INVALID; clients should use the code to refresh credentials or sign in again.',
   'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；可选 MOVA_OMDB_API_KEY 用于补齐 IMDb 评分。':
     'The TMDB token comes from MOVA_TMDB_ACCESS_TOKEN; MOVA_OMDB_API_KEY is optional and fills in IMDb ratings.',
   'OK，请求成功': 'OK, request succeeded',

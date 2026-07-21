@@ -42,9 +42,9 @@ export function HeroSection({
 
         <div className="hero-preview">
           <img
-            src="/screenshots/hero-dashboard.png"
-            width="1920"
-            height="964"
+            src="/screenshots/hero-dashboard-perspective-cut.png"
+            width="1696"
+            height="927"
             alt={t('MOVA 网页端媒体库首页界面')}
             decoding="async"
           />
@@ -63,7 +63,7 @@ export function HeroSection({
                 alt=""
               />
             </div>
-            <div>
+            <div className="hero-badge-copy">
               <strong>{t(badge.label)}</strong>
               <span>{t(badge.text)}</span>
             </div>

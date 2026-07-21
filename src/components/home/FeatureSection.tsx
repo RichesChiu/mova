@@ -18,7 +18,7 @@ export function FeatureSection() {
       </div>
 
       <div className="feature-grid" aria-label={t('MOVA 核心功能')}>
-        {features.slice(0, 5).map((feature) => (
+        {features.map((feature) => (
           <article className="feature-card" key={feature.title}>
             <span className="feature-icon">
               <MovaIcon name={feature.icon} />

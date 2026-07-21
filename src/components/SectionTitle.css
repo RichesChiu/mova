@@ -1,13 +1,8 @@
-@layer legacy, redesign;
-
 @layer redesign {
-
-  #features .section-title h2 {
-    max-width: 340px;
-    font-size: clamp(32px, 2.7vw, 38px);
-  }
-
   .section-title {
+    display: grid;
+    justify-items: center;
+    gap: 12px;
     margin-bottom: 0;
     text-align: left;
   }
@@ -17,6 +12,7 @@
     margin: 0;
     color: var(--ink);
     font-size: clamp(30px, 3.2vw, 44px);
+    font-weight: 900;
     letter-spacing: -0.04em;
     line-height: 1.17;
   }
@@ -25,10 +21,17 @@
     width: 44px;
     height: 3px;
     margin: 22px 0 0;
+    border-radius: 999px;
     background: linear-gradient(90deg, #6846f4, #20b3ed);
   }
 
+  #features .section-title h2 {
+    max-width: 340px;
+    font-size: clamp(32px, 2.7vw, 38px);
+  }
+
   .platform-heading .section-title {
+    justify-items: center;
     text-align: center;
   }
 
@@ -45,35 +48,8 @@
   }
 
   @media (max-width: 640px) {
-
     .section-title h2 {
       font-size: 34px;
     }
-
   }
-}
-
-@layer legacy {
-
-.section-title {
-  display: grid;
-  justify-items: center;
-  gap: 12px;
-  margin-bottom: 30px;
-  text-align: center;
-}
-
-.section-title h2 {
-  margin: 0;
-  font-size: 32px;
-  font-weight: 900;
-  line-height: 1.18;
-}
-
-.section-title span {
-  width: 46px;
-  height: 4px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #7c43ff, #12c7f7);
-}
 }

@@ -43,6 +43,7 @@ export const apiCommonNotes = [
   'Web 端使用 session cookie；原生客户端使用 access token，refresh token 仅用于调用 refresh 接口。',
   'realtime/events 返回 text/event-stream，不使用统一 JSON envelope；重连后应先请求 realtime/state。',
   '媒体条目图片 URL 会带版本参数，浏览器可长期缓存；元数据更新后版本会变化。',
+  '认证错误可能使用 TOKEN_EXPIRED、TOKEN_INVALID 或 REFRESH_TOKEN_INVALID 等字符串 code，客户端应按 code 处理重新登录或刷新。',
   'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；可选 MOVA_OMDB_API_KEY 用于补齐 IMDb 评分。',
 ]
 

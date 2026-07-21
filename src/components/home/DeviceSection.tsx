@@ -5,7 +5,7 @@ import { useI18n } from '../../i18n-context'
 import './DeviceSection.css'
 
 export function DeviceSection() {
-  const macDevice = devices.find((device) => device.title === 'macOS 端')
+  const macDevice = devices.find((device) => device.id === 'macos')
   const { t } = useI18n()
 
   return (
@@ -25,9 +25,9 @@ export function DeviceSection() {
         </div>
         <div className="macos-preview">
           <img
-            src="/screenshots/macos-detail.png"
-            width="1920"
-            height="1080"
+            src="/screenshots/macos-detail-perspective-matched.png"
+            width="1672"
+            height="941"
             loading="lazy"
             decoding="async"
             alt={t('MOVA macOS 原生客户端详情界面')}
@@ -43,7 +43,7 @@ export function DeviceSection() {
       <div className="device-grid" aria-label={t('MOVA 平台状态')}>
         {devices.map((device) => (
           <article
-            className={`device-card device-card--${device.id} ${device.available ? 'device-card--showcase' : 'device-card--upcoming'}`}
+            className={`device-card${device.available ? '' : ' device-card--upcoming'}`}
             key={device.title}
           >
             <span className={`device-status ${device.available ? 'is-ready' : 'is-upcoming'}`}>

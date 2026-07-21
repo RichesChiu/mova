@@ -1,5 +1,3 @@
-@layer legacy, redesign;
-
 @layer redesign {
   .platform-section {
     padding: 0 0 50px;
@@ -11,8 +9,8 @@
     grid-template-columns: 360px minmax(720px, 1fr);
     gap: clamp(22px, 2vw, 30px);
     align-items: center;
-    min-height: 650px;
-    padding: 68px var(--content-inline);
+    min-height: clamp(720px, 56vw, 940px);
+    padding: 68px var(--content-inline) 0;
     overflow: hidden;
     color: #f7f9ff;
     background: #07111e;
@@ -72,17 +70,10 @@
   }
 
   .macos-preview {
-    width: min(1040px, 74vw);
-    margin-right: min(-15vw, -210px);
-    overflow: hidden;
-    border: 1px solid rgba(137, 160, 194, 0.24);
-    border-radius: 17px;
-    background: #020911;
-    box-shadow: 0 36px 80px rgba(0, 0, 0, 0.42);
-    transform: perspective(1800px) rotateY(-5.25deg) rotateX(1.2deg) rotateZ(-1.65deg) scale(1.025);
-    transform-origin: left center;
-    transform-style: preserve-3d;
-    backface-visibility: hidden;
+    align-self: start;
+    width: 100vw;
+    margin: -38px 0 0;
+    overflow: visible;
   }
 
   .macos-preview img {
@@ -90,7 +81,6 @@
     width: 100%;
     height: auto;
     image-rendering: auto;
-    backface-visibility: hidden;
   }
 
   .platform-heading {
@@ -255,9 +245,10 @@
   }
 
   .device-action--primary {
+    border: 0;
     color: #ffffff;
     background: linear-gradient(100deg, #6943f5 0%, #397ce9 52%, #2eb9e9 100%);
-    box-shadow: 0 12px 25px rgba(74, 101, 231, 0.2);
+    box-shadow: 0 12px 18px -18px rgba(74, 101, 231, 0.55);
   }
 
   .device-action--secondary {
@@ -311,7 +302,6 @@
     .macos-preview {
       width: 110%;
       margin: 10px -5% 0;
-      transform: none;
     }
 
     .device-grid {
@@ -337,7 +327,6 @@
     .macos-preview {
       width: 150%;
       margin-left: -4%;
-      border-radius: 12px 0 0;
     }
 
     .platform-heading {

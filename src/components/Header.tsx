@@ -26,11 +26,7 @@ export function Header({
       </button>
 
       <nav className="site-nav" aria-label={t('主要导航')}>
-        {navItems.map((item) => item.id === 'deploy' ? (
-          <a key={item.id} href={dockerUrl} target="_blank" rel="noreferrer">
-            {t(item.label)}
-          </a>
-        ) : (
+        {navItems.map((item) => (
           <button
             key={item.id}
             className={activeSection === item.id ? 'active' : ''}

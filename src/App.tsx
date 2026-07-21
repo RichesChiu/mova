@@ -2,15 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { Header } from './components/Header'
 import { SiteFooter } from './components/SiteFooter'
 import { ApiDocsPage } from './pages/ApiDocsPage'
+import { DeploymentPage } from './pages/DeploymentPage'
 import { HomePage } from './pages/HomePage'
 import { PrivacyPage } from './pages/PrivacyPage'
 import { SupportPage } from './pages/SupportPage'
 import { useI18n } from './i18n-context'
 import './App.css'
 
-type Page = 'home' | 'api' | 'privacy' | 'support'
+type Page = 'home' | 'deploy' | 'api' | 'privacy' | 'support'
 
 const pagePaths: Record<Exclude<Page, 'home'>, string> = {
+  deploy: '/deploy',
   api: '/api',
   privacy: '/privacy',
   support: '/support',
@@ -24,6 +26,7 @@ const getRoutePage = (): Page => {
   const path = window.location.pathname.replace(/\/$/, '')
   const hashRoute = window.location.hash.replace(/^#/, '')
 
+  if (path === '/deploy' || hashRoute === 'deploy') return 'deploy'
   if (path === '/api' || hashRoute === 'api') return 'api'
   if (path === '/privacy' || hashRoute === 'privacy') return 'privacy'
   if (path === '/support' || hashRoute === 'support') return 'support'
@@ -39,6 +42,7 @@ function App() {
   useEffect(() => {
     const titles: Record<Page, { zh: string; en: string }> = {
       home: { zh: 'MOVA 自托管媒体服务', en: 'MOVA Self-hosted Media Service' },
+      deploy: { zh: '部署文档 · MOVA', en: 'Deployment Guide · MOVA' },
       api: { zh: 'API 文档 · MOVA', en: 'API Documentation · MOVA' },
       privacy: { zh: '隐私政策 · MOVA', en: 'Privacy Policy · MOVA' },
       support: { zh: '支持 · MOVA', en: 'Support · MOVA' },
@@ -123,6 +127,11 @@ function App() {
   }
 
   const handleHeaderNavigate = (targetId: string) => {
+    if (targetId === 'deploy') {
+      openPage('deploy')
+      return
+    }
+
     if (targetId === 'api') {
       openApiDocs()
       return
@@ -145,13 +154,15 @@ function App() {
   return (
     <div className="app-shell">
       <Header
-        activeSection={page === 'home' ? 'home' : page === 'api' ? 'api' : ''}
+        activeSection={page === 'home' ? 'home' : page === 'deploy' ? 'deploy' : page === 'api' ? 'api' : ''}
         isHidden={isHeaderHidden}
         onNavigate={handleHeaderNavigate}
       />
 
       <main>
-        {page === 'api' ? (
+        {page === 'deploy' ? (
+          <DeploymentPage onNavigate={handleHeaderNavigate} />
+        ) : page === 'api' ? (
           <ApiDocsPage onNavigate={handleHeaderNavigate} />
         ) : page === 'privacy' ? (
           <PrivacyPage />

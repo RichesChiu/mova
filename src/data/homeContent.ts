@@ -11,6 +11,8 @@ type Feature = {
   text: string
 }
 
+type HeroBadgeIcon = 'data-shield' | 'rocket' | 'multi-terminal' | 'scalable'
+
 type Device = {
   id: 'web' | 'macos' | 'phone' | 'pad'
   title: string
@@ -39,7 +41,7 @@ export const heroBadges = [
   { icon: 'rocket', label: '开源可信', text: '完整开源透明，安全可审阅。' },
   { icon: 'multi-terminal', label: '跨设备访问', text: '网页与 macOS 随时访问媒体库。' },
   { icon: 'scalable', label: '持续进化', text: '社区与作者持续完善产品体验。' },
-] satisfies { icon: IconName; label: string; text: string }[]
+] satisfies { icon: HeroBadgeIcon; label: string; text: string }[]
 
 export const features: Feature[] = [
   {
@@ -66,11 +68,6 @@ export const features: Feature[] = [
     icon: 'metadata',
     title: '元数据整理',
     text: '按文件名归组电影与剧集，可接入 TMDB、OMDB 补齐海报、评分和背景图。',
-  },
-  {
-    icon: 'self-host',
-    title: 'Docker 自托管部署',
-    text: '一键拉取发布镜像，在服务器或 NAS 上快速运行属于自己的媒体中心。',
   },
 ]
 

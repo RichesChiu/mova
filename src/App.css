@@ -1,19 +1,3 @@
-@layer legacy, redesign;
-@layer legacy {
-.app-shell {
-  --header-height: 76px;
-  --page-gutter: clamp(18px, 4vw, 32px);
-  --page-max: 1180px;
-  --content-inline: max(var(--page-gutter), calc((100vw - var(--page-max)) / 2));
-
-  min-height: 100svh;
-  overflow-x: hidden;
-  background:
-    linear-gradient(140deg, rgba(122, 75, 255, 0.06), transparent 34%),
-    linear-gradient(35deg, transparent 55%, rgba(31, 184, 255, 0.08)),
-    #ffffff;
-}
-}
 @layer redesign {
   .app-shell {
     --header-height: 76px;
@@ -29,20 +13,70 @@
     --brand: #6748f5;
     --brand-blue: #22aaf0;
 
-    background: #f8f9fc;
+    min-height: 100svh;
+    overflow-x: clip;
     color: var(--ink);
+    background: #f8f9fc;
   }
 
   main {
     padding-top: var(--header-height);
   }
 
+  h1,
+  h2,
+  h3,
+  p {
+    margin-top: 0;
+  }
+
+  h1,
+  h2,
+  h3 {
+    color: var(--ink);
+    font-weight: 900;
+    letter-spacing: 0;
+  }
+
+  h1 {
+    max-width: 640px;
+    margin-bottom: 22px;
+    font-size: clamp(52px, 4.3vw, 58px);
+    line-height: 1.02;
+  }
+
+  pre {
+    margin: 0;
+    padding: 16px;
+    overflow-x: auto;
+    border-radius: 14px;
+    color: #dbe7ff;
+    background: #111936;
+    line-height: 1.55;
+  }
+
+  code {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  }
+
   .eyebrow {
-    margin-bottom: 16px;
+    margin: 0 0 16px;
     color: #6752ef;
     font-size: 12px;
     font-weight: 850;
     letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  @media (max-width: 760px) {
+    .app-shell {
+      --header-height: 132px;
+      --page-gutter: 18px;
+    }
+
+    h1 {
+      font-size: 42px;
+    }
   }
 
   @media (max-width: 640px) {
@@ -51,70 +85,4 @@
       --page-gutter: 20px;
     }
   }
-}
-@layer legacy {
-
-main {
-  padding-top: var(--header-height);
-}
-
-.eyebrow {
-  margin: 0 0 14px;
-  color: #657099;
-  font-size: 13px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-h1,
-h2,
-h3,
-p {
-  margin-top: 0;
-}
-
-h1,
-h2,
-h3 {
-  color: #121948;
-  font-weight: 900;
-  letter-spacing: 0;
-}
-
-h1 {
-  max-width: 640px;
-  margin-bottom: 22px;
-  font-size: clamp(52px, 4.3vw, 58px);
-  line-height: 1.02;
-}
-
-pre {
-  margin: 0;
-  padding: 16px;
-  overflow-x: auto;
-  border-radius: 14px;
-  color: #dbe7ff;
-  background: #111936;
-  line-height: 1.55;
-}
-
-code {
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-}
-
-@media (max-width: 760px) {
-  .app-shell {
-    --header-height: 132px;
-    --page-gutter: 18px;
-  }
-
-  main {
-    padding-top: var(--header-height);
-  }
-
-  h1 {
-    font-size: 42px;
-  }
-
-}
 }

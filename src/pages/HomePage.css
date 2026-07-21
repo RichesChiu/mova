@@ -1,7 +1,4 @@
-@layer legacy, redesign;
-
 @layer redesign {
-
   .section-block {
     width: 100%;
     margin: 0 auto;
@@ -9,24 +6,9 @@
   }
 
   @media (max-width: 640px) {
-
     .section-block {
       padding-top: 72px;
       padding-bottom: 72px;
     }
   }
-}
-
-@layer legacy {
-
-.section-block {
-  width: 100%;
-  margin: 0;
-  padding: 72px var(--content-inline);
-}
-
-.section-block[aria-labelledby='devices-title'] {
-  background:
-    linear-gradient(180deg, #ffffff 0%, rgba(244, 248, 255, 0.96) 100%);
-}
 }

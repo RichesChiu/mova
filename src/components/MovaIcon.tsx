@@ -8,11 +8,6 @@ export type IconName =
   | 'transcode'
   | 'permissions'
   | 'metadata'
-  | 'self-host'
-  | 'rocket'
-  | 'multi-terminal'
-  | 'data-shield'
-  | 'scalable'
   | 'home'
   | 'arrow-right'
 

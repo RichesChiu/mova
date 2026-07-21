@@ -1,5 +1,4 @@
 import { MovaIcon } from '../components/MovaIcon'
-import { dockerUrl } from '../data/homeContent'
 import { useI18n } from '../i18n-context'
 import './ApiDocsPage.css'
 import {
@@ -43,10 +42,10 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
             {t('根据服务端文档整理当前 mova-server 已实现的 HTTP 接口，覆盖鉴权、媒体库扫描、媒体条目、播放进度、媒体流和播放器接入需要的 ID 流转。')}
           </p>
           <div className="api-hero-actions">
-            <a className="primary-action" href={dockerUrl} target="_blank" rel="noreferrer">
+            <button className="primary-action" type="button" onClick={() => onNavigate('deploy')}>
               {t('查看部署方式')}
               <MovaIcon name="arrow-right" className="button-icon" />
-            </a>
+            </button>
             <button className="secondary-action" type="button" onClick={() => onNavigate('home')}>
               {t('返回首页')}
               <MovaIcon name="home" className="button-icon" />
@@ -76,7 +75,13 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
 
       <aside className="api-source-notice" aria-labelledby="api-source-title">
         <div>
-          <p className="eyebrow">Source of Truth</p>
+          <div className="api-source-heading">
+            <p className="eyebrow">Source of Truth</p>
+            <span className="api-sync-status">
+              <i aria-hidden="true" />
+              {language === 'zh' ? `已核对 ${endpointTotal} 条接口` : `${endpointTotal} endpoints verified`}
+            </span>
+          </div>
           <h2 id="api-source-title">{t('完整细节请以项目文档为准')}</h2>
           <p>{language === 'zh' ? (
             <>

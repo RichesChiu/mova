@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "check:api-docs": "node scripts/check-api-docs-sync.mjs",
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
     "preview": "vite preview"
