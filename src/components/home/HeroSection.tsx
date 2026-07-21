@@ -24,10 +24,10 @@ export function HeroSection({
       <div className="hero-stage">
         <div className="hero-copy">
           <p className="eyebrow">MOVA</p>
-          <h1 id="hero-title">{t('你的媒体中心，')}<br />{t('只属于你')}</h1>
-          <p className="hero-kicker">{t('开源 · 自托管 · 跨设备')}</p>
+          <h1 id="hero-title">{t('属于你自己的')}<br />{t('流媒体中心')}</h1>
+          <p className="hero-kicker">{t('MOVA 是美观、好用的自托管流媒体服务器')}</p>
           <p className="hero-lede">
-            {t('打造属于你自己的私人媒体中心，集中管理电影、剧集、音乐和照片，随时随地畅享高品质媒体体验。')}
+            {t('统一管理电影、剧集、音乐和照片，并通过网页与 macOS 随时访问。')}
           </p>
 
           <div className="hero-actions" aria-label={t('首屏操作')}>

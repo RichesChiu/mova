@@ -13,11 +13,11 @@ const translations: Record<string, string> = {
   '切换为中文': 'Switch to Chinese',
   首屏操作: 'Hero actions',
   'MOVA 网页端媒体库首页界面': 'MOVA Web media library home screen',
-  '你的媒体中心，': 'Your media center,',
-  只属于你: 'truly yours',
-  '开源 · 自托管 · 跨设备': 'Open source · Self-hosted · Cross-device',
-  '打造属于你自己的私人媒体中心，集中管理电影、剧集、音乐和照片，随时随地畅享高品质媒体体验。':
-    'Build a private media center of your own. Organize movies, series, music, and photos, then enjoy them anywhere in high quality.',
+  属于你自己的: 'Your own',
+  流媒体中心: 'streaming center',
+  'MOVA 是美观、好用的自托管流媒体服务器': 'MOVA is a beautiful, easy-to-use self-hosted streaming server',
+  '统一管理电影、剧集、音乐和照片，并通过网页与 macOS 随时访问。':
+    'Organize movies, series, music, and photos, with seamless access on the Web and macOS.',
   开始部署: 'Deploy now',
   '查看 API': 'View API',
   'MOVA 核心优势': 'MOVA core benefits',
