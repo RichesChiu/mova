@@ -1,6 +1,6 @@
 import { MovaIcon } from '../MovaIcon'
 import { SectionTitle } from '../SectionTitle'
-import { devices, macAppStoreUrl } from '../../data/homeContent'
+import { devices } from '../../data/homeContent'
 import { useI18n } from '../../i18n-context'
 import './DeviceSection.css'
 
@@ -16,11 +16,8 @@ export function DeviceSection() {
           <h2>{t('专为 macOS 打造的')}<br />{t('原生体验')}</h2>
           <p>{macDevice ? t(macDevice.text) : null}</p>
           <div className="macos-actions" aria-label={t('macOS 平台说明')}>
-            <a className="macos-store-note" href={macAppStoreUrl}>
-              {t('前往 Mac App Store 安装')}
-              <MovaIcon name="arrow-right" />
-            </a>
-            <span className="android-note">{t('原生客户端暂不支持 Android')}</span>
+            <span className="macos-coming-note">{t('即将到来')}</span>
+            <span className="macos-store-status">{t('尚未上架 Mac App Store')}</span>
           </div>
         </div>
         <div className="macos-preview">
@@ -47,7 +44,7 @@ export function DeviceSection() {
             key={device.title}
           >
             <span className={`device-status ${device.available ? 'is-ready' : 'is-upcoming'}`}>
-              {t(device.available ? '现在即可使用' : '积极开发中')}
+              {t(device.status)}
             </span>
             <span className={`device-icon device-icon--${device.id}`} aria-hidden="true">
               <img src={`/assets/mova-icons/platform/${device.id}.svg`} alt="" />

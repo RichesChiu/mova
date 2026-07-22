@@ -18,6 +18,7 @@ type Device = {
   title: string
   text: string
   available: boolean
+  status: string
   action?: {
     href: string
     label: string
@@ -33,8 +34,6 @@ export const navItems: NavItem[] = [
 
 export const githubUrl = 'https://github.com/RichesChiu/mova'
 export const dockerUrl = 'https://hub.docker.com/repository/docker/richeschiu/mova/general'
-export const macAppStoreUrl =
-  'macappstore://search.itunes.apple.com/WebObjects/MZSearch.woa/wa/search?term=MOVA'
 
 export const heroBadges = [
   { icon: 'data-shield', label: '隐私优先', text: '媒体和账户数据始终由你掌控。' },
@@ -77,6 +76,7 @@ export const devices: Device[] = [
     title: '网页端',
     text: '在浏览器中随时访问，无需安装。',
     available: true,
+    status: '现在即可使用',
     action: {
       href: '#home',
       label: '现在即可使用',
@@ -86,24 +86,22 @@ export const devices: Device[] = [
   {
     id: 'macos',
     title: 'macOS 端',
-    text: '原生 macOS 客户端，更优雅的体验。',
-    available: true,
-    action: {
-      href: macAppStoreUrl,
-      label: '前往 Mac App Store 安装',
-      variant: 'secondary',
-    },
+    text: '原生 macOS 客户端即将推出。',
+    available: false,
+    status: '即将到来',
   },
   {
     id: 'phone',
-    title: '手机端',
-    text: '积极开发中，敬请期待。',
+    title: 'iOS 端',
+    text: 'iOS 客户端，敬请期待。',
     available: false,
+    status: '敬请期待',
   },
   {
     id: 'pad',
     title: 'Pad 端',
-    text: '积极开发中，敬请期待。',
+    text: 'Pad 客户端，敬请期待。',
     available: false,
+    status: '敬请期待',
   },
 ]

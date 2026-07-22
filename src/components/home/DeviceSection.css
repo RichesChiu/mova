@@ -49,22 +49,20 @@
     gap: 13px;
   }
 
-  .macos-store-note {
+  .macos-coming-note {
     display: inline-flex;
-    gap: 10px;
     align-items: center;
-    min-height: 44px;
-    padding: 0 17px;
-    border-radius: 9px;
-    color: #ffffff;
-    background: linear-gradient(100deg, #7248f5, #2ba9ee);
+    min-height: 38px;
+    padding: 0 15px;
+    border: 1px solid rgba(139, 117, 255, 0.38);
+    border-radius: 8px;
+    color: #b9adff;
+    background: rgba(139, 117, 255, 0.1);
     font-size: 13px;
     font-weight: 800;
-    text-decoration: none;
-    box-shadow: 0 13px 28px rgba(49, 94, 218, 0.24);
   }
 
-  .android-note {
+  .macos-store-status {
     color: #8996a9;
     font-size: 12px;
   }
