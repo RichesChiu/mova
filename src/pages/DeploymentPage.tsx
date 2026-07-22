@@ -6,6 +6,7 @@ import './DeploymentPage.css'
 const deploymentSections = [
   ['deploy-requirements', '环境要求', 'Requirements'],
   ['deploy-quick-start', '快速开始', 'Quick start'],
+  ['deploy-compose', 'Docker Compose 示例', 'Docker Compose example'],
   ['deploy-configuration', '环境配置', 'Configuration'],
   ['deploy-operations', '运行与升级', 'Operations'],
   ['deploy-first-use', '首次使用', 'First use'],
@@ -23,6 +24,45 @@ cd mova
 cp .env.example .env
 # 编辑 .env 后启动
 docker compose up -d`
+
+const composeExample = `services:
+  app:
+    image: richeschiu/mova:latest
+    container_name: mova-app
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "36080:36080"
+    environment:
+      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
+      MOVA_WEB_DIST_DIR: /app/web
+      MOVA_TMDB_ACCESS_TOKEN: \${MOVA_TMDB_ACCESS_TOKEN:-}
+      MOVA_WORKER_CONCURRENCY: \${MOVA_WORKER_CONCURRENCY:-2}
+    volumes:
+      - ./data/cache:/app/data/cache
+      - type: bind
+        source: \${MOVA_MEDIA_ROOT:?MOVA_MEDIA_ROOT must be set}
+        target: /media
+        read_only: true
+    restart: unless-stopped
+
+  database:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: mova
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mova
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - ./data/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mova -d mova"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    shm_size: 256mb
+    restart: unless-stopped`
 
 const operationsCommand = `# 查看状态
 docker compose ps
@@ -143,6 +183,23 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
               <strong>{isChinese ? '启动后访问' : 'Open after launch'}</strong>
               <code>http://127.0.0.1:36080</code>
               <span>{isChinese ? '健康检查：/api/health' : 'Health check: /api/health'}</span>
+            </div>
+          </section>
+
+          <section className="deploy-section" id="deploy-compose">
+            <SectionHeading
+              eyebrow="Docker Compose"
+              title={isChinese ? 'Docker Compose 示例' : 'Docker Compose example'}
+              text={isChinese
+                ? '将下面的配置保存为 docker-compose.yml，并与 .env 放在同一目录。Compose 会拉取正式镜像，同时启动 MOVA 与 PostgreSQL。'
+                : 'Save this configuration as docker-compose.yml next to your .env file. Compose pulls the published image and starts MOVA with PostgreSQL.'}
+            />
+            <pre className="deploy-code"><code>{composeExample}</code></pre>
+            <div className="deploy-callout">
+              <strong>{isChinese ? '数据持久化' : 'Persistent data'}</strong>
+              <code>./data/postgres</code>
+              <code>./data/cache</code>
+              <span>{isChinese ? '媒体目录只读挂载到容器内 /media' : 'The media directory is mounted read-only at /media'}</span>
             </div>
           </section>
 
