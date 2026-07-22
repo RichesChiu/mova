@@ -245,27 +245,30 @@
 .detail-hero__rating-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 8px 12px;
+  align-self: center;
+  gap: 5px;
+  min-height: 0;
+  padding: 5px 9px;
   border: 1px solid var(--detail-rating-badge-border);
   border-radius: var(--radius-full);
   background: var(--detail-rating-badge-background);
   box-shadow: var(--detail-rating-badge-shadow);
   color: var(--detail-rating-badge-text);
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .detail-hero__rating-label {
   color: var(--detail-rating-label);
-  font-size: 0.72rem;
+  font-size: 0.64rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .detail-hero__rating-badge strong {
   color: var(--detail-rating-strong);
-  font-size: 0.96rem;
+  font-size: 0.8rem;
   line-height: 1;
 }
 
