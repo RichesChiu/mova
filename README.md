@@ -122,7 +122,7 @@ docker compose up -d
 
 媒体目录只读挂载，Mova 不会修改你的原始媒体文件。
 
-默认 Compose 文件会直接运行公开体验通道 `richeschiu/mova:preview`，不在部署机器上从源码构建。本地没有镜像时，`docker compose up -d` 会自动拉取；如果你想主动升级到最新预览版本，先执行 `docker compose pull`，再执行 `docker compose up -d`。需要固定版本时，可改用 `richeschiu/mova:1.0.0-preview.1`。
+默认 Compose 文件会直接运行公开体验通道 `richeschiu/mova:preview`，不在部署机器上从源码构建。本地没有镜像时，`docker compose up -d` 会自动拉取；如果你想主动升级到最新预览版本，先执行 `docker compose pull`，再执行 `docker compose up -d`。需要固定版本时，可改用 `richeschiu/mova:1.0.0-preview.2`。
 
 已发布镜像覆盖 `linux/amd64` 和 `linux/arm64`。Windows 和 macOS 宿主机通过 Docker Desktop 运行同一个 Linux 镜像，Linux 宿主机通过 Docker Engine 或 Docker Desktop 运行，Docker 会自动选择匹配的架构。
 

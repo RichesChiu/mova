@@ -1,114 +1,104 @@
 # AGENTS
 
-这份文件保持简短，只记录当前仓库里最高优先级、最稳定的 AI 协作规则，不重复 `README.md`、`docs/API.md` 和目录级 `AGENTS.md` 里的执行细节。
+This file contains the highest-priority, stable collaboration rules for this repository. Keep it concise and do not duplicate product documentation from `README.md`, API contracts from `docs/API.md`, or implementation details owned by directory-level `AGENTS.md` files.
 
-如果规则冲突，按下面顺序执行：
-1. 当前用户在对话里的明确要求
-2. `AGENTS.md`
-3. 其他项目文档
+When instructions conflict, apply them in this order:
 
-如果多个 `AGENTS.md` 同时适用，根目录 `AGENTS.md` 负责全局规则，离被改文件更近的目录级 `AGENTS.md` 负责该区域的执行细节。
+1. Explicit instructions from the user in the current conversation
+2. The applicable `AGENTS.md` files
+3. Other project documentation
 
-写代码时，规范、约束、协作方式默认只以适用的 `AGENTS.md` 为准。
-`README.md`、`docs/API.md`、`apps/*/README.md`、`crates/*/README.md` 这类文档只在当前任务确实需要产品说明、接口字段、运行方式或模块背景时按需查阅，不作为默认规范来源。
+The root `AGENTS.md` defines repository-wide rules. A directory-level `AGENTS.md` adds rules for files in that directory and takes precedence for that scope.
 
-## 协作规则
+## Scope and collaboration
 
-- 当前任务的唯一代码修改边界是本项目根目录（即本文件所在的仓库）。除非用户在当前请求中明确点名并授权修改另一个项目，否则不得在项目根目录之外新增、修改或删除文件，也不得对其他仓库执行暂存、提交、推送或发布操作。
-- 工作区中同时挂载、可读取或可写入其他项目，不代表获得了修改授权。跨项目联动默认只在本项目内完成服务端契约和文档，并在最终说明中给出其他项目的适配要求；不得直接修改其他项目。
-- 默认不要求宿主机安装 Rust 或 Python，优先选择当前环境里最直接、最低摩擦的验证方式。
-- 这台开发机已经安装 Rust，Rust 相关的 `cargo check` / `cargo test` 可以直接在宿主机运行；只有在本机能力不足或任务明确需要隔离环境时再回退到 Docker。
-- 用户可见文案默认以英文为主，除非当前任务明确要求中文或其他语言。
-- 功能、API、行为、运行方式、产品方向发生变化时，同一轮改动里同步更新真正相关的 markdown，不要把文档更新留到后续补。
-- 根目录 `README.md` 只维护产品定位、核心能力、部署/首次使用和重大产品方向，不记录卡片排版、按钮位置、交互细节等小功能，也不要求每次功能改造都更新。
-- 小功能和实现细节优先更新受影响模块的 markdown；如果涉及 API 变动，默认检查并更新 `docs/API.md` 以及相关专题文档。
-- 做文档同步时，不只看单一文件，要主动关注相关文档是否也需要一起更新，例如：
-  - 产品定位、核心能力、总体使用方式或部署变化：`README.md`
-  - API、请求/响应、路由、字段变化：`docs/API.md`
-  - UI 细节、分区职责、模块运行方式和内部行为变化：对应 `apps/*/README.md`、`crates/*/README.md`、`docs/*`
-- 提交前至少跑与改动范围对应的检查，例如 `cargo check`、前端 `tsc`、前端 `vite build`、定向测试。
-- 只说明自己真的跑过的检查、测试和构建结果，不要把推测运行效果写成“已经验证通过”。
-- 提交信息统一使用 conventional commits，例如：
-  - `feat(scope): ...`
-  - `fix(scope): ...`
-  - `refactor(scope): ...`
-  - `docs(scope): ...`
-  - `chore(scope): ...`
-- `scope` 尽量具体，优先使用类似 `player`、`scan`、`settings`、`libraries`、`auth`、`api` 这类明确范围，不要自动使用某些 skill，信息要用英文描述。
-- 不确定时先读代码再改，不凭印象、不凭过时上下文直接下手。
-- 涉及数据库 schema 改动时，必须明确说明：
-  - 旧数据库是否可以平滑迁移
-  - 还是需要重建数据库 / 清理数据目录
+- The repository root is the only default write boundary. Do not create, modify, delete, stage, commit, push, or publish files in another project unless the user explicitly authorizes that project in the current request.
+- Mounted or writable sibling repositories do not imply permission to modify them. For cross-client work, implement the contract and documentation here, then describe the required downstream changes.
+- Read the relevant code before changing it. Do not implement from memory or stale conversation context.
+- Preserve unrelated user changes in a dirty worktree. Stage only files that belong to the current task.
+- User-facing copy defaults to English unless the current request specifies another language.
+- Use the lowest-friction verification available. Rust is installed on the host, so run targeted `cargo check` and `cargo test` commands directly unless isolation is required.
+- Report only checks, tests, builds, pushes, and releases that actually completed successfully.
 
-## 构建与发布
+## Documentation ownership
 
-- 当用户在本仓库中说“构建且发布”“构建并发布”或“发布镜像”时，默认含义是：使用当前工作区代码构建测试期 Docker 镜像并推送到 Docker Hub。
-- 默认发布镜像为 `richeschiu/mova:latest`。
-- 默认发布命令为：
-  `./scripts/publish-docker-images.sh`
-- 当前测试期默认发布 Linux 多架构镜像：`linux/amd64` 和 `linux/arm64`。Windows 和 macOS 用户通过 Docker Desktop 运行这个 Linux 镜像；Linux 用户通过 Docker Engine / Docker Desktop 运行同一镜像。
-- 发布脚本默认会检查构建基础镜像是否已经包含上述平台；缺失时先发布 `docker/base` 下的基础镜像，再发布主镜像。需要强制重发基础镜像时，使用 `MOVA_PUBLISH_BASE_IMAGES=1 ./scripts/publish-docker-images.sh`。
-- 这条命令固定从仓库根目录执行；不要因为上下文丢失再搜索 Dockerfile 或 compose 文件位置，除非该命令实际失败且错误明确指向路径变更。
-- 发布完成后，必须运行 `docker buildx imagetools inspect richeschiu/mova:latest`；默认发布脚本已经包含这一步。
-- 最终说明里要写清楚镜像 digest、已发布平台，以及当前未提交改动是否已经被包含进镜像。发布平台应至少包含 `linux/amd64` 和 `linux/arm64`；如果某个平台失败，必须明确说明。
-- “构建且发布”本身视为用户对推送镜像的明确授权；如果用户只说“构建”或表达不明确，只构建或先确认，不要擅自推送。
-- 构建发布不等于提交代码；除非用户同时要求提交，否则不要自动 commit。
+- Update relevant Markdown in the same change whenever a feature, API, behavior, runtime contract, or product direction changes.
+- Keep the root `README.md` focused on product positioning, core capabilities, deployment, first use, and major product direction. Do not add routine UI or implementation details.
+- Update `docs/API.md` and the relevant topic document when routes, requests, responses, fields, or API behavior change.
+- Update the closest app, crate, or topic README when internal behavior, module ownership, or operating instructions change.
+- Do not add release-history wording such as “previously X, now Y” to specification documents. Describe the current contract directly.
 
-## 当前版本阶段
+## Issues, branches, and pull requests
 
-- 当前版本尚未进入 `1.0`，仍处于 pre-1.0 快速迭代阶段。
-- 默认接受破坏性改动。功能、API、schema、UI、配置、数据结构、目录约定都可以直接按新设计调整。
-- 是否启用新 schema、重构旧字段或调整数据结构，以当前产品模型和技术合理性为准，不以兼容旧设计为优先目标。
-- 如果当前数据库字段、表关系或数据模型已经不适合新功能，应直接重构 schema，不要为了迁就旧结构把业务逻辑写复杂。
-- 废弃字段、废弃 UI、废弃路径、旧 API、旧配置和旧数据结构不做兼容保留，能删就删。
-- 如果一条旧路径已经明确被替代，直接删除旧逻辑，不要额外叠兼容层、双路径、迁就旧数据的兜底逻辑。
-- 不要为了兼容历史行为写兜底性代码；实现应对齐当前产品方向和最新数据模型。
-- 即使兜底看起来“更安全”，也不要主动增加用于保留旧行为、旧字段、旧配置或旧数据的 fallback/default branch。
-- 如果破坏性改动会影响已有数据或部署，最终说明里直接写清楚需要重建、重新扫描或重新配置。
-- 只有当用户在当前对话明确要求兼容旧版本时，才考虑迁移层、兼容路径或兜底逻辑。
+This repository is hosted on GitHub, so use **pull request (PR)** rather than GitLab's **merge request (MR)** in project communication.
 
-## 数据库阶段规则
+- Create an Issue before implementation when work is externally contributed, spans multiple sessions, needs product or architecture discussion, changes a public API or database schema, or requires reproducible bug investigation. Small owner-directed fixes and routine maintenance may skip an Issue.
+- Write Issue titles in English. Include context, current behavior, expected outcome or proposal, acceptance criteria, and compatibility or data impact when applicable.
+- Start branches from an up-to-date `master`. Use a lowercase, kebab-case name with one of these prefixes:
+  - `feat/` for product features
+  - `fix/` for defects
+  - `refactor/` for behavior-preserving restructuring
+  - `docs/` for documentation-only changes
+  - `chore/` for maintenance and release work
+  - `test/` for test-only work
+  - `ci/` for automation and workflow changes
+- Keep each branch and PR focused on one coherent outcome. Do not mix unrelated cleanup into the same change.
+- Prefer a PR into `master`, use Draft status while incomplete, and link its Issue with `Closes #...` when one exists.
+- PR descriptions must summarize behavior changes, list completed verification, include screenshots for visible UI changes, identify API or schema effects, and state whether documentation was updated.
+- Prefer squash merge for a normal single-purpose PR. Never force-push or rewrite `master`.
+- Directly merging and pushing `master` is allowed only when the repository owner explicitly requests the merge or release and PR tooling is unavailable. Complete the same review and verification first, and preserve a clear merge or release commit.
+- Delete merged remote branches when they are no longer needed, unless ongoing release work still references them.
 
-- 用户明确确认进入 `1.0` 稳定阶段之前，数据库保持单迁移文件：`migrations/0001_init.sql`。
-- 这个阶段做 schema 变更时，直接修改 `migrations/0001_init.sql`，不要新增 `0002`、`0003` 这类后续 migration。
-- 判断是否需要 schema 变更时，优先看数据模型是否清晰、字段职责是否准确、查询和业务逻辑是否自然；不要因为旧库存在就强行沿用不合理字段。
-- 如果新功能依赖更合理的数据表达方式，允许直接改表、改字段、拆表或合并字段，再同步更新 Rust 查询、响应类型、前端类型和文档。
-- 修改 `migrations/0001_init.sql` 不会自动更新已经执行过迁移的旧数据库，默认需要重建数据库 / 重置数据目录。
-- 做 schema 变更时，默认走重建数据库 / 重置数据目录路径；不要为了旧数据库新增兼容 migration。
-- 本地构建或重启前，如果当前改动包含数据库 schema、migration 或依赖旧数据结构的持久化模型变更，直接删除开发数据库数据并重新初始化，不创建备份；仅修改查询、业务逻辑或文档时不删除数据库。
-- 如果需要重建 `data/postgres` 或重新初始化数据库，最终说明里必须明确写出来。
+## Commits and verification
 
-## 项目结构速览
+- Review `git status`, the complete diff, and `git diff --check` before staging.
+- Use English Conventional Commit messages, for example:
+  - `feat(player): add episode navigation`
+  - `fix(scan): preserve authoritative progress`
+  - `refactor(realtime): batch resource invalidations`
+  - `docs(api): document notification events`
+  - `chore(release): publish preview image`
+- Choose a specific scope such as `player`, `scan`, `settings`, `libraries`, `auth`, `api`, or `realtime`.
+- Before commit, run checks proportional to the change, such as targeted Rust tests, frontend tests, TypeScript compilation, and the Vite production build.
+- Do not commit generated output, temporary review artifacts, local credentials, database contents, or unrelated formatting churn.
 
-- `apps/mova-server`
-  Rust HTTP 服务和运行时入口。
-- `apps/mova-web`
-  React + Vite 前端。
-- `crates/mova-application`
-  应用层业务逻辑。
-- `crates/mova-db`
-  SQL、持久化、同步逻辑。
-- `crates/mova-domain`、`crates/mova-scan`
-  共享模型、媒体发现与探测。
-- `migrations`
-  数据库迁移。
-- `scripts`
-  辅助脚本，包括 Python 媒体分析任务。
+## Build and release
 
-## 目录级 AGENTS 分工
+- “Build and publish”, “publish the image”, and equivalent explicit requests authorize building the current repository and pushing its Docker image. A build-only request does not authorize a push.
+- Image publishing does not authorize a Git commit or Git push unless the user asks for those actions too.
+- Publish from the repository root with `./scripts/publish-docker-images.sh`.
+- The publishing script must produce Linux `amd64` and `arm64` manifests. Windows and macOS users run the same Linux image through Docker Desktop.
+- The script checks the required base-image platforms and publishes missing base images before the application image. Set `MOVA_PUBLISH_BASE_IMAGES=1` only when the base images must be republished deliberately.
+- Preview releases use an immutable Docker tag such as `richeschiu/mova:1.0.0-preview.2`. After it is verified, move both `richeschiu/mova:preview` and, during the pre-1.0 phase, `richeschiu/mova:latest` to the exact same manifest.
+- Preview Git tags use annotated SemVer prerelease names such as `v1.0.0-preview.2`. The annotation must summarize user-visible highlights, important fixes, verification, and any breaking or data-reset requirements.
+- After publishing, run `docker buildx imagetools inspect` for the immutable tag and both aliases. Report the digest, available platforms, and whether all committed changes are included.
+- If a platform or alias update fails, state it explicitly. Do not describe a partial release as complete.
+
+## Pre-1.0 product and database policy
+
+- The project remains in rapid pre-1.0 development. Breaking feature, API, schema, UI, configuration, and directory changes are acceptable when they produce a clearer current design.
+- Remove superseded fields, routes, UI, configuration, and data structures instead of adding compatibility layers, dual paths, or fallbacks for obsolete behavior.
+- Add backward compatibility only when the user explicitly requests it in the current conversation.
+- Until the user declares the `1.0` database stable, keep a single migration at `migrations/0001_init.sql`. Modify that file rather than adding sequential migrations.
+- Choose schema design for clarity and correct domain modeling, not compatibility with an existing development database. Update Rust queries, response models, TypeScript types, and documentation together.
+- Changes to `migrations/0001_init.sql` do not update an initialized database. Before a local rebuild or restart, delete and reinitialize development database data without creating a backup.
+- For every schema change, clearly state whether an existing database can migrate safely or must be rebuilt and rescanned.
+
+## Repository map
+
+- `apps/mova-server`: Rust HTTP service, routes, handlers, bootstrap, and runtime integration
+- `apps/mova-web`: React and Vite web client
+- `crates/mova-application`: application-layer business logic
+- `crates/mova-db`: SQL, persistence, and synchronization
+- `crates/mova-domain`: shared domain models
+- `crates/mova-scan`: media discovery, parsing, probing, and sidecars
+- `migrations`: database schema initialization
+- `scripts`: media-analysis and release tooling
+
+Follow all applicable directory-level instructions for cross-directory changes:
 
 - `apps/mova-web/AGENTS.md`
-  负责 `apps/mova-web` 的 UI、交互、样式、播放器界面和前端验证。
 - `apps/mova-server/AGENTS.md`
-  负责 Rust HTTP 服务、路由、handler、bootstrap 和 runtime glue。
 - `crates/AGENTS.md`
-  负责应用层业务逻辑、数据库访问、领域模型、扫描链路和 Rust crate 验证。
 - `migrations/AGENTS.md`
-  负责数据库迁移、schema 变更和重建数据库说明。
 - `scripts/AGENTS.md`
-  负责 Python / 辅助脚本、媒体分析任务和脚本侧验证。
-- 如果任务跨目录，所有相关目录的 `AGENTS.md` 都要一起遵守；不要把跨领域公共规则重复写进目录级文件。
-
-## 给 AI 的补充说明
-
-- 如果行为变了，要把新的预期行为写清楚。

@@ -8,11 +8,7 @@ interface LibraryAccessOptionProps {
   onToggle: () => void
 }
 
-export const LibraryAccessOption = ({
-  checked,
-  library,
-  onToggle,
-}: LibraryAccessOptionProps) => {
+export const LibraryAccessOption = ({ checked, library, onToggle }: LibraryAccessOptionProps) => {
   const { l } = useI18n()
 
   return (
@@ -29,10 +25,7 @@ export const LibraryAccessOption = ({
         type="checkbox"
       />
 
-      <HoverTooltip
-        className="user-editor-modal__access-chip-text-wrap"
-        content={library.name}
-      >
+      <HoverTooltip className="user-editor-modal__access-chip-text-wrap" content={library.name}>
         <span className="user-editor-modal__access-chip-title">{library.name}</span>
       </HoverTooltip>
     </label>

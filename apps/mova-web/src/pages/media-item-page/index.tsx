@@ -120,6 +120,7 @@ export const MediaItemPage = () => {
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number | null>(null)
   const [selectedMediaVersionId, setSelectedMediaVersionId] = useState<number | null>(null)
   const [pageArtwork, setPageArtwork] = useState<PageArtworkState | null>(null)
+  const [failedTitleLogoPath, setFailedTitleLogoPath] = useState<string | null>(null)
   const requestedSeasonParam = searchParams.get('season')
   const requestedSeasonNumber = requestedSeasonParam ? Number(requestedSeasonParam) : Number.NaN
 
@@ -172,8 +173,6 @@ export const MediaItemPage = () => {
     (season) => season.season_number === selectedSeasonNumber,
   )
   const selectedSeasonYear = selectedSeason?.year ?? null
-  const selectedSeasonEpisodeCount =
-    selectedSeason?.episodes.filter((episode) => episode.is_available).length ?? 0
   const isSeriesView = mediaItemQuery.data?.media_type === 'series'
   const selectedSeasonPlayableEpisodes =
     selectedSeason?.episodes
@@ -294,6 +293,12 @@ export const MediaItemPage = () => {
     ? (seriesPlaybackTargetEpisode?.media_item_id ?? null)
     : (mediaItemQuery.data?.id ?? null)
   const mediaVersionOptions = buildMediaVersionOptions(mediaFiles)
+  const seasonOptions = availableSeasons.map((season) => ({
+    label: l('Season {{season}}', { season: season.season_number }),
+    value: String(season.season_number),
+  }))
+  const selectedSeasonValue =
+    selectedSeasonNumber !== null ? String(selectedSeasonNumber) : (seasonOptions[0]?.value ?? '')
   const selectedMediaVersionValue =
     selectedMediaFile !== null
       ? String(selectedMediaFile.id)
@@ -337,6 +342,7 @@ export const MediaItemPage = () => {
       } as CSSProperties)
     : undefined
   const heroTitle = mediaItemQuery.data?.title ?? ''
+  const heroTitleLogoPath = mediaItemQuery.data?.logo_path ?? null
   const heroRatings = (mediaItemQuery.data?.ratings ?? []).filter(
     (rating) =>
       Number.isFinite(rating.score) &&
@@ -369,6 +375,12 @@ export const MediaItemPage = () => {
       ? String(mediaItemQuery.data.year)
       : null
   const heroSecondaryFacts = [
+    heroYearText
+      ? {
+          label: l('Year'),
+          value: heroYearText,
+        }
+      : null,
     heroGenres
       ? {
           label: l('Genres'),
@@ -388,17 +400,6 @@ export const MediaItemPage = () => {
         }
       : null,
   ].filter(isHeroFact)
-  const heroAvailabilityText = isSeriesView
-    ? selectedSeason
-      ? selectedSeasonEpisodeCount === 1
-        ? l('1 available episode')
-        : l('{{count}} available episodes', { count: selectedSeasonEpisodeCount })
-      : availableSeasons.length > 0
-        ? availableSeasons.length === 1
-          ? l('1 available season')
-          : l('{{count}} available seasons', { count: availableSeasons.length })
-        : null
-    : null
   const sourceContextDescription =
     isSeriesView && seriesPlaybackTargetEpisode
       ? l('Showing resource details for the episode the Play button will open.')
@@ -470,13 +471,15 @@ export const MediaItemPage = () => {
         <div className="detail-hero__body">
           <div className="detail-hero__info">
             <div className="detail-hero__title-row">
-              <h2>{heroTitle}</h2>
-              {heroYearText ? <span className="detail-hero__year">{heroYearText}</span> : null}
-              {heroAvailabilityText ? (
-                <span className="detail-hero__availability detail-hero__availability--title">
-                  {heroAvailabilityText}
-                </span>
+              {heroTitleLogoPath && failedTitleLogoPath !== heroTitleLogoPath ? (
+                <img
+                  alt=""
+                  className="detail-hero__title-logo"
+                  onError={() => setFailedTitleLogoPath(heroTitleLogoPath)}
+                  src={heroTitleLogoPath}
+                />
               ) : null}
+              <h2>{heroTitle}</h2>
               {heroRatings.map((rating) => {
                 const sourceLabel = formatRatingSource(rating.source)
                 const scoreLabel = Number.isInteger(rating.score)
@@ -502,31 +505,16 @@ export const MediaItemPage = () => {
                 )
               })}
             </div>
-            {isSeriesView && availableSeasons.length > 0 ? (
-              <div className="detail-hero__season-picker">
-                <div className="season-picker" role="tablist">
-                  {availableSeasons.map((season) => {
-                    const isActive = season.season_number === selectedSeasonNumber
-                    const label = `S${String(season.season_number).padStart(2, '0')}`
-
-                    return (
-                      <button
-                        aria-selected={isActive}
-                        className={
-                          isActive
-                            ? 'season-picker__button season-picker__button--active'
-                            : 'season-picker__button'
-                        }
-                        key={season.season_number}
-                        onClick={() => setSelectedSeasonNumber(season.season_number)}
-                        role="tab"
-                        type="button"
-                      >
-                        <span>{label}</span>
-                      </button>
-                    )
-                  })}
-                </div>
+            {heroSecondaryFacts.length > 0 ? (
+              <div className="detail-hero__facts detail-hero__facts--secondary">
+                {heroSecondaryFacts.map((item) => (
+                  <span className="detail-hero__fact" key={item.label}>
+                    <span className="detail-hero__fact-label">{item.label}</span>
+                    <span className="detail-hero__fact-value" title={item.value}>
+                      {item.value}
+                    </span>
+                  </span>
+                ))}
               </div>
             ) : null}
             {selectedTechnicalBadges.length > 0 ? (
@@ -544,16 +532,17 @@ export const MediaItemPage = () => {
                 </ul>
               </div>
             ) : null}
-            {heroSecondaryFacts.length > 0 ? (
-              <div className="detail-hero__facts detail-hero__facts--secondary">
-                {heroSecondaryFacts.map((item) => (
-                  <span className="detail-hero__fact" key={item.label}>
-                    <span className="detail-hero__fact-label">{item.label}</span>
-                    <span className="detail-hero__fact-value" title={item.value}>
-                      {item.value}
-                    </span>
-                  </span>
-                ))}
+            {isSeriesView && seasonOptions.length > 0 ? (
+              <div className="detail-hero__season-summary">
+                <div className="detail-hero__season-select">
+                  <GlassSelect
+                    ariaLabel={l('Select season for {{title}}', { title: heroTitle })}
+                    compact
+                    onChange={(value) => setSelectedSeasonNumber(Number(value))}
+                    options={seasonOptions}
+                    value={selectedSeasonValue}
+                  />
+                </div>
               </div>
             ) : null}
             <p className="detail-hero__overview">{heroOverview}</p>

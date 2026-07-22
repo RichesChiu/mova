@@ -78,7 +78,7 @@ const SeasonBlock = ({
   ].sort((left, right) => left.order - right.order)
 
   return (
-    <article className="season-card">
+    <article className="season-card season-card--rail">
       <ScrollableRail
         hint={l('Use horizontal scrolling or click arrows to move through episodes.')}
         resetKey={season.season_number}
@@ -93,7 +93,7 @@ const SeasonBlockSkeleton = () => {
   const { l } = useI18n()
 
   return (
-    <article aria-hidden="true" className="season-card">
+    <article aria-hidden="true" className="season-card season-card--rail">
       <ScrollableRail
         hint={l('Use horizontal scrolling or click arrows to move through episodes.')}
         resetKey="loading"
@@ -206,7 +206,7 @@ export const MediaItemCastSection = ({ error, isLoading, members }: MediaItemCas
         {!isLoading ? <span className="counter-badge">{members.length}</span> : null}
       </div>
 
-      <div className="season-card cast-panel">
+      <div className="season-card season-card--rail cast-panel">
         {isLoading ? (
           <p className="muted">{l('Loading cast…')}</p>
         ) : error ? (

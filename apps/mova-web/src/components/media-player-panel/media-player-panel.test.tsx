@@ -298,6 +298,53 @@ describe('MediaPlayerPanel', () => {
     })
   })
 
+  it('shows the current playback action with the player chrome on mouse movement', async () => {
+    const { container } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel mediaItemId={31} title="Interstellar" variant="immersive" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
+    const video = container.querySelector('video') as HTMLVideoElement
+    installVideoTestState(video)
+    fireEvent.canPlay(video)
+    fireEvent.play(video)
+    fireEvent.mouseMove(window)
+
+    await waitFor(() => {
+      expect(container.querySelector('.player-panel__center-playback-control')).toHaveAttribute(
+        'aria-label',
+        'Pause playback',
+      )
+    })
+    expect(container.querySelector('.player-stage__controls')).toHaveClass(
+      'player-stage__controls--visible',
+    )
+
+    fireEvent.click(container.querySelector('.player-panel__center-playback-control') as Element)
+    fireEvent.pause(video)
+
+    await waitFor(() => {
+      expect(container.querySelector('.player-panel__center-playback-control')).toBeNull()
+    })
+    expect(container.querySelector('.player-stage__controls')).not.toHaveClass(
+      'player-stage__controls--visible',
+    )
+
+    fireEvent.mouseMove(window)
+
+    await waitFor(() => {
+      expect(container.querySelector('.player-panel__center-playback-control')).toHaveAttribute(
+        'aria-label',
+        'Start playback',
+      )
+    })
+  })
+
   it('releases pointer-focused controls so space returns to playback', async () => {
     const { container } = render(
       <QueryClientProvider client={createTestQueryClient()}>

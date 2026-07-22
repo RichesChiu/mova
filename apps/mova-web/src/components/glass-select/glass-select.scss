@@ -69,14 +69,17 @@
   font-weight: 600;
 }
 
-.glass-select--compact .glass-select__menu {
-  top: calc(100% + 6px);
+.glass-select__menu--compact {
+  gap: 4px;
+  padding: 6px;
   border-radius: var(--radius-control);
 }
 
-.glass-select--compact .glass-select__option {
-  min-height: 34px;
-  padding: 7px 10px;
+.glass-select__menu--compact .glass-select__option {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 0.82rem;
+  line-height: 1.25;
 }
 
 .glass-select__caret {

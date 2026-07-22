@@ -55,9 +55,7 @@
     color: var(--detail-readable-text-primary);
   }
 
-  .detail-hero__year,
   .detail-hero__overview,
-  .detail-hero__availability,
   .media-file-detail__path {
     color: var(--detail-readable-text-secondary);
   }
@@ -71,9 +69,7 @@
   }
 
   .detail-hero__title-row h2,
-  .detail-hero__year,
   .detail-hero__overview,
-  .detail-hero__availability,
   .detail-hero__fact-label,
   .detail-hero__fact-value {
     text-shadow: var(--detail-readable-text-shadow);
@@ -190,9 +186,19 @@
 
 .detail-hero__title-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.detail-hero__title-logo {
+  display: block;
+  flex: 0 1 auto;
+  width: auto;
+  max-width: min(24vw, 180px);
+  height: clamp(28px, 3.2vw, 42px);
+  object-fit: contain;
+  object-position: left center;
 }
 
 .detail-hero__info,
@@ -225,17 +231,8 @@
 }
 
 .detail-hero__title-row h2 {
+  min-width: 0;
   margin: 0;
-}
-
-.detail-hero__year {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  color: var(--text-soft);
-  font-size: clamp(0.98rem, 1.2vw, 1.14rem);
-  font-weight: 800;
-  letter-spacing: 0.04em;
 }
 
 .detail-hero__technical-badges {
@@ -250,7 +247,7 @@
   min-height: 0;
   padding: 5px 9px;
   border: 1px solid var(--detail-rating-badge-border);
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-control);
   background: var(--detail-rating-badge-background);
   box-shadow: var(--detail-rating-badge-shadow);
   color: var(--detail-rating-badge-text);
@@ -338,6 +335,7 @@
 
 .detail-hero__facts--secondary {
   align-items: center;
+  width: 100%;
   gap: 8px;
 }
 
@@ -345,29 +343,26 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  width: 100%;
   gap: 10px 12px;
 }
 
-.detail-hero__availability {
-  display: inline-flex;
+.detail-hero__season-summary {
+  display: flex;
   align-items: center;
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  font-weight: 700;
-}
-
-.detail-hero__availability--title {
-  color: var(--text-soft);
-  font-size: 0.76rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  opacity: 0.68;
-}
-
-.detail-hero__season-picker {
-  display: grid;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.detail-hero__season-select {
+  flex: 0 0 auto;
+  width: max-content;
+  min-width: 112px;
+  max-width: 100%;
+}
+
+.detail-hero__season-select .glass-select__trigger {
+  min-width: 112px;
 }
 
 .detail-hero__fact {
@@ -413,12 +408,15 @@
   max-width: 100%;
   min-height: 0;
   padding: 6px 10px;
-  border-radius: var(--radius-full);
+  border-color: var(--detail-tag-border);
+  border-radius: var(--radius-control);
+  background: var(--detail-tag-background);
   box-shadow: var(--panel-inset);
 }
 
 .detail-hero__facts--secondary .detail-hero__fact-label {
   flex: 0 0 auto;
+  color: var(--detail-tag-label);
   font-size: 0.66rem;
   letter-spacing: 0.06em;
   white-space: nowrap;
@@ -431,6 +429,7 @@
 }
 
 .detail-hero__facts--secondary .detail-hero__fact-value {
+  color: var(--detail-tag-value);
   font-size: 0.8rem;
   line-height: 1.2;
 }
@@ -447,6 +446,10 @@
   -webkit-backdrop-filter: var(--glass-filter-standard);
   box-shadow: var(--detail-surface-shadow);
   padding: 18px;
+}
+
+.season-card--rail {
+  padding-block: 12px;
 }
 
 .media-item-section-title-row {
@@ -742,52 +745,6 @@
   color: var(--text-muted);
   font-size: 0.78rem;
   line-height: 1.35;
-}
-
-.season-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.season-picker__button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 86%, transparent);
-  border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--floating-surface) 78%, transparent);
-  color: var(--text-muted);
-  box-shadow: var(--panel-inset);
-  font-size: 0.88rem;
-  font-weight: 760;
-  line-height: 1;
-  transition:
-    border-color var(--motion-duration-standard) var(--motion-ease-standard),
-    background var(--motion-duration-standard) var(--motion-ease-standard),
-    color var(--motion-duration-standard) var(--motion-ease-standard),
-    box-shadow var(--motion-duration-standard) var(--motion-ease-standard),
-    transform var(--motion-duration-standard) var(--motion-ease-standard);
-}
-
-.season-picker__button:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--button-primary-border) 68%, var(--floating-border));
-  background: color-mix(in srgb, var(--floating-surface-strong) 88%, transparent);
-  box-shadow:
-    var(--panel-inset),
-    0 10px 24px color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.season-picker__button--active {
-  color: var(--accent-strong);
-  border-color: color-mix(in srgb, var(--button-primary-border) 82%, transparent);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent) 18%, transparent), transparent),
-    color-mix(in srgb, var(--floating-surface-strong) 90%, transparent);
 }
 
 @media (min-width: 721px) and (max-width: 960px) {

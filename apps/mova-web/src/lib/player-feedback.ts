@@ -17,6 +17,9 @@ const asNamedError = (error: unknown) =>
         name: null,
       }
 
+export const isAutoplayBlockedError = (error: unknown) =>
+  asNamedError(error).name === 'NotAllowedError'
+
 export const buildPlaybackInteractionWarningMessage = (error: unknown) => {
   const namedError = asNamedError(error)
 

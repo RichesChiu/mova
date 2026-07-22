@@ -1,20 +1,15 @@
 # Mova Migrations AGENTS
 
-本文件适用于 `migrations` 下的数据库迁移。公共协作规则统一看根目录 `AGENTS.md`，这里只保留 schema 变更执行细节。
+These instructions apply to database schema files under `migrations`. Repository-wide pre-1.0 database rules live in the root `AGENTS.md`.
 
-## 当前仓库事实
+## Schema changes
 
-- 当前数据库阶段规则统一看根目录 `AGENTS.md`。
-- 迁移文件入口是 `migrations/0001_init.sql`。
+- During pre-1.0 development, modify `migrations/0001_init.sql`; do not add `0002`, `0003`, or compatibility migrations.
+- Design tables and fields for the current domain model. Refactor an unsuitable development schema instead of preserving workarounds for old data.
+- Update affected Rust queries, response models, TypeScript types, and documentation in the same change.
+- State explicitly whether the change requires rebuilding the database, resetting the data directory, or rescanning media.
 
-## Schema 改动规则
+## Documentation
 
-- 做 schema 变更前先确认是否只需要改 `migrations/0001_init.sql`。
-- 字段和表结构以当前数据模型的技术合理性为准；如果旧 schema 让业务逻辑变复杂或表达不准确，直接重构，不要为兼容旧结构保留绕路逻辑。
-- 字段影响 Rust 查询、response、TypeScript 类型或文档时，同步更新对应代码和文档。
-- 最终说明必须按根目录规则写清楚是否需要重建数据库 / 重置数据目录。
-
-## Markdown 同步
-
-- 数据库字段影响 API 请求、响应或行为时，检查并更新 `docs/API.md`。
-- 数据库重建、迁移方式或初始化流程变化时，检查并更新相关 README。
+- Update `docs/API.md` when a schema change affects API requests, responses, or behavior.
+- Update relevant README files when initialization, reset, or deployment behavior changes.

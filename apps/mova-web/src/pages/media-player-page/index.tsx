@@ -1,10 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, getMediaItemEpisodeOutline, getMediaItemPlaybackHeader } from '../../api/client'
 import { MediaPlayerPanel } from '../../components/media-player-panel'
 import { useI18n } from '../../i18n'
-import { mediaItemDetailPath, mediaItemPlayPath } from '../../lib/media-routes'
+import {
+  mediaItemDetailPath,
+  mediaItemPlaybackReturnPath,
+  mediaItemPlayPath,
+} from '../../lib/media-routes'
 import {
   MEDIA_DETAIL_QUERY_STALE_TIME_MS,
   MEDIA_QUERY_GC_TIME_MS,
@@ -19,7 +23,7 @@ export const MediaPlayerPage = () => {
   const mediaItemId = Number(params.mediaItemId)
   const requestedFileId = Number(searchParams.get('file'))
   const startMode = searchParams.get('fromStart') === '1' ? 'from-start' : 'resume'
-  const [logoFailed, setLogoFailed] = useState(false)
+  const [failedLogoPath, setFailedLogoPath] = useState<string | null>(null)
 
   const playbackHeaderQuery = useQuery({
     gcTime: MEDIA_QUERY_GC_TIME_MS,
@@ -40,9 +44,6 @@ export const MediaPlayerPage = () => {
   })
 
   const logoPath = playbackHeaderQuery.data?.logo_path ?? null
-  useEffect(() => {
-    setLogoFailed(false)
-  }, [logoPath])
 
   if (!Number.isFinite(mediaItemId)) {
     return (
@@ -84,6 +85,14 @@ export const MediaPlayerPage = () => {
     return <Navigate replace to={mediaItemDetailPath(playbackHeaderQuery.data.media_item_id)} />
   }
 
+  const detailReturnPath = mediaItemPlaybackReturnPath({
+    libraryId: playbackHeaderQuery.data.library_id,
+    mediaItemId: playbackHeaderQuery.data.media_item_id,
+    mediaType: playbackHeaderQuery.data.media_type,
+    seasonNumber: playbackHeaderQuery.data.season_number,
+    seriesMediaItemId: playbackHeaderQuery.data.series_media_item_id,
+  })
+
   const subtitle =
     playbackHeaderQuery.data.media_type === 'episode'
       ? [
@@ -93,7 +102,6 @@ export const MediaPlayerPage = () => {
           playbackHeaderQuery.data.episode_number
             ? l('Episode {{episode}}', { episode: playbackHeaderQuery.data.episode_number })
             : null,
-          playbackHeaderQuery.data.episode_title,
         ]
           .filter(Boolean)
           .join(' · ')
@@ -121,11 +129,7 @@ export const MediaPlayerPage = () => {
   )
   const episodeSwitchOptions =
     currentSeason?.episodes
-      .filter(
-        (episode) =>
-          episode.media_item_id !== null &&
-          episode.media_item_id !== playbackHeaderQuery.data.media_item_id,
-      )
+      .filter((episode) => episode.media_item_id !== null)
       .map((episode) => ({
         label: `E${String(episode.episode_number).padStart(2, '0')} · ${episode.title}`,
         mediaItemId: episode.media_item_id as number,
@@ -168,14 +172,7 @@ export const MediaPlayerPage = () => {
         <button
           aria-label={l('Go back')}
           className="player-screen__back"
-          onClick={() => {
-            if (window.history.length > 1) {
-              navigate(-1)
-              return
-            }
-
-            navigate(`/libraries/${playbackHeaderQuery.data.library_id}`)
-          }}
+          onClick={() => navigate(detailReturnPath)}
           type="button"
         >
           <svg
@@ -196,16 +193,15 @@ export const MediaPlayerPage = () => {
 
         <div className="player-screen__title-lockup">
           <div className="player-screen__title">
-            {logoPath && !logoFailed ? (
+            {logoPath && failedLogoPath !== logoPath ? (
               <img
                 alt={playbackHeaderQuery.data.title}
                 className="player-screen__title-logo"
-                onError={() => setLogoFailed(true)}
+                onError={() => setFailedLogoPath(logoPath)}
                 src={logoPath}
               />
-            ) : (
-              <strong>{playbackHeaderQuery.data.title}</strong>
-            )}
+            ) : null}
+            <strong>{playbackHeaderQuery.data.title}</strong>
             {subtitle ? <span>{subtitle}</span> : null}
           </div>
         </div>

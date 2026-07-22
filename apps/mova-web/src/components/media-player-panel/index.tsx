@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   type CSSProperties,
-  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
@@ -33,6 +32,7 @@ import { shouldMarkPlaybackFinished } from '../../lib/playback'
 import {
   buildFullscreenWarningMessage,
   buildPlaybackInteractionWarningMessage,
+  isAutoplayBlockedError,
 } from '../../lib/player-feedback'
 import { usePresenceTransition } from '../../lib/use-presence-transition'
 import {
@@ -206,15 +206,25 @@ export const buildPlaybackSourceErrorMessage = (video: HTMLVideoElement | null) 
   }
 }
 
-const PlayerPanelCenteredStatus = ({ children }: { children: ReactNode }) => (
-  <div
-    aria-live="assertive"
-    className="player-panel__center-status player-panel__center-status--interactive"
-    role="alert"
-  >
-    <div className="player-panel__status-stack player-panel__status-stack--centered">
-      {children}
+const PlayerPanelPlaybackError = ({
+  messages,
+  onRetry,
+}: {
+  messages: string[]
+  onRetry?: () => void
+}) => (
+  <div aria-live="assertive" className="player-panel__playback-error" role="alert">
+    <div className="player-panel__playback-error-copy">
+      <strong>{translateCurrent('Playback unavailable')}</strong>
+      {messages.map((message) => (
+        <span key={message}>{message}</span>
+      ))}
     </div>
+    {onRetry ? (
+      <button className="player-panel__playback-error-action" onClick={onRetry} type="button">
+        {translateCurrent('Retry playback')}
+      </button>
+    ) : null}
   </div>
 )
 
@@ -235,6 +245,7 @@ export const MediaPlayerPanel = ({
   const stageRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const episodeMenuRef = useRef<HTMLDivElement | null>(null)
+  const episodeMenuListRef = useRef<HTMLDivElement | null>(null)
   const audioMenuRef = useRef<HTMLDivElement | null>(null)
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedMediaFileRef = useRef<MediaFile | null>(null)
@@ -266,6 +277,7 @@ export const MediaPlayerPanel = ({
   const [positionSeconds, setPositionSeconds] = useState(0)
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [isAutoplayBlocked, setIsAutoplayBlocked] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(1)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -279,7 +291,8 @@ export const MediaPlayerPanel = ({
   const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<number | null>(null)
   const [selectedSubtitleId, setSelectedSubtitleId] = useState<number | null>(null)
   const [hasSkippedIntro, setHasSkippedIntro] = useState(false)
-  const arePlayerControlsPinned = isEpisodeMenuOpen || isAudioMenuOpen || isSubtitleMenuOpen
+  const arePlayerControlsPinned =
+    isAutoplayBlocked || isEpisodeMenuOpen || isAudioMenuOpen || isSubtitleMenuOpen
 
   const clearPlayerControlsHideTimeout = useCallback(() => {
     if (playerControlsHideTimeoutRef.current === null) {
@@ -472,6 +485,7 @@ export const MediaPlayerPanel = ({
     keepBuffering?: boolean
   } = {}) => {
     setPlayerError(null)
+    setIsAutoplayBlocked(false)
     setInteractionWarning(null)
     setPlaybackSyncError(null)
     setSubtitleTrackError(null)
@@ -557,6 +571,7 @@ export const MediaPlayerPanel = ({
     setPositionSeconds(0)
     setDurationSeconds(selectedMediaFileId === null ? null : selectedMediaFileDuration)
     setIsPlaying(false)
+    setIsAutoplayBlocked(false)
     setHasSkippedIntro(false)
     pendingAudioTrackSwitchRef.current = null
 
@@ -655,6 +670,29 @@ export const MediaPlayerPanel = ({
   }, [isAudioMenuOpen, isEpisodeMenuOpen, isSubtitleMenuOpen])
 
   useEffect(() => {
+    if (!isEpisodeMenuOpen || !episodeMenuPresence.shouldRender) {
+      return undefined
+    }
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      const list = episodeMenuListRef.current
+      const currentOption = list?.querySelector<HTMLElement>(
+        `[data-media-item-id="${mediaItemId}"]`,
+      )
+      if (!list || !currentOption) {
+        return
+      }
+
+      const listRect = list.getBoundingClientRect()
+      const optionRect = currentOption.getBoundingClientRect()
+      list.scrollTop +=
+        optionRect.top - listRect.top - (list.clientHeight - currentOption.clientHeight) / 2
+    })
+
+    return () => window.cancelAnimationFrame(animationFrame)
+  }, [episodeMenuPresence.shouldRender, isEpisodeMenuOpen, mediaItemId])
+
+  useEffect(() => {
     const video = videoRef.current
     if (!video || selectedMediaFileId === null) {
       return
@@ -701,6 +739,7 @@ export const MediaPlayerPanel = ({
 
     const handlePlay = () => {
       setIsPlaying(true)
+      setIsAutoplayBlocked(false)
       setInteractionWarning(null)
     }
     const handlePause = () => setIsPlaying(false)
@@ -944,15 +983,24 @@ export const MediaPlayerPanel = ({
       return
     }
 
+    const handleAutomaticPlaybackFailure = (error: unknown) => {
+      if (isAutoplayBlockedError(error)) {
+        setIsAutoplayBlocked(true)
+        setIsBuffering(false)
+        setInteractionWarning(null)
+        return
+      }
+
+      setInteractionWarning(buildPlaybackInteractionWarningMessage(error))
+    }
+
     const attemptAutoplay = () => {
       if (!shouldAutoplayOnLoadRef.current) {
         return
       }
 
       shouldAutoplayOnLoadRef.current = false
-      void video.play().catch((error) => {
-        setInteractionWarning(buildPlaybackInteractionWarningMessage(error))
-      })
+      void video.play().catch(handleAutomaticPlaybackFailure)
     }
 
     if (Number.isFinite(video.duration) && video.duration > 0) {
@@ -987,9 +1035,7 @@ export const MediaPlayerPanel = ({
       }
 
       if (pendingPlaybackRestore.shouldAutoplay) {
-        void video.play().catch((error) => {
-          setInteractionWarning(buildPlaybackInteractionWarningMessage(error))
-        })
+        void video.play().catch(handleAutomaticPlaybackFailure)
       }
 
       return
@@ -1194,23 +1240,42 @@ export const MediaPlayerPanel = ({
     : []
   const statePlaybackErrorMessages = selectedMediaFile ? [] : playbackLoadErrorMessages
 
-  const togglePlay = useCallback(async () => {
-    const video = videoRef.current
-    if (!video) {
-      return
-    }
-
-    if (video.paused) {
-      try {
-        await video.play()
-      } catch (error) {
-        setInteractionWarning(buildPlaybackInteractionWarningMessage(error))
+  const togglePlay = useCallback(
+    async (hideControlsAfterToggle = false) => {
+      const video = videoRef.current
+      if (!video) {
+        return
       }
-      return
-    }
 
-    video.pause()
-  }, [])
+      if (video.paused) {
+        const wasAutoplayBlocked = isAutoplayBlocked
+        setIsAutoplayBlocked(false)
+        try {
+          await video.play()
+          if (wasAutoplayBlocked || hideControlsAfterToggle) {
+            clearPlayerControlsHideTimeout()
+            setArePlayerControlsVisible(false)
+          }
+        } catch (error) {
+          if (isAutoplayBlockedError(error)) {
+            setIsAutoplayBlocked(true)
+            setInteractionWarning(null)
+            return
+          }
+
+          setInteractionWarning(buildPlaybackInteractionWarningMessage(error))
+        }
+        return
+      }
+
+      video.pause()
+      if (hideControlsAfterToggle) {
+        clearPlayerControlsHideTimeout()
+        setArePlayerControlsVisible(false)
+      }
+    },
+    [clearPlayerControlsHideTimeout, isAutoplayBlocked],
+  )
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1335,14 +1400,8 @@ export const MediaPlayerPanel = ({
       ) : null}
 
       {statePlaybackErrorMessages.length > 0 ? (
-        <div aria-live="assertive" className="player-panel__state-center" role="alert">
-          <div className="player-panel__status-stack player-panel__status-stack--centered">
-            {statePlaybackErrorMessages.map((message) => (
-              <p className="callout callout--danger" key={message}>
-                {message}
-              </p>
-            ))}
-          </div>
+        <div className="player-panel__state-center">
+          <PlayerPanelPlaybackError messages={statePlaybackErrorMessages} />
         </div>
       ) : null}
 
@@ -1397,25 +1456,32 @@ export const MediaPlayerPanel = ({
                 </div>
               ) : null}
 
-              {isImmersive && isBuffering && !playerError ? (
+              {isImmersive && isBuffering && !isAutoplayBlocked && !playerError ? (
                 <div aria-live="polite" className="player-panel__center-status" role="status">
                   <p className="player-panel__status-badge">{bufferingStatusMessage}</p>
                 </div>
               ) : null}
 
+              {isImmersive && arePlayerControlsVisible && !isBuffering && !playerError ? (
+                <div className="player-panel__center-status player-panel__center-status--interactive">
+                  <button
+                    aria-label={translateCurrent(isPlaying ? 'Pause playback' : 'Start playback')}
+                    className="player-panel__center-playback-control"
+                    onClick={() => void togglePlay(true)}
+                    type="button"
+                  >
+                    {isPlaying ? <PauseIcon /> : <PlayIcon />}
+                  </button>
+                </div>
+              ) : null}
+
               {centeredPlaybackErrorMessages.length > 0 ? (
-                <PlayerPanelCenteredStatus>
-                  {centeredPlaybackErrorMessages.map((message) => (
-                    <p className="callout callout--danger" key={message}>
-                      {message}
-                    </p>
-                  ))}
-                  {playerError ? (
-                    <button className="button" onClick={retryCurrentSource} type="button">
-                      {translateCurrent('Retry current source')}
-                    </button>
-                  ) : null}
-                </PlayerPanelCenteredStatus>
+                <div className="player-panel__center-status player-panel__center-status--interactive">
+                  <PlayerPanelPlaybackError
+                    messages={centeredPlaybackErrorMessages}
+                    onRetry={playerError ? retryCurrentSource : undefined}
+                  />
+                </div>
               ) : null}
 
               {/* biome-ignore lint/a11y/useMediaCaption: 当前播放器允许“关闭字幕”，未选中时不会挂载活动字幕轨道。 */}
@@ -1463,35 +1529,6 @@ export const MediaPlayerPanel = ({
                     : 'player-stage__controls'
                 }
               >
-                {nextEpisode && onSelectEpisode ? (
-                  <div className="player-stage__timeline-actions">
-                    <button
-                      aria-label={translateCurrent('Play next episode: {{label}}', {
-                        label: nextEpisode.label,
-                      })}
-                      className="player-panel__floating-action player-panel__floating-action--timeline"
-                      onClick={goToNextEpisode}
-                      type="button"
-                    >
-                      {translateCurrent('Next Episode')}
-                    </button>
-                  </div>
-                ) : null}
-
-                <div className="player-stage__timeline">
-                  <input
-                    aria-label={translateCurrent('Seek playback position')}
-                    className="player-range player-range--timeline"
-                    max={seekMax || 0}
-                    min={0}
-                    onChange={(event) => seekTo(Number(event.target.value))}
-                    step={1}
-                    style={timelineStyle}
-                    type="range"
-                    value={Math.min(positionSeconds, seekMax || positionSeconds)}
-                  />
-                </div>
-
                 <div className="player-stage__control-row">
                   <div className="player-toolbar-cluster">
                     <div className="player-toolbar-pill player-toolbar-pill--primary">
@@ -1559,9 +1596,23 @@ export const MediaPlayerPanel = ({
                     </div>
                   </div>
 
+                  <div className="player-stage__timeline">
+                    <input
+                      aria-label={translateCurrent('Seek playback position')}
+                      className="player-range player-range--timeline"
+                      max={seekMax || 0}
+                      min={0}
+                      onChange={(event) => seekTo(Number(event.target.value))}
+                      step={1}
+                      style={timelineStyle}
+                      type="range"
+                      value={Math.min(positionSeconds, seekMax || positionSeconds)}
+                    />
+                  </div>
+
                   <div className="player-toolbar-cluster player-toolbar-cluster--right">
                     <div className="player-toolbar-pill player-toolbar-pill--tools">
-                      {episodeSwitchOptions.length > 0 && onSelectEpisode ? (
+                      {episodeSwitchOptions.length > 1 && onSelectEpisode ? (
                         <div
                           className={
                             isEpisodeMenuOpen
@@ -1594,21 +1645,40 @@ export const MediaPlayerPanel = ({
                               data-state={episodeMenuPresence.transitionState}
                               role="menu"
                             >
-                              {episodeSwitchOptions.map((episode) => (
-                                <button
-                                  className="player-popover-menu__option"
-                                  key={episode.mediaItemId}
-                                  onClick={() => {
-                                    setIsEpisodeMenuOpen(false)
-                                    persistProgressBeforeSwitch()
-                                    onSelectEpisode(episode.mediaItemId)
-                                  }}
-                                  role="menuitem"
-                                  type="button"
-                                >
-                                  <span>{episode.label}</span>
-                                </button>
-                              ))}
+                              <div
+                                className="player-popover-menu__list scrollbar-thin"
+                                ref={episodeMenuListRef}
+                                role="none"
+                              >
+                                {episodeSwitchOptions.map((episode) => {
+                                  const isCurrentEpisode = episode.mediaItemId === mediaItemId
+                                  return (
+                                    <button
+                                      aria-current={isCurrentEpisode ? 'true' : undefined}
+                                      className={
+                                        isCurrentEpisode
+                                          ? 'player-popover-menu__option player-popover-menu__option--active'
+                                          : 'player-popover-menu__option'
+                                      }
+                                      data-media-item-id={episode.mediaItemId}
+                                      key={episode.mediaItemId}
+                                      onClick={() => {
+                                        setIsEpisodeMenuOpen(false)
+                                        if (isCurrentEpisode) {
+                                          return
+                                        }
+
+                                        persistProgressBeforeSwitch()
+                                        onSelectEpisode(episode.mediaItemId)
+                                      }}
+                                      role="menuitem"
+                                      type="button"
+                                    >
+                                      <span>{episode.label}</span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
                             </div>
                           ) : null}
                         </div>
@@ -1662,49 +1732,51 @@ export const MediaPlayerPanel = ({
                                 </small>
                               </div>
 
-                              <button
-                                className={
-                                  selectedAudioTrackId === null
-                                    ? 'player-popover-menu__option player-popover-menu__option--active'
-                                    : 'player-popover-menu__option'
-                                }
-                                onClick={() => switchAudioTrack(null)}
-                                role="menuitem"
-                                type="button"
-                              >
-                                <span>{translateCurrent('Original default track')}</span>
-                                <small>
-                                  {translateCurrent("Use the source file's default audio")}
-                                </small>
-                              </button>
-
-                              {audioTracks.map((audioTrack) => (
+                              <div className="player-popover-menu__list scrollbar-thin" role="none">
                                 <button
                                   className={
-                                    selectedAudioTrackId === audioTrack.id
+                                    selectedAudioTrackId === null
                                       ? 'player-popover-menu__option player-popover-menu__option--active'
                                       : 'player-popover-menu__option'
                                   }
-                                  key={audioTrack.id}
-                                  onClick={() => switchAudioTrack(audioTrack.id)}
+                                  onClick={() => switchAudioTrack(null)}
                                   role="menuitem"
                                   type="button"
                                 >
-                                  <span>{formatAudioTrackLabel(audioTrack)}</span>
+                                  <span>{translateCurrent('Original default track')}</span>
                                   <small>
-                                    {formatAudioTrackMeta(audioTrack) ||
-                                      translateCurrent('Embedded')}
+                                    {translateCurrent("Use the source file's default audio")}
                                   </small>
                                 </button>
-                              ))}
 
-                              {audioTracks.length === 0 && !audioTracksQuery.isLoading ? (
-                                <p className="player-popover-menu__empty">
-                                  {audioTracksQuery.error
-                                    ? buildAudioTrackLoadErrorMessage()
-                                    : translateCurrent('No alternate audio tracks found.')}
-                                </p>
-                              ) : null}
+                                {audioTracks.map((audioTrack) => (
+                                  <button
+                                    className={
+                                      selectedAudioTrackId === audioTrack.id
+                                        ? 'player-popover-menu__option player-popover-menu__option--active'
+                                        : 'player-popover-menu__option'
+                                    }
+                                    key={audioTrack.id}
+                                    onClick={() => switchAudioTrack(audioTrack.id)}
+                                    role="menuitem"
+                                    type="button"
+                                  >
+                                    <span>{formatAudioTrackLabel(audioTrack)}</span>
+                                    <small>
+                                      {formatAudioTrackMeta(audioTrack) ||
+                                        translateCurrent('Embedded')}
+                                    </small>
+                                  </button>
+                                ))}
+
+                                {audioTracks.length === 0 && !audioTracksQuery.isLoading ? (
+                                  <p className="player-popover-menu__empty">
+                                    {audioTracksQuery.error
+                                      ? buildAudioTrackLoadErrorMessage()
+                                      : translateCurrent('No alternate audio tracks found.')}
+                                  </p>
+                                ) : null}
+                              </div>
                             </div>
                           ) : null}
                         </div>
@@ -1743,63 +1815,65 @@ export const MediaPlayerPanel = ({
                             data-state={subtitleMenuPresence.transitionState}
                             role="menu"
                           >
-                            <button
-                              className={
-                                selectedSubtitleId === null
-                                  ? 'player-popover-menu__option player-popover-menu__option--active'
-                                  : 'player-popover-menu__option'
-                              }
-                              onClick={() => {
-                                setSubtitleTrackError(null)
-                                setSelectedSubtitleId(null)
-                                setIsSubtitleMenuOpen(false)
-                              }}
-                              role="menuitem"
-                              type="button"
-                            >
-                              {translateCurrent('Off')}
-                            </button>
-
-                            {subtitleFiles.map((subtitle) => (
+                            <div className="player-popover-menu__list scrollbar-thin" role="none">
                               <button
                                 className={
-                                  selectedSubtitleId === subtitle.id
+                                  selectedSubtitleId === null
                                     ? 'player-popover-menu__option player-popover-menu__option--active'
                                     : 'player-popover-menu__option'
                                 }
-                                key={subtitle.id}
                                 onClick={() => {
                                   setSubtitleTrackError(null)
-                                  setSelectedSubtitleId(subtitle.id)
+                                  setSelectedSubtitleId(null)
                                   setIsSubtitleMenuOpen(false)
                                 }}
                                 role="menuitem"
                                 type="button"
                               >
-                                <span>
-                                  {renderSubtitleLabel(subtitle) ||
-                                    translateCurrent('Unknown subtitle')}
-                                </span>
-                                <small>
-                                  {subtitle.source_kind === 'embedded'
-                                    ? translateCurrent('Embedded')
-                                    : translateCurrent('External')}
-                                </small>
+                                {translateCurrent('Off')}
                               </button>
-                            ))}
 
-                            {subtitleFiles.length === 0 && !subtitleFilesQuery.isLoading ? (
-                              <p className="player-popover-menu__empty">
-                                {translateCurrent('No subtitles found.')}
-                              </p>
-                            ) : null}
-                            {subtitleFilesQuery.isError ? (
-                              <p className="player-popover-menu__empty">
-                                {subtitleFilesQuery.error instanceof Error
-                                  ? subtitleFilesQuery.error.message
-                                  : translateCurrent('Failed to load subtitles')}
-                              </p>
-                            ) : null}
+                              {subtitleFiles.map((subtitle) => (
+                                <button
+                                  className={
+                                    selectedSubtitleId === subtitle.id
+                                      ? 'player-popover-menu__option player-popover-menu__option--active'
+                                      : 'player-popover-menu__option'
+                                  }
+                                  key={subtitle.id}
+                                  onClick={() => {
+                                    setSubtitleTrackError(null)
+                                    setSelectedSubtitleId(subtitle.id)
+                                    setIsSubtitleMenuOpen(false)
+                                  }}
+                                  role="menuitem"
+                                  type="button"
+                                >
+                                  <span>
+                                    {renderSubtitleLabel(subtitle) ||
+                                      translateCurrent('Unknown subtitle')}
+                                  </span>
+                                  <small>
+                                    {subtitle.source_kind === 'embedded'
+                                      ? translateCurrent('Embedded')
+                                      : translateCurrent('External')}
+                                  </small>
+                                </button>
+                              ))}
+
+                              {subtitleFiles.length === 0 && !subtitleFilesQuery.isLoading ? (
+                                <p className="player-popover-menu__empty">
+                                  {translateCurrent('No subtitles found.')}
+                                </p>
+                              ) : null}
+                              {subtitleFilesQuery.isError ? (
+                                <p className="player-popover-menu__empty">
+                                  {subtitleFilesQuery.error instanceof Error
+                                    ? subtitleFilesQuery.error.message
+                                    : translateCurrent('Failed to load subtitles')}
+                                </p>
+                              ) : null}
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -1821,6 +1895,19 @@ export const MediaPlayerPanel = ({
                       >
                         <FullscreenIcon />
                       </button>
+
+                      {nextEpisode && onSelectEpisode ? (
+                        <button
+                          aria-label={translateCurrent('Play next episode: {{label}}', {
+                            label: nextEpisode.label,
+                          })}
+                          className="player-control-button player-control-button--toolbar player-control-button--next"
+                          onClick={goToNextEpisode}
+                          type="button"
+                        >
+                          {translateCurrent('Next Episode')}
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </div>
