@@ -14,22 +14,18 @@ const composeExampleZh = `services:
     ports:
       - "36080:36080"
     environment:
-      # 数据库密码必须与下方 POSTGRES_PASSWORD 保持一致
-      MOVA_DATABASE_URL: postgres://mova:change_this_password@database:5432/mova
-      # 发布镜像内置的网页端目录，请保持默认值
+      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
       MOVA_WEB_DIST_DIR: /app/web
-      # 可选：填写 TMDB API Read Access Token；留空仍可扫描和播放本地媒体
+      # TMDB API Read Access Token；留空时会跳过远端元数据刮削
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # 后台扫描 Worker 并发数，低配置设备建议保持 2
+      # 后台 worker 并发数，普通部署保持 2 即可
       MOVA_WORKER_CONCURRENCY: "2"
     volumes:
-      # 海报、背景图等运行时缓存
       - ./data/cache:/app/data/cache
       - type: bind
-        # 必填：替换为宿主机媒体目录的绝对路径
+        # 宿主机媒体目录：替换为实际绝对路径，容器内只读挂载
         source: /absolute/path/to/media
         target: /media
-        # MOVA 不会修改原始媒体文件
         read_only: true
     restart: unless-stopped
 
@@ -37,12 +33,10 @@ const composeExampleZh = `services:
     image: postgres:18
     environment:
       POSTGRES_USER: mova
-      # 必填：修改为强密码，并同步修改上方 MOVA_DATABASE_URL
-      POSTGRES_PASSWORD: change_this_password
+      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: mova
       PGDATA: /var/lib/postgresql/18/docker
     volumes:
-      # PostgreSQL 数据持久化目录，请定期备份
       - ./data/postgres:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mova -d mova"]
@@ -62,22 +56,18 @@ const composeExampleEn = `services:
     ports:
       - "36080:36080"
     environment:
-      # Must use the same password as POSTGRES_PASSWORD below
-      MOVA_DATABASE_URL: postgres://mova:change_this_password@database:5432/mova
-      # Web directory bundled in the published image; keep this value unchanged
+      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
       MOVA_WEB_DIST_DIR: /app/web
-      # Optional TMDB API Read Access Token; leave empty for local scanning and playback
+      # TMDB API Read Access Token; remote metadata scraping is skipped when empty
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # Background scan worker concurrency; keep 2 on lower-powered devices
+      # Background worker concurrency; keep 2 for a typical deployment
       MOVA_WORKER_CONCURRENCY: "2"
     volumes:
-      # Runtime cache for posters, backdrops, and related assets
       - ./data/cache:/app/data/cache
       - type: bind
-        # Required: replace with the absolute path to your host media directory
+        # Host media directory: replace with the actual absolute path; mounted read-only
         source: /absolute/path/to/media
         target: /media
-        # MOVA never modifies the original media files
         read_only: true
     restart: unless-stopped
 
@@ -85,12 +75,10 @@ const composeExampleEn = `services:
     image: postgres:18
     environment:
       POSTGRES_USER: mova
-      # Required: use a strong password and update MOVA_DATABASE_URL above to match
-      POSTGRES_PASSWORD: change_this_password
+      POSTGRES_PASSWORD: postgres
       POSTGRES_DB: mova
       PGDATA: /var/lib/postgresql/18/docker
     volumes:
-      # Persistent PostgreSQL data; back up this directory regularly
       - ./data/postgres:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mova -d mova"]
@@ -100,52 +88,26 @@ const composeExampleEn = `services:
     shm_size: 256mb
     restart: unless-stopped`
 
-const composePreviewZh = `services:
-  app:
-    image: richeschiu/mova:latest
-    ports:
-      - "36080:36080"
-    environment:
-      MOVA_DATABASE_URL: postgres://mova:••••••••@database:5432/mova
-      MOVA_TMDB_ACCESS_TOKEN: ""
-    volumes:
-      - ./data/cache:/app/data/cache
-      - type: bind
-        source: /你的媒体目录
-        target: /media
-        read_only: true
-
-  database:
-    image: postgres:18`
-
-const composePreviewEn = `services:
-  app:
-    image: richeschiu/mova:latest
-    ports:
-      - "36080:36080"
-    environment:
-      MOVA_DATABASE_URL: postgres://mova:••••••••@database:5432/mova
-      MOVA_TMDB_ACCESS_TOKEN: ""
-    volumes:
-      - ./data/cache:/app/data/cache
-      - type: bind
-        source: /your/media/path
-        target: /media
-        read_only: true
-
-  database:
-    image: postgres:18`
-
 export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string) => void }) {
   const { language } = useI18n()
-  const [hasCopied, setHasCopied] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const isChinese = language === 'zh'
   const composeExample = isChinese ? composeExampleZh : composeExampleEn
+  const copyLabel = copyState === 'copied'
+    ? (isChinese ? '已复制' : 'Copied')
+    : copyState === 'failed'
+      ? (isChinese ? '复制失败' : 'Copy failed')
+      : (isChinese ? '复制' : 'Copy')
 
   const copyCompose = async () => {
-    await navigator.clipboard.writeText(composeExample)
-    setHasCopied(true)
-    window.setTimeout(() => setHasCopied(false), 1800)
+    try {
+      await navigator.clipboard.writeText(composeExample)
+      setCopyState('copied')
+    } catch {
+      setCopyState('failed')
+    }
+
+    window.setTimeout(() => setCopyState('idle'), 1800)
   }
 
   return (
@@ -176,13 +138,16 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
         </div>
 
         <aside className="deploy-terminal" aria-label={isChinese ? 'Docker Compose 配置预览' : 'Docker Compose configuration preview'}>
-          <div className="deploy-terminal-bar" aria-hidden="true">
+          <div className="deploy-terminal-bar">
             <span />
             <span />
             <span />
             <strong>docker-compose.yml</strong>
+            <button type="button" onClick={() => void copyCompose()}>
+              {copyLabel}
+            </button>
           </div>
-          <pre><code>{isChinese ? composePreviewZh : composePreviewEn}</code></pre>
+          <pre><code>{composeExample}</code></pre>
           <div className="deploy-terminal-status">
             <i aria-hidden="true" />
             {isChinese ? 'MOVA · PostgreSQL · 只读媒体目录' : 'MOVA · PostgreSQL · Read-only media'}
@@ -224,22 +189,22 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
             eyebrow="Docker Compose"
             title={isChinese ? '完整 Compose 配置' : 'Complete Compose configuration'}
             text={isChinese
-              ? '保存为 docker-compose.yml。复制后只需修改媒体路径、数据库密码，以及可选的 TMDB Token。'
-              : 'Save as docker-compose.yml. After copying, only update the media path, database password, and optional TMDB token.'}
+              ? '保存为 docker-compose.yml。复制后只需修改媒体目录，并按需填写 TMDB Token。'
+              : 'Save as docker-compose.yml. After copying, update the media directory and optionally add a TMDB token.'}
           />
           <div className="deploy-compose-block">
             <div className="deploy-compose-toolbar">
               <span>docker-compose.yml</span>
               <button type="button" onClick={() => void copyCompose()}>
-                {hasCopied ? (isChinese ? '已复制' : 'Copied') : (isChinese ? '复制配置' : 'Copy configuration')}
+                {copyState === 'idle' ? (isChinese ? '复制配置' : 'Copy configuration') : copyLabel}
               </button>
             </div>
             <pre className="deploy-code"><code>{composeExample}</code></pre>
           </div>
           <div className="deploy-compose-meta">
             <article>
-              <strong>{isChinese ? '必须修改' : 'Required changes'}</strong>
-              <p><code>/absolute/path/to/media</code><br /><code>change_this_password</code></p>
+              <strong>{isChinese ? '必须修改' : 'Required change'}</strong>
+              <p><code>/absolute/path/to/media</code></p>
             </article>
             <article>
               <strong>{isChinese ? '可选配置' : 'Optional setting'}</strong>

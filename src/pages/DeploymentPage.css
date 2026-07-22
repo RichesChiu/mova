@@ -119,11 +119,45 @@
     font-weight: 700;
   }
 
+  .deploy-terminal-bar button {
+    margin-left: auto;
+  }
+
   .deploy-terminal pre,
   .deploy-code {
     margin: 0;
     overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #4b566f #0d1425;
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  }
+
+  .deploy-terminal pre::-webkit-scrollbar,
+  .deploy-code::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .deploy-terminal pre::-webkit-scrollbar-track,
+  .deploy-code::-webkit-scrollbar-track {
+    background: #0d1425;
+  }
+
+  .deploy-terminal pre::-webkit-scrollbar-thumb,
+  .deploy-code::-webkit-scrollbar-thumb {
+    border: 2px solid #0d1425;
+    border-radius: 999px;
+    background: #4b566f;
+  }
+
+  .deploy-terminal pre::-webkit-scrollbar-thumb:hover,
+  .deploy-code::-webkit-scrollbar-thumb:hover {
+    background: #66728e;
+  }
+
+  .deploy-terminal pre::-webkit-scrollbar-corner,
+  .deploy-code::-webkit-scrollbar-corner {
+    background: #0d1425;
   }
 
   .deploy-terminal pre {
@@ -244,6 +278,7 @@
     font-weight: 750;
   }
 
+  .deploy-terminal-bar button,
   .deploy-compose-toolbar button {
     min-height: 32px;
     padding: 0 12px;
@@ -255,6 +290,7 @@
     cursor: pointer;
   }
 
+  .deploy-terminal-bar button:hover,
   .deploy-compose-toolbar button:hover {
     background: rgba(255, 255, 255, 0.11);
   }
