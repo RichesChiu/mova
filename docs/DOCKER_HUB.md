@@ -120,7 +120,7 @@ docker compose up -d
 
 ## 项目状态
 
-Mova 当前公开版本为 `1.0.0 Preview`，适合本机、家庭服务器和私人媒体库体验，正式 `1.0` 预计在一个月内发布。快速迭代期间可能出现破坏性数据库结构调整，升级后可能需要重建数据库并重新扫描媒体库。`preview` 始终指向最新预览镜像；需要固定版本时，请使用 `1.0.0-preview.1` 这类不可变标签。
+Mova 当前公开版本为 `1.0.0 Preview`，适合本机、家庭服务器和私人媒体库体验，正式 `1.0` 预计在一个月内发布。快速迭代期间可能出现破坏性数据库结构调整，升级后可能需要重建数据库并重新扫描媒体库。`preview` 始终指向最新预览镜像；需要固定版本时，请使用 `1.0.0-preview.2` 这类不可变标签。
 
 ## 相关链接
 
@@ -254,7 +254,7 @@ Media directories are mounted read-only. Mova stores users, libraries, metadata,
 
 ### Project Status
 
-Mova is currently available as a public `1.0.0 Preview` for local machines, home servers, and private media libraries, with the stable `1.0` release expected within one month. Breaking database changes may occur during rapid development and can require rebuilding the database and rescanning media libraries. The `preview` tag always tracks the newest preview image; use an immutable tag such as `1.0.0-preview.1` to pin a deployment.
+Mova is currently available as a public `1.0.0 Preview` for local machines, home servers, and private media libraries, with the stable `1.0` release expected within one month. Breaking database changes may occur during rapid development and can require rebuilding the database and rescanning media libraries. The `preview` tag always tracks the newest preview image; use an immutable tag such as `1.0.0-preview.2` to pin a deployment.
 
 ### Links
 
