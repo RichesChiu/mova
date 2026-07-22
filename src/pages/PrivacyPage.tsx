@@ -20,11 +20,6 @@ export function PrivacyPage() {
           </p>
           <div className="legal-page-meta">
             <span>{isChinese ? '生效日期：2026 年 7 月 20 日' : 'Effective: July 20, 2026'}</span>
-            <span>
-              {isChinese
-                ? '运营者：赵晨光（公开名称：Riches Chiu）'
-                : 'Operator: Chenguang Zhao (publicly known as Riches Chiu)'}
-            </span>
           </div>
         </header>
 
@@ -56,7 +51,7 @@ function ChinesePrivacy() {
         <h3>发送到你选择的服务器</h3>
         <p>
           登录、媒体浏览、搜索、播放、播放进度、通知状态和服务器管理操作会直接发送到你配置的 MOVA
-          服务器。服务器会向 App 返回账户资料、媒体元数据、图片、资源信息及播放内容。Riches Chiu 和
+          服务器。服务器会向 App 返回账户资料、媒体元数据、图片、资源信息及播放内容。MOVA 开发者和
           mova.hk 不会接收这些请求的副本。
         </p>
         <p>
@@ -115,7 +110,7 @@ function ChinesePrivacy() {
       <section className="legal-section">
         <h2>8. 联系方式</h2>
         <p>
-          隐私问题、数据请求或投诉请联系 Riches Chiu：{' '}
+          隐私问题、数据请求或投诉请联系 MOVA 支持：{' '}
           <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
         </p>
       </section>
@@ -147,7 +142,7 @@ function EnglishPrivacy() {
         <p>
           Sign-in, browsing, search, playback, progress, notification state, and server administration
           requests go directly to the MOVA server you configure. That server returns account details,
-          media metadata, artwork, resource information, and media streams. Riches Chiu and mova.hk do
+          media metadata, artwork, resource information, and media streams. The MOVA developer and mova.hk do
           not receive a copy of those requests.
         </p>
         <p>
@@ -214,7 +209,7 @@ function EnglishPrivacy() {
       <section className="legal-section">
         <h2>8. Contact</h2>
         <p>
-          For privacy questions, data requests, or complaints, contact Riches Chiu at{' '}
+          For privacy questions, data requests, or complaints, contact MOVA support at{' '}
           <a href={`mailto:${supportEmail}`}>{supportEmail}</a>.
         </p>
       </section>

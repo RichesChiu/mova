@@ -16,7 +16,10 @@ export function DeviceSection() {
           <h2>{t('专为 macOS 打造的')}<br />{t('原生体验')}</h2>
           <p>{macDevice ? t(macDevice.text) : null}</p>
           <div className="macos-actions" aria-label={t('macOS 平台说明')}>
-            <span className="macos-coming-note">{t('即将到来')}</span>
+            <span className="macos-coming-note">
+              <img src="/assets/mova-icons/status/fire.svg" alt="" />
+              {t('即将到来')}
+            </span>
             <span className="macos-store-status">{t('尚未上架 Mac App Store')}</span>
           </div>
         </div>
@@ -38,30 +41,35 @@ export function DeviceSection() {
       </div>
 
       <div className="device-grid" aria-label={t('MOVA 平台状态')}>
-        {devices.map((device) => (
-          <article
-            className={`device-card${device.available ? '' : ' device-card--upcoming'}`}
-            key={device.title}
-          >
-            <span className={`device-status ${device.available ? 'is-ready' : 'is-upcoming'}`}>
-              {t(device.status)}
-            </span>
-            <span className={`device-icon device-icon--${device.id}`} aria-hidden="true">
-              <img src={`/assets/mova-icons/platform/${device.id}.svg`} alt="" />
-            </span>
-            <h3>{t(device.title)}</h3>
-            <p>{t(device.text)}</p>
-            {device.action ? (
-              <a
-                className={`device-action device-action--${device.action.variant}`}
-                href={device.action.href}
-              >
-                {t(device.action.label)}
-                <MovaIcon name="arrow-right" />
-              </a>
-            ) : null}
-          </article>
-        ))}
+        {devices.map((device) => {
+          const isComingSoon = device.id === 'macos'
+
+          return (
+            <article
+              className={`device-card${device.available ? '' : ' device-card--upcoming'}`}
+              key={device.title}
+            >
+              <span className={`device-status ${device.available ? 'is-ready' : isComingSoon ? 'is-coming-soon' : 'is-upcoming'}`}>
+                {isComingSoon ? <img src="/assets/mova-icons/status/fire.svg" alt="" /> : null}
+                {t(device.status)}
+              </span>
+              <span className={`device-icon device-icon--${device.id}`} aria-hidden="true">
+                <img src={`/assets/mova-icons/platform/${device.id}.svg`} alt="" />
+              </span>
+              <h3>{t(device.title)}</h3>
+              <p>{t(device.text)}</p>
+              {device.action ? (
+                <a
+                  className={`device-action device-action--${device.action.variant}`}
+                  href={device.action.href}
+                >
+                  {t(device.action.label)}
+                  <MovaIcon name="arrow-right" />
+                </a>
+              ) : null}
+            </article>
+          )
+        })}
       </div>
 
     </section>

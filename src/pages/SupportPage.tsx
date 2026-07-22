@@ -1,14 +1,16 @@
 import { useI18n } from '../i18n-context'
+import { githubUrl } from '../data/homeContent'
 import './LegalPage.css'
 
 const supportEmail = 'riches.chiu@gmail.com'
+const issueUrl = `${githubUrl}/issues/new`
 
 export function SupportPage({ onOpenPrivacy }: { onOpenPrivacy: () => void }) {
   const { language } = useI18n()
   const isChinese = language === 'zh'
 
   return (
-    <article className="legal-page">
+    <article className="legal-page support-page">
       <div className="legal-page-inner">
         <header className="legal-page-header">
           <p className="legal-page-kicker">MOVA · SUPPORT</p>
@@ -25,11 +27,16 @@ export function SupportPage({ onOpenPrivacy }: { onOpenPrivacy: () => void }) {
             <h2>{isChinese ? '联系开发者' : 'Contact the developer'}</h2>
             <p>
               {isChinese
-                ? '由 Riches Chiu 提供支持。通常请在邮件中附上 App、macOS 和 MOVA 服务端版本。'
-                : 'Support is provided by Riches Chiu. Include your app, macOS, and MOVA server versions when possible.'}
+                ? 'MOVA 是开源项目。可复现的问题、兼容性反馈和功能建议请优先提交 GitHub Issue；包含隐私信息时请使用邮件。'
+                : 'MOVA is open source. Use GitHub Issues for reproducible bugs, compatibility feedback, and feature requests; use email for anything private.'}
             </p>
           </div>
-          <a href={`mailto:${supportEmail}`}>{supportEmail}</a>
+          <div className="support-contact-actions">
+            <a className="support-issue-link" href={issueUrl} target="_blank" rel="noreferrer">
+              {isChinese ? '提交 GitHub Issue' : 'Open a GitHub Issue'}
+            </a>
+            <a className="support-email-link" href={`mailto:${supportEmail}`}>{supportEmail}</a>
+          </div>
         </section>
 
         {isChinese ? (
@@ -97,11 +104,10 @@ function ChineseSupport({ onOpenPrivacy }: { onOpenPrivacy: () => void }) {
       <section className="legal-section">
         <h2>隐私与数据请求</h2>
         <p>
-          App 中的媒体和账户数据由你选择的服务器处理。详情请查看{' '}
+          App 中的媒体和账户数据由你选择的服务器处理。详情请查看
           <button className="legal-page-link" type="button" onClick={onOpenPrivacy}>
             MOVA 隐私政策
-          </button>
-          。
+          </button>。
         </p>
       </section>
     </div>
