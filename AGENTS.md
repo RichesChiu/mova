@@ -46,6 +46,7 @@ This repository is hosted on GitHub, so use **pull request (PR)** rather than Gi
 - Prefer a PR into `master`, use Draft status while incomplete, and link its Issue with `Closes #...` when one exists.
 - PR descriptions must summarize behavior changes, list completed verification, include screenshots for visible UI changes, identify API or schema effects, and state whether documentation was updated.
 - Prefer squash merge for a normal single-purpose PR. Never force-push or rewrite `master`.
+- Maintainer-only changes limited to `AGENTS.md` files may be committed directly to `master` when the repository owner authorizes them. They do not require an Issue or PR because they change collaboration policy rather than product behavior.
 - Directly merging and pushing `master` is allowed only when the repository owner explicitly requests the merge or release and PR tooling is unavailable. Complete the same review and verification first, and preserve a clear merge or release commit.
 - Delete merged remote branches when they are no longer needed, unless ongoing release work still references them.
 
