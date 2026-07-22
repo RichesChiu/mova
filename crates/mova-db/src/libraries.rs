@@ -252,6 +252,10 @@ pub async fn list_library_artwork_paths(pool: &PgPool, library_id: i64) -> Resul
             from media_items
             where library_id = $1
             union all
+            select logo_path as artwork_path
+            from media_items
+            where library_id = $1
+            union all
             select s.poster_path as artwork_path
             from seasons s
             join media_items mi on mi.id = s.series_id
@@ -300,6 +304,9 @@ pub async fn list_referenced_artwork_paths(
             from media_items
             union all
             select backdrop_path as artwork_path
+            from media_items
+            union all
+            select logo_path as artwork_path
             from media_items
             union all
             select poster_path as artwork_path

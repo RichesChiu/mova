@@ -711,11 +711,12 @@ async fn insert_media_item(
             studio,
             overview,
             poster_path,
-            backdrop_path
+            backdrop_path,
+            logo_path
         )
         values (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-            $14, $15, $16, $17, $18
+            $14, $15, $16, $17, $18, $19
         )
         returning id
         "#,
@@ -738,6 +739,7 @@ async fn insert_media_item(
     .bind(&entry.overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
+    .bind(&entry.logo_path)
     .fetch_one(&mut **tx)
     .await
     .context("failed to insert media item")?;
@@ -785,6 +787,7 @@ async fn update_media_item_from_entry(
             overview = $16,
             poster_path = $17,
             backdrop_path = $18,
+            logo_path = $19,
             updated_at = now()
         where id = $1
         "#,
@@ -807,6 +810,7 @@ async fn update_media_item_from_entry(
     .bind(&entry.overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
+    .bind(&entry.logo_path)
     .execute(&mut **tx)
     .await
     .context("failed to update media item during library sync")?;
@@ -1260,8 +1264,10 @@ mod tests {
             overview: Some("A fantasy adventure.".to_string()),
             series_poster_path: None,
             series_backdrop_path: None,
+            series_logo_path: None,
             poster_path: None,
             backdrop_path: None,
+            logo_path: None,
             file_path: file_path.to_string(),
             container: Some("mkv".to_string()),
             file_size: 1,
@@ -1323,8 +1329,10 @@ mod tests {
             overview: Some("Pilot episode".to_string()),
             series_poster_path: None,
             series_backdrop_path: None,
+            series_logo_path: None,
             poster_path: None,
             backdrop_path: None,
+            logo_path: None,
             file_path: file_path.to_string(),
             container: Some("mkv".to_string()),
             file_size: 1,

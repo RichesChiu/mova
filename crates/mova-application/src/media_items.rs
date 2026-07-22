@@ -976,6 +976,7 @@ pub async fn refresh_media_item_metadata(
             overview: discovered_file.overview,
             poster_path: discovered_file.poster_path,
             backdrop_path: discovered_file.backdrop_path,
+            logo_path: discovered_file.logo_path,
         },
     )
     .await

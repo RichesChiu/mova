@@ -61,7 +61,7 @@
   - `416 Range Not Satisfiable`：媒体流的 `Range` 请求越界
   - `500 Internal Server Error`：服务内部错误
 - TMDB provider 从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取，值必须是 TMDB 账户 API 设置页中的 **API Read Access Token**，不是较短的 `API Key (v3 auth)`。变量为空或只含空白时服务仍正常启动，本地扫描、NFO/sidecar、入库和播放保持可用；扫描不会发起 TMDB 请求，条目以 `skipped / metadata_provider_disabled` 完成。后续配置 Token、重启并重扫后，这些条目会进入远端补全。每个媒体库可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。TMDB endpoint、严格候选规则和字段覆盖见 [`TMDB.md`](TMDB.md)。
-- TMDB 详情响应中的 `vote_average` 和 `vote_count` 会写入通用 `ratings` 集合，评分来源明确标记为 `tmdb`。`imdb_id` 只作为外部身份保存，不代表 IMDb 评分；当前不请求 IMDb、OMDb 或其他评分来源。
+- TMDB 详情响应中的 `vote_average` 和 `vote_count` 会写入通用 `ratings` 集合，评分来源明确标记为 `tmdb`。TMDB details 附带的 IMDb、TVDB、Wikidata 和社交平台 ID 只作为外部身份保存，不代表对应平台的评分或数据已经接入；当前不请求 IMDb、OMDb 或其他评分来源。
 - 本地海报和背景图的 URL 带版本参数（例如 `/api/media-items/42/poster?v=1704164645`）。浏览器可以长期缓存；媒体元数据更新时版本参数随之变化。
 - pre-1.0 数据库 schema 只维护 `migrations/0001_init.sql`。数据模型保存扫描本地分析版本、原生客户端 access/refresh token 设备会话、逐文件播放进度、有上限的继续观看队列、外部媒体身份、通用评分、PostgreSQL 后台任务和资源 revisions。TMDB/provider 返回的标题、国家、题材、制作公司和演员角色等自由文本字段使用 `text`。schema 发生变化时需要重建数据库、重置数据目录并重新扫描媒体库。
 
@@ -112,6 +112,7 @@
 | `POST` | `/api/media-items/{id}/refresh-metadata` | 手动重拉单个媒体条目元数据 |
 | `GET` | `/api/media-items/{id}/poster` | 读取媒体条目海报图 |
 | `GET` | `/api/media-items/{id}/backdrop` | 读取媒体条目背景图 |
+| `GET` | `/api/media-items/{id}/logo` | 读取媒体条目透明标题 Logo |
 | `GET` | `/api/seasons/{id}/poster` | 读取某一季海报图 |
 | `GET` | `/api/seasons/{id}/backdrop` | 读取某一季背景图 |
 | `GET` | `/api/media-items/{id}/playback-progress` | 查询单条内容的最近播放进度 |
@@ -851,6 +852,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
         "overview": null,
         "poster_path": "/api/media-items/42/poster?v=1780630000",
         "backdrop_path": "/api/media-items/42/backdrop?v=1780630000",
+        "logo_path": "/api/media-items/42/logo?v=1780630000",
         "created_at": "2026-06-05T09:12:00+08:00",
         "updated_at": "2026-06-05T09:20:00+08:00"
       }
@@ -906,7 +908,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
   - `第 1 集`、`Episode 1` 这类跟在季集号后的通用集数文案不会当作远端集标题，远端集标题仍可在刮削成功后覆盖
   - 文件名只有 `S01E02.mkv`、`01.mkv`、`EP02.mkv`、`第03集.mkv` 这类季集或集号时，不结合目录信号归组
   - 完整季集坐标只调用 TMDB TV search；其它文件只调用 movie search。对应类型没有严格候选时直接完成为未匹配，不查询另一类型兜底
-  - 自动匹配不计算标题/年份分数：标准化名称必须与本地化标题、原始标题或经 alternative titles 验证的别名完全相等；电影发行年和剧集首播年必须完全相同且不执行无年份重试；只有季播出年提示时使用 TV search `year` 参数，并读取对应 season details 验证季号与播出年，验证后候选不唯一即保持未匹配；没有任何年份时在结果不超过 20 页时遍历全部页并选择完整日期唯一最新者
+  - 自动匹配不计算标题/年份分数：同类型、同年份候选按“完整原始标题、完整本地化标题、编号原始标题兼容、编号本地化标题兼容”顺序取首个非空阶段；编号副标题兼容只有在完整标题无候选时启用，经 alternative titles 验证的别名也先完整相等、再尝试编号兼容；电影发行年和剧集首播年必须完全相同且不执行无年份重试；只有季播出年提示时使用 TV search `year` 参数，并读取对应 season details 验证季号与播出年，验证后候选不唯一即保持未匹配；没有任何年份时在结果不超过 20 页时遍历全部页并选择完整日期唯一最新者
   - 本地分析完成、远端确认尚未完成时使用 `metadata_status = pending`，前端按本地结构展示；远端没有严格命中时在 `stage = completed` 后以 `metadata_failure_reason = no_remote_match` 进入 `Other`
   - 如果没有启用 TMDB，文件完成时会以 `metadata_status = skipped` 入库；这种情况不视为刮削失败，但由于没有远端类型确认，完成后进入 `Other`
 
@@ -1185,6 +1187,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - `overview`：简介，可来自本地 sidecar `.nfo` 或 TMDB
 - `poster_path`：海报可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/poster`
 - `backdrop_path`：背景图可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/backdrop`
+- `logo_path`：透明标题 Logo 可访问 URL；没有合适素材时为 `null`。TMDB 素材会优先缓存到本地，因此通常是 `/api/media-items/{id}/logo`
 
 返回示例：
 
@@ -1220,6 +1223,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
   "overview": "……",
   "poster_path": "/api/media-items/3/poster",
   "backdrop_path": "/api/media-items/3/backdrop",
+  "logo_path": "/api/media-items/3/logo",
   "created_at": "2026-03-24T12:00:00+08:00",
   "updated_at": "2026-03-24T12:00:00+08:00"
 }
@@ -1228,9 +1232,10 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 ### `GET /api/media-items/{id}/cast`
 
 作用：
-- 查询单个媒体条目的主演员列表
+- 查询单个媒体条目的完整演员列表
 - 服务端会先读取本地已持久化的演员列表
 - 如果当前条目还没有演员信息，会在这个请求里按需拉一次远端演员并直接写库
+- 服务端保存并返回元数据提供方返回的全部有效演员，不按人数截断
 - 拉取失败不会阻断详情页，其它主体信息仍可正常展示；只是这次演员列表可能为空
 
 路径参数：
@@ -1265,6 +1270,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 说明：
 - 电影返回电影标题
 - 单集返回“剧名 + 季集号 + 单集标题”所需的结构化字段
+- `logo_path` 返回当前作品的透明标题 Logo；播放电影时属于电影条目，播放单集时属于其剧集条目。缺失时客户端回退文字标题
 - 如果该条目已经完成 TMDB 元数据增强，这里的标题会优先使用增强后的标题
 - 如果当前播放的是剧集，且当前集和所在季都还没有片头区间，服务端会在返回头部信息前按需触发一次 season 级片头检测；检测失败不会阻断播放，只是这次仍按“无片头数据”处理
 
@@ -1278,6 +1284,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
   "title": "Severance",
   "original_title": "Severance",
   "year": 2022,
+  "logo_path": "/api/media-items/7/logo?v=1780630000",
   "season_number": 1,
   "episode_number": 7,
   "episode_title": "Defiant Jazz"
@@ -1461,7 +1468,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - 这个动作会重新读取该媒体条目关联的源文件、本地 sidecar 和本地图片文件
 - 如果内置 TMDB token 可用，会继续按“本地优先，远程补空字段”的规则补齐缺失 metadata
 - 刷新后会同步更新 `metadata_status`、`metadata_failure_reason` 和 `remote_media_type`
-- 命中远程图片后，服务端先缓存到本地，再写回 `poster_path` / `backdrop_path`；远端缺失的图片字段保持为空，禁止使用同条目的其他图片字段或其他层级图片补齐
+- 命中远程图片后，服务端先缓存到本地，再写回 `poster_path` / `backdrop_path` / `logo_path`；远端缺失的图片字段保持为空，禁止使用同条目的其他图片字段或其他层级图片补齐
 - 媒体条目通过 `POST /api/media-items/{id}/metadata-match` 绑定精确 TMDB 条目时，演员数据和剧集 outline 使用该 binding
 - 源文件被重命名、移动或删除时返回 `409 Conflict` 并要求重新扫描
 - 所属媒体库正在扫描或删除时返回 `409 Conflict`
@@ -1506,6 +1513,26 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - 服务本地 sidecar 图片以及已缓存到本地的 TMDB 图片
 - 如果极少数情况下缓存失败，详情接口里的 `backdrop_path` 仍可能是远程 TMDB 图片地址；这时前端应直接使用那个 URL，不需要再请求本接口
 - 如果该媒体条目没有背景图，返回 `404 Not Found`
+
+### `GET /api/media-items/{id}/logo`
+
+作用：
+- 返回电影或剧集的透明标题 Logo 图片文件
+
+路径参数：
+- `id`：拥有该 Logo 的 `media_item_id`；单集播放头部返回的 URL 会自动指向对应剧集条目
+
+典型场景：
+- 播放页头部用作品 Logo 替代纯文字标题
+
+返回：
+- 成功时返回 `200 OK`
+- 响应体为图片内容，不是 JSON
+
+说明：
+- 服务已缓存到本地的 TMDB Logo
+- 缓存失败时 `logo_path` 可能保留远程 TMDB 图片地址，客户端直接使用该 URL
+- 没有合适 Logo 时返回 `404 Not Found`，客户端必须回退文字标题
 
 ### `GET /api/seasons/{id}/poster`
 
@@ -1646,6 +1673,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
       "overview": null,
       "poster_path": "/api/media-items/5/poster",
       "backdrop_path": "/api/media-items/5/backdrop",
+      "logo_path": "/api/media-items/5/logo",
       "created_at": "...",
       "updated_at": "..."
     },

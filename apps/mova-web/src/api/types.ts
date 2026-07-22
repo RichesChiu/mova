@@ -130,6 +130,7 @@ export interface MediaItem {
   overview: string | null
   poster_path: string | null
   backdrop_path: string | null
+  logo_path: string | null
   created_at: string
   updated_at: string
 }
@@ -162,6 +163,7 @@ export interface MediaItemPlaybackHeader {
   title: string
   original_title: string | null
   year: number | null
+  logo_path: string | null
   season_number: number | null
   episode_number: number | null
   episode_title: string | null

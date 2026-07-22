@@ -50,4 +50,8 @@ pub fn router() -> Router<crate::state::AppState> {
             "/media-items/{id}/backdrop",
             get(handlers::media_items::get_media_item_backdrop),
         )
+        .route(
+            "/media-items/{id}/logo",
+            get(handlers::media_items::get_media_item_logo),
+        )
 }

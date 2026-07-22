@@ -87,7 +87,11 @@ pub(super) async fn replace_media_item_remote_data(
         .iter()
         .map(|item| (item.provider.clone(), item.external_id.clone()))
         .collect::<HashSet<_>>();
-    let identity_changed = existing_external_ids != incoming_external_ids;
+    let identity_changed = primary_metadata_identity_changed(
+        &existing_external_ids,
+        &incoming_external_ids,
+        metadata_provider,
+    );
 
     sqlx::query("delete from media_item_external_ids where media_item_id = $1")
         .bind(media_item_id)
@@ -117,7 +121,7 @@ pub(super) async fn replace_media_item_remote_data(
         .context("failed to upsert media external id")?;
     }
 
-    if identity_changed || metadata_provider.is_none() {
+    if identity_changed {
         sqlx::query("delete from media_item_ratings where media_item_id = $1")
             .bind(media_item_id)
             .execute(&mut **tx)
@@ -183,4 +187,62 @@ pub(super) async fn replace_media_item_remote_data(
     }
 
     Ok(())
+}
+
+fn primary_metadata_identity_changed(
+    existing_external_ids: &HashSet<(String, String)>,
+    incoming_external_ids: &HashSet<(String, String)>,
+    metadata_provider: Option<&str>,
+) -> bool {
+    let Some(metadata_provider) = metadata_provider else {
+        return true;
+    };
+
+    let existing_provider_id = existing_external_ids
+        .iter()
+        .find(|(provider, _)| provider == metadata_provider)
+        .map(|(_, external_id)| external_id.as_str());
+    let incoming_provider_id = incoming_external_ids
+        .iter()
+        .find(|(provider, _)| provider == metadata_provider)
+        .map(|(_, external_id)| external_id.as_str());
+
+    existing_provider_id != incoming_provider_id
+}
+
+#[cfg(test)]
+mod tests {
+    use super::primary_metadata_identity_changed;
+    use std::collections::HashSet;
+
+    fn external_ids(values: &[(&str, &str)]) -> HashSet<(String, String)> {
+        values
+            .iter()
+            .map(|(provider, external_id)| (provider.to_string(), external_id.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn secondary_external_ids_do_not_change_primary_identity() {
+        let existing = external_ids(&[("tmdb", "88"), ("imdb", "tt-old")]);
+        let incoming = external_ids(&[("tmdb", "88"), ("imdb", "tt-new"), ("wikidata", "Q123")]);
+
+        assert!(!primary_metadata_identity_changed(
+            &existing,
+            &incoming,
+            Some("tmdb")
+        ));
+    }
+
+    #[test]
+    fn primary_provider_id_changes_media_identity() {
+        let existing = external_ids(&[("tmdb", "88"), ("imdb", "tt123")]);
+        let incoming = external_ids(&[("tmdb", "99"), ("imdb", "tt456")]);
+
+        assert!(primary_metadata_identity_changed(
+            &existing,
+            &incoming,
+            Some("tmdb")
+        ));
+    }
 }

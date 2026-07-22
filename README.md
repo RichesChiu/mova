@@ -52,6 +52,51 @@ HTTPS_PROXY=
 - `MOVA_TMDB_ACCESS_TOKEN` 用于启用 TMDB 自动刮削、远端海报/背景图以及元数据搜索与替换。不配置时服务仍可启动，并保留本地扫描、NFO/sidecar 读取、入库和播放能力，但会自动跳过所有 TMDB 请求。
 - `MOVA_WORKER_CONCURRENCY` 控制进程内后台 worker 池并发数，默认值为 `2`。
 
+### Docker Compose 示例
+
+下面的配置可以直接保存为 `docker-compose.yml`。媒体目录以只读方式挂载，数据库与图片缓存保存在 Compose 文件所在目录的 `data/` 下。
+
+```yaml
+services:
+  app:
+    image: richeschiu/mova:latest
+    container_name: mova-app
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "36080:36080"
+    environment:
+      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
+      MOVA_WEB_DIST_DIR: /app/web
+      MOVA_TMDB_ACCESS_TOKEN: ${MOVA_TMDB_ACCESS_TOKEN:-}
+      MOVA_WORKER_CONCURRENCY: ${MOVA_WORKER_CONCURRENCY:-2}
+    volumes:
+      - ./data/cache:/app/data/cache
+      - type: bind
+        source: ${MOVA_MEDIA_ROOT:?MOVA_MEDIA_ROOT must be set}
+        target: /media
+        read_only: true
+    restart: unless-stopped
+
+  database:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: mova
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mova
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - ./data/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mova -d mova"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    shm_size: 256mb
+    restart: unless-stopped
+```
+
 ### 获取 TMDB Access Token
 
 1. 注册并登录 [TMDB](https://www.themoviedb.org/)，完成邮箱验证。

@@ -86,8 +86,10 @@ pub struct CreateMediaEntryParams {
     pub overview: Option<String>,
     pub series_poster_path: Option<String>,
     pub series_backdrop_path: Option<String>,
+    pub series_logo_path: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub logo_path: Option<String>,
     pub file_path: String,
     pub container: Option<String>,
     pub file_size: i64,
@@ -139,6 +141,7 @@ pub struct UpdateMediaItemMetadataParams {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub logo_path: Option<String>,
 }
 
 /// 手动替换剧集元数据后，覆盖本地已存在季的远端 metadata。
@@ -255,6 +258,8 @@ pub struct MediaItemPlaybackHeader {
     pub title: String,
     pub original_title: Option<String>,
     pub year: Option<i32>,
+    pub logo_path: Option<String>,
+    pub logo_updated_at: OffsetDateTime,
     pub season_id: Option<i64>,
     pub season_number: Option<i32>,
     pub episode_number: Option<i32>,
@@ -286,6 +291,7 @@ pub struct ExistingMediaMetadataSummary {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub logo_path: Option<String>,
     pub scan_hash: Option<String>,
     pub container: Option<String>,
     pub file_size: i64,
@@ -325,6 +331,7 @@ pub struct ExistingMediaMetadataSummary {
     pub series_overview: Option<String>,
     pub series_poster_path: Option<String>,
     pub series_backdrop_path: Option<String>,
+    pub series_logo_path: Option<String>,
     pub season_title: Option<String>,
     pub season_number: Option<i32>,
     pub season_overview: Option<String>,

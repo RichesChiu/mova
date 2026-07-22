@@ -40,6 +40,7 @@ pub struct MediaItem {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub logo_path: Option<String>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, getMediaItemEpisodeOutline, getMediaItemPlaybackHeader } from '../../api/client'
 import { MediaPlayerPanel } from '../../components/media-player-panel'
@@ -18,6 +19,7 @@ export const MediaPlayerPage = () => {
   const mediaItemId = Number(params.mediaItemId)
   const requestedFileId = Number(searchParams.get('file'))
   const startMode = searchParams.get('fromStart') === '1' ? 'from-start' : 'resume'
+  const [logoFailed, setLogoFailed] = useState(false)
 
   const playbackHeaderQuery = useQuery({
     gcTime: MEDIA_QUERY_GC_TIME_MS,
@@ -36,6 +38,11 @@ export const MediaPlayerPage = () => {
     queryFn: () => getMediaItemEpisodeOutline(playbackHeaderQuery.data?.series_media_item_id ?? 0),
     staleTime: SERIES_OUTLINE_QUERY_STALE_TIME_MS,
   })
+
+  const logoPath = playbackHeaderQuery.data?.logo_path ?? null
+  useEffect(() => {
+    setLogoFailed(false)
+  }, [logoPath])
 
   if (!Number.isFinite(mediaItemId)) {
     return (
@@ -189,7 +196,16 @@ export const MediaPlayerPage = () => {
 
         <div className="player-screen__title-lockup">
           <div className="player-screen__title">
-            <strong>{playbackHeaderQuery.data.title}</strong>
+            {logoPath && !logoFailed ? (
+              <img
+                alt={playbackHeaderQuery.data.title}
+                className="player-screen__title-logo"
+                onError={() => setLogoFailed(true)}
+                src={logoPath}
+              />
+            ) : (
+              <strong>{playbackHeaderQuery.data.title}</strong>
+            )}
             {subtitle ? <span>{subtitle}</span> : null}
           </div>
         </div>

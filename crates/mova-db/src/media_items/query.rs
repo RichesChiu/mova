@@ -65,6 +65,7 @@ pub async fn list_media_items_for_library(
             overview,
             poster_path,
             backdrop_path,
+            logo_path,
             created_at,
             updated_at
         from media_items
@@ -133,6 +134,7 @@ pub async fn list_media_item_previews_by_library(
                 overview,
                 poster_path,
                 backdrop_path,
+                logo_path,
                 created_at,
                 updated_at,
                 row_number() over (
@@ -163,6 +165,7 @@ pub async fn list_media_item_previews_by_library(
             overview,
             poster_path,
             backdrop_path,
+            logo_path,
             created_at,
             updated_at
         from ranked_items
@@ -241,6 +244,7 @@ pub async fn list_recently_added_media_items_by_library(
                 mi.overview,
                 mi.poster_path,
                 mi.backdrop_path,
+                mi.logo_path,
                 mi.created_at,
                 mi.updated_at,
                 row_number() over (
@@ -291,6 +295,7 @@ pub async fn list_recently_added_media_items_by_library(
             ri.overview as media_item_overview,
             ri.poster_path as media_item_poster_path,
             ri.backdrop_path as media_item_backdrop_path,
+            ri.logo_path as media_item_logo_path,
             ri.created_at as media_item_created_at,
             ri.updated_at as media_item_updated_at
         from library_recency lr
@@ -478,6 +483,7 @@ pub async fn get_media_item(pool: &PgPool, media_item_id: i64) -> Result<Option<
             overview,
             poster_path,
             backdrop_path,
+            logo_path,
             created_at,
             updated_at
         from media_items
@@ -520,6 +526,14 @@ pub async fn get_media_item_playback_header(
                 when mi.media_type = 'episode' then coalesce(series_mi.year, mi.year)
                 else mi.year
             end as year,
+            case
+                when mi.media_type = 'episode' then series_mi.logo_path
+                else mi.logo_path
+            end as logo_path,
+            case
+                when mi.media_type = 'episode' then series_mi.updated_at
+                else mi.updated_at
+            end as logo_updated_at,
             e.season_id,
             s.season_number,
             e.episode_number,
@@ -580,6 +594,7 @@ pub async fn update_media_item_metadata(
             overview = $15,
             poster_path = $16,
             backdrop_path = $17,
+            logo_path = $18,
             updated_at = now()
         where id = $1
         returning
@@ -602,6 +617,7 @@ pub async fn update_media_item_metadata(
             overview,
             poster_path,
             backdrop_path,
+            logo_path,
             created_at,
             updated_at
         "#,
@@ -623,6 +639,7 @@ pub async fn update_media_item_metadata(
     .bind(&params.overview)
     .bind(&params.poster_path)
     .bind(&params.backdrop_path)
+    .bind(&params.logo_path)
     .fetch_optional(&mut *tx)
     .await
     .context("failed to update media item metadata")?;
@@ -1647,6 +1664,7 @@ pub async fn list_existing_media_metadata_for_file_paths(
             mi.overview,
             mi.poster_path,
             mi.backdrop_path,
+            mi.logo_path,
             mf.scan_hash,
             mf.container,
             mf.file_size,
@@ -1684,6 +1702,7 @@ pub async fn list_existing_media_metadata_for_file_paths(
             series_mi.overview as series_overview,
             series_mi.poster_path as series_poster_path,
             series_mi.backdrop_path as series_backdrop_path,
+            series_mi.logo_path as series_logo_path,
             s.title as season_title,
             s.season_number,
             s.overview as season_overview,
@@ -1735,6 +1754,7 @@ fn map_media_item_row(row: PgRow) -> MediaItem {
         overview: row.get("overview"),
         poster_path: row.get("poster_path"),
         backdrop_path: row.get("backdrop_path"),
+        logo_path: row.get("logo_path"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -1775,6 +1795,7 @@ fn map_recently_added_media_item_row(row: &PgRow) -> MediaItem {
         overview: row.get("media_item_overview"),
         poster_path: row.get("media_item_poster_path"),
         backdrop_path: row.get("media_item_backdrop_path"),
+        logo_path: row.get("media_item_logo_path"),
         created_at: row.get("media_item_created_at"),
         updated_at: row.get("media_item_updated_at"),
     }
@@ -1798,6 +1819,8 @@ fn map_media_item_playback_header_row(row: PgRow) -> MediaItemPlaybackHeader {
         title: row.get("title"),
         original_title: row.get("original_title"),
         year: row.get("year"),
+        logo_path: row.get("logo_path"),
+        logo_updated_at: row.get("logo_updated_at"),
         season_id: row.get("season_id"),
         season_number: row.get("season_number"),
         episode_number: row.get("episode_number"),
@@ -1918,6 +1941,7 @@ fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataS
         overview: row.get("overview"),
         poster_path: row.get("poster_path"),
         backdrop_path: row.get("backdrop_path"),
+        logo_path: row.get("logo_path"),
         scan_hash: row.get("scan_hash"),
         container: row.get("container"),
         file_size: row.get("file_size"),
@@ -1957,6 +1981,7 @@ fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataS
         series_overview: row.get("series_overview"),
         series_poster_path: row.get("series_poster_path"),
         series_backdrop_path: row.get("series_backdrop_path"),
+        series_logo_path: row.get("series_logo_path"),
         season_title: row.get("season_title"),
         season_number: row.get("season_number"),
         season_overview: row.get("season_overview"),

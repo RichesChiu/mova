@@ -254,10 +254,22 @@ pub async fn get_media_item_backdrop(
     serve_media_item_artwork(state, &user, media_item_id, ArtworkKind::Backdrop).await
 }
 
+/// 返回媒体条目的透明标题 Logo 图片内容。
+pub async fn get_media_item_logo(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    jar: CookieJar,
+    Path(media_item_id): Path<i64>,
+) -> Result<Response<Body>, ApiError> {
+    let user = require_user(&state, &headers, &jar).await?;
+    serve_media_item_artwork(state, &user, media_item_id, ArtworkKind::Logo).await
+}
+
 #[derive(Debug, Clone, Copy)]
 enum ArtworkKind {
     Poster,
     Backdrop,
+    Logo,
 }
 
 impl ArtworkKind {
@@ -265,6 +277,7 @@ impl ArtworkKind {
         match self {
             Self::Poster => "poster",
             Self::Backdrop => "backdrop",
+            Self::Logo => "logo",
         }
     }
 }
@@ -280,6 +293,7 @@ async fn serve_media_item_artwork(
     let artwork_path = match kind {
         ArtworkKind::Poster => media_item.poster_path.as_deref(),
         ArtworkKind::Backdrop => media_item.backdrop_path.as_deref(),
+        ArtworkKind::Logo => media_item.logo_path.as_deref(),
     }
     .ok_or_else(|| {
         ApiError::NotFound(format!(

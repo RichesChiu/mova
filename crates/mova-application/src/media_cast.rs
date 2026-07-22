@@ -12,8 +12,6 @@ use std::{
 };
 use time::OffsetDateTime;
 
-const MAX_MEDIA_CAST_MEMBERS: usize = 20;
-
 fn media_cast_inflight() -> &'static Mutex<HashSet<i64>> {
     static INFLIGHT: OnceLock<Mutex<HashSet<i64>>> = OnceLock::new();
     INFLIGHT.get_or_init(|| Mutex::new(HashSet::new()))
@@ -219,7 +217,6 @@ fn normalize_remote_cast(
             .cmp(&right.sort_order)
             .then_with(|| left.name.cmp(&right.name))
     });
-    cast_members.truncate(MAX_MEDIA_CAST_MEMBERS);
     for (index, member) in cast_members.iter_mut().enumerate() {
         member.sort_order = i32::try_from(index).unwrap_or(i32::MAX);
     }
@@ -232,38 +229,30 @@ mod tests {
     use crate::metadata::RemoteCastMember;
 
     #[test]
-    fn normalize_remote_cast_orders_and_limits_members() {
-        let cast = normalize_remote_cast(
-            42,
-            vec![
-                RemoteCastMember {
-                    person_id: Some(3),
-                    sort_order: 10,
-                    name: "Third".to_string(),
-                    character_name: None,
-                    profile_path: None,
-                },
-                RemoteCastMember {
-                    person_id: Some(1),
-                    sort_order: 0,
-                    name: "First".to_string(),
-                    character_name: Some("Lead".to_string()),
-                    profile_path: None,
-                },
-                RemoteCastMember {
-                    person_id: Some(2),
-                    sort_order: 5,
-                    name: "Second".to_string(),
-                    character_name: None,
-                    profile_path: None,
-                },
-            ],
-        );
+    fn normalize_remote_cast_orders_and_keeps_all_members() {
+        let mut remote_cast = (0..25)
+            .rev()
+            .map(|index| RemoteCastMember {
+                person_id: Some(index),
+                sort_order: i32::try_from(index).expect("test index fits in i32"),
+                name: format!("Cast {index}"),
+                character_name: None,
+                profile_path: None,
+            })
+            .collect::<Vec<_>>();
+        remote_cast.push(RemoteCastMember {
+            person_id: Some(100),
+            sort_order: 100,
+            name: "   ".to_string(),
+            character_name: None,
+            profile_path: None,
+        });
 
-        assert_eq!(cast.len(), 3);
-        assert_eq!(cast[0].name, "First");
-        assert_eq!(cast[1].name, "Second");
-        assert_eq!(cast[2].name, "Third");
-        assert_eq!(cast[0].character_name.as_deref(), Some("Lead"));
+        let cast = normalize_remote_cast(42, remote_cast);
+
+        assert_eq!(cast.len(), 25);
+        assert_eq!(cast[0].name, "Cast 0");
+        assert_eq!(cast[24].name, "Cast 24");
+        assert_eq!(cast[24].sort_order, 24);
     }
 }

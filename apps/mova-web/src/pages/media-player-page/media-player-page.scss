@@ -122,6 +122,17 @@
   white-space: nowrap;
 }
 
+.player-screen__title-logo {
+  display: block;
+  width: auto;
+  max-width: min(30vw, 220px);
+  height: auto;
+  max-height: 30px;
+  flex: 0 1 auto;
+  object-fit: contain;
+  object-position: left center;
+}
+
 .player-screen__title span {
   overflow: hidden;
   max-width: min(42vw, 520px);

@@ -256,6 +256,8 @@ mod tests {
             title: "Severance".to_string(),
             original_title: None,
             year: Some(2022),
+            logo_path: None,
+            logo_updated_at: time::OffsetDateTime::UNIX_EPOCH,
             season_id: Some(20),
             season_number: Some(1),
             episode_number: Some(1),

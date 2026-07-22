@@ -160,6 +160,7 @@ async fn insert_series_item_from_entry(
     let title = display_title_for_entry(entry);
     let poster_path = entry.series_poster_path.as_ref();
     let backdrop_path = entry.series_backdrop_path.as_ref();
+    let logo_path = entry.series_logo_path.as_ref();
     let row = sqlx::query(
         r#"
         insert into media_items (
@@ -180,11 +181,12 @@ async fn insert_series_item_from_entry(
             studio,
             overview,
             poster_path,
-            backdrop_path
+            backdrop_path,
+            logo_path
         )
         values (
             $1, 'series', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-            $12, $13, $14, $15, $16, $17
+            $12, $13, $14, $15, $16, $17, $18
         )
         returning id
         "#,
@@ -206,6 +208,7 @@ async fn insert_series_item_from_entry(
     .bind(&entry.overview)
     .bind(poster_path)
     .bind(backdrop_path)
+    .bind(logo_path)
     .fetch_one(&mut **tx)
     .await
     .context("failed to insert series item")?;
@@ -233,6 +236,7 @@ async fn update_series_item_from_entry(
     let title = display_title_for_entry(entry);
     let poster_path = entry.series_poster_path.as_ref();
     let backdrop_path = entry.series_backdrop_path.as_ref();
+    let logo_path = entry.series_logo_path.as_ref();
     let allow_artwork_clear = allows_artwork_clear(entry);
 
     sqlx::query(
@@ -254,12 +258,16 @@ async fn update_series_item_from_entry(
             studio = $14,
             overview = $15,
             poster_path = case
-                when $18 then $16
+                when $19 then $16
                 else coalesce($16, poster_path)
             end,
             backdrop_path = case
-                when $18 then $17
+                when $19 then $17
                 else coalesce($17, backdrop_path)
+            end,
+            logo_path = case
+                when $19 then $18
+                else coalesce($18, logo_path)
             end,
             updated_at = now()
         where id = $1
@@ -282,6 +290,7 @@ async fn update_series_item_from_entry(
     .bind(&entry.overview)
     .bind(poster_path)
     .bind(backdrop_path)
+    .bind(logo_path)
     .bind(allow_artwork_clear)
     .execute(&mut **tx)
     .await
@@ -380,11 +389,12 @@ async fn insert_episode_media_item(
             studio,
             overview,
             poster_path,
-            backdrop_path
+            backdrop_path,
+            logo_path
         )
         values (
             $1, 'episode', $2, $3, null, null, $4, $5, $6,
-            null, null, null, null, $7, $8, $9
+            null, null, null, null, $7, $8, $9, $10
         )
         returning id
         "#,
@@ -404,6 +414,7 @@ async fn insert_episode_media_item(
     .bind(&entry.overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
+    .bind(&entry.logo_path)
     .fetch_one(&mut **tx)
     .await
     .context("failed to insert episode media item")?;
@@ -438,12 +449,16 @@ async fn update_episode_media_item_from_entry(
             studio = null,
             overview = $7,
             poster_path = case
-                when $10 then $8
+                when $11 then $8
                 else coalesce($8, poster_path)
             end,
             backdrop_path = case
-                when $10 then $9
+                when $11 then $9
                 else coalesce($9, backdrop_path)
+            end,
+            logo_path = case
+                when $11 then $10
+                else coalesce($10, logo_path)
             end,
             updated_at = now()
         where id = $1
@@ -464,6 +479,7 @@ async fn update_episode_media_item_from_entry(
     .bind(&entry.overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
+    .bind(&entry.logo_path)
     .bind(allow_artwork_clear)
     .execute(&mut **tx)
     .await

@@ -326,6 +326,12 @@ impl MetadataEnrichmentContext {
         Ok(())
     }
     async fn cache_file_artwork(&mut self, file: &mut DiscoveredMediaFile) {
+        if let Some(series_logo_path) = file.series_logo_path.clone() {
+            if let Some(cached_path) = self.cache_remote_artwork(&series_logo_path, "logo").await {
+                file.series_logo_path = Some(cached_path);
+            }
+        }
+
         if let Some(series_poster_path) = file.series_poster_path.clone() {
             if let Some(cached_path) = self
                 .cache_remote_artwork(&series_poster_path, "poster")
@@ -373,6 +379,12 @@ impl MetadataEnrichmentContext {
                 file.backdrop_path = Some(cached_path);
             }
         }
+
+        if let Some(logo_path) = file.logo_path.clone() {
+            if let Some(cached_path) = self.cache_remote_artwork(&logo_path, "logo").await {
+                file.logo_path = Some(cached_path);
+            }
+        }
     }
 
     pub async fn cache_remote_metadata_artwork(&mut self, metadata: &mut RemoteMetadata) {
@@ -381,6 +393,9 @@ impl MetadataEnrichmentContext {
             .await;
         metadata.backdrop_path = self
             .cache_artwork_source(metadata.backdrop_path.take(), "backdrop")
+            .await;
+        metadata.logo_path = self
+            .cache_artwork_source(metadata.logo_path.take(), "logo")
             .await;
     }
 
@@ -626,6 +641,10 @@ fn apply_remote_metadata_to_file(
         &mut file.poster_path,
         &mut file.backdrop_path,
     );
+
+    if metadata.logo_path.is_some() || is_missing_or_external_url(file.logo_path.as_deref()) {
+        file.logo_path = metadata.logo_path.clone();
+    }
 }
 
 fn apply_remote_series_metadata_to_episode_file(
@@ -681,6 +700,11 @@ fn apply_remote_series_metadata_to_episode_file(
         || is_missing_or_external_url(file.series_backdrop_path.as_deref())
     {
         file.series_backdrop_path = metadata.backdrop_path.clone();
+    }
+
+    if metadata.logo_path.is_some() || is_missing_or_external_url(file.series_logo_path.as_deref())
+    {
+        file.series_logo_path = metadata.logo_path.clone();
     }
 }
 
@@ -1702,8 +1726,10 @@ mod tests {
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
+            series_logo_path: None,
             poster_path: None,
             backdrop_path: None,
+            logo_path: None,
             file_size: 1024,
             container: None,
             duration_seconds: None,

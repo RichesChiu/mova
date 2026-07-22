@@ -143,6 +143,7 @@ pub async fn apply_media_item_metadata_match(
             overview: remote_metadata.overview.or(media_item.overview),
             poster_path: remote_metadata.poster_path,
             backdrop_path: remote_metadata.backdrop_path,
+            logo_path: remote_metadata.logo_path,
         },
     )
     .await
@@ -356,6 +357,7 @@ mod tests {
             overview: None,
             poster_path: None,
             backdrop_path: None,
+            logo_path: None,
             created_at: OffsetDateTime::now_utc(),
             updated_at: OffsetDateTime::now_utc(),
         }

@@ -60,6 +60,7 @@ pub struct RemoteMetadata {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub logo_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -233,7 +234,11 @@ impl TmdbMetadataProvider {
         };
 
         let details = self.fetch_movie_details(movie_id, request_language).await?;
-        Ok(Some(self.map_movie_details(movie_id, details)))
+        Ok(Some(self.map_movie_details(
+            movie_id,
+            details,
+            request_language,
+        )))
     }
 
     async fn search_movie_candidates(
@@ -407,16 +412,12 @@ impl TmdbMetadataProvider {
             .iter()
             .filter(|candidate| candidate_matches_year(lookup.year, *candidate))
             .collect::<Vec<_>>();
-        let direct_candidates = eligible_candidates
-            .iter()
-            .copied()
-            .filter(|candidate| candidate_matches_title(&lookup.title, *candidate))
-            .collect::<Vec<_>>();
+        let direct_candidates = strongest_direct_title_matches(
+            &lookup.title,
+            eligible_candidates.iter().copied().collect(),
+        );
         if !direct_candidates.is_empty() {
-            return Ok(select_strict_candidate(
-                lookup.year,
-                prioritize_original_title_matches(&lookup.title, direct_candidates),
-            ));
+            return Ok(select_strict_candidate(lookup.year, direct_candidates));
         }
         if eligible_candidates.len() > TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES {
             tracing::warn!(
@@ -429,6 +430,7 @@ impl TmdbMetadataProvider {
         }
 
         let mut exact_candidates = Vec::new();
+        let mut compatible_candidates = Vec::new();
 
         for candidate in eligible_candidates {
             let alternative_titles = match self.fetch_movie_alternative_titles(candidate.id).await {
@@ -444,13 +446,25 @@ impl TmdbMetadataProvider {
             };
             if alternative_titles
                 .iter()
-                .any(|title| titles_match_strictly(&lookup.title, title))
+                .any(|title| titles_match_exactly(&lookup.title, title))
             {
                 exact_candidates.push(candidate);
+            } else if alternative_titles
+                .iter()
+                .any(|title| titles_match_numbered_subtitle(&lookup.title, title))
+            {
+                compatible_candidates.push(candidate);
             }
         }
 
-        Ok(select_strict_candidate(lookup.year, exact_candidates))
+        Ok(select_strict_candidate(
+            lookup.year,
+            if exact_candidates.is_empty() {
+                compatible_candidates
+            } else {
+                exact_candidates
+            },
+        ))
     }
 
     async fn select_strict_tv_match<'a>(
@@ -462,19 +476,15 @@ impl TmdbMetadataProvider {
             .iter()
             .filter(|candidate| candidate_matches_year(lookup.year, *candidate))
             .collect::<Vec<_>>();
-        let direct_candidates = eligible_candidates
-            .iter()
-            .copied()
-            .filter(|candidate| candidate_matches_title(&lookup.title, *candidate))
-            .collect::<Vec<_>>();
+        let direct_candidates = strongest_direct_title_matches(
+            &lookup.title,
+            eligible_candidates.iter().copied().collect(),
+        );
         if !direct_candidates.is_empty() {
             let direct_candidates = self
                 .filter_tv_candidates_by_season_air_year(lookup, direct_candidates)
                 .await;
-            return Ok(select_strict_tv_candidate(
-                lookup,
-                prioritize_original_title_matches(&lookup.title, direct_candidates),
-            ));
+            return Ok(select_strict_tv_candidate(lookup, direct_candidates));
         }
         if eligible_candidates.len() > TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES {
             tracing::warn!(
@@ -487,6 +497,7 @@ impl TmdbMetadataProvider {
         }
 
         let mut exact_candidates = Vec::new();
+        let mut compatible_candidates = Vec::new();
 
         for candidate in eligible_candidates {
             let alternative_titles = match self.fetch_tv_alternative_titles(candidate.id).await {
@@ -502,12 +513,22 @@ impl TmdbMetadataProvider {
             };
             if alternative_titles
                 .iter()
-                .any(|title| titles_match_strictly(&lookup.title, title))
+                .any(|title| titles_match_exactly(&lookup.title, title))
             {
                 exact_candidates.push(candidate);
+            } else if alternative_titles
+                .iter()
+                .any(|title| titles_match_numbered_subtitle(&lookup.title, title))
+            {
+                compatible_candidates.push(candidate);
             }
         }
 
+        let exact_candidates = if exact_candidates.is_empty() {
+            compatible_candidates
+        } else {
+            exact_candidates
+        };
         let exact_candidates = self
             .filter_tv_candidates_by_season_air_year(lookup, exact_candidates)
             .await;
@@ -567,12 +588,14 @@ impl TmdbMetadataProvider {
         movie_id: i64,
         language: &str,
     ) -> anyhow::Result<TmdbMovieDetails> {
+        let image_languages = tmdb_image_languages(language);
         let details = self
             .client
             .get(format!("{}/movie/{}", self.api_base_url, movie_id))
             .query(&[
                 ("language", language),
-                ("append_to_response", "external_ids"),
+                ("append_to_response", "external_ids,images"),
+                ("include_image_language", image_languages.as_str()),
             ])
             .send()
             .await?
@@ -584,12 +607,14 @@ impl TmdbMetadataProvider {
     }
 
     async fn fetch_tv_details(&self, tv_id: i64, language: &str) -> anyhow::Result<TmdbTvDetails> {
+        let image_languages = tmdb_image_languages(language);
         let details = self
             .client
             .get(format!("{}/tv/{}", self.api_base_url, tv_id))
             .query(&[
                 ("language", language),
-                ("append_to_response", "external_ids"),
+                ("append_to_response", "external_ids,images"),
+                ("include_image_language", image_languages.as_str()),
             ])
             .send()
             .await?
@@ -673,9 +698,8 @@ impl TmdbMetadataProvider {
             }
         };
 
-        let details = self
-            .fetch_tv_details(tv_id, self.request_language(lookup))
-            .await?;
+        let request_language = self.request_language(lookup);
+        let details = self.fetch_tv_details(tv_id, request_language).await?;
 
         Ok(Some(RemoteMetadata {
             provider_item_id: Some(tv_id),
@@ -695,6 +719,8 @@ impl TmdbMetadataProvider {
             backdrop_path: details
                 .backdrop_path
                 .as_deref()
+                .map(|path| self.build_image_url(path)),
+            logo_path: select_tmdb_logo(details.images.as_ref(), request_language)
                 .map(|path| self.build_image_url(path)),
         }))
     }
@@ -881,7 +907,12 @@ impl TmdbMetadataProvider {
         }
     }
 
-    fn map_movie_details(&self, movie_id: i64, details: TmdbMovieDetails) -> RemoteMetadata {
+    fn map_movie_details(
+        &self,
+        movie_id: i64,
+        details: TmdbMovieDetails,
+        request_language: &str,
+    ) -> RemoteMetadata {
         let poster_path = details
             .poster_path
             .as_deref()
@@ -904,6 +935,8 @@ impl TmdbMetadataProvider {
             overview: empty_to_none(details.overview),
             poster_path,
             backdrop_path,
+            logo_path: select_tmdb_logo(details.images.as_ref(), request_language)
+                .map(|path| self.build_image_url(path)),
         }
     }
 
@@ -1265,6 +1298,7 @@ struct TmdbMovieDetails {
     #[serde(default)]
     production_companies: Vec<TmdbNamedItem>,
     external_ids: Option<TmdbExternalIds>,
+    images: Option<TmdbImagesResponse>,
     vote_average: Option<f64>,
     vote_count: Option<i64>,
 }
@@ -1299,6 +1333,7 @@ struct TmdbTvDetails {
     #[serde(default)]
     production_companies: Vec<TmdbNamedItem>,
     external_ids: Option<TmdbExternalIds>,
+    images: Option<TmdbImagesResponse>,
     vote_average: Option<f64>,
     vote_count: Option<i64>,
     #[serde(default)]
@@ -1319,6 +1354,27 @@ struct TmdbNamedItem {
 #[derive(Debug, Deserialize)]
 struct TmdbExternalIds {
     imdb_id: Option<String>,
+    tvdb_id: Option<i64>,
+    wikidata_id: Option<String>,
+    facebook_id: Option<String>,
+    instagram_id: Option<String>,
+    twitter_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbImagesResponse {
+    #[serde(default)]
+    logos: Vec<TmdbLogo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbLogo {
+    file_path: Option<String>,
+    iso_639_1: Option<String>,
+    width: Option<i64>,
+    height: Option<i64>,
+    vote_average: Option<f64>,
+    vote_count: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1369,49 +1425,72 @@ struct TmdbTvAggregateRole {
     episode_count: Option<i32>,
 }
 
-fn candidate_matches_title<T>(query_title: &str, candidate: &T) -> bool
+fn strongest_direct_title_matches<'a, T>(query_title: &str, candidates: Vec<&'a T>) -> Vec<&'a T>
 where
     T: TmdbSearchCandidate,
 {
-    [
-        candidate.candidate_title(),
-        candidate.candidate_original_title(),
-    ]
-    .into_iter()
-    .flatten()
-    .any(|title| titles_match_strictly(query_title, title))
-}
-
-fn prioritize_original_title_matches<'a, T>(query_title: &str, candidates: Vec<&'a T>) -> Vec<&'a T>
-where
-    T: TmdbSearchCandidate,
-{
-    let original_title_matches = candidates
+    let exact_original_title_matches = candidates
         .iter()
         .copied()
         .filter(|candidate| {
             candidate
                 .candidate_original_title()
-                .is_some_and(|title| titles_match_strictly(query_title, title))
+                .is_some_and(|title| titles_match_exactly(query_title, title))
         })
         .collect::<Vec<_>>();
-
-    if original_title_matches.is_empty() {
-        candidates
-    } else {
-        original_title_matches
+    if !exact_original_title_matches.is_empty() {
+        return exact_original_title_matches;
     }
+
+    let exact_localized_title_matches = candidates
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            candidate
+                .candidate_title()
+                .is_some_and(|title| titles_match_exactly(query_title, title))
+        })
+        .collect::<Vec<_>>();
+    if !exact_localized_title_matches.is_empty() {
+        return exact_localized_title_matches;
+    }
+
+    let compatible_original_title_matches = candidates
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            candidate
+                .candidate_original_title()
+                .is_some_and(|title| titles_match_numbered_subtitle(query_title, title))
+        })
+        .collect::<Vec<_>>();
+    if !compatible_original_title_matches.is_empty() {
+        return compatible_original_title_matches;
+    }
+
+    candidates
+        .into_iter()
+        .filter(|candidate| {
+            candidate
+                .candidate_title()
+                .is_some_and(|title| titles_match_numbered_subtitle(query_title, title))
+        })
+        .collect()
 }
 
-fn titles_match_strictly(local_title: &str, remote_title: &str) -> bool {
+fn titles_match_exactly(local_title: &str, remote_title: &str) -> bool {
     let normalized_local_title = normalize_title(local_title);
     if normalized_local_title.is_empty() {
         return false;
     }
 
-    let normalized_remote_title = normalize_title(remote_title);
-    if normalized_local_title == normalized_remote_title {
-        return true;
+    normalized_local_title == normalize_title(remote_title)
+}
+
+fn titles_match_numbered_subtitle(local_title: &str, remote_title: &str) -> bool {
+    let normalized_local_title = normalize_title(local_title);
+    if normalized_local_title.is_empty() {
+        return false;
     }
 
     normalized_local_title
@@ -1558,17 +1637,117 @@ fn tmdb_external_ids(tmdb_id: i64, external_ids: Option<&TmdbExternalIds>) -> Ve
         external_id: tmdb_id.to_string(),
     }];
 
-    if let Some(imdb_id) = external_ids
-        .and_then(|ids| ids.imdb_id.as_deref())
-        .and_then(|value| normalize_optional_value(Some(value.to_string())))
-    {
-        ids.push(MediaExternalId {
-            provider: "imdb".to_string(),
-            external_id: imdb_id,
-        });
+    if let Some(external_ids) = external_ids {
+        push_external_id(&mut ids, "imdb", external_ids.imdb_id.as_deref());
+        if let Some(tvdb_id) = external_ids.tvdb_id.filter(|id| *id > 0) {
+            ids.push(MediaExternalId {
+                provider: "tvdb".to_string(),
+                external_id: tvdb_id.to_string(),
+            });
+        }
+        push_external_id(&mut ids, "wikidata", external_ids.wikidata_id.as_deref());
+        push_external_id(&mut ids, "facebook", external_ids.facebook_id.as_deref());
+        push_external_id(&mut ids, "instagram", external_ids.instagram_id.as_deref());
+        push_external_id(&mut ids, "twitter", external_ids.twitter_id.as_deref());
     }
 
     ids
+}
+
+fn push_external_id(ids: &mut Vec<MediaExternalId>, provider: &str, value: Option<&str>) {
+    let Some(external_id) = value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+    else {
+        return;
+    };
+
+    ids.push(MediaExternalId {
+        provider: provider.to_string(),
+        external_id,
+    });
+}
+
+fn select_tmdb_logo<'a>(
+    images: Option<&'a TmdbImagesResponse>,
+    request_language: &str,
+) -> Option<&'a str> {
+    images?
+        .logos
+        .iter()
+        .filter(|logo| {
+            logo.file_path
+                .as_deref()
+                .is_some_and(|path| !path.trim().is_empty())
+                && tmdb_logo_language_priority(logo.iso_639_1.as_deref(), request_language) < 3
+        })
+        .min_by(|left, right| {
+            tmdb_logo_language_priority(left.iso_639_1.as_deref(), request_language)
+                .cmp(&tmdb_logo_language_priority(
+                    right.iso_639_1.as_deref(),
+                    request_language,
+                ))
+                .then_with(|| {
+                    right
+                        .vote_average
+                        .unwrap_or_default()
+                        .total_cmp(&left.vote_average.unwrap_or_default())
+                })
+                .then_with(|| {
+                    right
+                        .vote_count
+                        .unwrap_or_default()
+                        .cmp(&left.vote_count.unwrap_or_default())
+                })
+                .then_with(|| {
+                    let left_area = i64::from(left.width.unwrap_or_default())
+                        * i64::from(left.height.unwrap_or_default());
+                    let right_area = i64::from(right.width.unwrap_or_default())
+                        * i64::from(right.height.unwrap_or_default());
+                    right_area.cmp(&left_area)
+                })
+        })
+        .and_then(|logo| logo.file_path.as_deref())
+        .map(str::trim)
+}
+
+fn tmdb_logo_language_priority(logo_language: Option<&str>, request_language: &str) -> u8 {
+    let request_language = request_language
+        .split_once('-')
+        .map(|(language, _)| language)
+        .unwrap_or(request_language);
+
+    if request_language.eq_ignore_ascii_case("zh") {
+        return match logo_language {
+            Some(language) if language.eq_ignore_ascii_case("en") => 0,
+            None => 1,
+            Some(language) if language.eq_ignore_ascii_case("zh") => 2,
+            _ => 3,
+        };
+    }
+
+    match logo_language {
+        Some(language) if language.eq_ignore_ascii_case(request_language) => 0,
+        Some(language) if language.eq_ignore_ascii_case("en") => 1,
+        None => 2,
+        _ => 3,
+    }
+}
+
+fn tmdb_image_languages(request_language: &str) -> String {
+    let request_language = request_language
+        .split_once('-')
+        .map(|(language, _)| language)
+        .unwrap_or(request_language)
+        .trim()
+        .to_ascii_lowercase();
+
+    match request_language.as_str() {
+        "zh" => "en,null,zh".to_string(),
+        "en" | "" => "en,null".to_string(),
+        language => format!("{language},en,null"),
+    }
 }
 
 fn tmdb_ratings(vote_average: Option<f64>, vote_count: Option<i64>) -> Vec<MediaRating> {
@@ -1672,13 +1851,14 @@ pub type MetadataLookupCache = HashMap<MetadataLookup, Option<RemoteMetadata>>;
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_remote_metadata, build_metadata_provider, candidate_matches_title,
-        deduplicate_search_results, format_country_codes, normalize_base_url,
-        normalize_metadata_language, normalize_optional_value, normalize_title, parse_year,
-        pick_primary_character_name, prioritize_original_title_matches, select_strict_candidate,
-        select_strict_tv_candidate, titles_match_strictly, tmdb_ratings,
-        tmdb_tv_season_matches_air_year, tv_search_year_filter, MetadataLookup,
-        MetadataProviderConfig, MetadataSeasonAirYearHint, RemoteMetadata, TmdbMetadataProvider,
+        apply_remote_metadata, build_metadata_provider, deduplicate_search_results,
+        format_country_codes, normalize_base_url, normalize_metadata_language,
+        normalize_optional_value, normalize_title, parse_year, pick_primary_character_name,
+        select_strict_candidate, select_strict_tv_candidate, select_tmdb_logo,
+        strongest_direct_title_matches, titles_match_exactly, titles_match_numbered_subtitle,
+        tmdb_external_ids, tmdb_image_languages, tmdb_ratings, tmdb_tv_season_matches_air_year,
+        tv_search_year_filter, MetadataLookup, MetadataProviderConfig, MetadataSeasonAirYearHint,
+        RemoteMetadata, TmdbExternalIds, TmdbImagesResponse, TmdbLogo, TmdbMetadataProvider,
         TmdbMetadataProviderConfig, TmdbMovieDetails, TmdbMovieSearchResult, TmdbTvAggregateRole,
         TmdbTvEpisodeDetails, TmdbTvSearchResult, TmdbTvSeasonDetails, TMDB_PROVIDER_NAME,
     };
@@ -1763,6 +1943,7 @@ mod tests {
                 overview: Some("A girl enters the spirit world.".to_string()),
                 poster_path: Some("https://images.example.com/poster.jpg".to_string()),
                 backdrop_path: Some("https://images.example.com/backdrop.jpg".to_string()),
+                logo_path: None,
             }),
             &mut metadata_provider,
             &mut metadata_provider_item_id,
@@ -1830,6 +2011,7 @@ mod tests {
                 overview: None,
                 poster_path: None,
                 backdrop_path: None,
+                logo_path: None,
             }),
             &mut metadata_provider,
             &mut metadata_provider_item_id,
@@ -1890,13 +2072,81 @@ mod tests {
                 genres: Vec::new(),
                 production_companies: Vec::new(),
                 external_ids: None,
+                images: None,
                 vote_average: None,
                 vote_count: None,
             },
+            "zh-CN",
         );
 
         assert_eq!(metadata.poster_path, None);
         assert_eq!(metadata.backdrop_path, None);
+    }
+
+    #[test]
+    fn simplified_chinese_metadata_prefers_english_logo_over_ambiguous_chinese_logo() {
+        let images = TmdbImagesResponse {
+            logos: vec![
+                TmdbLogo {
+                    file_path: Some("/zh.png".to_string()),
+                    iso_639_1: Some("zh".to_string()),
+                    width: Some(1000),
+                    height: Some(400),
+                    vote_average: Some(10.0),
+                    vote_count: Some(20),
+                },
+                TmdbLogo {
+                    file_path: Some("/en.png".to_string()),
+                    iso_639_1: Some("en".to_string()),
+                    width: Some(800),
+                    height: Some(300),
+                    vote_average: Some(5.0),
+                    vote_count: Some(1),
+                },
+            ],
+        };
+
+        assert_eq!(select_tmdb_logo(Some(&images), "zh-CN"), Some("/en.png"));
+        assert_eq!(tmdb_image_languages("zh-CN"), "en,null,zh");
+        assert_eq!(tmdb_image_languages("ja-JP"), "ja,en,null");
+
+        let unsupported_images = TmdbImagesResponse {
+            logos: vec![TmdbLogo {
+                file_path: Some("/fr.png".to_string()),
+                iso_639_1: Some("fr".to_string()),
+                width: Some(800),
+                height: Some(300),
+                vote_average: Some(9.0),
+                vote_count: Some(10),
+            }],
+        };
+        assert_eq!(select_tmdb_logo(Some(&unsupported_images), "zh-CN"), None);
+    }
+
+    #[test]
+    fn logo_selection_uses_votes_then_resolution_within_the_same_language() {
+        let images = TmdbImagesResponse {
+            logos: vec![
+                TmdbLogo {
+                    file_path: Some("/small.png".to_string()),
+                    iso_639_1: Some("en".to_string()),
+                    width: Some(400),
+                    height: Some(100),
+                    vote_average: Some(8.0),
+                    vote_count: Some(3),
+                },
+                TmdbLogo {
+                    file_path: Some("/large.png".to_string()),
+                    iso_639_1: Some("en".to_string()),
+                    width: Some(1200),
+                    height: Some(300),
+                    vote_average: Some(8.0),
+                    vote_count: Some(3),
+                },
+            ],
+        };
+
+        assert_eq!(select_tmdb_logo(Some(&images), "en-US"), Some("/large.png"));
     }
 
     #[test]
@@ -1914,6 +2164,55 @@ mod tests {
     }
 
     #[test]
+    fn tmdb_external_ids_keeps_all_supported_namespaces() {
+        let external_ids = tmdb_external_ids(
+            88,
+            Some(&TmdbExternalIds {
+                imdb_id: Some(" tt1234567 ".to_string()),
+                tvdb_id: Some(765_432),
+                wikidata_id: Some("Q123".to_string()),
+                facebook_id: Some("movie-page".to_string()),
+                instagram_id: Some("movie_account".to_string()),
+                twitter_id: Some("movie_account".to_string()),
+            }),
+        );
+
+        assert_eq!(
+            external_ids,
+            vec![
+                MediaExternalId {
+                    provider: "tmdb".to_string(),
+                    external_id: "88".to_string(),
+                },
+                MediaExternalId {
+                    provider: "imdb".to_string(),
+                    external_id: "tt1234567".to_string(),
+                },
+                MediaExternalId {
+                    provider: "tvdb".to_string(),
+                    external_id: "765432".to_string(),
+                },
+                MediaExternalId {
+                    provider: "wikidata".to_string(),
+                    external_id: "Q123".to_string(),
+                },
+                MediaExternalId {
+                    provider: "facebook".to_string(),
+                    external_id: "movie-page".to_string(),
+                },
+                MediaExternalId {
+                    provider: "instagram".to_string(),
+                    external_id: "movie_account".to_string(),
+                },
+                MediaExternalId {
+                    provider: "twitter".to_string(),
+                    external_id: "movie_account".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn format_country_codes_joins_unique_values() {
         assert_eq!(
             format_country_codes(&["JP".to_string(), "US".to_string(), "JP".to_string()]),
@@ -1923,19 +2222,53 @@ mod tests {
 
     #[test]
     fn strict_title_match_accepts_numbered_main_title_with_explicit_subtitle() {
-        assert!(titles_match_strictly(
+        assert!(titles_match_numbered_subtitle(
             "东北恋哥3",
             "东北恋哥3：冬天里的一把火",
         ));
-        assert!(titles_match_strictly(
+        assert!(titles_match_numbered_subtitle(
             "Northeastern Bro 3",
             "Northeastern Bro 3: A Fire in Winter",
         ));
-        assert!(!titles_match_strictly("Dune", "Dune: Part Two"));
-        assert!(!titles_match_strictly(
+        assert!(!titles_match_numbered_subtitle("Dune", "Dune: Part Two"));
+        assert!(!titles_match_numbered_subtitle(
             "东北恋哥3",
             "东北恋哥30：冬天里的一把火"
         ));
+    }
+
+    #[test]
+    fn exact_original_title_outranks_numbered_subtitle_compatibility() {
+        let candidates = vec![
+            TmdbMovieSearchResult {
+                id: 324_552,
+                title: Some("疾速追杀2".to_string()),
+                original_title: Some("John Wick: Chapter 2".to_string()),
+                release_date: Some("2017-02-08".to_string()),
+                overview: None,
+                poster_path: Some("/john-wick-2.jpg".to_string()),
+                backdrop_path: None,
+            },
+            TmdbMovieSearchResult {
+                id: 651_445,
+                title: Some("John Wick Chapter 2: Wick-vizzed".to_string()),
+                original_title: Some("John Wick Chapter 2: Wick-vizzed".to_string()),
+                release_date: Some("2017-06-13".to_string()),
+                overview: None,
+                poster_path: Some("/wick-vizzed.jpg".to_string()),
+                backdrop_path: None,
+            },
+        ];
+
+        let strongest =
+            strongest_direct_title_matches("John Wick Chapter 2", candidates.iter().collect());
+
+        assert_eq!(strongest.len(), 1);
+        assert_eq!(strongest[0].id, 324_552);
+        assert_eq!(
+            select_strict_candidate(Some(2017), strongest).map(|candidate| candidate.id),
+            Some(324_552)
+        );
     }
 
     #[test]
@@ -1961,7 +2294,7 @@ mod tests {
             },
         ];
 
-        let prioritized = prioritize_original_title_matches("奇遇", candidates.iter().collect());
+        let prioritized = strongest_direct_title_matches("奇遇", candidates.iter().collect());
 
         assert_eq!(prioritized.len(), 1);
         assert_eq!(prioritized[0].id, 1_395_515);
@@ -1994,8 +2327,7 @@ mod tests {
             },
         ];
 
-        let prioritized =
-            prioritize_original_title_matches("Same Title", candidates.iter().collect());
+        let prioritized = strongest_direct_title_matches("Same Title", candidates.iter().collect());
 
         assert_eq!(prioritized.len(), 2);
         assert!(select_strict_candidate(Some(2025), prioritized).is_none());
@@ -2024,16 +2356,17 @@ mod tests {
             },
         ];
 
-        let exact_candidates = candidates
+        let eligible_candidates = candidates
             .iter()
             .filter(|candidate| {
-                candidate_matches_title("Castle in the Sky", *candidate)
-                    && candidate
-                        .release_date
-                        .as_deref()
-                        .is_some_and(|date| date.starts_with("1986"))
+                candidate
+                    .release_date
+                    .as_deref()
+                    .is_some_and(|date| date.starts_with("1986"))
             })
             .collect::<Vec<_>>();
+        let exact_candidates =
+            strongest_direct_title_matches("Castle in the Sky", eligible_candidates);
         let best_match = select_strict_candidate(Some(1986), exact_candidates).unwrap();
 
         assert_eq!(best_match.id, 1);
@@ -2258,9 +2591,9 @@ mod tests {
 
     #[test]
     fn strict_match_accepts_intra_word_dollar_as_stylized_s() {
-        assert!(titles_match_strictly("Cashero", "Ca$hero"));
-        assert!(!titles_match_strictly("S100", "$100"));
-        assert!(!titles_match_strictly("No Where", "Nowhere"));
+        assert!(titles_match_exactly("Cashero", "Ca$hero"));
+        assert!(!titles_match_exactly("S100", "$100"));
+        assert!(!titles_match_exactly("No Where", "Nowhere"));
     }
 
     #[test]

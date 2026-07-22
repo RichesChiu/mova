@@ -3,6 +3,7 @@ use crate::{
     intro_detection::ensure_intro_markers_for_playback,
 };
 use sqlx::postgres::PgPool;
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone)]
 pub struct MediaItemPlaybackHeader {
@@ -13,6 +14,8 @@ pub struct MediaItemPlaybackHeader {
     pub title: String,
     pub original_title: Option<String>,
     pub year: Option<i32>,
+    pub logo_path: Option<String>,
+    pub logo_updated_at: OffsetDateTime,
     pub season_id: Option<i64>,
     pub season_number: Option<i32>,
     pub episode_number: Option<i32>,
@@ -51,6 +54,8 @@ pub async fn get_media_item_playback_header(
         title: header.title,
         original_title: header.original_title,
         year: header.year,
+        logo_path: header.logo_path,
+        logo_updated_at: header.logo_updated_at,
         season_id: header.season_id,
         season_number: header.season_number,
         episode_number: header.episode_number,

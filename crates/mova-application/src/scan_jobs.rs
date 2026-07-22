@@ -1311,6 +1311,8 @@ fn clear_remote_metadata_for_review(
     file.overview = None;
     file.poster_path = None;
     file.backdrop_path = None;
+    file.logo_path = None;
+    file.series_logo_path = None;
 }
 
 async fn build_incremental_scan_plan(
@@ -1645,8 +1647,10 @@ fn existing_artwork_paths(
         summary.backdrop_path.as_deref(),
         summary.series_poster_path.as_deref(),
         summary.series_backdrop_path.as_deref(),
+        summary.series_logo_path.as_deref(),
         summary.season_poster_path.as_deref(),
         summary.season_backdrop_path.as_deref(),
+        summary.logo_path.as_deref(),
     ]
     .into_iter()
     .flatten()
@@ -1897,8 +1901,10 @@ fn discovered_file_from_existing_local_analysis(
         overview,
         series_poster_path: summary.series_poster_path.clone(),
         series_backdrop_path: summary.series_backdrop_path.clone(),
+        series_logo_path: summary.series_logo_path.clone(),
         poster_path,
         backdrop_path,
+        logo_path: summary.logo_path.clone(),
         file_size: inventory.file_size.max(file_size),
         container: summary.container.clone(),
         duration_seconds: summary.duration_seconds,
@@ -2130,8 +2136,10 @@ fn build_media_entries(
             overview: file.overview,
             series_poster_path: file.series_poster_path,
             series_backdrop_path: file.series_backdrop_path,
+            series_logo_path: file.series_logo_path,
             poster_path: file.poster_path,
             backdrop_path: file.backdrop_path,
+            logo_path: file.logo_path,
             file_path,
             container: file.container,
             file_size,
@@ -2589,6 +2597,10 @@ fn apply_existing_media_metadata(
             &mut file.series_backdrop_path,
             summary.series_backdrop_path.as_ref(),
         );
+        fill_option_ref_if_missing(
+            &mut file.series_logo_path,
+            summary.series_logo_path.as_ref(),
+        );
         fill_option_ref_if_missing(&mut file.season_title, summary.season_title.as_ref());
         fill_option_ref_if_missing(&mut file.season_overview, summary.season_overview.as_ref());
         fill_option_ref_if_missing(
@@ -2602,6 +2614,7 @@ fn apply_existing_media_metadata(
         replace_option_if_present(&mut file.episode_title, summary.episode_title.as_ref());
         fill_option_ref_if_missing(&mut file.poster_path, summary.poster_path.as_ref());
         fill_option_ref_if_missing(&mut file.backdrop_path, summary.backdrop_path.as_ref());
+        fill_option_ref_if_missing(&mut file.logo_path, summary.logo_path.as_ref());
         return;
     }
 
@@ -2636,6 +2649,7 @@ fn apply_existing_media_metadata(
     replace_option_if_present(&mut file.overview, summary.overview.as_ref());
     fill_option_ref_if_missing(&mut file.poster_path, summary.poster_path.as_ref());
     fill_option_ref_if_missing(&mut file.backdrop_path, summary.backdrop_path.as_ref());
+    fill_option_ref_if_missing(&mut file.logo_path, summary.logo_path.as_ref());
 }
 
 fn replace_string_if_present(target: &mut String, candidate: Option<&str>) {
@@ -3043,8 +3057,10 @@ mod tests {
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
+            series_logo_path: None,
             poster_path: None,
             backdrop_path: None,
+            logo_path: None,
             file_size: 1,
             container: Some("mkv".to_string()),
             duration_seconds: Some(2400),
@@ -3209,6 +3225,7 @@ mod tests {
             overview: Some("Stored overview".to_string()),
             poster_path: Some("/cache/poster.jpg".to_string()),
             backdrop_path: Some("/cache/backdrop.jpg".to_string()),
+            logo_path: Some("/cache/logo.png".to_string()),
             scan_hash: Some("movie-hash".to_string()),
             container: Some("mkv".to_string()),
             file_size: 1024,
@@ -3268,6 +3285,7 @@ mod tests {
             series_overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
+            series_logo_path: None,
             season_title: None,
             season_number: None,
             season_overview: None,
@@ -3299,6 +3317,7 @@ mod tests {
             overview: Some("Episode overview".to_string()),
             poster_path: Some("/cache/episode-poster.jpg".to_string()),
             backdrop_path: Some("/cache/episode-backdrop.jpg".to_string()),
+            logo_path: None,
             scan_hash: Some("episode-hash".to_string()),
             container: Some("mkv".to_string()),
             file_size: 2048,
@@ -3348,6 +3367,7 @@ mod tests {
             series_overview: Some("Series overview".to_string()),
             series_poster_path: Some("/cache/series-poster.jpg".to_string()),
             series_backdrop_path: Some("/cache/series-backdrop.jpg".to_string()),
+            series_logo_path: Some("/cache/series-logo.png".to_string()),
             season_title: Some("Season 01".to_string()),
             season_number: Some(1),
             season_overview: Some("Season overview".to_string()),
@@ -3435,6 +3455,7 @@ mod tests {
         summary.overview = None;
         summary.poster_path = None;
         summary.backdrop_path = None;
+        summary.logo_path = None;
 
         assert!(!super::can_skip_existing_media_summary(
             &summary,

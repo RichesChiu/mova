@@ -193,6 +193,7 @@ create table if not exists media_items (
     overview text,
     poster_path text,
     backdrop_path text,
+    logo_path text,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
     unique(id, library_id)

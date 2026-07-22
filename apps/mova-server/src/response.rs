@@ -140,6 +140,7 @@ pub struct MediaItemResponse {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub logo_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -186,6 +187,7 @@ pub struct MediaItemDetailResponse {
     pub overview: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub logo_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -199,6 +201,7 @@ pub struct MediaItemPlaybackHeaderResponse {
     pub title: String,
     pub original_title: Option<String>,
     pub year: Option<i32>,
+    pub logo_path: Option<String>,
     pub season_number: Option<i32>,
     pub episode_number: Option<i32>,
     pub episode_title: Option<String>,
@@ -563,6 +566,12 @@ impl MediaItemResponse {
                 "backdrop",
                 media_item.updated_at,
             ),
+            logo_path: public_media_item_asset_path(
+                media_item.id,
+                media_item.logo_path.as_deref(),
+                "logo",
+                media_item.updated_at,
+            ),
             created_at: format_datetime(media_item.created_at, offset),
             updated_at: format_datetime(media_item.updated_at, offset),
         }
@@ -634,6 +643,12 @@ impl MediaItemDetailResponse {
                 "backdrop",
                 media_item.updated_at,
             ),
+            logo_path: public_media_item_asset_path(
+                media_item.id,
+                media_item.logo_path.as_deref(),
+                "logo",
+                media_item.updated_at,
+            ),
             created_at: format_datetime(media_item.created_at, offset),
             updated_at: format_datetime(media_item.updated_at, offset),
         }
@@ -642,6 +657,7 @@ impl MediaItemDetailResponse {
 
 impl MediaItemPlaybackHeaderResponse {
     pub fn from_domain(header: MediaItemPlaybackHeader) -> Self {
+        let logo_media_item_id = header.series_media_item_id.unwrap_or(header.media_item_id);
         Self {
             media_item_id: header.media_item_id,
             library_id: header.library_id,
@@ -650,6 +666,12 @@ impl MediaItemPlaybackHeaderResponse {
             title: header.title,
             original_title: header.original_title,
             year: header.year,
+            logo_path: public_media_item_asset_path(
+                logo_media_item_id,
+                header.logo_path.as_deref(),
+                "logo",
+                header.logo_updated_at,
+            ),
             season_number: header.season_number,
             episode_number: header.episode_number,
             episode_title: header.episode_title,
@@ -1245,6 +1267,7 @@ mod tests {
             overview: Some("A young girl enters the spirit world.".to_string()),
             poster_path: Some("/library/poster.jpg".to_string()),
             backdrop_path: Some("https://images.example.com/backdrop.jpg".to_string()),
+            logo_path: Some("/library/logo.png".to_string()),
             created_at: timestamp,
             updated_at: timestamp,
         }
@@ -1326,6 +1349,10 @@ mod tests {
         assert_eq!(
             response.backdrop_path.as_deref(),
             Some("https://images.example.com/backdrop.jpg")
+        );
+        assert_eq!(
+            response.logo_path.as_deref(),
+            Some("/api/media-items/42/logo?v=1704164645")
         );
         assert_eq!(response.metadata_provider.as_deref(), Some("tmdb"));
         assert_eq!(response.metadata_provider_item_id, Some(129));

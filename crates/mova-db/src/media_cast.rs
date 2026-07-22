@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use mova_domain::MediaCastMember;
-use sqlx::{postgres::PgPool, Row};
+use sqlx::{
+    postgres::{PgPool, Postgres},
+    QueryBuilder, Row,
+};
 use time::OffsetDateTime;
 
 #[derive(Debug, Clone)]
@@ -103,8 +106,8 @@ pub async fn replace_media_item_cast(
         .await
         .context("failed to clear existing media item cast members")?;
 
-    for member in &params.members {
-        sqlx::query(
+    if !params.members.is_empty() {
+        let mut query_builder = QueryBuilder::<Postgres>::new(
             r#"
             insert into media_item_cast_members (
                 media_item_id,
@@ -114,18 +117,21 @@ pub async fn replace_media_item_cast(
                 character_name,
                 profile_path
             )
-            values ($1, $2, $3, $4, $5, $6)
             "#,
-        )
-        .bind(params.media_item_id)
-        .bind(member.sort_order)
-        .bind(member.person_id)
-        .bind(&member.name)
-        .bind(&member.character_name)
-        .bind(&member.profile_path)
-        .execute(&mut *tx)
-        .await
-        .context("failed to insert media item cast member")?;
+        );
+        query_builder.push_values(&params.members, |mut row, member| {
+            row.push_bind(params.media_item_id)
+                .push_bind(member.sort_order)
+                .push_bind(member.person_id)
+                .push_bind(&member.name)
+                .push_bind(&member.character_name)
+                .push_bind(&member.profile_path);
+        });
+        query_builder
+            .build()
+            .execute(&mut *tx)
+            .await
+            .context("failed to insert media item cast members")?;
     }
 
     sqlx::query(

@@ -152,6 +152,7 @@ const createMediaItem = ({
     'A polished mock media item used for local UI review when the real library is too small.',
   poster_path: mockPosterPath(id),
   backdrop_path: mockBackdropPath(libraryId + id),
+  logo_path: null,
   created_at: new Date(Date.UTC(2026, 5, 5, 8, 0, 0) - id * 60000).toISOString(),
   updated_at: MOCK_NOW,
 })
@@ -465,6 +466,7 @@ const playbackHeader = (mediaItem: MediaItem): MediaItemPlaybackHeader => ({
   title: mediaItem.title,
   original_title: mediaItem.original_title,
   year: mediaItem.year,
+  logo_path: mediaItem.logo_path,
   season_number: mediaItem.media_type === 'series' ? 1 : null,
   episode_number: mediaItem.media_type === 'series' ? 4 : null,
   episode_title: mediaItem.media_type === 'series' ? 'Episode 4' : null,

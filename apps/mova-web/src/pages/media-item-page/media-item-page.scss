@@ -34,6 +34,10 @@
   z-index: 1;
 }
 
+.home-dashboard__content--media-item > .home-dashboard-page-header {
+  z-index: 2;
+}
+
 .media-item-page {
   position: relative;
   display: grid;

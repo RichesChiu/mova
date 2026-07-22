@@ -26,6 +26,49 @@ cd mova
 cp .env.example .env
 ```
 
+也可以只创建下面的 `docker-compose.yml`：
+
+```yaml
+services:
+  app:
+    image: richeschiu/mova:latest
+    container_name: mova-app
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "36080:36080"
+    environment:
+      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
+      MOVA_WEB_DIST_DIR: /app/web
+      MOVA_TMDB_ACCESS_TOKEN: ${MOVA_TMDB_ACCESS_TOKEN:-}
+      MOVA_WORKER_CONCURRENCY: ${MOVA_WORKER_CONCURRENCY:-2}
+    volumes:
+      - ./data/cache:/app/data/cache
+      - type: bind
+        source: ${MOVA_MEDIA_ROOT:?MOVA_MEDIA_ROOT must be set}
+        target: /media
+        read_only: true
+    restart: unless-stopped
+
+  database:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: mova
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mova
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - ./data/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mova -d mova"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    shm_size: 256mb
+    restart: unless-stopped
+```
+
 编辑 `.env`，至少配置宿主机媒体目录：
 
 ```env
@@ -120,6 +163,49 @@ The provided Docker Compose configuration is the recommended way to run Mova:
 git clone https://github.com/RichesChiu/mova.git
 cd mova
 cp .env.example .env
+```
+
+Alternatively, create the following `docker-compose.yml` directly:
+
+```yaml
+services:
+  app:
+    image: richeschiu/mova:latest
+    container_name: mova-app
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "36080:36080"
+    environment:
+      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
+      MOVA_WEB_DIST_DIR: /app/web
+      MOVA_TMDB_ACCESS_TOKEN: ${MOVA_TMDB_ACCESS_TOKEN:-}
+      MOVA_WORKER_CONCURRENCY: ${MOVA_WORKER_CONCURRENCY:-2}
+    volumes:
+      - ./data/cache:/app/data/cache
+      - type: bind
+        source: ${MOVA_MEDIA_ROOT:?MOVA_MEDIA_ROOT must be set}
+        target: /media
+        read_only: true
+    restart: unless-stopped
+
+  database:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: mova
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mova
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      - ./data/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mova -d mova"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    shm_size: 256mb
+    restart: unless-stopped
 ```
 
 Edit `.env` and configure at least the host media directory:
