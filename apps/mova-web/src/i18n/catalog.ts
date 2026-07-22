@@ -267,10 +267,6 @@ const zhCN: Record<string, string> = {
   'Original title': '原始标题',
   Genres: '类型',
   Studio: '制片公司',
-  '1 available episode': '1 集可用',
-  '{{count}} available episodes': '{{count}} 集可用',
-  '1 available season': '1 季可用',
-  '{{count}} available seasons': '{{count}} 季可用',
   Country: '国家 / 地区',
   Unknown: '未知',
   'No overview available yet.': '暂无简介。',
@@ -319,6 +315,7 @@ const zhCN: Record<string, string> = {
   'Failed to load media item': '加载媒体条目失败',
   'Go back': '返回',
   'Season {{season}}': '第 {{season}} 季',
+  'Select season for {{title}}': '选择《{{title}}》的季',
   'Episode {{episode}}': '第 {{episode}} 集',
   'Playback progress could not be saved. We will retry on the next sync.':
     '播放进度暂时无法保存，下一次同步时会自动重试。',
@@ -466,7 +463,8 @@ const zhCN: Record<string, string> = {
     '可横向滚动或点击箭头浏览剧集列表。',
   'Use horizontal scrolling or click arrows to move through the cast list.':
     '可横向滚动或点击箭头浏览演员列表。',
-  'Retry current source': '重试当前资源',
+  'Playback unavailable': '暂时无法播放',
+  'Retry playback': '重试播放',
   'Your browser does not support HTML5 video playback.': '当前浏览器不支持 HTML5 视频播放。',
   'Play next episode: {{label}}': '播放下一集：{{label}}',
   'Audio: {{name}}': '音轨：{{name}}',

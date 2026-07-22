@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildFullscreenWarningMessage,
   buildPlaybackInteractionWarningMessage,
+  isAutoplayBlockedError,
   shouldShowImmersiveOverlay,
 } from './player-feedback'
 
@@ -12,6 +13,11 @@ describe('player-feedback helpers', () => {
         name: 'NotAllowedError',
       }),
     ).toBe('Autoplay was blocked by the browser. Click play again to continue.')
+  })
+
+  it('identifies browser autoplay permission failures', () => {
+    expect(isAutoplayBlockedError({ name: 'NotAllowedError' })).toBe(true)
+    expect(isAutoplayBlockedError({ name: 'AbortError' })).toBe(false)
   })
 
   it('maps playback aborts to a retry-oriented warning', () => {

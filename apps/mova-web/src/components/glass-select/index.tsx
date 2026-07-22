@@ -153,7 +153,11 @@ export const GlassSelect = ({
       {menuPresence.shouldRender && menuStyle
         ? createPortal(
             <div
-              className="glass-select__menu glass-select__menu--portal glass-popover-surface floating-transition"
+              className={
+                compact
+                  ? 'glass-select__menu glass-select__menu--compact glass-select__menu--portal glass-popover-surface floating-transition'
+                  : 'glass-select__menu glass-select__menu--portal glass-popover-surface floating-transition'
+              }
               data-state={menuPresence.transitionState}
               ref={menuRef}
               role="listbox"

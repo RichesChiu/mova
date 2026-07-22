@@ -223,7 +223,6 @@
   --player-floating-accent-background: var(--mova-color-rgba-238-242-247-a92);
   --player-floating-accent-text: var(--mova-color-hex-030507);
   --player-floating-accent-border: var(--mova-color-rgba-255-255-255-a22);
-  --player-floating-timeline-background: var(--mova-color-rgba-16-22-31-a88);
   --player-status-background: var(--mova-color-rgba-11-16-24-a78);
   --player-status-text: var(--mova-color-rgba-240-243-249-a9);
   --player-status-shadow:
@@ -242,6 +241,7 @@
     0 10px 24px var(--mova-color-rgba-0-0-0-a22);
   --player-control-border: var(--mova-color-rgba-255-255-255-a08);
   --player-control-background: var(--mova-color-rgba-11-16-24-a72);
+  --player-control-text: var(--mova-color-player-control-text);
   --player-control-hover-border: var(--mova-color-rgba-255-255-255-a18);
   --player-control-hover-background: var(--mova-color-rgba-20-29-41-a88);
   --player-control-toolbar-hover-background: var(--mova-color-rgba-255-255-255-a08);
@@ -550,16 +550,20 @@
   --detail-readable-surface-background: var(--detail-inner-surface);
   --detail-readable-surface-shadow: var(--panel-inset);
   --detail-hero-poster-border: var(--floating-border);
-  --detail-rating-badge-border: color-mix(in srgb, var(--mova-color-hex-f5c518) 42%, var(--floating-border));
+  --detail-tag-border: color-mix(in srgb, var(--accent-strong) 30%, var(--floating-border));
+  --detail-tag-background: color-mix(in srgb, var(--floating-surface-strong) 90%, var(--color-black));
+  --detail-tag-label: color-mix(in srgb, var(--accent-strong) 68%, var(--text-soft));
+  --detail-tag-value: var(--text);
+  --detail-rating-badge-border: color-mix(in srgb, var(--mova-color-hex-f5c518) 68%, var(--floating-border));
   --detail-rating-badge-background:
-    linear-gradient(180deg, var(--mova-color-rgba-245-197-24-a18), var(--mova-color-rgba-245-197-24-a08)),
-    color-mix(in srgb, var(--floating-surface) 78%, transparent);
+    linear-gradient(180deg, var(--mova-color-rgba-245-197-24-a28), var(--mova-color-rgba-245-197-24-a14)),
+    color-mix(in srgb, var(--floating-surface-strong) 90%, var(--color-black));
   --detail-rating-badge-shadow:
     inset 0 1px 0 var(--mova-color-rgba-255-255-255-a12),
-    0 10px 24px var(--mova-color-rgba-0-0-0-a22);
+    0 8px 20px var(--mova-color-rgba-245-197-24-a12);
   --detail-rating-badge-text: var(--text);
-  --detail-rating-label: color-mix(in srgb, var(--text-soft) 74%, var(--mova-color-hex-f5c518));
-  --detail-rating-strong: color-mix(in srgb, var(--text) 88%, var(--mova-color-hex-fff4bf));
+  --detail-rating-label: var(--mova-color-hex-f5c518);
+  --detail-rating-strong: var(--mova-color-hex-fff4bf);
   --media-technical-badge-border: color-mix(in srgb, var(--mova-color-white) 14%, var(--floating-border));
   --media-technical-badge-background:
     linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a13), transparent 52%),
@@ -935,6 +939,10 @@
     inset 0 1px 0 var(--mova-color-rgba-255-255-255-a76),
     0 14px 30px var(--mova-color-rgba-110-136-180-a12);
   --detail-hero-poster-border: var(--mova-color-rgba-100-126-174-a18);
+  --detail-tag-border: var(--mova-color-rgba-100-126-174-a26);
+  --detail-tag-background: var(--mova-color-rgba-245-249-255-a68);
+  --detail-tag-label: var(--mova-color-hex-53627d);
+  --detail-tag-value: var(--mova-color-hex-172033);
   --detail-rating-badge-border: var(--mova-color-rgba-181-124-25-a34);
   --detail-rating-badge-background:
     linear-gradient(180deg, var(--mova-color-rgba-255-213-102-a34), var(--mova-color-rgba-255-236-179-a2)),
