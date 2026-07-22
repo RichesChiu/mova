@@ -32,25 +32,12 @@ Mova 是一个用于整理、浏览和播放本地电影与剧集的自托管媒
 - Docker Compose
 - 一个宿主机上的本地媒体目录
 
-### 配置
+### 创建部署目录
 
 ```bash
-cp .env.example .env
+mkdir -p mova
+cd mova
 ```
-
-常用配置：
-
-```env
-MOVA_MEDIA_ROOT=/absolute/path/to/media
-MOVA_TMDB_ACCESS_TOKEN=
-MOVA_WORKER_CONCURRENCY=2
-HTTP_PROXY=
-HTTPS_PROXY=
-```
-
-- `MOVA_MEDIA_ROOT` 必填，会只读挂载到容器内固定目录 `/media`。
-- `MOVA_TMDB_ACCESS_TOKEN` 用于启用 TMDB 自动刮削、远端海报/背景图以及元数据搜索与替换。不配置时服务仍可启动，并保留本地扫描、NFO/sidecar 读取、入库和播放能力，但会自动跳过所有 TMDB 请求。
-- `MOVA_WORKER_CONCURRENCY` 控制进程内后台 worker 池并发数，默认值为 `2`。
 
 ### Docker Compose 示例
 
@@ -97,6 +84,20 @@ services:
     restart: unless-stopped
 ```
 
+### 配置
+
+在 `docker-compose.yml` 所在目录创建 `.env`：
+
+```env
+MOVA_MEDIA_ROOT=/absolute/path/to/media
+MOVA_TMDB_ACCESS_TOKEN=
+MOVA_WORKER_CONCURRENCY=2
+```
+
+- `MOVA_MEDIA_ROOT` 必填，会只读挂载到容器内固定目录 `/media`。
+- `MOVA_TMDB_ACCESS_TOKEN` 用于启用 TMDB 自动刮削、远端海报/背景图以及元数据搜索与替换。不配置时服务仍可启动，并保留本地扫描、NFO/sidecar 读取、入库和播放能力，但会自动跳过所有 TMDB 请求。
+- `MOVA_WORKER_CONCURRENCY` 控制进程内后台 worker 池并发数，默认值为 `2`。
+
 ### 获取 TMDB Access Token
 
 1. 注册并登录 [TMDB](https://www.themoviedb.org/)，完成邮箱验证。
@@ -134,19 +135,7 @@ docker compose up -d
 
 默认 Compose 文件会直接运行已发布的 `richeschiu/mova:latest` 镜像，不在部署机器上从源码构建。本地没有镜像时，`docker compose up -d` 会自动拉取；如果你想主动升级到最新发布镜像，自己先执行 `docker compose pull`，再执行 `docker compose up -d`。
 
-如果需要本地源码构建，在本机 `.env` 里设置：
-
-```dotenv
-COMPOSE_FILE=docker-compose.yml:docker-compose.build.yml
-```
-
-之后本地启动也可以使用同样简短的形式：
-
-```bash
-docker compose up -d --build
-```
-
-已发布镜像和构建基础镜像默认是 Linux 多架构镜像，覆盖 `linux/amd64` 和 `linux/arm64`。Windows 和 macOS 宿主机通过 Docker Desktop 运行同一个 Linux 镜像，Linux 宿主机通过 Docker Engine 或 Docker Desktop 运行同一镜像，Docker 会自动选择匹配的架构。发布入口是 `./scripts/publish-docker-images.sh`；脚本会检查构建基础镜像 tag 是否已经包含所需平台，缺失时先发布基础镜像，再推送 `richeschiu/mova:latest`。
+已发布镜像覆盖 `linux/amd64` 和 `linux/arm64`。Windows 和 macOS 宿主机通过 Docker Desktop 运行同一个 Linux 镜像，Linux 宿主机通过 Docker Engine 或 Docker Desktop 运行，Docker 会自动选择匹配的架构。
 
 应用服务名是 `app`，运行时容器固定为 `mova-app`；查看服务日志时使用 `docker compose logs -f app`。
 

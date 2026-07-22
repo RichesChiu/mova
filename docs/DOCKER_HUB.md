@@ -18,15 +18,14 @@ Mova 是一个使用 Rust 构建的轻量、自托管媒体服务器，用于扫
 
 ## 快速开始
 
-推荐使用项目提供的 Docker Compose 配置：
+先创建一个独立部署目录，不需要克隆源码仓库：
 
 ```bash
-git clone https://github.com/RichesChiu/mova.git
+mkdir -p mova
 cd mova
-cp .env.example .env
 ```
 
-也可以只创建下面的 `docker-compose.yml`：
+在目录中创建 `docker-compose.yml`，完整内容如下：
 
 ```yaml
 services:
@@ -69,11 +68,12 @@ services:
     restart: unless-stopped
 ```
 
-编辑 `.env`，至少配置宿主机媒体目录：
+在同一目录创建 `.env`，至少配置宿主机媒体目录：
 
 ```env
 MOVA_MEDIA_ROOT=/absolute/path/to/media
 MOVA_TMDB_ACCESS_TOKEN=
+MOVA_WORKER_CONCURRENCY=2
 ```
 
 `MOVA_TMDB_ACCESS_TOKEN` 用于启用 TMDB 自动刮削、海报/背景图以及元数据搜索与替换。获取方式：
@@ -157,15 +157,14 @@ Mova is a lightweight, self-hosted media server built with Rust for scanning, or
 
 ### Quick Start
 
-The provided Docker Compose configuration is the recommended way to run Mova:
+Create a standalone deployment directory. Cloning the source repository is not required:
 
 ```bash
-git clone https://github.com/RichesChiu/mova.git
+mkdir -p mova
 cd mova
-cp .env.example .env
 ```
 
-Alternatively, create the following `docker-compose.yml` directly:
+Create `docker-compose.yml` in that directory with the following complete contents:
 
 ```yaml
 services:
@@ -208,11 +207,12 @@ services:
     restart: unless-stopped
 ```
 
-Edit `.env` and configure at least the host media directory:
+Create `.env` in the same directory and configure at least the host media directory:
 
 ```env
 MOVA_MEDIA_ROOT=/absolute/path/to/media
 MOVA_TMDB_ACCESS_TOKEN=
+MOVA_WORKER_CONCURRENCY=2
 ```
 
 `MOVA_TMDB_ACCESS_TOKEN` enables automatic TMDB scraping, remote artwork, and metadata search/replacement:
