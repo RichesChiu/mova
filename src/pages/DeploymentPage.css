@@ -197,6 +197,41 @@
     background: #11192c;
   }
 
+  .deploy-preview-note {
+    display: grid;
+    grid-template-columns: minmax(230px, 0.7fr) minmax(0, 1.3fr);
+    gap: 20px;
+    align-items: center;
+    margin-bottom: 14px;
+    padding: 16px 18px;
+    border: 1px solid rgba(103, 75, 226, 0.16);
+    border-radius: 12px;
+    background: rgba(103, 75, 226, 0.045);
+  }
+
+  .deploy-preview-note div {
+    display: grid;
+    gap: 5px;
+  }
+
+  .deploy-preview-note strong {
+    color: var(--ink);
+    font-size: 13px;
+  }
+
+  .deploy-preview-note code {
+    color: #5545cc;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .deploy-preview-note p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
   .deploy-compose-toolbar {
     justify-content: space-between;
     min-height: 52px;
@@ -327,6 +362,11 @@
     .deploy-compose-meta,
     .deploy-after-grid {
       grid-template-columns: 1fr;
+    }
+
+    .deploy-preview-note {
+      grid-template-columns: 1fr;
+      gap: 10px;
     }
 
     .deploy-compose-toolbar {

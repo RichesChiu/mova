@@ -6,7 +6,7 @@ import './DeploymentPage.css'
 
 const composeExampleZh = `services:
   app:
-    image: richeschiu/mova:latest
+    image: richeschiu/mova:preview
     container_name: mova-app
     depends_on:
       database:
@@ -48,7 +48,7 @@ const composeExampleZh = `services:
 
 const composeExampleEn = `services:
   app:
-    image: richeschiu/mova:latest
+    image: richeschiu/mova:preview
     container_name: mova-app
     depends_on:
       database:
@@ -114,12 +114,12 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
     <div className="deploy-page">
       <section className="deploy-hero" aria-labelledby="deploy-title">
         <div className="deploy-hero-copy">
-          <p className="eyebrow">Docker Deployment</p>
+          <p className="eyebrow">1.0.0 Preview · Docker Deployment</p>
           <h1 id="deploy-title">{isChinese ? '用 Docker 运行 MOVA' : 'Run MOVA with Docker'}</h1>
           <p>
             {isChinese
-              ? '准备 Docker 和一个可读取的媒体目录，再使用 Compose 同时运行 MOVA 与 PostgreSQL。所有必要配置都集中在一个文件中。'
-              : 'Prepare Docker and a readable media directory, then use Compose to run MOVA with PostgreSQL. Everything required lives in one file.'}
+              ? '当前公开版本为 1.0.0 Preview。准备 Docker 和一个可读取的媒体目录，再使用 Compose 同时运行 MOVA 与 PostgreSQL。'
+              : 'The current public release is 1.0.0 Preview. Prepare Docker and a readable media directory, then use Compose to run MOVA with PostgreSQL.'}
           </p>
           <div className="deploy-actions">
             <a href="#deploy-compose">
@@ -127,7 +127,7 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
               <MovaIcon name="arrow-right" />
             </a>
             <a href={dockerUrl} target="_blank" rel="noreferrer">
-              {isChinese ? 'Docker 镜像' : 'Docker image'}
+              {isChinese ? 'Preview 镜像' : 'Preview image'}
               <MovaIcon name="arrow-right" />
             </a>
             <button type="button" onClick={() => onNavigate('api')}>
@@ -175,9 +175,20 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
               ? '保存为 docker-compose.yml。复制后只需修改媒体目录，并按需填写 TMDB Token。'
               : 'Save as docker-compose.yml. After copying, update the media directory and optionally add a TMDB token.'}
           />
+          <div className="deploy-preview-note">
+            <div>
+              <strong>{isChinese ? '当前公开体验通道' : 'Current public preview channel'}</strong>
+              <code>richeschiu/mova:preview</code>
+            </div>
+            <p>
+              {isChinese
+                ? '需要固定版本时可改用 richeschiu/mova:1.0.0-preview.1。Preview 阶段的 schema 仍可能变化，升级后如不兼容，需要重建数据库并重新扫描媒体库。'
+                : 'Use richeschiu/mova:1.0.0-preview.1 to pin this release. The schema may still change during Preview; incompatible upgrades require rebuilding the database and rescanning libraries.'}
+            </p>
+          </div>
           <div className="deploy-compose-block">
             <div className="deploy-compose-toolbar">
-              <span>docker-compose.yml</span>
+              <span>docker-compose.yml · 1.0.0 Preview</span>
               <button type="button" onClick={() => void copyCompose()}>
                 {copyState === 'idle' ? (isChinese ? '复制配置' : 'Copy configuration') : copyLabel}
               </button>
