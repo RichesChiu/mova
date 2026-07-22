@@ -136,23 +136,6 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
             </button>
           </div>
         </div>
-
-        <aside className="deploy-terminal" aria-label={isChinese ? 'Docker Compose 配置预览' : 'Docker Compose configuration preview'}>
-          <div className="deploy-terminal-bar">
-            <span />
-            <span />
-            <span />
-            <strong>docker-compose.yml</strong>
-            <button type="button" onClick={() => void copyCompose()}>
-              {copyLabel}
-            </button>
-          </div>
-          <pre><code>{composeExample}</code></pre>
-          <div className="deploy-terminal-status">
-            <i aria-hidden="true" />
-            {isChinese ? 'MOVA · PostgreSQL · 只读媒体目录' : 'MOVA · PostgreSQL · Read-only media'}
-          </div>
-        </aside>
       </section>
 
       <div className="deploy-content">
