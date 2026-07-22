@@ -56,12 +56,15 @@ services:
     environment:
       MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
       MOVA_WEB_DIST_DIR: /app/web
-      MOVA_TMDB_ACCESS_TOKEN: ${MOVA_TMDB_ACCESS_TOKEN:-}
-      MOVA_WORKER_CONCURRENCY: ${MOVA_WORKER_CONCURRENCY:-2}
+      # TMDB API Read Access Token；留空时会跳过远端元数据刮削
+      MOVA_TMDB_ACCESS_TOKEN: ""
+      # 后台 worker 并发数，普通部署保持 2 即可
+      MOVA_WORKER_CONCURRENCY: "2"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
-        source: ${MOVA_MEDIA_ROOT:?MOVA_MEDIA_ROOT must be set}
+        # 宿主机媒体目录：替换为实际绝对路径，容器内只读挂载
+        source: /absolute/path/to/media
         target: /media
         read_only: true
     restart: unless-stopped
@@ -84,34 +87,20 @@ services:
     restart: unless-stopped
 ```
 
-### 配置
-
-在 `docker-compose.yml` 所在目录创建 `.env`：
-
-```env
-MOVA_MEDIA_ROOT=/absolute/path/to/media
-MOVA_TMDB_ACCESS_TOKEN=
-MOVA_WORKER_CONCURRENCY=2
-```
-
-- `MOVA_MEDIA_ROOT` 必填，会只读挂载到容器内固定目录 `/media`。
-- `MOVA_TMDB_ACCESS_TOKEN` 用于启用 TMDB 自动刮削、远端海报/背景图以及元数据搜索与替换。不配置时服务仍可启动，并保留本地扫描、NFO/sidecar 读取、入库和播放能力，但会自动跳过所有 TMDB 请求。
-- `MOVA_WORKER_CONCURRENCY` 控制进程内后台 worker 池并发数，默认值为 `2`。
-
 ### 获取 TMDB Access Token
 
 1. 注册并登录 [TMDB](https://www.themoviedb.org/)，完成邮箱验证。
 2. 打开账户设置中的 [API 页面](https://www.themoviedb.org/settings/api)，按页面要求申请 API 访问权限并接受 TMDB 条款。
 3. 申请通过后，在同一页面复制 **API Read Access Token**。Mova 使用的是这段较长的 Bearer Token，不是 `API Key (v3 auth)`。
-4. 将 Token 写入部署目录的 `.env`：
+4. 将 Token 填入 `docker-compose.yml` 的应用环境变量：
 
-```env
-MOVA_TMDB_ACCESS_TOKEN=你的_API_Read_Access_Token
+```yaml
+MOVA_TMDB_ACCESS_TOKEN: "你的_API_Read_Access_Token"
 ```
 
 Token 属于敏感凭据，不要提交到 Git 仓库或放进公开日志。TMDB 的官方认证说明见 [Application Authentication](https://developer.themoviedb.org/v4/docs/authentication-application)。
 
-如果暂时不配置 Token，扫描条目会以 `skipped / metadata_provider_disabled` 完成本地入库，不会被记为刮削失败。后续补上 Token 并执行 `docker compose up -d` 重启服务，再重新扫描媒体库，即可只对需要远端元数据的条目补做 TMDB 刮削，无需重建数据库。
+如果暂时不配置 Token，扫描条目会以 `skipped / metadata_provider_disabled` 完成本地入库，不会被记为刮削失败。后续在 `docker-compose.yml` 中补上 Token 并执行 `docker compose up -d` 重启服务，再重新扫描媒体库，即可只对需要远端元数据的条目补做 TMDB 刮削，无需重建数据库。
 
 ### 启动
 

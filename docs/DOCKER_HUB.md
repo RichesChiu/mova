@@ -40,12 +40,15 @@ services:
     environment:
       MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
       MOVA_WEB_DIST_DIR: /app/web
-      MOVA_TMDB_ACCESS_TOKEN: ${MOVA_TMDB_ACCESS_TOKEN:-}
-      MOVA_WORKER_CONCURRENCY: ${MOVA_WORKER_CONCURRENCY:-2}
+      # TMDB API Read Access Token；留空时会跳过远端元数据刮削
+      MOVA_TMDB_ACCESS_TOKEN: ""
+      # 后台 worker 并发数，普通部署保持 2 即可
+      MOVA_WORKER_CONCURRENCY: "2"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
-        source: ${MOVA_MEDIA_ROOT:?MOVA_MEDIA_ROOT must be set}
+        # 宿主机媒体目录：替换为实际绝对路径，容器内只读挂载
+        source: /absolute/path/to/media
         target: /media
         read_only: true
     restart: unless-stopped
@@ -68,20 +71,12 @@ services:
     restart: unless-stopped
 ```
 
-在同一目录创建 `.env`，至少配置宿主机媒体目录：
-
-```env
-MOVA_MEDIA_ROOT=/absolute/path/to/media
-MOVA_TMDB_ACCESS_TOKEN=
-MOVA_WORKER_CONCURRENCY=2
-```
-
 `MOVA_TMDB_ACCESS_TOKEN` 用于启用 TMDB 自动刮削、海报/背景图以及元数据搜索与替换。获取方式：
 
 1. 注册并登录 [TMDB](https://www.themoviedb.org/)，完成邮箱验证。
 2. 进入账户设置的 [API 页面](https://www.themoviedb.org/settings/api)，申请 API 访问权限。
 3. 复制 **API Read Access Token**，不要使用较短的 `API Key (v3 auth)`。
-4. 把 Token 填入 `.env` 的 `MOVA_TMDB_ACCESS_TOKEN`，不要提交到 Git 仓库。
+4. 把 Token 填入 `docker-compose.yml` 的 `MOVA_TMDB_ACCESS_TOKEN`，不要把包含真实 Token 的部署文件提交到 Git 仓库。
 
 TMDB 官方说明：[Application Authentication](https://developer.themoviedb.org/v4/docs/authentication-application)。不配置 Token 时 Mova 仍可启动、扫描本地文件、读取 NFO/sidecar、入库和播放，但会自动跳过 TMDB 刮削，条目不会获得 TMDB 标题、简介和远端图片。后续配置 Token 并重启服务、重新扫描媒体库即可补做刮削。
 
@@ -179,12 +174,15 @@ services:
     environment:
       MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
       MOVA_WEB_DIST_DIR: /app/web
-      MOVA_TMDB_ACCESS_TOKEN: ${MOVA_TMDB_ACCESS_TOKEN:-}
-      MOVA_WORKER_CONCURRENCY: ${MOVA_WORKER_CONCURRENCY:-2}
+      # TMDB API Read Access Token; leave empty to skip remote metadata scraping
+      MOVA_TMDB_ACCESS_TOKEN: ""
+      # Background worker concurrency; 2 is suitable for most deployments
+      MOVA_WORKER_CONCURRENCY: "2"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
-        source: ${MOVA_MEDIA_ROOT:?MOVA_MEDIA_ROOT must be set}
+        # Host media directory: replace with an absolute path; mounted read-only
+        source: /absolute/path/to/media
         target: /media
         read_only: true
     restart: unless-stopped
@@ -207,20 +205,12 @@ services:
     restart: unless-stopped
 ```
 
-Create `.env` in the same directory and configure at least the host media directory:
-
-```env
-MOVA_MEDIA_ROOT=/absolute/path/to/media
-MOVA_TMDB_ACCESS_TOKEN=
-MOVA_WORKER_CONCURRENCY=2
-```
-
 `MOVA_TMDB_ACCESS_TOKEN` enables automatic TMDB scraping, remote artwork, and metadata search/replacement:
 
 1. Create and verify a [TMDB](https://www.themoviedb.org/) account.
 2. Open the account [API settings](https://www.themoviedb.org/settings/api) and apply for API access.
 3. Copy the **API Read Access Token**, not the shorter `API Key (v3 auth)`.
-4. Store it in `MOVA_TMDB_ACCESS_TOKEN` inside `.env` and never commit it to Git.
+4. Store it in `MOVA_TMDB_ACCESS_TOKEN` inside `docker-compose.yml`, and never commit a deployment file containing the real token to Git.
 
 See TMDB's [Application Authentication](https://developer.themoviedb.org/v4/docs/authentication-application) documentation. Without the token, Mova still starts and supports local scanning, NFO/sidecar metadata, importing, and playback, but skips all TMDB scraping. Add the token later, restart Mova, and rescan the library to enrich previously skipped items.
 
