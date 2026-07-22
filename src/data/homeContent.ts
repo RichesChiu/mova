@@ -20,9 +20,10 @@ type Device = {
   available: boolean
   status: string
   action?: {
-    href: string
+    href?: string
     label: string
     variant: 'primary' | 'secondary'
+    disabled?: boolean
   }
 }
 
@@ -89,6 +90,11 @@ export const devices: Device[] = [
     text: '原生 macOS 客户端即将推出。',
     available: false,
     status: '即将到来',
+    action: {
+      label: 'Mac App Store 即将上架',
+      variant: 'secondary',
+      disabled: true,
+    },
   },
   {
     id: 'phone',

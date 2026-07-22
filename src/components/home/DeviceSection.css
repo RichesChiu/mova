@@ -64,8 +64,8 @@
   }
 
   .macos-coming-note img {
-    width: 15px;
-    height: 15px;
+    width: 20px;
+    height: 20px;
   }
 
   .macos-store-status {
@@ -163,6 +163,7 @@
   }
 
   .device-status.is-coming-soon {
+    min-height: 40px;
     border: 1px solid rgba(241, 118, 55, 0.18);
     color: #c45c25;
     background: linear-gradient(110deg, #fff0df, #f5eaff);
@@ -170,8 +171,8 @@
   }
 
   .device-status.is-coming-soon img {
-    width: 16px;
-    height: 16px;
+    width: 22px;
+    height: 22px;
   }
 
   .device-icon {
@@ -252,8 +253,10 @@
     border-radius: 10px;
     font-size: 15px;
     font-weight: 850;
+    font-family: inherit;
     line-height: 1;
     text-decoration: none;
+    cursor: pointer;
   }
 
   .device-action .mova-icon {
@@ -272,6 +275,16 @@
     border-color: #a96cf3;
     color: #7045de;
     background: #ffffff;
+  }
+
+  .device-action.is-disabled,
+  .device-action:disabled {
+    border-color: #d9dce5;
+    color: #9aa1b2;
+    background: #f5f6f8;
+    box-shadow: none;
+    cursor: not-allowed;
+    opacity: 1;
   }
 
   :lang(en) .device-card {

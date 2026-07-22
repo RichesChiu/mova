@@ -58,7 +58,16 @@ export function DeviceSection() {
               </span>
               <h3>{t(device.title)}</h3>
               <p>{t(device.text)}</p>
-              {device.action ? (
+              {device.action?.disabled ? (
+                <button
+                  className={`device-action device-action--${device.action.variant} is-disabled`}
+                  type="button"
+                  disabled
+                >
+                  {t(device.action.label)}
+                  <MovaIcon name="arrow-right" />
+                </button>
+              ) : device.action?.href ? (
                 <a
                   className={`device-action device-action--${device.action.variant}`}
                   href={device.action.href}

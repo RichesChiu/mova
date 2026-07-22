@@ -64,6 +64,7 @@ const translations: Record<string, string> = {
   网页端: 'Web',
   '在浏览器中随时访问，无需安装。': 'Access it anytime in your browser, with nothing to install.',
   'macOS 端': 'macOS',
+  'Mac App Store 即将上架': 'Coming soon to the Mac App Store',
   'iOS 端': 'iOS',
   'iOS 客户端，敬请期待。': 'The iOS client is on the way. Stay tuned.',
   'Pad 端': 'Pad',
