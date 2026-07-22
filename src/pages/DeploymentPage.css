@@ -293,8 +293,7 @@
     line-height: 1.75;
   }
 
-  .deploy-requirement-grid,
-  .deploy-config-list {
+  .deploy-requirement-grid {
     display: grid;
     gap: 12px;
   }
@@ -303,8 +302,7 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .deploy-requirement-grid article,
-  .deploy-config-list article {
+  .deploy-requirement-grid article {
     padding: 18px;
     border: 1px solid #e7e9f0;
     border-radius: 12px;
@@ -317,8 +315,7 @@
     color: var(--ink);
   }
 
-  .deploy-requirement-grid p,
-  .deploy-config-list p {
+  .deploy-requirement-grid p {
     margin: 0;
     color: var(--muted);
     font-size: 13px;
@@ -349,21 +346,9 @@
     font-size: 13px;
   }
 
-  .deploy-callout code,
-  .deploy-config-list code {
+  .deploy-callout code {
     color: #5545cc;
     font-weight: 800;
-  }
-
-  .deploy-config-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin-top: 14px;
-  }
-
-  .deploy-config-list code {
-    display: block;
-    margin-bottom: 8px;
-    overflow-wrap: anywhere;
   }
 
   .deploy-note {
@@ -456,8 +441,7 @@
     .deploy-sidebar { grid-template-columns: 1fr 1fr; }
     .deploy-section { padding: 22px; }
     .deploy-section-heading h2 { font-size: 26px; }
-    .deploy-requirement-grid,
-    .deploy-config-list { grid-template-columns: 1fr; }
+    .deploy-requirement-grid { grid-template-columns: 1fr; }
     .deploy-code { padding: 18px; font-size: 11px; }
   }
 }

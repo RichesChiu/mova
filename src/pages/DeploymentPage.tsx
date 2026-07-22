@@ -5,27 +5,25 @@ import './DeploymentPage.css'
 
 const deploymentSections = [
   ['deploy-requirements', '环境要求', 'Requirements'],
-  ['deploy-quick-start', '快速开始', 'Quick start'],
   ['deploy-compose', 'Docker Compose 示例', 'Docker Compose example'],
-  ['deploy-configuration', '环境配置', 'Configuration'],
+  ['deploy-quick-start', '启动服务', 'Launch'],
   ['deploy-operations', '运行与升级', 'Operations'],
   ['deploy-first-use', '首次使用', 'First use'],
 ] as const
 
-const envExample = `MOVA_MEDIA_ROOT=/absolute/path/to/media
-MOVA_TMDB_ACCESS_TOKEN=
-MOVA_OMDB_API_KEY=
-MOVA_WORKER_CONCURRENCY=2
-HTTP_PROXY=
-HTTPS_PROXY=`
+const launchCommandZh = `# 保存并按照注释修改 docker-compose.yml 后启动
+docker compose up -d
 
-const quickStartCommand = `git clone https://github.com/RichesChiu/mova.git
-cd mova
-cp .env.example .env
-# 编辑 .env 后启动
-docker compose up -d`
+# 确认两个服务均为运行或健康状态
+docker compose ps`
 
-const composeExample = `services:
+const launchCommandEn = `# Save and update docker-compose.yml as annotated, then launch
+docker compose up -d
+
+# Confirm both services are running or healthy
+docker compose ps`
+
+const composeExampleZh = `services:
   app:
     image: richeschiu/mova:latest
     container_name: mova-app
@@ -35,15 +33,22 @@ const composeExample = `services:
     ports:
       - "36080:36080"
     environment:
-      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
+      # 数据库密码必须与下方 POSTGRES_PASSWORD 保持一致
+      MOVA_DATABASE_URL: postgres://mova:change_this_password@database:5432/mova
+      # 发布镜像内置的网页端目录，请保持默认值
       MOVA_WEB_DIST_DIR: /app/web
-      MOVA_TMDB_ACCESS_TOKEN: \${MOVA_TMDB_ACCESS_TOKEN:-}
-      MOVA_WORKER_CONCURRENCY: \${MOVA_WORKER_CONCURRENCY:-2}
+      # 可选：填写 TMDB API Read Access Token；留空仍可扫描和播放本地媒体
+      MOVA_TMDB_ACCESS_TOKEN: ""
+      # 后台扫描 Worker 并发数，低配置设备建议保持 2
+      MOVA_WORKER_CONCURRENCY: "2"
     volumes:
+      # 海报、背景图等运行时缓存
       - ./data/cache:/app/data/cache
       - type: bind
-        source: \${MOVA_MEDIA_ROOT:?MOVA_MEDIA_ROOT must be set}
+        # 必填：替换为宿主机媒体目录的绝对路径
+        source: /absolute/path/to/media
         target: /media
+        # MOVA 不会修改原始媒体文件
         read_only: true
     restart: unless-stopped
 
@@ -51,10 +56,60 @@ const composeExample = `services:
     image: postgres:18
     environment:
       POSTGRES_USER: mova
-      POSTGRES_PASSWORD: postgres
+      # 必填：修改为强密码，并同步修改上方 MOVA_DATABASE_URL
+      POSTGRES_PASSWORD: change_this_password
       POSTGRES_DB: mova
       PGDATA: /var/lib/postgresql/18/docker
     volumes:
+      # PostgreSQL 数据持久化目录，请定期备份
+      - ./data/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mova -d mova"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    shm_size: 256mb
+    restart: unless-stopped`
+
+const composeExampleEn = `services:
+  app:
+    image: richeschiu/mova:latest
+    container_name: mova-app
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "36080:36080"
+    environment:
+      # Must use the same password as POSTGRES_PASSWORD below
+      MOVA_DATABASE_URL: postgres://mova:change_this_password@database:5432/mova
+      # Web directory bundled in the published image; keep this value unchanged
+      MOVA_WEB_DIST_DIR: /app/web
+      # Optional TMDB API Read Access Token; leave empty for local scanning and playback
+      MOVA_TMDB_ACCESS_TOKEN: ""
+      # Background scan worker concurrency; keep 2 on lower-powered devices
+      MOVA_WORKER_CONCURRENCY: "2"
+    volumes:
+      # Runtime cache for posters, backdrops, and related assets
+      - ./data/cache:/app/data/cache
+      - type: bind
+        # Required: replace with the absolute path to your host media directory
+        source: /absolute/path/to/media
+        target: /media
+        # MOVA never modifies the original media files
+        read_only: true
+    restart: unless-stopped
+
+  database:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: mova
+      # Required: use a strong password and update MOVA_DATABASE_URL above to match
+      POSTGRES_PASSWORD: change_this_password
+      POSTGRES_DB: mova
+      PGDATA: /var/lib/postgresql/18/docker
+    volumes:
+      # Persistent PostgreSQL data; back up this directory regularly
       - ./data/postgres:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mova -d mova"]
@@ -112,7 +167,7 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
             <span />
             <strong>mova / docker-compose</strong>
           </div>
-          <pre><code>{quickStartCommand}</code></pre>
+          <pre><code>{isChinese ? launchCommandZh : launchCommandEn}</code></pre>
           <div className="deploy-terminal-status">
             <i aria-hidden="true" />
             {isChinese ? '服务默认运行于 127.0.0.1:36080' : 'Service runs on 127.0.0.1:36080 by default'}
@@ -132,7 +187,7 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
           <span>02</span>
           <div>
             <strong>{isChinese ? '填写配置' : 'Configure'}</strong>
-            <p>{isChinese ? '指定媒体路径，可选配置 TMDB' : 'Set the media path and optional TMDB token'}</p>
+            <p>{isChinese ? '直接修改 Compose 中的示例值' : 'Update the example values in Compose'}</p>
           </div>
         </article>
         <article>
@@ -172,29 +227,15 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
             </div>
           </section>
 
-          <section className="deploy-section" id="deploy-quick-start">
-            <SectionHeading
-              eyebrow="Quick Start"
-              title={isChinese ? '快速开始' : 'Quick start'}
-              text={isChinese ? '默认 Compose 会拉取 richeschiu/mova:latest，无需在部署机器上构建源码。' : 'The default Compose setup pulls richeschiu/mova:latest, so no source build is required on the deployment host.'}
-            />
-            <pre className="deploy-code"><code>{quickStartCommand}</code></pre>
-            <div className="deploy-callout">
-              <strong>{isChinese ? '启动后访问' : 'Open after launch'}</strong>
-              <code>http://127.0.0.1:36080</code>
-              <span>{isChinese ? '健康检查：/api/health' : 'Health check: /api/health'}</span>
-            </div>
-          </section>
-
           <section className="deploy-section" id="deploy-compose">
             <SectionHeading
               eyebrow="Docker Compose"
               title={isChinese ? 'Docker Compose 示例' : 'Docker Compose example'}
               text={isChinese
-                ? '将下面的配置保存为 docker-compose.yml，并与 .env 放在同一目录。Compose 会拉取正式镜像，同时启动 MOVA 与 PostgreSQL。'
-                : 'Save this configuration as docker-compose.yml next to your .env file. Compose pulls the published image and starts MOVA with PostgreSQL.'}
+                ? '将下面的完整配置保存为 docker-compose.yml，并按照注释修改媒体路径、数据库密码和可选 Token。'
+                : 'Save this complete configuration as docker-compose.yml, then update the media path, database password, and optional token as annotated.'}
             />
-            <pre className="deploy-code"><code>{composeExample}</code></pre>
+            <pre className="deploy-code"><code>{isChinese ? composeExampleZh : composeExampleEn}</code></pre>
             <div className="deploy-callout">
               <strong>{isChinese ? '数据持久化' : 'Persistent data'}</strong>
               <code>./data/postgres</code>
@@ -203,18 +244,19 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
             </div>
           </section>
 
-          <section className="deploy-section" id="deploy-configuration">
+          <section className="deploy-section" id="deploy-quick-start">
             <SectionHeading
-              eyebrow="Environment"
-              title={isChinese ? '环境配置' : 'Configuration'}
-              text={isChinese ? '从 .env.example 创建 .env。不要提交包含 Token 的 .env 文件。' : 'Create .env from .env.example. Never commit a .env file that contains tokens.'}
+              eyebrow="Launch"
+              title={isChinese ? '启动服务' : 'Launch the service'}
+              text={isChinese
+                ? '在 docker-compose.yml 所在目录执行启动命令，Docker 会自动拉取正式镜像。'
+                : 'Run the launch command from the directory containing docker-compose.yml. Docker pulls the published image automatically.'}
             />
-            <pre className="deploy-code"><code>{envExample}</code></pre>
-            <div className="deploy-config-list">
-              <article><code>MOVA_MEDIA_ROOT</code><p>{isChinese ? '必填。宿主机媒体目录会只读挂载到容器内 /media。' : 'Required. The host media directory is mounted read-only at /media.'}</p></article>
-              <article><code>MOVA_TMDB_ACCESS_TOKEN</code><p>{isChinese ? '可选。使用 TMDB API Read Access Token，不是较短的 v3 API Key。' : 'Optional. Use the TMDB API Read Access Token, not the shorter v3 API Key.'}</p></article>
-              <article><code>MOVA_OMDB_API_KEY</code><p>{isChinese ? '可选。用于在已有 imdb_id 时补齐 IMDb 评分。' : 'Optional. Adds IMDb ratings when an imdb_id is available.'}</p></article>
-              <article><code>MOVA_WORKER_CONCURRENCY</code><p>{isChinese ? '后台扫描 Worker 数量，默认值为 2。' : 'Background scan worker count. The default is 2.'}</p></article>
+            <pre className="deploy-code"><code>{isChinese ? launchCommandZh : launchCommandEn}</code></pre>
+            <div className="deploy-callout">
+              <strong>{isChinese ? '启动后访问' : 'Open after launch'}</strong>
+              <code>http://127.0.0.1:36080</code>
+              <span>{isChinese ? '健康检查：/api/health' : 'Health check: /api/health'}</span>
             </div>
           </section>
 
