@@ -1,36 +1,27 @@
 # Mova Crates AGENTS
 
-本文件适用于 `crates` 下的 Rust crate。公共协作规则统一看根目录 `AGENTS.md`，这里只保留应用层、数据库、领域模型和扫描链路执行细节。
+These instructions apply to Rust crates under `crates`. Repository-wide rules live in the root `AGENTS.md`; this file defines application, persistence, domain, and scanning ownership.
 
-## 职责边界
+## Ownership
 
-- `crates/mova-application`
-  应用层业务逻辑。
-- `crates/mova-db`
-  SQL、持久化、同步逻辑。
-- `crates/mova-domain`
-  共享领域模型。
-- `crates/mova-scan`
-  媒体发现、解析、探测、sidecar 相关逻辑。
+- `crates/mova-application`: application-layer business logic
+- `crates/mova-db`: SQL, persistence, and synchronization
+- `crates/mova-domain`: shared domain models
+- `crates/mova-scan`: media discovery, parsing, probing, and sidecars
 
-## 当前仓库事实
+Keep SQL in `mova-db`, orchestration in `mova-application`, shared meaning in `mova-domain`, and file-analysis behavior in `mova-scan`. Follow `migrations/AGENTS.md` when crate work requires a schema change.
 
-- Library watcher 已经移除。
-- 新建媒体库会自动触发一次扫描。
-- 新增、重命名、移动、删除文件统一通过手动 `Scan Library` 做 reconcile。
+## Scanning behavior
 
-## 数据库与扫描
+- A newly created library triggers its initial scan automatically.
+- Explicit `Scan Library` operations reconcile added, renamed, moved, and deleted files; there is no library watcher.
 
-- SQL 和持久化放 `crates/mova-db`。
-- 扫描、解析、探测、sidecar 逻辑放 `crates/mova-scan`。
-- 如果 crate 改动需要 schema 变化，同时遵守 `migrations/AGENTS.md`。
+## Verification
 
-## 验证
+- Run targeted checks and tests such as `cargo check -p ...` and `cargo test -p ...`.
+- Verify both frontend and backend when a contract or user-visible workflow spans them.
 
-- Rust 侧优先走定向验证，例如 `cargo check -p ...`、`cargo test -p ...`。
-- 前后端一起改时，要同时验证前端和后端。
+## Documentation
 
-## Markdown 同步
-
-- crate 职责、运行方式或模块行为变化时，检查并更新 `crates/README.md` 或对应 crate 的 README。
-- API 行为变化时，检查并更新 `docs/API.md`。
+- Update `crates/README.md` or the relevant crate README when module ownership, runtime behavior, or operating instructions change.
+- Update `docs/API.md` when application behavior changes an API contract.

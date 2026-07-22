@@ -1,25 +1,19 @@
 # Mova Scripts AGENTS
 
-本文件适用于 `scripts` 下的辅助脚本。公共协作规则统一看根目录 `AGENTS.md`，这里只保留脚本和媒体分析任务执行细节。
+These instructions apply to helper tooling under `scripts`. Repository-wide rules live in the root `AGENTS.md`; this file defines script and media-analysis constraints.
 
-## 职责范围
+## Responsibilities
 
-- Python 和其他辅助脚本。
-- 媒体分析、片头片尾检测、离线处理任务。
-- 被 Rust 调用的脚本接口和输出契约。
+- Own Python and other helper scripts, offline jobs, media analysis, and intro or outro detection.
+- Treat script inputs, outputs, exit codes, and timeouts used by Rust as stable machine-readable contracts.
+- Do not use human-readable logs as the only integration contract.
+- Prefer existing repository tooling and the lowest-friction runtime. Add Python packages or system dependencies only when necessary and document the reason.
 
-## 执行规则
+## Verification
 
-- 默认不要求用户额外安装宿主机环境；优先使用当前环境里最低摩擦的验证方式。
-- 如果脚本能力必须依赖 Python 包或系统工具，先确认仓库现有方式是否已经提供；确实必须新增依赖时说明原因。
-- 脚本输出要稳定、可解析，避免依赖人类可读日志作为唯一接口。
-- Rust 调用脚本时，明确输入、输出、错误码和超时边界。
+- Run the narrowest useful script command or fixture for a script change.
+- Run the relevant Rust checks when a script change affects a Rust caller.
 
-## 验证
+## Documentation
 
-- 优先跑脚本的定向命令或最小样例验证。
-- 如果脚本变更影响 Rust 调用链，同时跑相关 Rust 检查。
-
-## Markdown 同步
-
-- 脚本依赖、运行方式或媒体分析行为变化时，检查并更新相关 README。
+- Update the relevant README when script dependencies, execution, output contracts, or media-analysis behavior changes.
