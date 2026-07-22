@@ -1,27 +1,8 @@
+import { useState } from 'react'
 import { MovaIcon } from '../components/MovaIcon'
-import { dockerUrl, githubUrl } from '../data/homeContent'
+import { dockerUrl } from '../data/homeContent'
 import { useI18n } from '../i18n-context'
 import './DeploymentPage.css'
-
-const deploymentSections = [
-  ['deploy-requirements', '环境要求', 'Requirements'],
-  ['deploy-compose', 'Docker Compose 示例', 'Docker Compose example'],
-  ['deploy-quick-start', '启动服务', 'Launch'],
-  ['deploy-operations', '运行与升级', 'Operations'],
-  ['deploy-first-use', '首次使用', 'First use'],
-] as const
-
-const launchCommandZh = `# 保存并按照注释修改 docker-compose.yml 后启动
-docker compose up -d
-
-# 确认两个服务均为运行或健康状态
-docker compose ps`
-
-const launchCommandEn = `# Save and update docker-compose.yml as annotated, then launch
-docker compose up -d
-
-# Confirm both services are running or healthy
-docker compose ps`
 
 const composeExampleZh = `services:
   app:
@@ -119,22 +100,52 @@ const composeExampleEn = `services:
     shm_size: 256mb
     restart: unless-stopped`
 
-const operationsCommand = `# 查看状态
-docker compose ps
+const composePreviewZh = `services:
+  app:
+    image: richeschiu/mova:latest
+    ports:
+      - "36080:36080"
+    environment:
+      MOVA_DATABASE_URL: postgres://mova:••••••••@database:5432/mova
+      MOVA_TMDB_ACCESS_TOKEN: ""
+    volumes:
+      - ./data/cache:/app/data/cache
+      - type: bind
+        source: /你的媒体目录
+        target: /media
+        read_only: true
 
-# 查看服务日志
-docker compose logs -f app
+  database:
+    image: postgres:18`
 
-# 拉取并启动最新发布镜像
-docker compose pull
-docker compose up -d`
+const composePreviewEn = `services:
+  app:
+    image: richeschiu/mova:latest
+    ports:
+      - "36080:36080"
+    environment:
+      MOVA_DATABASE_URL: postgres://mova:••••••••@database:5432/mova
+      MOVA_TMDB_ACCESS_TOKEN: ""
+    volumes:
+      - ./data/cache:/app/data/cache
+      - type: bind
+        source: /your/media/path
+        target: /media
+        read_only: true
+
+  database:
+    image: postgres:18`
 
 export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string) => void }) {
   const { language } = useI18n()
+  const [hasCopied, setHasCopied] = useState(false)
   const isChinese = language === 'zh'
+  const composeExample = isChinese ? composeExampleZh : composeExampleEn
 
-  const scrollToSection = (sectionId: string) => {
-    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const copyCompose = async () => {
+    await navigator.clipboard.writeText(composeExample)
+    setHasCopied(true)
+    window.setTimeout(() => setHasCopied(false), 1800)
   }
 
   return (
@@ -142,162 +153,120 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
       <section className="deploy-hero" aria-labelledby="deploy-title">
         <div className="deploy-hero-copy">
           <p className="eyebrow">Docker Deployment</p>
-          <h1 id="deploy-title">{isChinese ? '部署你的 MOVA' : 'Deploy your MOVA'}</h1>
+          <h1 id="deploy-title">{isChinese ? '用 Docker 运行 MOVA' : 'Run MOVA with Docker'}</h1>
           <p>
             {isChinese
-              ? '使用 Docker Compose 在服务器、NAS 或个人电脑上运行 MOVA。媒体目录以只读方式挂载，数据库与缓存保留在你的设备中。'
-              : 'Run MOVA on a server, NAS, or personal computer with Docker Compose. Media is mounted read-only, while the database and cache stay on your device.'}
+              ? '准备 Docker 和一个可读取的媒体目录，再使用 Compose 同时运行 MOVA 与 PostgreSQL。所有必要配置都集中在一个文件中。'
+              : 'Prepare Docker and a readable media directory, then use Compose to run MOVA with PostgreSQL. Everything required lives in one file.'}
           </p>
           <div className="deploy-actions">
+            <a href="#deploy-compose">
+              {isChinese ? '查看 Compose' : 'View Compose'}
+              <MovaIcon name="arrow-right" />
+            </a>
             <a href={dockerUrl} target="_blank" rel="noreferrer">
-              {isChinese ? '查看 Docker 镜像' : 'View Docker image'}
+              {isChinese ? 'Docker 镜像' : 'Docker image'}
               <MovaIcon name="arrow-right" />
             </a>
             <button type="button" onClick={() => onNavigate('api')}>
-              {isChinese ? '查看 API 文档' : 'View API docs'}
+              {isChinese ? 'API 文档' : 'API docs'}
               <MovaIcon name="arrow-right" />
             </button>
           </div>
         </div>
 
-        <aside className="deploy-terminal" aria-label={isChinese ? '部署命令预览' : 'Deployment command preview'}>
+        <aside className="deploy-terminal" aria-label={isChinese ? 'Docker Compose 配置预览' : 'Docker Compose configuration preview'}>
           <div className="deploy-terminal-bar" aria-hidden="true">
             <span />
             <span />
             <span />
-            <strong>mova / docker-compose</strong>
+            <strong>docker-compose.yml</strong>
           </div>
-          <pre><code>{isChinese ? launchCommandZh : launchCommandEn}</code></pre>
+          <pre><code>{isChinese ? composePreviewZh : composePreviewEn}</code></pre>
           <div className="deploy-terminal-status">
             <i aria-hidden="true" />
-            {isChinese ? '服务默认运行于 127.0.0.1:36080' : 'Service runs on 127.0.0.1:36080 by default'}
+            {isChinese ? 'MOVA · PostgreSQL · 只读媒体目录' : 'MOVA · PostgreSQL · Read-only media'}
           </div>
         </aside>
       </section>
 
-      <section className="deploy-summary" aria-label={isChinese ? '部署摘要' : 'Deployment summary'}>
-        <article>
-          <span>01</span>
-          <div>
-            <strong>{isChinese ? '准备环境' : 'Prepare'}</strong>
-            <p>{isChinese ? 'Docker、Compose 与媒体目录' : 'Docker, Compose, and a media directory'}</p>
+      <div className="deploy-content">
+        <section className="deploy-section" id="deploy-requirements">
+          <SectionHeading
+            eyebrow="Environment"
+            title={isChinese ? '部署环境' : 'Environment'}
+            text={isChinese
+              ? '无需源码和本地构建，只需要 Docker、Compose V2 与宿主机媒体目录。'
+              : 'No source checkout or local build is needed—only Docker, Compose V2, and a host media directory.'}
+          />
+          <div className="deploy-requirement-grid">
+            <article>
+              <strong>Docker</strong>
+              <p>{isChinese ? 'Linux 使用 Docker Engine，macOS 与 Windows 使用 Docker Desktop。' : 'Use Docker Engine on Linux or Docker Desktop on macOS and Windows.'}</p>
+            </article>
+            <article>
+              <strong>Compose V2</strong>
+              <p>{isChinese ? '负责运行 MOVA 和 PostgreSQL，并管理依赖与持久化目录。' : 'Runs MOVA and PostgreSQL while managing dependencies and persistent data.'}</p>
+            </article>
+            <article>
+              <strong>amd64 / arm64</strong>
+              <p>{isChinese ? '正式镜像覆盖两种 Linux 架构，Docker 会自动选择对应版本。' : 'The published image supports both Linux architectures and Docker selects the correct one.'}</p>
+            </article>
+            <article>
+              <strong>{isChinese ? '媒体目录' : 'Media directory'}</strong>
+              <p>{isChinese ? '准备宿主机绝对路径，Compose 会将其只读挂载到 /media。' : 'Provide an absolute host path; Compose mounts it read-only at /media.'}</p>
+            </article>
           </div>
-        </article>
-        <article>
-          <span>02</span>
-          <div>
-            <strong>{isChinese ? '填写配置' : 'Configure'}</strong>
-            <p>{isChinese ? '直接修改 Compose 中的示例值' : 'Update the example values in Compose'}</p>
+        </section>
+
+        <section className="deploy-section deploy-compose-section" id="deploy-compose">
+          <SectionHeading
+            eyebrow="Docker Compose"
+            title={isChinese ? '完整 Compose 配置' : 'Complete Compose configuration'}
+            text={isChinese
+              ? '保存为 docker-compose.yml。复制后只需修改媒体路径、数据库密码，以及可选的 TMDB Token。'
+              : 'Save as docker-compose.yml. After copying, only update the media path, database password, and optional TMDB token.'}
+          />
+          <div className="deploy-compose-block">
+            <div className="deploy-compose-toolbar">
+              <span>docker-compose.yml</span>
+              <button type="button" onClick={() => void copyCompose()}>
+                {hasCopied ? (isChinese ? '已复制' : 'Copied') : (isChinese ? '复制配置' : 'Copy configuration')}
+              </button>
+            </div>
+            <pre className="deploy-code"><code>{composeExample}</code></pre>
           </div>
-        </article>
-        <article>
-          <span>03</span>
-          <div>
-            <strong>{isChinese ? '启动服务' : 'Launch'}</strong>
-            <p><code>docker compose up -d</code></p>
+          <div className="deploy-compose-meta">
+            <article>
+              <strong>{isChinese ? '必须修改' : 'Required changes'}</strong>
+              <p><code>/absolute/path/to/media</code><br /><code>change_this_password</code></p>
+            </article>
+            <article>
+              <strong>{isChinese ? '可选配置' : 'Optional setting'}</strong>
+              <p><code>MOVA_TMDB_ACCESS_TOKEN</code></p>
+            </article>
+            <article>
+              <strong>{isChinese ? '持久化数据' : 'Persistent data'}</strong>
+              <p><code>./data/postgres</code><br /><code>./data/cache</code></p>
+            </article>
           </div>
-        </article>
-      </section>
+        </section>
 
-      <section className="deploy-layout" aria-label={isChinese ? '部署文档内容' : 'Deployment documentation'}>
-        <aside className="deploy-sidebar">
-          <strong>{isChinese ? '部署目录' : 'Contents'}</strong>
-          {deploymentSections.map(([id, zh, en]) => (
-            <button type="button" key={id} onClick={() => scrollToSection(id)}>
-              {isChinese ? zh : en}
-            </button>
-          ))}
-          <a href={`${githubUrl}#部署`} target="_blank" rel="noreferrer">
-            {isChinese ? '项目部署原文' : 'Source deployment guide'}
-            <MovaIcon name="arrow-right" />
-          </a>
-        </aside>
-
-        <div className="deploy-content">
-          <section className="deploy-section" id="deploy-requirements">
-            <SectionHeading
-              eyebrow="Requirements"
-              title={isChinese ? '环境要求' : 'Requirements'}
-              text={isChinese ? 'MOVA 使用发布好的多架构 Linux 镜像，支持 amd64 与 arm64。' : 'MOVA uses a published multi-architecture Linux image for amd64 and arm64.'}
-            />
-            <div className="deploy-requirement-grid">
-              <article><strong>Docker</strong><p>{isChinese ? 'Linux 使用 Docker Engine；macOS 与 Windows 可使用 Docker Desktop。' : 'Use Docker Engine on Linux or Docker Desktop on macOS and Windows.'}</p></article>
-              <article><strong>Compose V2</strong><p>{isChinese ? '使用 docker compose 命令管理应用和 PostgreSQL。' : 'Use docker compose to manage the app and PostgreSQL.'}</p></article>
-              <article><strong>{isChinese ? '媒体目录' : 'Media directory'}</strong><p>{isChinese ? '准备一个宿主机上的电影或剧集目录，并确保 Docker 可以读取。' : 'Prepare a movie or series directory on the host that Docker can read.'}</p></article>
-            </div>
-          </section>
-
-          <section className="deploy-section" id="deploy-compose">
-            <SectionHeading
-              eyebrow="Docker Compose"
-              title={isChinese ? 'Docker Compose 示例' : 'Docker Compose example'}
-              text={isChinese
-                ? '将下面的完整配置保存为 docker-compose.yml，并按照注释修改媒体路径、数据库密码和可选 Token。'
-                : 'Save this complete configuration as docker-compose.yml, then update the media path, database password, and optional token as annotated.'}
-            />
-            <pre className="deploy-code"><code>{isChinese ? composeExampleZh : composeExampleEn}</code></pre>
-            <div className="deploy-callout">
-              <strong>{isChinese ? '数据持久化' : 'Persistent data'}</strong>
-              <code>./data/postgres</code>
-              <code>./data/cache</code>
-              <span>{isChinese ? '媒体目录只读挂载到容器内 /media' : 'The media directory is mounted read-only at /media'}</span>
-            </div>
-          </section>
-
-          <section className="deploy-section" id="deploy-quick-start">
-            <SectionHeading
-              eyebrow="Launch"
-              title={isChinese ? '启动服务' : 'Launch the service'}
-              text={isChinese
-                ? '在 docker-compose.yml 所在目录执行启动命令，Docker 会自动拉取正式镜像。'
-                : 'Run the launch command from the directory containing docker-compose.yml. Docker pulls the published image automatically.'}
-            />
-            <pre className="deploy-code"><code>{isChinese ? launchCommandZh : launchCommandEn}</code></pre>
-            <div className="deploy-callout">
-              <strong>{isChinese ? '启动后访问' : 'Open after launch'}</strong>
-              <code>http://127.0.0.1:36080</code>
-              <span>{isChinese ? '健康检查：/api/health' : 'Health check: /api/health'}</span>
-            </div>
-          </section>
-
-          <section className="deploy-section" id="deploy-operations">
-            <SectionHeading
-              eyebrow="Operations"
-              title={isChinese ? '运行与升级' : 'Operations and upgrades'}
-              text={isChinese ? '容器服务名为 app，运行时容器名固定为 mova-app。' : 'The Compose service is app and the runtime container is named mova-app.'}
-            />
-            <pre className="deploy-code"><code>{operationsCommand}</code></pre>
-            <p className="deploy-note">
-              {isChinese
-                ? 'pre-1.0 阶段的数据库结构可能无法平滑升级。涉及 schema 变更时，请先阅读项目最新 README，并做好数据备份。'
-                : 'During pre-1.0, database schema changes may not support in-place upgrades. Check the latest project README and back up your data first.'}
-            </p>
-          </section>
-
-          <section className="deploy-section" id="deploy-first-use">
-            <SectionHeading
-              eyebrow="First Run"
-              title={isChinese ? '首次使用' : 'First use'}
-              text={isChinese ? '服务启动完成后，通过网页端完成初始化。' : 'Complete setup in the Web app after the service starts.'}
-            />
-            <ol className="deploy-steps">
-              {(isChinese ? [
-                '打开 MOVA 网页端并创建第一个管理员。',
-                '进入服务器设置，新建媒体库。',
-                '选择容器内 /media 下的目录。',
-                '保存后等待第一次后台扫描完成。',
-              ] : [
-                'Open the MOVA Web app and create the first administrator.',
-                'Open server settings and create a media library.',
-                'Choose a directory under /media inside the container.',
-                'Save and wait for the first background scan to finish.',
-              ]).map((step, index) => (
-                <li key={step}><span>{String(index + 1).padStart(2, '0')}</span><p>{step}</p></li>
-              ))}
-            </ol>
-          </section>
-        </div>
-      </section>
+        <section className="deploy-section" id="deploy-after">
+          <SectionHeading
+            eyebrow="After Deployment"
+            title={isChinese ? '部署完成后' : 'After deployment'}
+            text={isChinese
+              ? '打开网页端创建管理员，再从容器内的 /media 目录建立媒体库。'
+              : 'Open the Web app to create an administrator, then create a library from /media inside the container.'}
+          />
+          <div className="deploy-after-grid">
+            <article><span>Web</span><strong>http://127.0.0.1:36080</strong></article>
+            <article><span>{isChinese ? '健康检查' : 'Health check'}</span><strong>/api/health</strong></article>
+            <article><span>{isChinese ? '容器媒体目录' : 'Container media path'}</span><strong>/media</strong></article>
+          </div>
+        </section>
+      </div>
     </div>
   )
 }
