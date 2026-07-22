@@ -12,7 +12,7 @@
 
 Mova 是一个用于整理、浏览和播放本地电影与剧集的自托管媒体服务器。服务端使用 Rust 构建，这是一门强调内存安全、稳定性能和资源效率的现代系统语言。
 
-项目希望把媒体服务器体验保持得足够简单可靠：挂载媒体目录，扫描媒体库，按需补齐元数据，然后通过 Web、macOS 和 iOS 客户端浏览与播放。当前版本定位为 pre-1.0 MVP 预览版，适合本机、家用服务器和私人媒体库场景。
+项目希望把媒体服务器体验保持得足够简单可靠：挂载媒体目录，扫描媒体库，按需补齐元数据，然后通过 Web、macOS 和 iOS 客户端浏览与播放。当前公开版本为 `1.0.0 Preview`，适合本机、家用服务器和私人媒体库体验；正式 `1.0` 预计在一个月内发布。
 
 核心能力包括：
 
@@ -46,7 +46,7 @@ cd mova
 ```yaml
 services:
   app:
-    image: richeschiu/mova:latest
+    image: richeschiu/mova:preview
     container_name: mova-app
     depends_on:
       database:
@@ -118,11 +118,11 @@ docker compose up -d
 - `data/postgres/`：PostgreSQL 数据库文件，用于保存媒体库、用户、元数据、播放进度、持久化通知与已读状态、后台任务和实时资源 revision。
 - `data/cache/`：缓存海报、背景图和生成的媒体资源。删除媒体库时，也会清理该库独占引用的 TMDB 图片缓存。
 
-当前仍处于 pre-1.0 MVP 预览版阶段，schema 变更继续直接修改 `migrations/0001_init.sql`。当前 schema 包含 realtime、后台任务、扫描检查点和通用通知表，无法平滑升级旧数据库：需要重置 `data/postgres/`、重新初始化数据库并重新扫描媒体库。
+当前仍处于 `1.0.0 Preview` 阶段，schema 变更继续直接修改 `migrations/0001_init.sql`。当前 schema 包含 realtime、后台任务、扫描检查点和通用通知表，无法平滑升级旧数据库：需要重置 `data/postgres/`、重新初始化数据库并重新扫描媒体库。
 
 媒体目录只读挂载，Mova 不会修改你的原始媒体文件。
 
-默认 Compose 文件会直接运行已发布的 `richeschiu/mova:latest` 镜像，不在部署机器上从源码构建。本地没有镜像时，`docker compose up -d` 会自动拉取；如果你想主动升级到最新发布镜像，自己先执行 `docker compose pull`，再执行 `docker compose up -d`。
+默认 Compose 文件会直接运行公开体验通道 `richeschiu/mova:preview`，不在部署机器上从源码构建。本地没有镜像时，`docker compose up -d` 会自动拉取；如果你想主动升级到最新预览版本，先执行 `docker compose pull`，再执行 `docker compose up -d`。需要固定版本时，可改用 `richeschiu/mova:1.0.0-preview.1`。
 
 已发布镜像覆盖 `linux/amd64` 和 `linux/arm64`。Windows 和 macOS 宿主机通过 Docker Desktop 运行同一个 Linux 镜像，Linux 宿主机通过 Docker Engine 或 Docker Desktop 运行，Docker 会自动选择匹配的架构。
 

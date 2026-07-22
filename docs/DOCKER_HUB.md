@@ -30,7 +30,7 @@ cd mova
 ```yaml
 services:
   app:
-    image: richeschiu/mova:latest
+    image: richeschiu/mova:preview
     container_name: mova-app
     depends_on:
       database:
@@ -97,7 +97,7 @@ http://localhost:36080
 ## Docker 镜像
 
 ```bash
-docker pull richeschiu/mova:latest
+docker pull richeschiu/mova:preview
 ```
 
 当前发布平台：
@@ -107,7 +107,7 @@ docker pull richeschiu/mova:latest
 
 Windows 和 macOS 用户可以通过 Docker Desktop 运行该 Linux 镜像，Linux 用户可以通过 Docker Engine 或 Docker Desktop 运行。
 
-升级到最新镜像：
+升级到最新预览镜像：
 
 ```bash
 docker compose pull
@@ -120,7 +120,7 @@ docker compose up -d
 
 ## 项目状态
 
-Mova 目前处于 pre-1.0 预览阶段，适合本机、家庭服务器和私人媒体库场景。快速迭代期间可能出现破坏性数据库结构调整，升级后可能需要重建数据库并重新扫描媒体库。
+Mova 当前公开版本为 `1.0.0 Preview`，适合本机、家庭服务器和私人媒体库体验，正式 `1.0` 预计在一个月内发布。快速迭代期间可能出现破坏性数据库结构调整，升级后可能需要重建数据库并重新扫描媒体库。`preview` 始终指向最新预览镜像；需要固定版本时，请使用 `1.0.0-preview.1` 这类不可变标签。
 
 ## 相关链接
 
@@ -164,7 +164,7 @@ Create `docker-compose.yml` in that directory with the following complete conten
 ```yaml
 services:
   app:
-    image: richeschiu/mova:latest
+    image: richeschiu/mova:preview
     container_name: mova-app
     depends_on:
       database:
@@ -231,7 +231,7 @@ On first launch, create the initial system administrator and then create a media
 ### Docker Image
 
 ```bash
-docker pull richeschiu/mova:latest
+docker pull richeschiu/mova:preview
 ```
 
 Published platforms:
@@ -241,7 +241,7 @@ Published platforms:
 
 Windows and macOS users can run the Linux image through Docker Desktop. Linux users can run the same image through Docker Engine or Docker Desktop.
 
-Upgrade to the latest image:
+Upgrade to the latest preview image:
 
 ```bash
 docker compose pull
@@ -254,7 +254,7 @@ Media directories are mounted read-only. Mova stores users, libraries, metadata,
 
 ### Project Status
 
-Mova is currently a pre-1.0 preview for local machines, home servers, and private media libraries. Breaking database changes may occur during rapid development and can require rebuilding the database and rescanning media libraries.
+Mova is currently available as a public `1.0.0 Preview` for local machines, home servers, and private media libraries, with the stable `1.0` release expected within one month. Breaking database changes may occur during rapid development and can require rebuilding the database and rescanning media libraries. The `preview` tag always tracks the newest preview image; use an immutable tag such as `1.0.0-preview.1` to pin a deployment.
 
 ### Links
 
