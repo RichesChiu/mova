@@ -23,11 +23,10 @@ pub async fn global_search(
     Query(query): Query<GlobalSearchQuery>,
 ) -> Result<ApiJson<Vec<GlobalSearchResultResponse>>, ApiError> {
     let user = require_user(&state, &headers, &jar).await?;
-    let visible_library_ids = if user.is_admin() {
-        None
-    } else {
-        Some(user.library_ids.clone())
-    };
+    let visible_library_ids = user
+        .library_visibility()
+        .restricted_library_ids()
+        .map(<[i64]>::to_vec);
     let results = mova_application::global_search(
         &state.db,
         mova_application::GlobalSearchInput {

@@ -38,4 +38,4 @@ pub use scan_job::ScanJob;
 pub use season::Season;
 pub use subtitle_file::SubtitleFile;
 pub use user::{User, UserRole};
-pub use user_profile::UserProfile;
+pub use user_profile::{LibraryVisibility, UserProfile};

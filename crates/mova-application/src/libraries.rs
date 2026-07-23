@@ -2,7 +2,7 @@ use crate::{
     error::{ApplicationError, ApplicationResult},
     metadata::{normalize_metadata_language, DEFAULT_TMDB_LANGUAGE},
 };
-use mova_domain::{Library, LibraryDetail};
+use mova_domain::{Library, LibraryDetail, LibraryVisibility};
 use sqlx::postgres::PgPool;
 use std::{
     collections::HashSet,
@@ -29,9 +29,12 @@ pub struct UpdateLibraryInput {
     pub metadata_language: Option<String>,
 }
 
-/// 从持久层读取当前所有媒体库配置。
-pub async fn list_libraries(pool: &PgPool) -> ApplicationResult<Vec<Library>> {
-    mova_db::list_libraries(pool)
+/// 从持久层读取当前用户可见的媒体库配置。
+pub async fn list_libraries(
+    pool: &PgPool,
+    visibility: LibraryVisibility<'_>,
+) -> ApplicationResult<Vec<Library>> {
+    mova_db::list_libraries(pool, visibility.restricted_library_ids())
         .await
         .map_err(ApplicationError::from)
 }

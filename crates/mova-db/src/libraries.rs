@@ -23,15 +23,24 @@ pub struct UpdateLibraryParams {
     pub metadata_language: String,
 }
 
-/// 按创建时间顺序读取媒体库列表，保证接口返回顺序稳定。
-pub async fn list_libraries(pool: &PgPool) -> Result<Vec<Library>> {
+/// 按创建时间顺序读取可见媒体库列表，保证接口返回顺序稳定。
+pub async fn list_libraries(
+    pool: &PgPool,
+    visible_library_ids: Option<&[i64]>,
+) -> Result<Vec<Library>> {
+    if visible_library_ids.is_some_and(|ids| ids.is_empty()) {
+        return Ok(Vec::new());
+    }
+
     let rows = sqlx::query(
         r#"
         select id, name, description, library_type, metadata_language, root_path, created_at, updated_at
         from libraries
+        where $1::bigint[] is null or id = any($1)
         order by created_at asc
         "#,
     )
+    .bind(visible_library_ids)
     .fetch_all(pool)
     .await
     .context("failed to list libraries")?;
@@ -516,5 +525,53 @@ fn map_library_row(row: PgRow) -> Library {
         root_path: row.get("root_path"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{create_library, list_libraries, CreateLibraryParams};
+
+    async fn seed_library(pool: &sqlx::postgres::PgPool, name: &str) -> i64 {
+        create_library(
+            pool,
+            CreateLibraryParams {
+                name: name.to_string(),
+                description: None,
+                metadata_language: "zh-CN".to_string(),
+                root_path: format!("/media/{}", name.to_lowercase()),
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn list_libraries_applies_all_restricted_and_empty_visibility(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let first_id = seed_library(&pool, "Movies").await;
+        let second_id = seed_library(&pool, "Series").await;
+        let third_id = seed_library(&pool, "Documentaries").await;
+
+        let all_ids = list_libraries(&pool, None)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|library| library.id)
+            .collect::<Vec<_>>();
+        let restricted_ids = list_libraries(&pool, Some(&[third_id, first_id]))
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|library| library.id)
+            .collect::<Vec<_>>();
+        let empty = list_libraries(&pool, Some(&[])).await.unwrap();
+
+        assert_eq!(all_ids, vec![first_id, second_id, third_id]);
+        assert_eq!(restricted_ids, vec![first_id, third_id]);
+        assert!(empty.is_empty());
     }
 }

@@ -57,13 +57,12 @@ pub async fn list_libraries(
     jar: CookieJar,
 ) -> Result<ApiJson<Vec<LibraryResponse>>, ApiError> {
     let user = require_user(&state, &headers, &jar).await?;
-    let libraries = mova_application::list_libraries(&state.db)
+    let libraries = mova_application::list_libraries(&state.db, user.library_visibility())
         .await
         .map_err(ApiError::from)?;
 
     Ok(ok(libraries
         .into_iter()
-        .filter(|library| user.can_access_library(library.id))
         .map(|library| LibraryResponse::from_domain(library, state.api_time_offset))
         .collect()))
 }
@@ -76,11 +75,10 @@ pub async fn list_recently_added_by_library(
     Query(query): Query<RecentlyAddedByLibraryQuery>,
 ) -> Result<ApiJson<Vec<RecentlyAddedLibraryMediaItemsResponse>>, ApiError> {
     let user = require_user(&state, &headers, &jar).await?;
-    let visible_library_ids = if user.is_admin() {
-        None
-    } else {
-        Some(user.library_ids.clone())
-    };
+    let visible_library_ids = user
+        .library_visibility()
+        .restricted_library_ids()
+        .map(<[i64]>::to_vec);
     let groups = mova_application::list_recently_added_media_items_by_library(
         &state.db,
         mova_application::ListRecentlyAddedByLibraryInput {

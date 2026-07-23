@@ -35,7 +35,6 @@ pub struct RealtimeStateResponse {
 pub(crate) struct RealtimeResourceSnapshot {
     pub server_epoch: String,
     pub resources: BTreeMap<String, i64>,
-    pub visible_library_ids: Vec<i64>,
 }
 
 pub async fn state(
@@ -45,7 +44,7 @@ pub async fn state(
 ) -> Result<ApiJson<RealtimeStateResponse>, ApiError> {
     let user = require_user(&state, &headers, &jar).await?;
     let snapshot = load_realtime_resource_snapshot(&state, &user).await?;
-    let visible_library_ids = (!user.is_admin()).then_some(snapshot.visible_library_ids.as_slice());
+    let visible_library_ids = user.library_visibility().restricted_library_ids();
     let active_scans = mova_db::list_active_scan_jobs(&state.db, visible_library_ids)
         .await
         .map_err(ApiError::from)?
@@ -65,16 +64,13 @@ pub(crate) async fn load_realtime_resource_snapshot(
     state: &AppState,
     user: &mova_domain::UserProfile,
 ) -> Result<RealtimeResourceSnapshot, ApiError> {
-    let visible_library_ids = if user.is_admin() {
-        mova_application::list_libraries(&state.db)
+    let visible_library_ids =
+        mova_application::list_libraries(&state.db, user.library_visibility())
             .await
             .map_err(ApiError::from)?
             .into_iter()
             .map(|library| library.id)
-            .collect()
-    } else {
-        user.library_ids.clone()
-    };
+            .collect::<Vec<_>>();
     let resource_keys = resource_keys_for_user(user, &visible_library_ids);
     let revisions = mova_db::list_realtime_revisions(&state.db, &resource_keys)
         .await
@@ -95,7 +91,6 @@ pub(crate) async fn load_realtime_resource_snapshot(
             .await
             .map_err(ApiError::from)?,
         resources,
-        visible_library_ids,
     })
 }
 
