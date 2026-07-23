@@ -28,40 +28,12 @@ The root `AGENTS.md` defines repository-wide rules. A directory-level `AGENTS.md
 - Update the closest app, crate, or topic README when internal behavior, module ownership, or operating instructions change.
 - Do not add release-history wording such as “previously X, now Y” to specification documents. Describe the current contract directly.
 
-## Issues, branches, and pull requests
+## Repository workflow
 
-This repository is hosted on GitHub, so use **pull request (PR)** rather than GitLab's **merge request (MR)** in project communication.
-
-- Create an Issue before implementation when work is externally contributed, spans multiple sessions, needs product or architecture discussion, changes a public API or database schema, or requires reproducible bug investigation. Small owner-directed fixes and routine maintenance may skip an Issue.
-- Write Issue titles in English. Include context, current behavior, expected outcome or proposal, acceptance criteria, and compatibility or data impact when applicable.
-- Start branches from an up-to-date `master`. Use a lowercase, kebab-case name with one of these prefixes:
-  - `feat/` for product features
-  - `fix/` for defects
-  - `refactor/` for behavior-preserving restructuring
-  - `docs/` for documentation-only changes
-  - `chore/` for maintenance and release work
-  - `test/` for test-only work
-  - `ci/` for automation and workflow changes
-- Keep each branch and PR focused on one coherent outcome. Do not mix unrelated cleanup into the same change.
-- Prefer a PR into `master`, use Draft status while incomplete, and link its Issue with `Closes #...` when one exists.
-- PR descriptions must summarize behavior changes, list completed verification, include screenshots for visible UI changes, identify API or schema effects, and state whether documentation was updated.
-- Prefer squash merge for a normal single-purpose PR. Never force-push or rewrite `master`.
-- Maintainer-only changes limited to `AGENTS.md` files may be committed directly to `master` when the repository owner authorizes them. They do not require an Issue or PR because they change collaboration policy rather than product behavior.
-- Directly merging and pushing `master` is allowed only when the repository owner explicitly requests the merge or release and PR tooling is unavailable. Complete the same review and verification first, and preserve a clear merge or release commit.
-- Delete merged remote branches when they are no longer needed, unless ongoing release work still references them.
-
-## Commits and verification
-
-- Review `git status`, the complete diff, and `git diff --check` before staging.
-- Use English Conventional Commit messages, for example:
-  - `feat(player): add episode navigation`
-  - `fix(scan): preserve authoritative progress`
-  - `refactor(realtime): batch resource invalidations`
-  - `docs(api): document notification events`
-  - `chore(release): publish preview image`
-- Choose a specific scope such as `player`, `scan`, `settings`, `libraries`, `auth`, `api`, or `realtime`.
-- Before commit, run checks proportional to the change, such as targeted Rust tests, frontend tests, TypeScript compilation, and the Vite production build.
-- Do not commit generated output, temporary review artifacts, local credentials, database contents, or unrelated formatting churn.
+- `CONTRIBUTING.md` is the single source of truth for Issues, branch naming, commits, verification, Pull Requests, and merge policy. Follow it for both human and AI-authored changes, and do not duplicate those rules in `AGENTS.md`.
+- Do not create an Issue or branch, stage or commit files, push, open or merge a Pull Request, create a tag, or publish a release unless the user explicitly requests that workflow.
+- When the repository owner explicitly authorizes it, maintainer-only policy changes limited to `AGENTS.md`, `CONTRIBUTING.md`, and GitHub Issue or Pull Request templates may be committed and pushed directly to `master` without an Issue, branch, or Pull Request.
+- Product code, API, schema, deployment, automation, and runtime changes still follow the branch and Pull Request workflow in `CONTRIBUTING.md` unless the repository owner explicitly instructs otherwise in the current conversation.
 
 ## Build and release
 
