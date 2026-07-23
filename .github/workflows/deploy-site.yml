@@ -1,0 +1,67 @@
+name: Deploy Site
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - apps/mova-site/**
+      - docs/API.md
+      - .github/workflows/deploy-site.yml
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: mova-site-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build website
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/mova-site/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix apps/mova-site ci
+
+      - name: Check API documentation
+        run: npm --prefix apps/mova-site run check:api-docs
+
+      - name: Lint
+        run: npm --prefix apps/mova-site run lint
+
+      - name: Build
+        run: npm --prefix apps/mova-site run build
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload website artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: apps/mova-site/dist
+
+  deploy:
+    name: Deploy website
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

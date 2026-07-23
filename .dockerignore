@@ -3,6 +3,8 @@ target
 node_modules
 apps/mova-web/node_modules
 apps/mova-web/dist
+apps/mova-site/node_modules
+apps/mova-site/dist
 coverage
 logs
 *.log

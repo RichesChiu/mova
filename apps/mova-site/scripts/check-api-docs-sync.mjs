@@ -4,12 +4,12 @@ import { fileURLToPath } from 'node:url'
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const projectRoot = resolve(scriptDirectory, '..')
-const sourcePath = resolve(process.env.MOVA_API_DOC_PATH ?? resolve(projectRoot, '../mova/docs/API.md'))
+const sourcePath = resolve(process.env.MOVA_API_DOC_PATH ?? resolve(projectRoot, '../../docs/API.md'))
 const websiteDataPath = resolve(projectRoot, 'src/data/apiDocs.ts')
 
 if (!existsSync(sourcePath)) {
   console.error(`API source document not found: ${sourcePath}`)
-  console.error('Set MOVA_API_DOC_PATH to the current mova/docs/API.md path and retry.')
+  console.error('Set MOVA_API_DOC_PATH to the current docs/API.md path and retry.')
   process.exit(1)
 }
 

@@ -66,6 +66,15 @@ pnpm -C apps/mova-web check
 pnpm -C apps/mova-web build
 ```
 
+For official website changes, run:
+
+```bash
+npm --prefix apps/mova-site run check:api-docs
+npm --prefix apps/mova-site run lint
+npm --prefix apps/mova-site run typecheck
+npm --prefix apps/mova-site run build
+```
+
 For Rust changes, run targeted commands for the affected package, for example:
 
 ```bash

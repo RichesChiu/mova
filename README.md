@@ -144,6 +144,7 @@ docker compose up -d
 - TMDB 对接审查与目标契约: [docs/TMDB.md](docs/TMDB.md)
 - Docker Hub Overview: [docs/DOCKER_HUB.md](docs/DOCKER_HUB.md)
 - 前端: [apps/mova-web/README.md](apps/mova-web/README.md)
+- 官方网站: [apps/mova-site/README.md](apps/mova-site/README.md)
 - 后端: [apps/mova-server/README.md](apps/mova-server/README.md)
 - Crates: [crates/README.md](crates/README.md)
 

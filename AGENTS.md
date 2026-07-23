@@ -61,6 +61,7 @@ The root `AGENTS.md` defines repository-wide rules. A directory-level `AGENTS.md
 
 - `apps/mova-server`: Rust HTTP service, routes, handlers, bootstrap, and runtime integration
 - `apps/mova-web`: React and Vite web client
+- `apps/mova-site`: React and Vite official website deployed to `mova.hk`
 - `crates/mova-application`: application-layer business logic
 - `crates/mova-db`: SQL, persistence, and synchronization
 - `crates/mova-domain`: shared domain models
@@ -72,6 +73,7 @@ Follow all applicable directory-level instructions for cross-directory changes:
 
 - `apps/mova-web/AGENTS.md`
 - `apps/mova-server/AGENTS.md`
+- `apps/mova-site/AGENTS.md`
 - `crates/AGENTS.md`
 - `migrations/AGENTS.md`
 - `scripts/AGENTS.md`
