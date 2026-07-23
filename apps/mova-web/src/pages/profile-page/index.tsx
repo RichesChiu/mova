@@ -115,91 +115,97 @@ export const ProfilePage = () => {
                   <strong className="profile-page__value">{currentUser.username}</strong>
                 </div>
 
-                <div className="profile-page__row">
+                <div className="profile-page__row profile-page__row--nickname">
                   <span className="profile-page__label">{l('Nickname:')}</span>
-                  {isEditingNickname ? (
-                    <div className="profile-page__inline-editor">
-                      <div className="profile-page__editor-surface">
-                        <input
-                          className="profile-page__input"
-                          maxLength={128}
-                          onChange={(event) => setNicknameDraft(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.preventDefault()
-                              saveNickname()
-                            }
+                  <div className="profile-page__nickname-content">
+                    {isEditingNickname ? (
+                      <div className="profile-page__inline-editor">
+                        <div className="profile-page__editor-surface">
+                          <input
+                            className="profile-page__input"
+                            maxLength={128}
+                            onChange={(event) => setNicknameDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault()
+                                saveNickname()
+                              }
 
-                            if (event.key === 'Escape') {
-                              event.preventDefault()
-                              cancelNicknameEditing()
-                            }
-                          }}
-                          placeholder={currentUser.username}
-                          ref={nicknameInputRef}
-                          type="text"
-                          value={nicknameDraft}
-                        />
-                        <div className="profile-page__editor-actions">
-                          <button
-                            className="profile-page__action-link text-link"
-                            disabled={
-                              updateProfileMutation.isPending ||
-                              nicknameDraft.trim() === currentUser.nickname.trim()
-                            }
-                            onClick={saveNickname}
-                            type="button"
-                          >
-                            {updateProfileMutation.isPending ? l('Saving…') : l('Save')}
-                          </button>
-                          <button
-                            className="profile-page__action-link text-link"
-                            disabled={updateProfileMutation.isPending}
-                            onClick={cancelNicknameEditing}
-                            type="button"
-                          >
-                            {l('Cancel')}
-                          </button>
+                              if (event.key === 'Escape') {
+                                event.preventDefault()
+                                cancelNicknameEditing()
+                              }
+                            }}
+                            placeholder={currentUser.username}
+                            ref={nicknameInputRef}
+                            type="text"
+                            value={nicknameDraft}
+                          />
+                          <div className="profile-page__editor-actions">
+                            <button
+                              className="profile-page__action-link profile-page__action-link--save"
+                              disabled={
+                                updateProfileMutation.isPending ||
+                                nicknameDraft.trim() === currentUser.nickname.trim()
+                              }
+                              onClick={saveNickname}
+                              type="button"
+                            >
+                              {updateProfileMutation.isPending ? l('Saving…') : l('Save')}
+                            </button>
+                            <button
+                              className="profile-page__action-link profile-page__action-link--cancel"
+                              disabled={updateProfileMutation.isPending}
+                              onClick={cancelNicknameEditing}
+                              type="button"
+                            >
+                              {l('Cancel')}
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ) : (
-                    <>
-                      <strong className="profile-page__value">{nickname}</strong>
-                      <button
-                        aria-label={l('Edit nickname')}
-                        className="profile-page__icon-button"
-                        onClick={() => {
-                          setNicknameDraft(currentUser.nickname)
-                          setIsEditingNickname(true)
-                          updateProfileMutation.reset()
-                        }}
-                        type="button"
-                      >
-                        <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24">
-                          <path
-                            d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
-                            stroke="currentColor"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="1.7"
-                          />
-                          <path
-                            d="M12.75 7.05L16.95 11.25"
-                            stroke="currentColor"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth="1.7"
-                          />
-                        </svg>
-                      </button>
-                    </>
-                  )}
+                    ) : (
+                      <>
+                        <strong className="profile-page__value">{nickname}</strong>
+                        <button
+                          aria-label={l('Edit nickname')}
+                          className="profile-page__icon-button"
+                          onClick={() => {
+                            setNicknameDraft(currentUser.nickname)
+                            setIsEditingNickname(true)
+                            updateProfileMutation.reset()
+                          }}
+                          type="button"
+                        >
+                          <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24">
+                            <path
+                              d="M4 20H8.2L18.45 9.75C19.18 9.02 19.18 7.84 18.45 7.11L16.89 5.55C16.16 4.82 14.98 4.82 14.25 5.55L4 15.8V20Z"
+                              stroke="currentColor"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="1.7"
+                            />
+                            <path
+                              d="M12.75 7.05L16.95 11.25"
+                              stroke="currentColor"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth="1.7"
+                            />
+                          </svg>
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 <div className="profile-page__row">
                   <span className="profile-page__label">{l('Role:')}</span>
-                  <StatusPill status={l(rolePresentation.label)} tone={rolePresentation.tone} />
+                  <StatusPill
+                    size="compact"
+                    status={l(rolePresentation.label)}
+                    tone={rolePresentation.tone}
+                  />
                 </div>
 
                 <div className="profile-page__row profile-page__row--setting">

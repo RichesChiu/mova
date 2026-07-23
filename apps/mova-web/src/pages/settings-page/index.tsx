@@ -430,6 +430,7 @@ export const SettingsPage = () => {
                               <strong>{user.username}</strong>
                               <div className="settings-user-card__identity-meta">
                                 <StatusPill
+                                  size="compact"
                                   status={l(rolePresentation.label)}
                                   tone={rolePresentation.tone}
                                 />
