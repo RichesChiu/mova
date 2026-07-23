@@ -1,0 +1,312 @@
+@layer redesign {
+  .hero-section {
+    position: relative;
+    display: block;
+    padding: 0;
+    overflow: hidden;
+    background: #fbfaf8 url('/backgrounds/hero-cut-paper.png') center top / cover no-repeat;
+  }
+
+  .hero-stage {
+    display: grid;
+    grid-template-columns: minmax(480px, 0.8fr) minmax(560px, 1.2fr);
+    gap: clamp(24px, 2.2vw, 36px);
+    align-items: center;
+    width: 100%;
+    min-height: 520px;
+    margin-inline: auto;
+    padding: 52px var(--content-inline) 44px;
+  }
+
+  .hero-copy {
+    position: relative;
+    z-index: 1;
+    max-width: 500px;
+  }
+
+  .hero-copy h1 {
+    max-width: none;
+    margin-bottom: 20px;
+    color: var(--ink);
+    font-size: clamp(52px, 4.5vw, 64px);
+    font-weight: 900;
+    letter-spacing: -0.055em;
+    line-height: 1.06;
+  }
+
+  .hero-kicker {
+    margin-bottom: 18px;
+    color: #3c445d;
+    font-size: 20px;
+    font-weight: 650;
+    letter-spacing: 0.03em;
+  }
+
+  .hero-lede {
+    max-width: 450px;
+    margin-bottom: 32px;
+    color: var(--muted);
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 1.8;
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 34px;
+  }
+
+  .hero-actions > :is(a, button) {
+    display: inline-flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+    min-width: 138px;
+    min-height: 48px;
+    padding: 0 22px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    appearance: none;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 800;
+    text-decoration: none;
+    cursor: pointer;
+    transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+  }
+
+  .hero-actions > :is(a, button):hover {
+    transform: translateY(-2px);
+  }
+
+  .hero-actions > .primary-action {
+    border: 0;
+    color: #ffffff;
+    background: linear-gradient(100deg, #7144f4, #29aee9);
+    box-shadow: 0 12px 18px -18px rgba(74, 101, 231, 0.55);
+  }
+
+  .hero-actions > .secondary-action {
+    border-color: #dfe3ec;
+    color: var(--ink);
+    background: #ffffff;
+    box-shadow: 0 10px 24px rgba(30, 40, 76, 0.06);
+  }
+
+  .hero-actions .button-icon {
+    width: 17px;
+    height: 17px;
+  }
+
+  .hero-preview {
+    position: relative;
+    top: clamp(28px, 2.5vw, 44px);
+    right: 0;
+    z-index: 1;
+    justify-self: start;
+    width: min(1040px, 68vw);
+  }
+
+  .hero-preview img {
+    position: relative;
+    z-index: 1;
+    display: block;
+    width: 100%;
+    height: auto;
+    image-rendering: auto;
+  }
+
+  .hero-badges {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: center;
+    width: 100%;
+    margin: 0 auto;
+    padding: 28px var(--content-inline) 48px;
+  }
+
+  .hero-badges article {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    min-width: 0;
+    min-height: 48px;
+    padding-right: clamp(14px, 3vw, 36px);
+  }
+
+  .hero-badges strong,
+  .hero-badge-copy > span {
+    display: block;
+  }
+
+  .hero-badge-icon {
+    display: grid;
+    flex: 0 0 36px;
+    width: 36px;
+    height: 36px;
+    place-items: center;
+    border: 1px solid #e2e4ed;
+    border-radius: 10px;
+    color: #353d76;
+    background: #ffffff;
+  }
+
+  .hero-badge-copy {
+    display: flex;
+    flex: 1 1 auto;
+    align-self: stretch;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+  }
+
+  .hero-badge-svg {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+    object-position: center;
+  }
+
+  .hero-badges strong {
+    margin: 0 0 4px;
+    color: var(--ink);
+    font-size: 14px;
+  }
+
+  .hero-badge-copy > span {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    color: #7a8298;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.55;
+  }
+
+  :lang(en) .hero-copy h1 {
+    font-size: clamp(50px, 4.1vw, 58px);
+    letter-spacing: -0.045em;
+  }
+
+  :lang(en) .hero-kicker {
+    letter-spacing: 0;
+  }
+
+  @media (min-width: 1600px) {
+    .hero-stage {
+      grid-template-columns: 520px minmax(0, 1fr);
+      gap: 32px;
+    }
+
+    .hero-preview {
+      right: clamp(24px, 2vw, 48px);
+      width: min(1380px, 72vw);
+    }
+  }
+
+  @media (max-width: 1120px) {
+    .hero-stage {
+      grid-template-columns: minmax(340px, 0.85fr) minmax(460px, 1.15fr);
+      gap: 34px;
+    }
+
+    .hero-preview {
+      width: 700px;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .hero-stage {
+      grid-template-columns: 1fr;
+      padding-top: 62px;
+    }
+
+    .hero-copy {
+      max-width: 650px;
+    }
+
+    .hero-preview {
+      top: 0;
+      right: auto;
+      width: 104%;
+      margin: 0 -2%;
+    }
+
+    .hero-badges {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 24px 18px;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .hero-actions > :is(a, button) {
+      width: 100%;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .hero-stage {
+      gap: 44px;
+      min-height: auto;
+      padding: 58px var(--content-inline) 38px;
+    }
+
+    .hero-copy h1 {
+      font-size: clamp(40px, 11.5vw, 48px);
+      line-height: 1.08;
+    }
+
+    :lang(en) .hero-copy h1 {
+      font-size: clamp(42px, 12vw, 52px);
+    }
+
+    .hero-kicker {
+      font-size: 17px;
+    }
+
+    .hero-lede {
+      font-size: 15px;
+      line-height: 1.75;
+    }
+
+    .hero-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .hero-actions > :is(a, button) {
+      min-width: 0;
+      padding-inline: 14px;
+    }
+
+    .hero-preview {
+      justify-self: center;
+      width: 126%;
+      margin: 0;
+    }
+
+    .hero-badges {
+      grid-template-columns: 1fr;
+      padding-top: 28px;
+      padding-bottom: 34px;
+    }
+
+    .hero-badges article {
+      padding-right: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hero-actions > :is(a, button) {
+      transition: none;
+    }
+
+    .hero-actions > :is(a, button):hover {
+      transform: none;
+    }
+  }
+}

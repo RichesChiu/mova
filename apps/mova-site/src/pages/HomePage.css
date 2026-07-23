@@ -1,0 +1,14 @@
+@layer redesign {
+  .section-block {
+    width: 100%;
+    margin: 0 auto;
+    padding: 90px var(--content-inline);
+  }
+
+  @media (max-width: 640px) {
+    .section-block {
+      padding-top: 72px;
+      padding-bottom: 72px;
+    }
+  }
+}

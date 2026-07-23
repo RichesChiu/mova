@@ -1,0 +1,59 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Local env files
+*.local
+.env
+.env.*
+!.env.example
+
+# Test and coverage output
+coverage
+.nyc_output
+
+# Tool caches
+.vite
+.eslintcache
+.stylelintcache
+.cache
+.parcel-cache
+.turbo
+
+# Editor directories and files
+.vscode
+.idea
+.cursor
+.zed
+.fleet
+.history
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+
+# Misc editor temp files
+*.swp
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.tmp
+*.temp

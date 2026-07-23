@@ -1,0 +1,385 @@
+@layer redesign {
+  .platform-section {
+    padding: 0 0 50px;
+    background: #f8f9fc;
+  }
+
+  .macos-showcase {
+    display: grid;
+    grid-template-columns: 360px minmax(720px, 1fr);
+    gap: clamp(22px, 2vw, 30px);
+    align-items: center;
+    min-height: clamp(720px, 56vw, 940px);
+    padding: 68px var(--content-inline) 0;
+    overflow: hidden;
+    color: #f7f9ff;
+    background: #07111e;
+  }
+
+  .macos-copy {
+    position: relative;
+    z-index: 2;
+    max-width: 430px;
+  }
+
+  .macos-copy .eyebrow {
+    color: #8b75ff;
+  }
+
+  .macos-copy h2 {
+    margin-bottom: 20px;
+    color: #ffffff;
+    font-size: clamp(38px, 3.5vw, 50px);
+    letter-spacing: -0.045em;
+    line-height: 1.16;
+    white-space: nowrap;
+  }
+
+  .macos-copy > p:not(.eyebrow) {
+    margin-bottom: 30px;
+    color: #9ca8ba;
+    font-size: 15px;
+    line-height: 1.8;
+  }
+
+  .macos-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 13px;
+  }
+
+  .macos-coming-note {
+    display: inline-flex;
+    gap: 7px;
+    align-items: center;
+    min-height: 38px;
+    padding: 0 15px;
+    border: 1px solid rgba(255, 151, 77, 0.34);
+    border-radius: 8px;
+    color: #ffb274;
+    background: linear-gradient(110deg, rgba(255, 126, 77, 0.14), rgba(139, 117, 255, 0.11));
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .macos-coming-note img {
+    width: 20px;
+    height: 20px;
+  }
+
+  .macos-store-status {
+    color: #8996a9;
+    font-size: 12px;
+  }
+
+  .macos-preview {
+    align-self: start;
+    width: 100vw;
+    margin: -38px 0 0;
+    overflow: visible;
+  }
+
+  .macos-preview img {
+    display: block;
+    width: 100%;
+    height: auto;
+    image-rendering: auto;
+  }
+
+  .platform-heading {
+    width: min(100%, 760px);
+    margin: 0 auto;
+    padding: 58px var(--page-gutter) 46px;
+    text-align: center;
+  }
+
+  .platform-heading .section-title h2 {
+    color: #121a36;
+    font-size: 36px;
+    letter-spacing: -0.035em;
+    line-height: 1.2;
+  }
+
+  .platform-heading .section-title span {
+    display: none;
+  }
+
+  .platform-heading > p:last-child {
+    margin: 14px auto 0;
+    color: #7d869d;
+    font-size: 17px;
+    line-height: 1.6;
+  }
+
+  .device-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 36px;
+    width: min(calc(100% - 216px), 1450px);
+    margin: 0 auto;
+  }
+
+  .device-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 380px;
+    padding: 24px 38px 30px;
+    border: 1px solid #eef0f5;
+    border-radius: 15px;
+    color: #111936;
+    background: #ffffff;
+    box-shadow: 0 10px 32px rgba(33, 45, 77, 0.035);
+    text-align: center;
+  }
+
+  .device-card--upcoming {
+    color: #7f879a;
+    background: #ffffff;
+  }
+
+  .device-status {
+    display: inline-flex;
+    gap: 7px;
+    align-items: center;
+    min-height: 36px;
+    margin-bottom: 28px;
+    padding: 0 18px;
+    border-radius: 7px;
+    font-size: 15px;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .device-status.is-ready {
+    color: #6945e5;
+    background: #eee8ff;
+  }
+
+  .device-status.is-upcoming {
+    color: #7f8799;
+    background: #f0f1f4;
+  }
+
+  .device-status.is-coming-soon {
+    min-height: 40px;
+    border: 1px solid rgba(241, 118, 55, 0.18);
+    color: #c45c25;
+    background: linear-gradient(110deg, #fff0df, #f5eaff);
+    box-shadow: 0 8px 20px rgba(215, 96, 46, 0.08);
+  }
+
+  .device-status.is-coming-soon img {
+    width: 22px;
+    height: 22px;
+  }
+
+  .device-icon {
+    position: relative;
+    display: grid;
+    width: 96px;
+    height: 70px;
+    margin-bottom: 20px;
+    place-items: center;
+  }
+
+  .device-icon img {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  .device-icon--web img,
+  .device-icon--macos img {
+    width: 82px;
+    height: 70px;
+  }
+
+  .device-icon--web::after {
+    position: absolute;
+    top: 28px;
+    left: 50%;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #45b7f0;
+    box-shadow: 0 0 9px rgba(69, 183, 240, 0.55);
+    content: '';
+    transform: translate(-50%, -50%);
+  }
+
+  .device-icon--phone img {
+    width: 49px;
+    height: 70px;
+  }
+
+  .device-icon--pad img {
+    width: 88px;
+    height: 70px;
+  }
+
+  .device-card h3 {
+    margin: 0;
+    color: inherit;
+    font-size: 21px;
+    font-weight: 900;
+    line-height: 1.35;
+  }
+
+  .device-card p {
+    max-width: 215px;
+    margin: 7px auto 0;
+    color: #788197;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.65;
+  }
+
+  .device-card--upcoming p {
+    color: #8990a1;
+  }
+
+  .device-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    width: 100%;
+    max-width: 240px;
+    min-height: 56px;
+    margin-top: auto;
+    border: 2px solid transparent;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 850;
+    font-family: inherit;
+    line-height: 1;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .device-action .mova-icon {
+    width: 17px;
+    height: 17px;
+  }
+
+  .device-action--primary {
+    border: 0;
+    color: #ffffff;
+    background: linear-gradient(100deg, #6943f5 0%, #397ce9 52%, #2eb9e9 100%);
+    box-shadow: 0 12px 18px -18px rgba(74, 101, 231, 0.55);
+  }
+
+  .device-action--secondary {
+    border-color: #a96cf3;
+    color: #7045de;
+    background: #ffffff;
+  }
+
+  .device-action.is-disabled,
+  .device-action:disabled {
+    border-color: #d9dce5;
+    color: #9aa1b2;
+    background: #f5f6f8;
+    box-shadow: none;
+    cursor: not-allowed;
+    opacity: 1;
+  }
+
+  :lang(en) .device-card {
+    min-height: 400px;
+  }
+
+  :lang(en) .device-action {
+    font-size: 13px;
+  }
+
+  @media (max-width: 1280px) {
+    .device-grid {
+      gap: 24px;
+      width: min(calc(100% - (var(--page-gutter) * 2)), 1120px);
+    }
+
+    .device-card {
+      padding-right: 24px;
+      padding-left: 24px;
+    }
+  }
+
+  @media (max-width: 1120px) {
+    .macos-showcase {
+      grid-template-columns: minmax(280px, 0.64fr) minmax(560px, 1.36fr);
+      gap: 24px;
+    }
+
+    .macos-copy h2 {
+      white-space: normal;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .macos-showcase {
+      grid-template-columns: 1fr;
+      padding-top: 72px;
+      padding-bottom: 0;
+    }
+
+    .macos-copy {
+      max-width: 600px;
+    }
+
+    .macos-preview {
+      width: 110%;
+      margin: 10px -5% 0;
+    }
+
+    .device-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 640px) {
+    .platform-section {
+      padding-bottom: 36px;
+    }
+
+    .macos-showcase {
+      gap: 38px;
+      padding: 64px var(--page-gutter) 0;
+    }
+
+    .macos-copy h2 {
+      font-size: 39px;
+      white-space: normal;
+    }
+
+    .macos-preview {
+      width: 150%;
+      margin-left: -4%;
+    }
+
+    .platform-heading {
+      padding: 60px var(--page-gutter) 34px;
+    }
+
+    .platform-heading .section-title h2 {
+      font-size: 32px;
+    }
+
+    .platform-heading > p:last-child {
+      font-size: 15px;
+    }
+
+    .device-grid {
+      grid-template-columns: 1fr;
+      gap: 18px;
+      width: calc(100% - (var(--page-gutter) * 2));
+    }
+
+    .device-card,
+    :lang(en) .device-card {
+      min-height: 340px;
+    }
+  }
+}

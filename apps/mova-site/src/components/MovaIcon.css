@@ -1,0 +1,14 @@
+@layer redesign {
+  .mova-icon {
+    display: block;
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+  }
+
+  .feature-icon .mova-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+}

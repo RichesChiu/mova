@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <defs>
+    <linearGradient id="fire" x1="5" y1="3" x2="18" y2="21" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFCF5C"/>
+      <stop offset="0.52" stop-color="#FF7A3D"/>
+      <stop offset="1" stop-color="#8B63F6"/>
+    </linearGradient>
+  </defs>
+  <path d="M12 22c4.4 0 8-3.6 8-8 0-3.2-1.8-6.4-5.4-9.6.3 2.4-.8 4.2-2.3 5.6.2-3.5-1.8-6.2-4.4-8C8.5 6.6 4 10.1 4 14c0 4.4 3.6 8 8 8Z" fill="url(#fire)"/>
+  <path d="M12.2 19c-1.8 0-3.2-1.4-3.2-3.2 0-1.4.8-2.7 2.4-4.1-.1 1.2.4 2 .9 2.6.8-.9 1.4-1.8 1.2-3.2 1.6 1.4 2.7 2.7 2.7 4.2 0 2.3-1.7 3.7-4 3.7Z" fill="#FFF4CA" fill-opacity=".92"/>
+</svg>

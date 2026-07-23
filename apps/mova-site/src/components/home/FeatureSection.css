@@ -1,0 +1,111 @@
+@layer redesign {
+  #features.section-block {
+    display: grid;
+    grid-template-columns: 330px minmax(0, 1fr);
+    gap: clamp(44px, 5vw, 72px);
+    align-items: start;
+    background: #ffffff;
+  }
+
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: clamp(24px, 3vw, 46px);
+    margin-top: 0;
+  }
+
+  .feature-card {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .feature-card:hover {
+    border: 0;
+    box-shadow: none;
+    transform: translateY(-3px);
+  }
+
+  .feature-icon {
+    display: inline-grid;
+    width: 42px;
+    height: 42px;
+    margin-bottom: 20px;
+    place-items: center;
+    border: 1px solid #e2e5ee;
+    border-radius: 11px;
+    color: #26346e;
+    background: #ffffff;
+    box-shadow: 0 8px 22px rgba(30, 43, 82, 0.05);
+  }
+
+  .feature-card h3 {
+    margin-bottom: 10px;
+    color: var(--ink);
+    font-size: 16px;
+    font-weight: 900;
+  }
+
+  .feature-card p {
+    color: #778198;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.7;
+  }
+
+  :lang(en) .feature-card h3 {
+    min-height: 42px;
+  }
+
+  @media (max-width: 1120px) {
+    #features.section-block {
+      grid-template-columns: 1fr;
+    }
+
+    .feature-intro {
+      max-width: 560px;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .feature-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 32px;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .feature-grid {
+      grid-template-columns: 1fr;
+      gap: 34px;
+    }
+
+    .feature-card {
+      display: grid;
+      grid-template-columns: 46px minmax(0, 1fr);
+      gap: 0 16px;
+    }
+
+    .feature-icon {
+      grid-row: 1 / span 2;
+      margin-bottom: 0;
+    }
+
+    .feature-card h3 {
+      margin-top: 1px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .feature-card {
+      transition: none;
+    }
+
+    .feature-card:hover {
+      transform: none;
+    }
+  }
+}
