@@ -201,7 +201,11 @@ export const ProfilePage = () => {
 
                 <div className="profile-page__row">
                   <span className="profile-page__label">{l('Role:')}</span>
-                  <StatusPill status={l(rolePresentation.label)} tone={rolePresentation.tone} />
+                  <StatusPill
+                    size="compact"
+                    status={l(rolePresentation.label)}
+                    tone={rolePresentation.tone}
+                  />
                 </div>
 
                 <div className="profile-page__row profile-page__row--setting">
