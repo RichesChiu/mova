@@ -47,7 +47,7 @@ export const features: Feature[] = [
   {
     icon: 'private-library',
     title: '私有媒体库',
-    text: '集中管理电影、剧集、音乐和照片，本地文件只读挂载，不改动原始媒体。',
+    text: '集中管理本地电影和剧集，本地文件只读挂载，不改动原始媒体。',
   },
   {
     icon: 'device-access',
@@ -56,7 +56,7 @@ export const features: Feature[] = [
   },
   {
     icon: 'transcode',
-    title: '高性能转码',
+    title: '高效媒体解析',
     text: '配合 ffprobe 识别 4K、HDR、Dolby Vision、Atmos 等资源级标签。',
   },
   {
@@ -67,7 +67,7 @@ export const features: Feature[] = [
   {
     icon: 'metadata',
     title: '元数据整理',
-    text: '按文件名归组电影与剧集，可接入 TMDB、OMDB 补齐海报、评分和背景图。',
+    text: '按文件名归组电影与剧集，通过 TMDB 补齐海报、背景图、标题 Logo 和评分。',
   },
 ]
 

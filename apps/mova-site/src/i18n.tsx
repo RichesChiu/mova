@@ -16,8 +16,8 @@ const translations: Record<string, string> = {
   属于你自己的: 'Your own',
   流媒体中心: 'streaming center',
   'MOVA 是美观、好用的自托管流媒体服务器': 'MOVA is a beautiful, easy-to-use self-hosted streaming server',
-  '统一管理电影、剧集、音乐和照片，并通过网页与 macOS 随时访问。':
-    'Organize movies, series, music, and photos, with seamless access on the Web and macOS.',
+  '集中管理本地电影和剧集，通过网页随时访问，原生客户端持续开发中。':
+    'Organize local movies and series, access them on the Web, and follow the native clients as they evolve.',
   开始部署: 'Deploy now',
   '查看 API': 'View API',
   'MOVA 核心优势': 'MOVA core benefits',
@@ -33,20 +33,20 @@ const translations: Record<string, string> = {
   全面掌控你的媒体: 'complete control of your media',
   'MOVA 核心功能': 'MOVA core capabilities',
   私有媒体库: 'Private media library',
-  '集中管理电影、剧集、音乐和照片，本地文件只读挂载，不改动原始媒体。':
-    'Organize movies, series, music, and photos while mounting local files read-only and leaving originals untouched.',
+  '集中管理本地电影和剧集，本地文件只读挂载，不改动原始媒体。':
+    'Organize local movies and series while mounting media read-only and leaving original files untouched.',
   多设备访问: 'Multi-device access',
   '手机、平板、电脑和电视都能通过 Web 访问，随时随地继续观看。':
     'Continue watching anywhere through the Web on phones, tablets, computers, and TVs.',
-  高性能转码: 'High-performance media processing',
+  高效媒体解析: 'Efficient media analysis',
   '配合 ffprobe 识别 4K、HDR、Dolby Vision、Atmos 等资源级标签。':
     'Use ffprobe to identify asset-level tags such as 4K, HDR, Dolby Vision, and Atmos.',
   用户与权限管理: 'Users and permissions',
   '首次启动创建管理员，后续可按家庭和设备场景管理访问边界。':
     'Create an administrator on first launch, then manage access for household and device scenarios.',
   元数据整理: 'Metadata enrichment',
-  '按文件名归组电影与剧集，可接入 TMDB、OMDB 补齐海报、评分和背景图。':
-    'Group movies and series by filename, with TMDB and OMDB support for artwork, ratings, and backdrops.',
+  '按文件名归组电影与剧集，通过 TMDB 补齐海报、背景图、标题 Logo 和评分。':
+    'Group movies and series by filename, then use TMDB to enrich posters, backdrops, title logos, and ratings.',
   'macOS 客户端': 'macOS client',
   'macOS 平台说明': 'macOS platform details',
   'MOVA macOS 原生客户端详情界面': 'MOVA native macOS client detail screen',
@@ -118,8 +118,8 @@ const translations: Record<string, string> = {
     'Media image URLs include a version parameter for long-lived browser caching; the version changes after metadata updates.',
   '认证错误可能使用 TOKEN_EXPIRED、TOKEN_INVALID 或 REFRESH_TOKEN_INVALID 等字符串 code，客户端应按 code 处理重新登录或刷新。':
     'Authentication errors may use string codes such as TOKEN_EXPIRED, TOKEN_INVALID, or REFRESH_TOKEN_INVALID; clients should use the code to refresh credentials or sign in again.',
-  'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；可选 MOVA_OMDB_API_KEY 用于补齐 IMDb 评分。':
-    'The TMDB token comes from MOVA_TMDB_ACCESS_TOKEN; MOVA_OMDB_API_KEY is optional and fills in IMDb ratings.',
+  'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；当前评分来源仅接入 TMDB，其他外部 ID 只用于跨来源识别。':
+    'The TMDB token comes from MOVA_TMDB_ACCESS_TOKEN; ratings currently come only from TMDB, while other external IDs are stored only for cross-provider identity.',
   'OK，请求成功': 'OK, request succeeded',
   'Created，创建成功': 'Created successfully',
   'Accepted，异步任务已创建': 'Accepted, asynchronous task created',

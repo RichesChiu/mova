@@ -27,7 +27,7 @@ export function HeroSection({
           <h1 id="hero-title">{t('属于你自己的')}<br />{t('流媒体中心')}</h1>
           <p className="hero-kicker">{t('MOVA 是美观、好用的自托管流媒体服务器')}</p>
           <p className="hero-lede">
-            {t('统一管理电影、剧集、音乐和照片，并通过网页与 macOS 随时访问。')}
+            {t('集中管理本地电影和剧集，通过网页随时访问，原生客户端持续开发中。')}
           </p>
 
           <div className="hero-actions" aria-label={t('首屏操作')}>

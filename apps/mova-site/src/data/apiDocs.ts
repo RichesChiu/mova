@@ -44,7 +44,7 @@ export const apiCommonNotes = [
   'realtime/events 返回 text/event-stream，不使用统一 JSON envelope；重连后应先请求 realtime/state。',
   '媒体条目图片 URL 会带版本参数，浏览器可长期缓存；元数据更新后版本会变化。',
   '认证错误可能使用 TOKEN_EXPIRED、TOKEN_INVALID 或 REFRESH_TOKEN_INVALID 等字符串 code，客户端应按 code 处理重新登录或刷新。',
-  'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；可选 MOVA_OMDB_API_KEY 用于补齐 IMDb 评分。',
+  'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；当前评分来源仅接入 TMDB，其他外部 ID 只用于跨来源识别。',
 ]
 
 export const apiSourceLinks = {
@@ -180,7 +180,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       'media_item_id 不是 library_id；详情、文件列表、播放进度都围绕 media_item_id 展开。',
       'metadata_status 使用 matched / unmatched / failed / skipped 表达元数据处理状态。',
       '剧集可通过 seasons、episodes、episode-outline 获取本地可用集和远端大纲合并结果。',
-      'poster/backdrop 返回图片流；若详情字段是远程 URL，前端可直接使用远程地址。',
+      'poster/backdrop/logo 返回图片流；若详情字段是远程 URL，前端可直接使用远程地址。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/media-items/{id}', description: '查询单个媒体条目详情' },
@@ -193,6 +193,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       { method: 'POST', path: '/api/media-items/{id}/refresh-metadata', description: '手动重拉单个媒体条目元数据' },
       { method: 'GET', path: '/api/media-items/{id}/poster', description: '读取媒体条目海报图' },
       { method: 'GET', path: '/api/media-items/{id}/backdrop', description: '读取媒体条目背景图' },
+      { method: 'GET', path: '/api/media-items/{id}/logo', description: '读取媒体条目透明标题 Logo' },
       { method: 'GET', path: '/api/seasons/{id}/poster', description: '读取某一季海报图' },
       { method: 'GET', path: '/api/seasons/{id}/backdrop', description: '读取某一季背景图' },
     ],
