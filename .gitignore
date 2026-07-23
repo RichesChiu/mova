@@ -56,8 +56,8 @@ $RECYCLE.BIN/
 ._*
 
 # Local runtime state for Docker-based development.
-data/
-media/
+/data/
+/media/
 
 # Local design drafts and exported mockups.
 design/
