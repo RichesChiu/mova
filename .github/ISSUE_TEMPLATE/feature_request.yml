@@ -1,0 +1,63 @@
+name: Feature request
+description: Propose a focused product or technical improvement
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before proposing the implementation. Larger API, schema, scanning, or architecture changes should be agreed here before code is written.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or maintainer problem should Mova solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the expected behavior and acceptance criteria rather than only a UI mockup or implementation detail.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Explain existing workarounds or other designs you considered.
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Expected impact
+      options:
+        - User interface only
+        - API or client contract
+        - Database schema or persisted data
+        - Media scanning or metadata
+        - Deployment or configuration
+        - Internal refactor
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add references, screenshots, diagrams, or comparable product behavior when useful.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing Issues and Pull Requests.
+          required: true
+        - label: This request describes one focused outcome.
+          required: true

@@ -1,0 +1,88 @@
+name: Bug report
+description: Report a reproducible defect in Mova
+title: "fix: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem. Search existing Issues first and do not include credentials, access tokens, private media names, or sensitive logs.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Provide the Git tag, Docker tag, image digest, or commit SHA.
+      placeholder: 1.0.0-preview.2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Web interface
+        - Player
+        - Media scanning and metadata
+        - Realtime and notifications
+        - Authentication and users
+        - Docker and deployment
+        - API
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include host OS, CPU architecture, browser or client, and deployment method.
+      placeholder: Docker Desktop on macOS, linux/arm64, Chrome 138
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reliable sequence that reproduces the problem.
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs and screenshots
+      description: Add sanitized logs, screenshots, or recordings that help explain the issue.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing Issues and Pull Requests.
+          required: true
+        - label: I removed credentials, tokens, private media information, and other sensitive data.
+          required: true
+        - label: I can reproduce this issue on the version listed above.
+          required: true

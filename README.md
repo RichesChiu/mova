@@ -153,6 +153,10 @@ Mova 仍在积极迭代中。作者也在积极维护 Pad 和 macOS 客户端方
 
 欢迎提交反馈、功能建议、客户端接入想法和体验改进意见。
 
+## 参与贡献
+
+欢迎通过 Issue 反馈问题或提出功能建议，也欢迎提交 Pull Request。开始前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，其中说明了 Issue 适用场景、分支命名、Conventional Commits、验证要求和 PR 流程。
+
 ## 许可证
 
 当前许可证：`AGPL-3.0-only`。详见 [LICENSE](LICENSE)。
