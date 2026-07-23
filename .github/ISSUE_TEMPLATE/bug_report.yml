@@ -14,7 +14,7 @@ body:
     attributes:
       label: Version
       description: Provide the Git tag, Docker tag, image digest, or commit SHA.
-      placeholder: 1.0.0-preview.2
+      placeholder: 1.0.0-preview.3
     validations:
       required: true
 
