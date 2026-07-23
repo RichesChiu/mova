@@ -18,7 +18,6 @@ pub struct CreateUserParams {
 
 #[derive(Debug, Clone)]
 pub struct UpdateUserParams {
-    pub username: String,
     pub nickname: String,
     pub role: UserRole,
     pub is_enabled: bool,
@@ -275,17 +274,15 @@ pub async fn update_user(
     let row = sqlx::query(
         r#"
         update users
-        set username = $2,
-            nickname = $3,
-            role = $4,
-            is_enabled = $5,
+        set nickname = $2,
+            role = $3,
+            is_enabled = $4,
             updated_at = now()
         where id = $1
         returning id, username, nickname, role, is_enabled, created_at, updated_at
         "#,
     )
     .bind(user_id)
-    .bind(params.username)
     .bind(params.nickname)
     .bind(params.role.as_str())
     .bind(params.is_enabled)

@@ -23,8 +23,8 @@ pub struct CreateUserRequest {
 }
 
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateUserRequest {
-    pub username: Option<String>,
     pub nickname: Option<String>,
     pub role: Option<String>,
     pub is_enabled: Option<bool>,
@@ -96,7 +96,6 @@ pub async fn update_user(
         current_user.user.id,
         user_id,
         mova_application::UpdateUserInput {
-            username: request.username,
             nickname: request.nickname,
             role: request.role,
             is_enabled: request.is_enabled,
@@ -165,6 +164,7 @@ mod tests {
     use axum_extra::extract::cookie::CookieJar;
     use mova_application::NullMetadataProvider;
     use mova_domain::UserRole;
+    use serde_json::json;
     use std::{path::PathBuf, sync::Arc};
     use time::{OffsetDateTime, UtcOffset};
 
@@ -179,6 +179,26 @@ mod tests {
             realtime_dispatcher: RealtimeDispatcherHandle::default(),
             background_jobs: BackgroundJobNotifier::default(),
         }
+    }
+
+    #[test]
+    fn update_user_request_rejects_account_changes() {
+        let error = serde_json::from_value::<UpdateUserRequest>(json!({
+            "username": "renamed-account"
+        }))
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unknown field `username`"));
+    }
+
+    #[test]
+    fn update_user_request_accepts_nickname_changes() {
+        let request = serde_json::from_value::<UpdateUserRequest>(json!({
+            "nickname": "Cinema Fan"
+        }))
+        .unwrap();
+
+        assert_eq!(request.nickname.as_deref(), Some("Cinema Fan"));
     }
 
     async fn seed_library(pool: &sqlx::postgres::PgPool, name: &str) -> i64 {

@@ -46,25 +46,30 @@ describe('UserEditorModal', () => {
     baseProps.onUpdate.mockReset().mockResolvedValue(undefined)
   })
 
-  it('limits edit mode to role and library access', async () => {
+  it('keeps the account immutable while editing nickname, role, and library access', async () => {
     render(
       <I18nProvider>
         <UserEditorModal {...baseProps} mode="edit" user={user} />
       </I18nProvider>,
     )
 
-    expect(screen.queryByLabelText('Account')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Nickname')).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Account' })).not.toBeInTheDocument()
+    expect(screen.getByText(user.username)).toBeInTheDocument()
+    expect(screen.getByLabelText('Nickname')).toHaveValue(user.nickname)
     expect(screen.queryByText('Account enabled')).not.toBeInTheDocument()
     expect(screen.getByText('Role')).toBeInTheDocument()
     expect(screen.getByText('Library Access')).toBeInTheDocument()
     expect(screen.getByText('Movies')).toBeInTheDocument()
     expect(screen.queryByText('No description')).not.toBeInTheDocument()
 
+    fireEvent.change(screen.getByLabelText('Nickname'), {
+      target: { value: 'Cinema Fan' },
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
 
     await waitFor(() => {
       expect(baseProps.onUpdate).toHaveBeenCalledWith(user.id, {
+        nickname: 'Cinema Fan',
         role: 'viewer',
         library_ids: [library.id],
       })

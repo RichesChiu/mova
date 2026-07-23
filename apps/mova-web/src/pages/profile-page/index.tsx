@@ -14,6 +14,7 @@ import {
   setThemePreference,
 } from '../../lib/preferences'
 import { THEMES } from '../../lib/theme'
+import { USER_NICKNAME_MAX_LENGTH } from '../../lib/user-account'
 import { getUserDisplayName } from '../../lib/user-identity'
 import { getUserRolePresentation } from '../../lib/user-role'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
@@ -123,7 +124,7 @@ export const ProfilePage = () => {
                         <div className="profile-page__editor-surface">
                           <input
                             className="profile-page__input"
-                            maxLength={128}
+                            maxLength={USER_NICKNAME_MAX_LENGTH}
                             onChange={(event) => setNicknameDraft(event.target.value)}
                             onKeyDown={(event) => {
                               if (event.key === 'Enter') {

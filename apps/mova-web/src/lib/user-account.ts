@@ -1,1 +1,2 @@
 export const USER_ACCOUNT_MAX_LENGTH = 254
+export const USER_NICKNAME_MAX_LENGTH = 128

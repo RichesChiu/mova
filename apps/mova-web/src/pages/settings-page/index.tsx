@@ -427,7 +427,20 @@ export const SettingsPage = () => {
                         <div className="settings-user-card__body">
                           <div className="settings-user-card__header">
                             <div className="settings-user-card__identity">
-                              <strong>{user.username}</strong>
+                              <HoverTooltip
+                                className="settings-user-card__nickname-wrap"
+                                content={nickname || '—'}
+                              >
+                                <strong
+                                  className={
+                                    nickname
+                                      ? 'settings-user-card__nickname'
+                                      : 'settings-user-card__nickname settings-user-card__nickname--empty'
+                                  }
+                                >
+                                  {nickname || '—'}
+                                </strong>
+                              </HoverTooltip>
                               <div className="settings-user-card__identity-meta">
                                 <StatusPill
                                   size="compact"
@@ -485,15 +498,8 @@ export const SettingsPage = () => {
                               ) : null}
                             </div>
                           </div>
-                          <p
-                            className={
-                              nickname
-                                ? 'settings-user-card__nickname'
-                                : 'settings-user-card__nickname settings-user-card__nickname--empty'
-                            }
-                            title={nickname || undefined}
-                          >
-                            {nickname ? `@${nickname}` : '—'}
+                          <p className="settings-user-card__account" title={user.username}>
+                            {user.username}
                           </p>
                         </div>
                       </article>

@@ -9,7 +9,7 @@ import type {
 } from '../../api/types'
 import { useI18n } from '../../i18n'
 import { usePresenceTransition } from '../../lib/use-presence-transition'
-import { USER_ACCOUNT_MAX_LENGTH } from '../../lib/user-account'
+import { USER_ACCOUNT_MAX_LENGTH, USER_NICKNAME_MAX_LENGTH } from '../../lib/user-account'
 import { GlassSelect } from '../glass-select'
 import { LibraryAccessOption } from './library-access-option'
 
@@ -43,6 +43,7 @@ export const UserEditorModal = ({
   const { l } = useI18n()
   const modalPresence = usePresenceTransition(isOpen)
   const [username, setUsername] = useState('')
+  const [nickname, setNickname] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<UserRole>('viewer')
   const [selectedLibraryIds, setSelectedLibraryIds] = useState<number[]>([])
@@ -73,6 +74,7 @@ export const UserEditorModal = ({
 
     // 打开弹窗时总是把表单重置到当前模式对应的数据，避免上一次编辑残留到下一次创建。
     setUsername(user?.username ?? '')
+    setNickname(user?.nickname ?? '')
     setPassword('')
     setRole(user?.role ?? 'viewer')
     setSelectedLibraryIds(user?.library_ids ?? [])
@@ -127,6 +129,7 @@ export const UserEditorModal = ({
     }
 
     await onUpdate(user.id, {
+      nickname: nickname.trim(),
       role,
       library_ids: role === 'admin' ? [] : selectedLibraryIds,
     })
@@ -220,7 +223,27 @@ export const UserEditorModal = ({
                   />
                 </label>
               </>
-            ) : null}
+            ) : (
+              <>
+                <div className="field">
+                  <span>{l('Account')}</span>
+                  <strong className="user-editor-modal__readonly-value">{user?.username}</strong>
+                </div>
+
+                <label className="field">
+                  <span>{l('Nickname')}</span>
+                  <input
+                    autoComplete="off"
+                    maxLength={USER_NICKNAME_MAX_LENGTH}
+                    onChange={(event) => setNickname(event.target.value)}
+                    placeholder={user?.username}
+                    spellCheck={false}
+                    type="text"
+                    value={nickname}
+                  />
+                </label>
+              </>
+            )}
 
             {shouldShowRoleField ? (
               <div className="field">

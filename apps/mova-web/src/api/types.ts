@@ -392,7 +392,6 @@ export interface CreateUserInput {
 }
 
 export interface UpdateUserInput {
-  username?: string
   nickname?: string
   role?: UserRole
   is_enabled?: boolean

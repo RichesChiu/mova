@@ -31,7 +31,6 @@ pub struct CreateUserInput {
 
 #[derive(Debug, Clone, Default)]
 pub struct UpdateUserInput {
-    pub username: Option<String>,
     pub nickname: Option<String>,
     pub role: Option<String>,
     pub is_enabled: Option<bool>,
@@ -437,11 +436,7 @@ pub async fn update_user(
     let existing = get_user(pool, user_id).await?;
     validate_self_user_management(actor_user_id, user_id, &input)?;
 
-    let username = match input.username {
-        Some(username) => normalize_username(username)?,
-        None => existing.user.username.clone(),
-    };
-    let nickname = normalize_nickname(input.nickname, &username)?;
+    let nickname = normalize_nickname(input.nickname, &existing.user.username)?;
     let role = match input.role {
         Some(role) => normalize_user_role(role)?,
         None => existing.user.role,
@@ -461,7 +456,6 @@ pub async fn update_user(
         pool,
         user_id,
         mova_db::UpdateUserParams {
-            username,
             nickname,
             role,
             is_enabled,

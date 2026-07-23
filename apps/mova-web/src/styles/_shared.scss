@@ -370,10 +370,16 @@
 }
 
 .status-pill--compact {
-  min-height: 24px;
-  padding: 0 9px;
-  font-size: 0.68rem;
+  min-height: 22px;
+  padding: 0 7px;
+  font-size: 0.66rem;
   line-height: 1;
+}
+
+.status-pill {
+  flex: 0 0 auto;
+  border-radius: var(--radius-tag);
+  white-space: nowrap;
 }
 
 .counter-badge,

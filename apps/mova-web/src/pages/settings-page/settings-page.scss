@@ -373,7 +373,14 @@
   gap: 8px;
 }
 
-.settings-user-card__identity > strong {
+.settings-user-card__nickname-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.settings-user-card__nickname {
+  display: block;
   min-width: 0;
   overflow: hidden;
   color: var(--text);
@@ -383,11 +390,16 @@
   white-space: nowrap;
 }
 
+.settings-user-card__nickname--empty {
+  color: var(--text-soft);
+}
+
 .settings-user-card__identity-meta {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: flex-start;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
 }
 
@@ -417,7 +429,7 @@
   gap: 8px;
 }
 
-.settings-user-card__nickname {
+.settings-user-card__account {
   min-width: 0;
   min-height: 1.1rem;
   margin: 0;
@@ -427,10 +439,6 @@
   line-height: 1.1rem;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.settings-user-card__nickname--empty {
-  color: var(--text-soft);
 }
 
 .settings-user-card__controls {
@@ -614,10 +622,6 @@
 @media (max-width: 720px) {
   .settings-user-card {
     padding-inline: 14px;
-  }
-
-  .settings-user-card__identity {
-    flex-wrap: wrap;
   }
 }
 

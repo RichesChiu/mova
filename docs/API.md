@@ -147,7 +147,7 @@
 
 ## 2. 认证与用户
 
-所有认证和用户管理接口继续使用 `username` 作为请求字段名，界面将它展示为登录账户。服务端会去除首尾空白，并限制为 1–254 个字符，因此可以使用普通账号名或邮箱形式的登录标识；邮箱形式只作为精确匹配的账户字符串，不代表 Mova 会校验邮箱归属或发送邮件。已有 pre-1.0 数据库需要重建 `data/postgres/`，才能把底层 `users.username` 字段从 64 个字符扩展到 254 个字符。
+初始化、登录和创建用户接口使用 `username` 作为登录账户字段，界面将它展示为账户。服务端会去除首尾空白，并限制为 1–254 个字符，因此可以使用普通账号名或邮箱形式的登录标识；邮箱形式只作为精确匹配的账户字符串，不代表 Mova 会校验邮箱归属或发送邮件。账户创建后不可修改，用户只能修改昵称。已有 pre-1.0 数据库需要重建 `data/postgres/`，才能把底层 `users.username` 字段从 64 个字符扩展到 254 个字符。
 
 ### `GET /api/auth/bootstrap-status`
 
@@ -541,13 +541,12 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 ### `PATCH /api/users/{id}`
 
 作用：
-- 管理员更新用户基础信息
+- 管理员更新用户昵称、角色、启用状态和媒体库访问范围
 
 请求体：
 
 ```json
 {
-  "username": "viewer01",
   "nickname": "Cinema Fan",
   "role": "viewer",
   "is_enabled": true,
@@ -557,6 +556,8 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 
 字段说明：
 - 所有字段都可选，不传表示保持原值
+- `nickname`：用户可修改的展示名称；去除首尾空白后最多 128 个字符，传入空白值会恢复为账户名称
+- `username` 不属于该接口；登录账户创建后不可修改，提交该字段会返回请求校验错误
 - `library_ids` 是更新 `viewer` 媒体库访问范围的唯一字段；传入数组会整体替换原授权，不传则保持原值
 - `library_ids` 只对 `viewer` 生效；更新为 `admin` 时会自动清空库授权
 

@@ -83,6 +83,23 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+.user-editor-modal__readonly-value {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 14px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--input-border) 72%, transparent);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--input-background) 58%, transparent);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .user-editor-modal__access-grid {
   display: flex;
   flex-wrap: wrap;
