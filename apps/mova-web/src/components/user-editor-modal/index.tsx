@@ -9,12 +9,11 @@ import type {
 } from '../../api/types'
 import { useI18n } from '../../i18n'
 import { usePresenceTransition } from '../../lib/use-presence-transition'
-import { USER_ACCOUNT_MAX_LENGTH, USER_NICKNAME_MAX_LENGTH } from '../../lib/user-account'
+import { USER_ACCOUNT_MAX_LENGTH } from '../../lib/user-account'
 import { GlassSelect } from '../glass-select'
 import { LibraryAccessOption } from './library-access-option'
 
 interface UserEditorModalProps {
-  currentUserId: number
   currentUserIsPrimaryAdmin: boolean
   error: string | null
   isOpen: boolean
@@ -28,7 +27,6 @@ interface UserEditorModalProps {
 }
 
 export const UserEditorModal = ({
-  currentUserId,
   currentUserIsPrimaryAdmin,
   error,
   isOpen,
@@ -43,7 +41,6 @@ export const UserEditorModal = ({
   const { l } = useI18n()
   const modalPresence = usePresenceTransition(isOpen)
   const [username, setUsername] = useState('')
-  const [nickname, setNickname] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<UserRole>('viewer')
   const [selectedLibraryIds, setSelectedLibraryIds] = useState<number[]>([])
@@ -63,9 +60,7 @@ export const UserEditorModal = ({
     [libraries],
   )
   const isCreateMode = mode === 'create'
-  const isEditingSelf = !isCreateMode && user?.id === currentUserId
-  const canEditRole = currentUserIsPrimaryAdmin && !isEditingSelf
-  const shouldShowRoleField = isCreateMode || (canEditRole && !user?.is_primary_admin)
+  const shouldShowRoleField = isCreateMode || (currentUserIsPrimaryAdmin && !user?.is_primary_admin)
 
   useEffect(() => {
     if (!isOpen) {
@@ -74,7 +69,6 @@ export const UserEditorModal = ({
 
     // 打开弹窗时总是把表单重置到当前模式对应的数据，避免上一次编辑残留到下一次创建。
     setUsername(user?.username ?? '')
-    setNickname(user?.nickname ?? '')
     setPassword('')
     setRole(user?.role ?? 'viewer')
     setSelectedLibraryIds(user?.library_ids ?? [])
@@ -129,7 +123,6 @@ export const UserEditorModal = ({
     }
 
     await onUpdate(user.id, {
-      nickname: nickname.trim(),
       role,
       library_ids: role === 'admin' ? [] : selectedLibraryIds,
     })
@@ -148,10 +141,6 @@ export const UserEditorModal = ({
     : isSubmitting
       ? l('Saving…')
       : l('Save Changes')
-  const gridClassName = isCreateMode
-    ? 'user-editor-modal__grid'
-    : 'user-editor-modal__grid user-editor-modal__grid--single'
-
   return createPortal(
     <div
       className="user-editor-modal overlay-transition"
@@ -196,73 +185,61 @@ export const UserEditorModal = ({
         </div>
 
         <form className="stack" onSubmit={handleSubmit}>
-          <div className={gridClassName}>
-            {isCreateMode ? (
-              <>
-                <label className="field">
-                  <span>{l('Account')}</span>
-                  <input
-                    autoComplete="username"
-                    maxLength={USER_ACCOUNT_MAX_LENGTH}
-                    onChange={(event) => setUsername(event.target.value)}
-                    placeholder={l('Enter the account used to sign in')}
-                    spellCheck={false}
-                    type="text"
-                    value={username}
-                  />
-                </label>
+          {isCreateMode || shouldShowRoleField ? (
+            <div
+              className={
+                isCreateMode
+                  ? 'user-editor-modal__grid'
+                  : 'user-editor-modal__grid user-editor-modal__grid--single'
+              }
+            >
+              {isCreateMode ? (
+                <>
+                  <label className="field">
+                    <span>{l('Account')}</span>
+                    <input
+                      autoComplete="username"
+                      maxLength={USER_ACCOUNT_MAX_LENGTH}
+                      onChange={(event) => setUsername(event.target.value)}
+                      placeholder={l('Enter the account used to sign in')}
+                      spellCheck={false}
+                      type="text"
+                      value={username}
+                    />
+                  </label>
 
-                <label className="field">
-                  <span>{l('Password')}</span>
-                  <input
-                    autoComplete="new-password"
-                    onChange={(event) => setPassword(event.target.value)}
-                    placeholder={l('At least 8 characters')}
-                    type="password"
-                    value={password}
-                  />
-                </label>
-              </>
-            ) : (
-              <>
+                  <label className="field">
+                    <span>{l('Password')}</span>
+                    <input
+                      autoComplete="new-password"
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder={l('At least 8 characters')}
+                      type="password"
+                      value={password}
+                    />
+                  </label>
+                </>
+              ) : null}
+
+              {shouldShowRoleField ? (
                 <div className="field">
-                  <span>{l('Account')}</span>
-                  <strong className="user-editor-modal__readonly-value">{user?.username}</strong>
-                </div>
-
-                <label className="field">
-                  <span>{l('Nickname')}</span>
-                  <input
-                    autoComplete="off"
-                    maxLength={USER_NICKNAME_MAX_LENGTH}
-                    onChange={(event) => setNickname(event.target.value)}
-                    placeholder={user?.username}
-                    spellCheck={false}
-                    type="text"
-                    value={nickname}
+                  <span>{l('Role')}</span>
+                  <GlassSelect
+                    ariaLabel={l('User role')}
+                    onChange={(value) => {
+                      const nextRole = value as UserRole
+                      setRole(nextRole)
+                      if (nextRole === 'admin') {
+                        setSelectedLibraryIds([])
+                      }
+                    }}
+                    options={roleOptions}
+                    value={role}
                   />
-                </label>
-              </>
-            )}
-
-            {shouldShowRoleField ? (
-              <div className="field">
-                <span>{l('Role')}</span>
-                <GlassSelect
-                  ariaLabel={l('User role')}
-                  onChange={(value) => {
-                    const nextRole = value as UserRole
-                    setRole(nextRole)
-                    if (nextRole === 'admin') {
-                      setSelectedLibraryIds([])
-                    }
-                  }}
-                  options={roleOptions}
-                  value={role}
-                />
-              </div>
-            ) : null}
-          </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {role === 'viewer' ? (
             <div className="field">

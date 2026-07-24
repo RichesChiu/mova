@@ -113,7 +113,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       { method: 'PUT', path: '/api/auth/password', description: '当前用户修改自己的密码' },
       { method: 'GET', path: '/api/users', description: '查询用户列表（管理员）' },
       { method: 'POST', path: '/api/users', description: '创建用户（管理员）' },
-      { method: 'PATCH', path: '/api/users/{id}', description: '更新用户基础信息（管理员）' },
+      { method: 'PATCH', path: '/api/users/{id}', description: '更新低权限用户的角色与媒体库权限（管理员）' },
       { method: 'DELETE', path: '/api/users/{id}', description: '删除用户（管理员）' },
       { method: 'PUT', path: '/api/users/{id}/password', description: '管理员重置指定用户密码' },
     ],
@@ -156,6 +156,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '媒体库统一自动识别电影和剧集，不再要求用户手动选择库类型。',
       'metadata_language 支持 zh-CN / en-US，影响扫描和 TMDB 元数据补全语言。',
       '创建媒体库后会自动触发一次后台扫描；媒体库不提供启用/禁用状态。',
+      '删除媒体库会由数据库级联清理权威数据，并持久化后台任务删除该库独立的图片、字幕和音轨缓存。',
       '搜索会在当前用户可见库内匹配电影、剧集和本地可用的集条目。',
     ],
     endpoints: [

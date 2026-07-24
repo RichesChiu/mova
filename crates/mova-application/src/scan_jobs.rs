@@ -897,6 +897,7 @@ async fn enrich_discovered_groups(
 ) -> ApplicationResult<RemoteScanPipelineOutcome> {
     let mut enrichment = MetadataEnrichmentContext::new(
         artwork_cache_dir,
+        library.id,
         metadata_provider.clone(),
         library.metadata_language.clone(),
     );

@@ -25,7 +25,11 @@ export const LibraryAccessOption = ({ checked, library, onToggle }: LibraryAcces
         type="checkbox"
       />
 
-      <HoverTooltip className="user-editor-modal__access-chip-text-wrap" content={library.name}>
+      <HoverTooltip
+        className="user-editor-modal__access-chip-text-wrap"
+        content={library.name}
+        showOnlyWhenTruncated
+      >
         <span className="user-editor-modal__access-chip-title">{library.name}</span>
       </HoverTooltip>
     </label>

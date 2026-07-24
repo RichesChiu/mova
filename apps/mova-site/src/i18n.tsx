@@ -162,7 +162,8 @@ const translations: Record<string, string> = {
   当前用户修改自己的密码: 'Change the current user password',
   '查询用户列表（管理员）': 'List users (admin)',
   '创建用户（管理员）': 'Create a user (admin)',
-  '更新用户基础信息（管理员）': 'Update basic user information (admin)',
+  '更新低权限用户的角色与媒体库权限（管理员）':
+    'Update roles and library access for lower-privilege users (admin)',
   '删除用户（管理员）': 'Delete a user (admin)',
   管理员重置指定用户密码: 'Reset a user password (admin)',
   通知中心: 'Notifications',
@@ -198,6 +199,8 @@ const translations: Record<string, string> = {
     'metadata_language supports zh-CN and en-US and controls scanning and TMDB metadata language.',
   '创建媒体库后会自动触发一次后台扫描；媒体库不提供启用/禁用状态。':
     'Creating a library automatically starts a background scan; libraries do not have an enabled/disabled state.',
+  '删除媒体库会由数据库级联清理权威数据，并持久化后台任务删除该库独立的图片、字幕和音轨缓存。':
+    'Deleting a library cascades its authoritative database data and persists a background job that removes the library-scoped artwork, subtitle, and audio caches.',
   '搜索会在当前用户可见库内匹配电影、剧集和本地可用的集条目。':
     'Search matches movies, series, and locally available episodes in libraries visible to the current user.',
   查询媒体库列表: 'List media libraries',

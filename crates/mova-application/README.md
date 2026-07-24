@@ -78,6 +78,7 @@
 | `src/media_classification.rs` | 媒体库类型和电影/剧集归类辅助逻辑。 |
 | `src/playback_header.rs` | 播放器页头部信息查询。 |
 | `src/playback_progress.rs` | 单条播放进度、继续观看和播放进度写入。 |
+| `src/cache.rs` | 按媒体库隔离图片、字幕和音轨缓存路径，并提供幂等的整库缓存命名空间删除。 |
 
 ## 5. 主要导出能力
 
@@ -91,6 +92,8 @@
 - `list_libraries`
 - `get_library`
 - `get_library_detail`
+
+`delete_library` 只编排权威数据库删除与持久化缓存清理任务入队。缓存文件由后台 worker 删除，不在 HTTP 请求中执行尽力清理。
 
 ### 首页
 

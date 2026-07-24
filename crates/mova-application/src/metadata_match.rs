@@ -111,6 +111,7 @@ pub async fn apply_media_item_metadata_match(
     })?;
     let mut enrichment = MetadataEnrichmentContext::new(
         artwork_cache_dir,
+        library.id,
         metadata_provider.clone(),
         library.metadata_language.clone(),
     );

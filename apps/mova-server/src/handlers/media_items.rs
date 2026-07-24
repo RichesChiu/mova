@@ -176,7 +176,7 @@ pub async fn apply_media_item_metadata_match(
         mova_application::ApplyMetadataMatchInput {
             provider_item_id: request.provider_item_id,
         },
-        state.artwork_cache_dir.clone(),
+        state.cache_dir.clone(),
         state.metadata_provider.clone(),
     )
     .await
@@ -202,7 +202,7 @@ pub async fn refresh_media_item_metadata(
     let refreshed = mova_application::refresh_media_item_metadata(
         &state.db,
         media_item_id,
-        state.artwork_cache_dir.clone(),
+        state.cache_dir.clone(),
         state.metadata_provider.clone(),
     )
     .await

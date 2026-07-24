@@ -5,6 +5,20 @@ export type UserRolePresentation = {
   tone: 'system-admin' | 'admin' | 'user'
 }
 
+const getUserManagementLevel = (user: Pick<UserAccount, 'is_primary_admin' | 'role'>): number => {
+  if (user.is_primary_admin) {
+    return 2
+  }
+
+  return user.role === 'admin' ? 1 : 0
+}
+
+export const canManageUser = (
+  actor: Pick<UserAccount, 'id' | 'is_primary_admin' | 'role'>,
+  target: Pick<UserAccount, 'id' | 'is_primary_admin' | 'role'>,
+): boolean =>
+  actor.id !== target.id && getUserManagementLevel(actor) > getUserManagementLevel(target)
+
 export const getUserRolePresentation = (
   user: Pick<UserAccount, 'is_primary_admin' | 'role'>,
 ): UserRolePresentation => {

@@ -61,6 +61,15 @@ export interface ScanNotificationPayload {
   issues: ScanNotificationIssue[]
 }
 
+export interface CacheCleanupFailureNotificationPayload {
+  background_job_id: number
+  library_id: number
+  library_name: string
+  attempt_count: number
+  max_attempts: number
+  error_message: string
+}
+
 export interface NotificationItem {
   id: number
   category: NotificationCategory
@@ -384,7 +393,6 @@ export interface BootstrapAdminInput {
 
 export interface CreateUserInput {
   username: string
-  nickname?: string
   password: string
   role: UserRole
   is_enabled: boolean
@@ -392,7 +400,6 @@ export interface CreateUserInput {
 }
 
 export interface UpdateUserInput {
-  nickname?: string
   role?: UserRole
   is_enabled?: boolean
   library_ids?: number[]

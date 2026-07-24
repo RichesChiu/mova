@@ -23,6 +23,11 @@ pub struct UpdateLibraryParams {
     pub metadata_language: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DeleteLibraryResult {
+    pub cache_cleanup_job_id: i64,
+}
+
 /// 按创建时间顺序读取可见媒体库列表，保证接口返回顺序稳定。
 pub async fn list_libraries(
     pool: &PgPool,
@@ -247,104 +252,10 @@ pub async fn mark_library_media_for_metadata_rescan(pool: &PgPool, library_id: i
     Ok(result.rows_affected())
 }
 
-/// 列出指定媒体库当前引用的所有 artwork 路径，供删除库前收集文件系统清理候选。
-pub async fn list_library_artwork_paths(pool: &PgPool, library_id: i64) -> Result<Vec<String>> {
-    let rows = sqlx::query(
-        r#"
-        select distinct artwork_path
-        from (
-            select poster_path as artwork_path
-            from media_items
-            where library_id = $1
-            union all
-            select backdrop_path as artwork_path
-            from media_items
-            where library_id = $1
-            union all
-            select logo_path as artwork_path
-            from media_items
-            where library_id = $1
-            union all
-            select s.poster_path as artwork_path
-            from seasons s
-            join media_items mi on mi.id = s.series_id
-            where mi.library_id = $1
-            union all
-            select s.backdrop_path as artwork_path
-            from seasons s
-            join media_items mi on mi.id = s.series_id
-            where mi.library_id = $1
-            union all
-            select cast_member.profile_path as artwork_path
-            from media_item_cast_members cast_member
-            join media_items mi on mi.id = cast_member.media_item_id
-            where mi.library_id = $1
-        ) artwork_paths
-        where artwork_path is not null
-          and btrim(artwork_path) <> ''
-        order by artwork_path asc
-        "#,
-    )
-    .bind(library_id)
-    .fetch_all(pool)
-    .await
-    .context("failed to list library artwork paths")?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| row.get::<String, _>("artwork_path"))
-        .collect())
-}
-
-/// 从候选 artwork 路径中返回仍被任意数据库记录引用的路径。
-pub async fn list_referenced_artwork_paths(
-    pool: &PgPool,
-    artwork_paths: &[String],
-) -> Result<Vec<String>> {
-    if artwork_paths.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let rows = sqlx::query(
-        r#"
-        select distinct artwork_path
-        from (
-            select poster_path as artwork_path
-            from media_items
-            union all
-            select backdrop_path as artwork_path
-            from media_items
-            union all
-            select logo_path as artwork_path
-            from media_items
-            union all
-            select poster_path as artwork_path
-            from seasons
-            union all
-            select backdrop_path as artwork_path
-            from seasons
-            union all
-            select profile_path as artwork_path
-            from media_item_cast_members
-        ) artwork_paths
-        where artwork_path = any($1)
-        order by artwork_path asc
-        "#,
-    )
-    .bind(artwork_paths)
-    .fetch_all(pool)
-    .await
-    .context("failed to list referenced artwork paths")?;
-
-    Ok(rows
-        .into_iter()
-        .map(|row| row.get::<String, _>("artwork_path"))
-        .collect())
-}
-
-/// 删除媒体库，并显式清理该库拥有的扫描任务和媒体数据。
-/// 删除前复用与扫描入队相同的 advisory lock，避免和新的扫描任务创建并发交错。
-pub async fn delete_library(pool: &PgPool, library_id: i64) -> Result<bool> {
+/// 删除媒体库的权威数据库记录，并在同一个事务中持久化独立缓存清理任务。
+/// 所有库归属数据都依靠外键级联删除；扫描后台任务会先进入取消状态并保留到执行器退出，
+/// 从而保证缓存清理不会与仍在运行的扫描并发写入同一个库命名空间。
+pub async fn delete_library(pool: &PgPool, library_id: i64) -> Result<Option<DeleteLibraryResult>> {
     let mut tx = pool
         .begin()
         .await
@@ -356,162 +267,88 @@ pub async fn delete_library(pool: &PgPool, library_id: i64) -> Result<bool> {
         .await
         .context("failed to acquire library deletion lock")?;
 
-    for (statement, error_context) in library_cleanup_statements() {
-        sqlx::query(statement)
-            .bind(library_id)
-            .execute(&mut *tx)
-            .await
-            .context(error_context)?;
-    }
-
-    let result = sqlx::query(
+    let library_name = sqlx::query_scalar::<_, String>(
         r#"
-        delete from libraries
+        select name
+        from libraries
         where id = $1
+        for update
+        "#,
+    )
+    .bind(library_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("failed to lock library for deletion")?;
+    let Some(library_name) = library_name else {
+        tx.commit()
+            .await
+            .context("failed to commit missing library deletion transaction")?;
+        return Ok(None);
+    };
+
+    sqlx::query(
+        r#"
+        update background_jobs
+        set status = case
+                when status = 'pending' then 'cancelled'
+                else 'cancel_requested'
+            end,
+            finished_at = case
+                when status = 'pending' then now()
+                else finished_at
+            end,
+            updated_at = now()
+        where job_type = 'library.scan'
+          and scope_type = 'library'
+          and scope_id = $1
+          and status in ('pending', 'running')
         "#,
     )
     .bind(library_id)
     .execute(&mut *tx)
     .await
-    .context("failed to delete library")?;
+    .context("failed to cancel library scan background jobs")?;
+
+    sqlx::query("delete from libraries where id = $1")
+        .bind(library_id)
+        .execute(&mut *tx)
+        .await
+        .context("failed to cascade delete library")?;
+
+    let cache_cleanup_job_id = sqlx::query_scalar::<_, i64>(
+        r#"
+        insert into background_jobs (
+            job_type,
+            scope_type,
+            scope_id,
+            payload,
+            status,
+            max_attempts
+        )
+        values (
+            'library.cache.cleanup',
+            'library',
+            $1,
+            jsonb_build_object('library_id', $1, 'library_name', $2),
+            'pending',
+            10
+        )
+        returning id
+        "#,
+    )
+    .bind(library_id)
+    .bind(library_name)
+    .fetch_one(&mut *tx)
+    .await
+    .context("failed to enqueue library cache cleanup job")?;
 
     tx.commit()
         .await
         .context("failed to commit library deletion transaction")?;
 
-    Ok(result.rows_affected() > 0)
-}
-
-fn library_cleanup_statements() -> [(&'static str, &'static str); 15] {
-    [
-        (
-            r#"
-            delete from continue_watching cw
-            using media_files mf
-            where cw.media_file_id = mf.id
-              and mf.library_id = $1
-            "#,
-            "failed to delete library continue watching items by media file",
-        ),
-        (
-            r#"
-            delete from continue_watching cw
-            using media_items mi
-            where (cw.media_item_id = mi.id or cw.last_played_media_item_id = mi.id)
-              and mi.library_id = $1
-            "#,
-            "failed to delete library continue watching items by media item",
-        ),
-        (
-            r#"
-            delete from playback_progress pp
-            using media_files mf
-            where pp.media_file_id = mf.id
-              and mf.library_id = $1
-            "#,
-            "failed to delete library playback progress by media file",
-        ),
-        (
-            r#"
-            delete from playback_progress pp
-            using media_items mi
-            where pp.media_item_id = mi.id
-              and mi.library_id = $1
-            "#,
-            "failed to delete library playback progress by media item",
-        ),
-        (
-            r#"
-            delete from subtitle_files sf
-            using media_files mf
-            where sf.media_file_id = mf.id
-              and mf.library_id = $1
-            "#,
-            "failed to delete library subtitles",
-        ),
-        (
-            r#"
-            delete from audio_tracks at
-            using media_files mf
-            where at.media_file_id = mf.id
-              and mf.library_id = $1
-            "#,
-            "failed to delete library audio tracks",
-        ),
-        (
-            r#"
-            delete from media_files
-            where library_id = $1
-            "#,
-            "failed to delete library media files",
-        ),
-        (
-            r#"
-            delete from series_episode_outline_cache outline
-            using media_items mi
-            where outline.series_media_item_id = mi.id
-              and mi.library_id = $1
-            "#,
-            "failed to delete library series outline cache",
-        ),
-        (
-            r#"
-            delete from media_item_cast_members cast_member
-            using media_items mi
-            where cast_member.media_item_id = mi.id
-              and mi.library_id = $1
-            "#,
-            "failed to delete library cast members",
-        ),
-        (
-            r#"
-            delete from media_item_cast_cache cast_cache
-            using media_items mi
-            where cast_cache.media_item_id = mi.id
-              and mi.library_id = $1
-            "#,
-            "failed to delete library cast cache",
-        ),
-        (
-            r#"
-            delete from episodes episode
-            using media_items mi
-            where (episode.media_item_id = mi.id or episode.series_id = mi.id)
-              and mi.library_id = $1
-            "#,
-            "failed to delete library episodes",
-        ),
-        (
-            r#"
-            delete from seasons season
-            using media_items mi
-            where season.series_id = mi.id
-              and mi.library_id = $1
-            "#,
-            "failed to delete library seasons",
-        ),
-        (
-            r#"
-            delete from media_items
-            where library_id = $1
-            "#,
-            "failed to delete library media items",
-        ),
-        (
-            r#"
-            delete from scan_jobs
-            where library_id = $1
-            "#,
-            "failed to delete library scan jobs",
-        ),
-        (
-            r#"
-            delete from user_library_access
-            where library_id = $1
-            "#,
-            "failed to delete library user access rows",
-        ),
-    ]
+    Ok(Some(DeleteLibraryResult {
+        cache_cleanup_job_id,
+    }))
 }
 
 /// 把 SQL 查询结果映射成领域对象，供上层统一使用。

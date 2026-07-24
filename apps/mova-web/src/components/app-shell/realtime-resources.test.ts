@@ -39,6 +39,7 @@ describe('realtime resource query mapping', () => {
 
   it('deduplicates shared query keys across a server batch', () => {
     const keys = getRealtimeResourcesQueryKeys([
+      'admin:notifications',
       'library:7:catalog',
       'library:7:scan',
       'library:7:notifications',
@@ -48,5 +49,9 @@ describe('realtime resource query mapping', () => {
     expect(keys.filter((queryKey) => JSON.stringify(queryKey) === '["home"]')).toHaveLength(1)
     expect(keys.filter((queryKey) => JSON.stringify(queryKey) === '["library",7]')).toHaveLength(1)
     expect(keys).toContainEqual(['notifications'])
+  })
+
+  it('maps administrator notification revisions to the notification feed', () => {
+    expect(getRealtimeResourceQueryKeys('admin:notifications')).toEqual([['notifications']])
   })
 })

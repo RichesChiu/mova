@@ -84,7 +84,7 @@
 | `PUT` | `/api/auth/password` | 当前用户修改自己的密码 |
 | `GET` | `/api/users` | 查询用户列表（管理员） |
 | `POST` | `/api/users` | 创建用户（管理员） |
-| `PATCH` | `/api/users/{id}` | 更新用户基础信息（管理员） |
+| `PATCH` | `/api/users/{id}` | 更新低权限用户的角色、状态和媒体库权限（管理员） |
 | `DELETE` | `/api/users/{id}` | 删除用户（管理员） |
 | `PUT` | `/api/users/{id}/password` | 管理员重置指定用户密码 |
 | `GET` | `/api/notifications` | 查询当前用户可见的通用通知和分类未读数 |
@@ -147,7 +147,7 @@
 
 ## 2. 认证与用户
 
-初始化、登录和创建用户接口使用 `username` 作为登录账户字段，界面将它展示为账户。服务端会去除首尾空白，并限制为 1–254 个字符，因此可以使用普通账号名或邮箱形式的登录标识；邮箱形式只作为精确匹配的账户字符串，不代表 Mova 会校验邮箱归属或发送邮件。账户创建后不可修改，用户只能修改昵称。已有 pre-1.0 数据库需要重建 `data/postgres/`，才能把底层 `users.username` 字段从 64 个字符扩展到 254 个字符。
+初始化、登录和创建用户接口使用 `username` 作为登录账户字段，界面将它展示为账户。服务端会去除首尾空白，并限制为 1–254 个字符，因此可以使用普通账号名或邮箱形式的登录标识；邮箱形式只作为精确匹配的账户字符串，不代表 Mova 会校验邮箱归属或发送邮件。账户创建后不可修改，昵称初始化为账户名称，之后只能由用户本人通过个人设置修改。已有 pre-1.0 数据库需要重建 `data/postgres/`，才能把底层 `users.username` 字段从 64 个字符扩展到 254 个字符。
 
 ### `GET /api/auth/bootstrap-status`
 
@@ -338,6 +338,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 说明：
 - 昵称留空时，服务端会自动回退为用户名
+- 这是修改昵称的唯一接口，管理员用户管理接口不能修改其他用户的昵称
 - 成功后会直接返回更新后的当前用户对象
 - 支持 cookie 和 Bearer token 两种登录态
 
@@ -521,7 +522,6 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 ```json
 {
   "username": "viewer01",
-  "nickname": "Cinema Fan",
   "password": "viewer1234",
   "role": "viewer",
   "is_enabled": true,
@@ -531,6 +531,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 
 字段说明：
 - `username`：用于登录的账户；服务端会去除首尾空白，长度必须为 1–254 个字符，可使用普通账号名或邮箱形式的精确匹配字符串
+- 新用户的 `nickname` 会初始化为规范化后的 `username`；请求不能指定昵称，用户登录后只能通过 `PATCH /api/auth/me` 修改自己的昵称
 - `role`：只支持 `admin` / `viewer`
 - `library_ids`：只对 `viewer` 生效；`admin` 会忽略这个字段
 
@@ -541,13 +542,12 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 ### `PATCH /api/users/{id}`
 
 作用：
-- 管理员更新用户昵称、角色、启用状态和媒体库访问范围
+- 管理员更新低权限用户的角色、启用状态和媒体库访问范围
 
 请求体：
 
 ```json
 {
-  "nickname": "Cinema Fan",
   "role": "viewer",
   "is_enabled": true,
   "library_ids": [1, 2]
@@ -556,14 +556,13 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 
 字段说明：
 - 所有字段都可选，不传表示保持原值
-- `nickname`：用户可修改的展示名称；去除首尾空白后最多 128 个字符，传入空白值会恢复为账户名称
-- `username` 不属于该接口；登录账户创建后不可修改，提交该字段会返回请求校验错误
+- `username` 和 `nickname` 都不属于该接口；账户不可修改，昵称只能由用户本人通过 `PATCH /api/auth/me` 修改，提交这些字段会返回请求校验错误
 - `library_ids` 是更新 `viewer` 媒体库访问范围的唯一字段；传入数组会整体替换原授权，不传则保持原值
 - `library_ids` 只对 `viewer` 生效；更新为 `admin` 时会自动清空库授权
 
 关键约束：
-- 当前用户不能通过该接口禁用自己
-- 当前用户不能通过该接口修改自己的角色
+- 权限层级固定为“主管理员 > 管理员 > 普通用户”，调用者只能管理权限层级严格低于自己的用户
+- 当前用户不能通过该接口修改自己
 - 不能降级、禁用最后一个启用中的管理员
 - 禁用用户后，服务端会清理该用户现有 Web session 和原生客户端 access/refresh token 会话
 - 只有主管理员可以编辑普通管理员
@@ -690,6 +689,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - `is_read` / `read_at` 是当前登录用户自己的状态；同一条 server、admin 或 library 通知可以被不同用户独立阅读。
 - `payload` 是按 `notification_type` 区分的扩展对象。扫描通知包含任务级计数，并最多内嵌 20 个未匹配、provider 失败或本地探测警告的问题摘要；`issue_count` 可能大于 `issues.length`。
 - 扫描摘要由 worker 在远端组成功提交后累计，并在任务终态直接写入通知；服务端不提供第二套扫描报告接口。更底层的网络、provider 与 `ffprobe` 排障信息由运维侧查看服务日志。
+- `cache.cleanup.failed` 是仅管理员可见的 `system / error` 通知。它表示媒体库权威数据已经删除，但 `MOVA_CACHE_DIR/libraries/{library_id}` 在 10 次尝试后仍无法移除；payload 包含 `background_job_id`、`library_id`、删除前的 `library_name`、`attempt_count`、`max_attempts` 和 `error_message`。
 
 ### `PUT /api/notifications/{id}/read`
 
@@ -960,9 +960,11 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 
 说明：
 - 删除前服务会先把该库标记为“正在删除”，阻止新的扫描请求进入
-- 如果当前库有正在执行的扫描任务，服务会先请求取消并等待它退出，再真正删除库
-- 删除库时服务会在同一事务内显式清理该库的扫描任务、授权关系、媒体条目、资源文件、字幕、音轨、季集、演员缓存和播放进度，再删除 `libraries` 记录
-- 删除库后，服务会清理该库曾引用且不再被任何剩余媒体、季或演员记录引用的 `MOVA_CACHE_DIR/tmdb` 本地图片缓存；媒体目录里的 sidecar 图片不会被删除
+- 如果当前进程有正在执行的扫描任务，服务会先请求取消并等待它退出；删除事务还会把其它 worker 实例持有的同库扫描任务标记为取消
+- 删除事务只删除 `libraries` 权威记录；扫描任务、授权关系、媒体条目、资源文件、字幕、音轨、季集、演员、评分、外部 ID、通知和播放进度全部依靠数据库外键 `ON DELETE CASCADE` 清理
+- 同一个数据库事务会持久化一条 `library.cache.cleanup` 后台任务。事务提交后 API 即返回成功，后台 worker 再删除 `MOVA_CACHE_DIR/libraries/{library_id}` 完整缓存命名空间
+- 每个媒体库的 TMDB 图片、WebVTT 字幕和音轨 remux 缓存都位于自己的库命名空间；媒体目录及其中的 NFO、sidecar 图片和字幕不会被修改
+- 缓存清理最多尝试 10 次。服务重启或 worker 租约过期后任务会继续执行；重试耗尽时管理员通知中心会出现 `cache.cleanup.failed`
 - 如果同一时间重复删除同一个库，或扫描仍在停止过程中，会返回 `409 Conflict`
 
 ### `PATCH /api/libraries/{id}`

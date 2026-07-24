@@ -1890,6 +1890,7 @@ fn map_global_search_result_row(row: PgRow) -> GlobalSearchResult {
 fn map_media_file_row(row: PgRow) -> MediaFile {
     MediaFile {
         id: row.get("id"),
+        library_id: row.get("library_id"),
         media_item_id: row.get("media_item_id"),
         file_path: row.get("file_path"),
         container: row.get("container"),

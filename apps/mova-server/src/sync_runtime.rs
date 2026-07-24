@@ -16,6 +16,11 @@ struct LibraryScanJobPayload {
     scan_job_id: i64,
 }
 
+#[derive(Debug, Deserialize)]
+struct LibraryCacheCleanupJobPayload {
+    library_id: i64,
+}
+
 pub fn start_background_workers(state: AppState, concurrency: usize) {
     for worker_index in 0..concurrency.max(1) {
         let worker_state = state.clone();
@@ -55,19 +60,30 @@ async fn run_background_worker(state: AppState, worker_id: String) {
 
         let result = match job.job_type.as_str() {
             "library.scan" => execute_library_scan_background_job(&state, &worker_id, &job).await,
+            "library.cache.cleanup" => {
+                execute_library_cache_cleanup_background_job(&state, &worker_id, &job).await
+            }
             unsupported => Err(anyhow::anyhow!(
                 "unsupported background job type: {unsupported}"
             )),
         };
 
         match result {
-            Ok(()) => {
-                if let Err(error) =
-                    mova_db::complete_background_job(&state.db, job.id, &worker_id).await
-                {
+            Ok(()) => match mova_db::complete_background_job(&state.db, job.id, &worker_id).await {
+                Ok(Some(status)) => tracing::info!(
+                    job_id = job.id,
+                    job_type = job.job_type,
+                    %status,
+                    "background job completed"
+                ),
+                Ok(None) => tracing::warn!(
+                    job_id = job.id,
+                    "background job completion was rejected because its lease is no longer owned"
+                ),
+                Err(error) => {
                     tracing::warn!(job_id = job.id, error = ?error, "failed to complete background job");
                 }
-            }
+            },
             Err(error) => {
                 let retry_delay_seconds = i64::from(job.attempt_count.max(1)).pow(2) * 2;
                 let error_message = error.to_string();
@@ -81,13 +97,37 @@ async fn run_background_worker(state: AppState, worker_id: String) {
                 .await
                 {
                     Ok(Some(status)) => {
-                        tracing::warn!(
-                            job_id = job.id,
-                            attempt = job.attempt_count,
-                            %status,
-                            error = ?error,
-                            "background job execution failed"
-                        );
+                        if status == "cancelled" {
+                            tracing::info!(
+                                job_id = job.id,
+                                job_type = job.job_type,
+                                "background job cancelled"
+                            );
+                        } else {
+                            tracing::warn!(
+                                job_id = job.id,
+                                attempt = job.attempt_count,
+                                %status,
+                                error = ?error,
+                                "background job execution failed"
+                            );
+                        }
+                        if status == "failed" && job.job_type == "library.cache.cleanup" {
+                            if let Err(notification_error) =
+                                mova_db::persist_cache_cleanup_failure_notification(
+                                    &state.db,
+                                    &job,
+                                    &error_message,
+                                )
+                                .await
+                            {
+                                tracing::error!(
+                                    job_id = job.id,
+                                    error = ?notification_error,
+                                    "failed to persist cache cleanup failure notification"
+                                );
+                            }
+                        }
                         if let Some(scan_job_id) = job.related_scan_job_id {
                             if status == "pending" {
                                 match mova_db::mark_scan_job_retry_pending(
@@ -166,6 +206,49 @@ async fn run_background_worker(state: AppState, worker_id: String) {
     }
 }
 
+async fn execute_library_cache_cleanup_background_job(
+    state: &AppState,
+    worker_id: &str,
+    job: &mova_db::BackgroundJob,
+) -> anyhow::Result<()> {
+    let payload: LibraryCacheCleanupJobPayload = serde_json::from_str(&job.payload_json)?;
+    if job.scope_type != "library" || job.scope_id != payload.library_id || payload.library_id <= 0
+    {
+        return Err(anyhow::anyhow!(
+            "invalid library cache cleanup job scope for job {}",
+            job.id
+        ));
+    }
+
+    let cancellation_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (stop_heartbeat, heartbeat_stop) = watch::channel(false);
+    let heartbeat_pool = state.db.clone();
+    let heartbeat_worker_id = worker_id.to_string();
+    let heartbeat_job_id = job.id;
+    let heartbeat_cancellation_flag = cancellation_flag.clone();
+    let heartbeat = tokio::spawn(async move {
+        run_lease_heartbeat(
+            heartbeat_pool,
+            heartbeat_job_id,
+            heartbeat_worker_id,
+            heartbeat_stop,
+            heartbeat_cancellation_flag,
+        )
+        .await;
+    });
+
+    tracing::info!(
+        job_id = job.id,
+        library_id = payload.library_id,
+        "removing deleted library cache namespace"
+    );
+    let result = mova_application::remove_library_cache(&state.cache_dir, payload.library_id).await;
+
+    let _ = stop_heartbeat.send(true);
+    let _ = heartbeat.await;
+    result
+}
+
 async fn execute_library_scan_background_job(
     state: &AppState,
     worker_id: &str,
@@ -217,7 +300,7 @@ async fn execute_library_scan_background_job(
         payload.library_id,
         payload.scan_job_id,
         cancellation_flag,
-        state.artwork_cache_dir.clone(),
+        state.cache_dir.clone(),
         state.metadata_provider.clone(),
         event_listener,
     )

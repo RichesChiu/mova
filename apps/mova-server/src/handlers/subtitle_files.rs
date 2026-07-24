@@ -45,11 +45,15 @@ pub async fn stream_subtitle_file(
         .await
         .map_err(ApiError::from)?;
     let media_file = require_media_file_access(&state, &user, subtitle_file.media_file_id).await?;
-    let cache_dir = state.artwork_cache_dir.join("subtitles");
-    fs::create_dir_all(&cache_dir)
+    let cached_path = mova_application::library_subtitle_cache_path(
+        &state.cache_dir,
+        media_file.library_id,
+        subtitle_file.id,
+    );
+    let cache_dir = cached_path.parent().ok_or(ApiError::Internal)?;
+    fs::create_dir_all(cache_dir)
         .await
         .map_err(|_| ApiError::Internal)?;
-    let cached_path = cache_dir.join(format!("subtitle-{}.vtt", subtitle_file.id));
 
     if fs::metadata(&cached_path).await.is_err() {
         materialize_subtitle_vtt(&subtitle_file, &media_file.file_path, &cached_path).await?;

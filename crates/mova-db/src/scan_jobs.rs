@@ -110,6 +110,8 @@ pub async fn enqueue_scan_job(
         r#"
         insert into background_jobs (
             job_type,
+            scope_type,
+            scope_id,
             related_scan_job_id,
             payload,
             status,
@@ -117,6 +119,8 @@ pub async fn enqueue_scan_job(
         )
         values (
             'library.scan',
+            'library',
+            $1,
             $2,
             jsonb_build_object('library_id', $1, 'scan_job_id', $2),
             'pending',

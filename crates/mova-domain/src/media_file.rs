@@ -6,6 +6,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone, Serialize)]
 pub struct MediaFile {
     pub id: i64,
+    pub library_id: i64,
     pub media_item_id: i64,
     pub file_path: String,
     pub container: Option<String>,

@@ -130,7 +130,7 @@ mod tests {
         AppState {
             db: pool,
             api_time_offset: UtcOffset::UTC,
-            artwork_cache_dir: PathBuf::from("/tmp/mova-test-artwork"),
+            cache_dir: PathBuf::from("/tmp/mova-test-artwork"),
             metadata_provider: Arc::new(NullMetadataProvider),
             scan_registry: ScanRegistry::default(),
             realtime_hub: RealtimeHub::default(),

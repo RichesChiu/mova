@@ -10,13 +10,13 @@ mod scan_jobs;
 mod users;
 
 pub use background_jobs::{
-    claim_background_job, complete_background_job, renew_background_job_lease,
-    retry_or_fail_background_job, BackgroundJob,
+    claim_background_job, complete_background_job, persist_cache_cleanup_failure_notification,
+    renew_background_job_lease, retry_or_fail_background_job, BackgroundJob,
 };
 pub use libraries::{
-    create_library, delete_library, get_library, list_libraries, list_library_artwork_paths,
-    list_library_details, list_referenced_artwork_paths, mark_library_media_for_metadata_rescan,
-    update_library, CreateLibraryParams, UpdateLibraryParams,
+    create_library, delete_library, get_library, list_libraries, list_library_details,
+    mark_library_media_for_metadata_rescan, update_library, CreateLibraryParams,
+    DeleteLibraryResult, UpdateLibraryParams,
 };
 pub use media_cast::{
     delete_media_item_cast_cache, get_media_item_cast_cache, list_media_item_cast_members,

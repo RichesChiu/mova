@@ -17,7 +17,7 @@ pub use crate::realtime::{RealtimeDispatcherHandle, RealtimeHub};
 pub struct AppState {
     pub db: PgPool,
     pub api_time_offset: UtcOffset,
-    pub artwork_cache_dir: PathBuf,
+    pub cache_dir: PathBuf,
     pub metadata_provider: Arc<dyn mova_application::MetadataProvider>,
     pub scan_registry: ScanRegistry,
     pub realtime_hub: RealtimeHub,

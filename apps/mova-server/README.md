@@ -140,6 +140,7 @@
 - worker 使用 `FOR UPDATE SKIP LOCKED` 领取任务，写入有时限的数据库租约，并在执行期间续租。
 - worker 默认并发为 2，可通过 `MOVA_WORKER_CONCURRENCY` 调整；同一媒体库在进程内仍只允许一个活跃执行者。
 - 执行失败按任务 attempts 和延迟重试；进程退出后未完成任务保留在 PostgreSQL，租约到期后可再次领取。
+- 删除媒体库时数据库通过外键级联删除权威数据，并在同一事务中写入 `library.cache.cleanup`；缓存 worker 等待同库扫描退出后，幂等删除 `MOVA_CACHE_DIR/libraries/{library_id}`，失败最多重试 10 次。
 - 扫描事件交给 `RealtimeDispatcher` 合并，避免原始条目事件直接打满所有 SSE 连接。
 
 当前这里的同步策略已经改成“首次自动扫描 + 后续手动扫描”：
@@ -160,7 +161,7 @@
 
 `RealtimeHub` 仍使用 `tokio::sync::broadcast`，但只作为单进程的有界最后一跳，并按 public/admin/library/user scope 分域。每条连接只订阅与自身有关的频道，用户级或单库高频事件不会再唤醒全部在线连接；管理员频道会接收所有 library scope。客户端在相关频道落后时，服务发送 `resync.required` 并关闭连接；PostgreSQL Listener 每次订阅或重订阅成功后也会要求当前连接重新对账，关闭通知丢失窗口。客户端通过 `GET /api/realtime/state` 比对持久化 revision 后恢复。扫描任务入队和持久化状态变化都会增加 `library:{id}:scan` revision，因此其他连接无需等待第一条临时进度即可发现 pending scan。`GET /api/home` 同时返回协议版本和首页快照对应的 revisions，三端可以把它作为已应用基线。
 
-删除媒体库时，服务会先阻止新的扫描进入并等待当前扫描退出；删除事务会显式清理该库的媒体关系表、授权关系、扫描任务和播放进度。事务完成后，服务会删除该库曾引用且已经没有任何剩余记录引用的 `MOVA_CACHE_DIR/tmdb` 图片缓存文件，媒体目录里的 sidecar 图片不会被自动删除。
+删除媒体库时，服务会先阻止新的扫描进入并等待当前进程的扫描退出；数据库事务取消其它实例的同库扫描任务，删除 `libraries` 记录并依靠外键级联清理全部库归属数据，同时持久化缓存清理任务。图片、WebVTT 字幕和音轨 remux 都位于 `MOVA_CACHE_DIR/libraries/{library_id}`，worker 确认扫描退出后删除整个命名空间；媒体目录里的 sidecar 文件不会被自动删除。完整约束见 [`../../docs/CACHE.md`](../../docs/CACHE.md)。
 
 扫描在 `discovering` 阶段先节流发现文件、读取增量计划，再只用文件名和路径完成浅层稳定分组；这个阶段不读取 sidecar、不调用 `ffprobe`、不访问 TMDB。三项都完成后强制写入最终文件数、把任务推进到 `processing = 10`。随后一个 local worker 按组做 sidecar、`ffprobe`、音轨字幕和资源技术分析：分析状态持久化后贡献 10～30 的任务进度，pending 组事务提交后贡献 30～50，并把组放入容量为 2 的 remote channel。一个 remote worker 同时消费前面的组，访问 TMDB、缓存图片并以最终组事务推进 50～99；因此两部分有界重叠，不要求全库本地分析结束后才开始远端处理，也不保证单独显示 50。所有组终结后进入 `finalizing = 99`，任务成功提交才原子更新为 100。任务公式为 `floor(10 + 20×analyzed/total + 20×committed/total + 49×remote/total)`。
 

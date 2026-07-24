@@ -46,30 +46,26 @@ describe('UserEditorModal', () => {
     baseProps.onUpdate.mockReset().mockResolvedValue(undefined)
   })
 
-  it('keeps the account immutable while editing nickname, role, and library access', async () => {
+  it('only edits role and library access for a managed user', async () => {
     render(
       <I18nProvider>
         <UserEditorModal {...baseProps} mode="edit" user={user} />
       </I18nProvider>,
     )
 
-    expect(screen.queryByRole('textbox', { name: 'Account' })).not.toBeInTheDocument()
-    expect(screen.getByText(user.username)).toBeInTheDocument()
-    expect(screen.getByLabelText('Nickname')).toHaveValue(user.nickname)
+    expect(screen.queryByText('Account')).not.toBeInTheDocument()
+    expect(screen.queryByText(user.username)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Nickname')).not.toBeInTheDocument()
     expect(screen.queryByText('Account enabled')).not.toBeInTheDocument()
     expect(screen.getByText('Role')).toBeInTheDocument()
     expect(screen.getByText('Library Access')).toBeInTheDocument()
     expect(screen.getByText('Movies')).toBeInTheDocument()
     expect(screen.queryByText('No description')).not.toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Nickname'), {
-      target: { value: 'Cinema Fan' },
-    })
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
 
     await waitFor(() => {
       expect(baseProps.onUpdate).toHaveBeenCalledWith(user.id, {
-        nickname: 'Cinema Fan',
         role: 'viewer',
         library_ids: [library.id],
       })
@@ -105,6 +101,28 @@ describe('UserEditorModal', () => {
         role: 'viewer',
         is_enabled: true,
         library_ids: [],
+      })
+    })
+  })
+
+  it('lets a regular admin edit viewer library access without exposing role controls', async () => {
+    render(
+      <I18nProvider>
+        <UserEditorModal {...baseProps} currentUserIsPrimaryAdmin={false} mode="edit" user={user} />
+      </I18nProvider>,
+    )
+
+    expect(screen.queryByText('Account')).not.toBeInTheDocument()
+    expect(screen.queryByText('Nickname')).not.toBeInTheDocument()
+    expect(screen.queryByText('Role')).not.toBeInTheDocument()
+    expect(screen.getByText('Library Access')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+    await waitFor(() => {
+      expect(baseProps.onUpdate).toHaveBeenCalledWith(user.id, {
+        role: 'viewer',
+        library_ids: [library.id],
       })
     })
   })
