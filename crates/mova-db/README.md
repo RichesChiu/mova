@@ -46,10 +46,10 @@
 | 文件 | 作用 |
 | --- | --- |
 | `src/pool.rs` | `DatabaseSettings`、`connect`、`migrate`、`ping`。 |
-| `src/libraries.rs` | 媒体库配置读写与删除前 artwork 引用查询；媒体库不再持久化启用/禁用状态；元数据语言变化时还会把该库全部媒体条目标记为 `pending`，确保下一次扫描覆盖全库远端元数据。 |
+| `src/libraries.rs` | 媒体库配置读写；删库事务依靠外键级联删除库归属数据、取消同库扫描后台任务并原子入队持久化缓存清理；媒体库不再持久化启用/禁用状态；元数据语言变化时还会把该库全部媒体条目标记为 `pending`，确保下一次扫描覆盖全库远端元数据。 |
 | `src/users.rs` | 用户、密码、Web session、原生客户端 access/refresh token 设备会话、媒体库授权。 |
 | `src/scan_jobs.rs` | 扫描任务创建、持久化 phase、任务级文件计数、幂等本地分析检查点、收尾和历史查询；入队时和 `background_jobs` 在同一事务中写入，worker 提供的摘要在任务终态与 `scan` 类通知原子提交。 |
-| `src/background_jobs.rs` | PostgreSQL 后台任务的 `SKIP LOCKED` 领取、租约续期、完成和延迟重试。 |
+| `src/background_jobs.rs` | PostgreSQL 后台任务的 scope、`SKIP LOCKED` 领取、租约续期、跨实例取消、完成、延迟重试和终态失败通知。 |
 | `src/notifications.rs` | 通用通知可见性查询、分类未读汇总，以及每个用户独立的单条/批量已读持久化。 |
 | `src/realtime.rs` | 读取稳定 `server_epoch`、资源 revisions 和当前用户可见的活跃扫描。 |
 | `src/playback_progress.rs` | 维护逐文件播放进度，并同步维护最多 20 部电影或 Series 的活跃 Continue 队列。 |
@@ -127,6 +127,7 @@
 - `renew_background_job_lease`
 - `complete_background_job`
 - `retry_or_fail_background_job`
+- `persist_cache_cleanup_failure_notification`
 
 ### Realtime 状态
 
@@ -180,7 +181,7 @@
 ## 7. 当前值得注意的点
 
 - 仓库仍处于 pre-1.0 阶段，用户确认正式 MVP 前 migration 保持在根目录 [`../../migrations/0001_init.sql`](../../migrations/0001_init.sql)。
-- 这个阶段 schema 变更默认要求重建数据库 / 重置数据目录，不新增后续 migration 兼容旧库；当前 schema 包含 `background_jobs`、`realtime_system_state` 和 `realtime_revisions`，旧开发库不能平滑升级，需要重置后重新扫描。
+- 这个阶段 schema 变更默认要求重建数据库 / 重置数据目录，不新增后续 migration 兼容旧库；当前 schema 包含带资源 scope 和取消状态的 `background_jobs`、`realtime_system_state` 和 `realtime_revisions`，旧开发库不能平滑升级，需要重置后重新扫描。
 - 业务表 mutation trigger 会在同一事务内调用 `mova_bump_realtime_revision` 并发送 PostgreSQL `NOTIFY`；revision 是可靠状态，NOTIFY 只用于唤醒 dispatcher。
 - `mova-server` 启动时会直接调用这里的 `connect / migrate / ping`，未完成后台任务通过租约过期后重新领取，不再在启动时批量标记失败。
 - `mova-application` 的大部分业务用例都会在这里落到最终 SQL。

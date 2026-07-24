@@ -891,6 +891,7 @@ pub async fn refresh_media_item_metadata(
     let metadata_provider_enabled = metadata_provider.is_enabled();
     let mut enrichment = MetadataEnrichmentContext::new(
         artwork_cache_dir,
+        library.id,
         metadata_provider,
         library.metadata_language,
     );

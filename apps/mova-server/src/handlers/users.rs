@@ -13,9 +13,9 @@ use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateUserRequest {
     pub username: String,
-    pub nickname: Option<String>,
     pub password: String,
     pub role: String,
     pub is_enabled: Option<bool>,
@@ -25,7 +25,6 @@ pub struct CreateUserRequest {
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateUserRequest {
-    pub nickname: Option<String>,
     pub role: Option<String>,
     pub is_enabled: Option<bool>,
     pub library_ids: Option<Vec<i64>>,
@@ -66,7 +65,6 @@ pub async fn create_user(
         current_user.user.id,
         mova_application::CreateUserInput {
             username: request.username,
-            nickname: request.nickname,
             password: request.password,
             role: request.role,
             is_enabled: request.is_enabled.unwrap_or(true),
@@ -96,7 +94,6 @@ pub async fn update_user(
         current_user.user.id,
         user_id,
         mova_application::UpdateUserInput {
-            nickname: request.nickname,
             role: request.role,
             is_enabled: request.is_enabled,
             library_ids: request.library_ids,
@@ -148,7 +145,7 @@ pub async fn delete_user(
 
 #[cfg(test)]
 mod tests {
-    use super::{delete_user, update_user, UpdateUserRequest};
+    use super::{delete_user, update_user, CreateUserRequest, UpdateUserRequest};
     use crate::{
         auth::{attach_session_cookie, SESSION_TTL},
         error::ApiError,
@@ -172,7 +169,7 @@ mod tests {
         AppState {
             db: pool,
             api_time_offset: UtcOffset::UTC,
-            artwork_cache_dir: PathBuf::from("/tmp/mova-test-artwork"),
+            cache_dir: PathBuf::from("/tmp/mova-test-artwork"),
             metadata_provider: Arc::new(NullMetadataProvider),
             scan_registry: ScanRegistry::default(),
             realtime_hub: RealtimeHub::default(),
@@ -192,13 +189,26 @@ mod tests {
     }
 
     #[test]
-    fn update_user_request_accepts_nickname_changes() {
-        let request = serde_json::from_value::<UpdateUserRequest>(json!({
+    fn update_user_request_rejects_nickname_changes() {
+        let error = serde_json::from_value::<UpdateUserRequest>(json!({
             "nickname": "Cinema Fan"
         }))
-        .unwrap();
+        .unwrap_err();
 
-        assert_eq!(request.nickname.as_deref(), Some("Cinema Fan"));
+        assert!(error.to_string().contains("unknown field `nickname`"));
+    }
+
+    #[test]
+    fn create_user_request_rejects_nickname_assignment() {
+        let error = serde_json::from_value::<CreateUserRequest>(json!({
+            "username": "viewer01",
+            "nickname": "Cinema Fan",
+            "password": "viewer1234",
+            "role": "viewer"
+        }))
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unknown field `nickname`"));
     }
 
     async fn seed_library(pool: &sqlx::postgres::PgPool, name: &str) -> i64 {
@@ -326,7 +336,10 @@ mod tests {
 
         match error {
             ApiError::Conflict(message) => {
-                assert_eq!(message, "current user cannot disable themselves");
+                assert_eq!(
+                    message,
+                    "current user cannot manage themselves through user management"
+                );
             }
             other => panic!("expected conflict error, got {other:?}"),
         }
@@ -364,7 +377,7 @@ mod tests {
             ApiError::Conflict(message) => {
                 assert_eq!(
                     message,
-                    "current user cannot change their own role through user management"
+                    "current user cannot manage themselves through user management"
                 );
             }
             other => panic!("expected conflict error, got {other:?}"),
@@ -415,6 +428,59 @@ mod tests {
                 .unwrap(),
             vec![second_library_id]
         );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn update_user_rejects_peer_admin_management(pool: sqlx::postgres::PgPool) {
+        let state = build_test_state(pool.clone());
+        let (_primary_admin_id, _primary_admin_jar) = seed_user_with_session(
+            &pool,
+            "primary-admin",
+            UserRole::Admin,
+            Vec::new(),
+            "primary-admin-session",
+        )
+        .await;
+        let (_admin_id, admin_jar) = seed_user_with_session(
+            &pool,
+            "admin01",
+            UserRole::Admin,
+            Vec::new(),
+            "admin-session",
+        )
+        .await;
+        let (peer_admin_id, _peer_admin_jar) = seed_user_with_session(
+            &pool,
+            "admin02",
+            UserRole::Admin,
+            Vec::new(),
+            "peer-admin-session",
+        )
+        .await;
+
+        let error = update_user(
+            State(state),
+            HeaderMap::new(),
+            admin_jar,
+            Path(peer_admin_id),
+            Json(UpdateUserRequest {
+                is_enabled: Some(false),
+                ..UpdateUserRequest::default()
+            }),
+        )
+        .await
+        .unwrap_err();
+
+        match error {
+            ApiError::Forbidden(message) => {
+                assert_eq!(
+                    message,
+                    "users can only manage accounts with a lower privilege level"
+                );
+            }
+            other => panic!("expected forbidden error, got {other:?}"),
+        }
     }
 
     #[sqlx::test(migrations = "../../migrations")]

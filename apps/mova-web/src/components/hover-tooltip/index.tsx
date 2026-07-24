@@ -13,6 +13,7 @@ interface HoverTooltipProps {
   className?: string
   content: ReactNode
   placement?: TooltipPlacement
+  showOnlyWhenTruncated?: boolean
 }
 
 const TOOLTIP_GAP_PX = 12
@@ -23,6 +24,7 @@ export const HoverTooltip = ({
   className,
   content,
   placement = 'top',
+  showOnlyWhenTruncated = false,
 }: HoverTooltipProps) => {
   const triggerRef = useRef<HTMLDivElement | null>(null)
   const tooltipRef = useRef<HTMLDivElement | null>(null)
@@ -77,6 +79,20 @@ export const HoverTooltip = ({
     }
   }, [tooltipPresence.shouldRender])
 
+  const handleMouseEnter = () => {
+    const trigger = triggerRef.current
+    if (
+      showOnlyWhenTruncated &&
+      trigger &&
+      trigger.scrollWidth <= trigger.clientWidth &&
+      trigger.scrollHeight <= trigger.clientHeight
+    ) {
+      return
+    }
+
+    setIsOpen(true)
+  }
+
   const tooltip =
     tooltipPresence.shouldRender && typeof document !== 'undefined'
       ? createPortal(
@@ -110,7 +126,7 @@ export const HoverTooltip = ({
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the tooltip visually expands text that is already available to assistive technology */}
       <div
         className={['hover-tooltip', className].filter(Boolean).join(' ')}
-        onMouseEnter={() => setIsOpen(true)}
+        onMouseEnter={handleMouseEnter}
         onMouseLeave={() => setIsOpen(false)}
         ref={triggerRef}
       >

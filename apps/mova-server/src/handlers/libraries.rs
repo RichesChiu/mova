@@ -251,9 +251,15 @@ pub async fn delete_library(
             })?;
     }
 
-    mova_application::delete_library(&state.db, library_id, &state.artwork_cache_dir)
+    let cache_cleanup_job_id = mova_application::delete_library(&state.db, library_id)
         .await
         .map_err(ApiError::from)?;
+    state.background_jobs.wake();
+    tracing::info!(
+        library_id,
+        cache_cleanup_job_id,
+        "library database graph deleted and cache cleanup queued"
+    );
     Ok(ok_message("library deleted", ()))
 }
 
@@ -445,7 +451,7 @@ mod tests {
         AppState {
             db: pool,
             api_time_offset: UtcOffset::UTC,
-            artwork_cache_dir: PathBuf::from("/tmp/mova-test-artwork"),
+            cache_dir: PathBuf::from("/tmp/mova-test-artwork"),
             metadata_provider: Arc::new(NullMetadataProvider),
             scan_registry: ScanRegistry::default(),
             realtime_hub: RealtimeHub::default(),
@@ -533,9 +539,10 @@ mod tests {
     }
 
     async fn seed_scan_job(pool: &sqlx::postgres::PgPool, library_id: i64) -> i64 {
-        mova_db::create_scan_job(pool, mova_db::CreateScanJobParams { library_id })
+        mova_db::enqueue_scan_job(pool, mova_db::CreateScanJobParams { library_id })
             .await
             .unwrap()
+            .scan_job
             .id
     }
 
@@ -855,6 +862,36 @@ mod tests {
             .is_none());
         assert_library_media_graph_removed(&pool).await;
         assert!(state.scan_registry.active_scan(library_id).is_none());
+
+        let background_jobs = sqlx::query_as::<_, (String, String, String, i64, Option<i64>)>(
+            r#"
+            select job_type, status, scope_type, scope_id, related_scan_job_id
+            from background_jobs
+            order by id asc
+            "#,
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            background_jobs,
+            vec![
+                (
+                    "library.scan".to_string(),
+                    "cancelled".to_string(),
+                    "library".to_string(),
+                    library_id,
+                    None,
+                ),
+                (
+                    "library.cache.cleanup".to_string(),
+                    "pending".to_string(),
+                    "library".to_string(),
+                    library_id,
+                    None,
+                ),
+            ]
+        );
     }
 
     #[sqlx::test(migrations = "../../migrations")]

@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         db: pool,
         api_time_offset: config.api_time.offset,
-        artwork_cache_dir: config.cache_dir.clone(),
+        cache_dir: config.cache_dir.clone(),
         metadata_provider,
         scan_registry: state::ScanRegistry::default(),
         realtime_hub,

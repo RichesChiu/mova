@@ -1,3 +1,4 @@
+mod cache;
 mod error;
 mod file_sync;
 mod home;
@@ -15,6 +16,10 @@ mod playback_progress;
 mod scan_jobs;
 mod users;
 
+pub use cache::{
+    library_artwork_cache_dir, library_audio_track_cache_dir, library_cache_dir,
+    library_subtitle_cache_path, remove_library_cache,
+};
 pub use error::{ApplicationError, ApplicationResult, AuthTokenErrorCode};
 pub use file_sync::{reconcile_library_inventory, sync_library_filesystem_changes};
 pub use home::{get_home_snapshot, HomeLibrarySnapshot, HomeSnapshot};

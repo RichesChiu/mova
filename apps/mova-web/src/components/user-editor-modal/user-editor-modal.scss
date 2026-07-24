@@ -83,63 +83,71 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
-.user-editor-modal__readonly-value {
-  min-height: 46px;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  padding: 0 14px;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--input-border) 72%, transparent);
-  border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--input-background) 58%, transparent);
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .user-editor-modal__access-grid {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .user-editor-modal__access-chip {
   display: inline-flex;
   flex: 0 1 auto;
   max-width: 100%;
-  min-height: 38px;
+  min-height: 28px;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   overflow: hidden;
-  padding: 8px 11px;
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius-full);
-  background: var(--panel-background-soft);
-  box-shadow: none;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--panel-border) 76%, transparent);
+  border-radius: var(--radius-tag);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--panel-background-soft) 88%, var(--panel-rim-highlight)),
+      color-mix(in srgb, var(--panel-background-soft) 96%, transparent)
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--panel-edge-light) 24%, transparent),
+    0 2px 6px color-mix(in srgb, var(--color-black) 8%, transparent);
   cursor: pointer;
+  font-size: 0.82rem;
   transition:
     border-color var(--motion-duration-standard) var(--motion-ease-standard),
-    background var(--motion-duration-standard) var(--motion-ease-standard);
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .user-editor-modal__access-chip:hover {
-  border-color: color-mix(in srgb, var(--accent) 34%, var(--panel-border));
-  background: color-mix(in srgb, var(--accent) 6%, var(--panel-background-soft));
+  border-color: color-mix(in srgb, var(--accent) 14%, var(--panel-border));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 5%, var(--panel-background-soft)),
+      color-mix(in srgb, var(--accent) 2%, var(--panel-background-soft))
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--panel-edge-light) 32%, transparent),
+    0 4px 12px color-mix(in srgb, var(--color-black) 10%, transparent);
 }
 
 .user-editor-modal__access-chip:has(.user-editor-modal__access-checkbox:checked) {
-  border-color: color-mix(in srgb, var(--accent) 46%, var(--panel-border));
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel-background-soft));
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--panel-border));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 11%, var(--panel-background-soft)),
+      color-mix(in srgb, var(--accent) 5%, var(--panel-background-soft))
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--accent-strong) 12%, transparent),
+    0 4px 12px color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .user-editor-modal__access-chip-text-wrap {
   flex: 0 1 auto;
-  max-width: min(280px, calc(100vw - 140px));
+  max-width: min(220px, calc(100vw - 120px));
   overflow: hidden;
 }
 
@@ -149,49 +157,57 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text);
-  font-weight: 600;
+  color: var(--text-muted);
+  font-weight: 580;
   line-height: 1.35;
+  transition: color var(--motion-duration-standard) var(--motion-ease-standard);
+}
+
+.user-editor-modal__access-chip:hover .user-editor-modal__access-chip-title,
+.user-editor-modal__access-chip:has(.user-editor-modal__access-checkbox:checked)
+  .user-editor-modal__access-chip-title {
+  color: var(--text);
 }
 
 .user-editor-modal__access-checkbox {
   position: relative;
   display: inline-grid;
   place-items: center;
-  width: 19px;
-  min-width: 19px;
-  height: 19px;
-  min-height: 19px;
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  min-height: 16px;
   margin: 0;
   padding: 0;
   appearance: none;
-  border: 1px solid color-mix(in srgb, var(--floating-border) 88%, transparent);
-  border-radius: var(--radius-control);
-  background: var(--checkbox-background);
-  box-shadow: var(--checkbox-shadow);
-  cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--floating-border) 72%, var(--panel-border));
+  border-radius: var(--radius-tag);
+  background: color-mix(in srgb, var(--input-background) 84%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--color-black) 16%, transparent);
+  pointer-events: none;
   transition:
     border-color var(--motion-duration-standard) var(--motion-ease-standard),
     background var(--motion-duration-standard) var(--motion-ease-standard),
-    box-shadow var(--motion-duration-standard) var(--motion-ease-standard),
-    transform var(--motion-duration-standard) var(--motion-ease-standard);
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard);
 }
 
 .field .user-editor-modal__access-checkbox {
-  min-height: 19px;
+  min-height: 16px;
   padding: 0;
-  box-shadow: var(--checkbox-shadow);
-}
-
-.user-editor-modal__access-checkbox:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--color-black) 16%, transparent);
 }
 
 .user-editor-modal__access-checkbox:checked {
-  border-color: color-mix(in srgb, var(--accent) 58%, transparent);
-  background: var(--checkbox-checked-background);
-  box-shadow: var(--checkbox-checked-shadow);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--panel-border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--accent-strong) 84%, var(--panel-background)),
+      color-mix(in srgb, var(--accent) 68%, var(--panel-background))
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-white) 24%, transparent),
+    0 2px 6px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .user-editor-modal__access-checkbox:checked::after {
@@ -199,8 +215,8 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 5px;
-  height: 10px;
+  width: 4px;
+  height: 8px;
   border: solid var(--checkbox-check-color);
   border-width: 0 2px 2px 0;
   transform: translate(-50%, -58%) rotate(45deg);

@@ -1,3 +1,4 @@
+use crate::library_artwork_cache_dir;
 use crate::metadata::{
     apply_remote_metadata, MetadataLookup, MetadataLookupCache, MetadataProvider,
     MetadataSeasonAirYearHint, RemoteMetadata, RemoteSeriesEpisodeOutline,
@@ -33,12 +34,13 @@ impl MetadataEnrichmentContext {
     /// 扫描和手动刷新都会复用这个上下文。
     /// 语言在创建时就绑定下来，确保同一个库的所有 TMDB 请求都落在同一语言版本上。
     pub fn new(
-        artwork_cache_dir: PathBuf,
+        cache_dir: PathBuf,
+        library_id: i64,
         metadata_provider: Arc<dyn MetadataProvider>,
         metadata_language: String,
     ) -> Self {
         Self {
-            artwork_cache_dir,
+            artwork_cache_dir: library_artwork_cache_dir(&cache_dir, library_id),
             metadata_provider,
             metadata_language,
             metadata_cache: HashMap::new(),
@@ -1461,6 +1463,7 @@ mod tests {
         let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
         let mut context = MetadataEnrichmentContext::new(
             std::env::temp_dir().join("mova-test-artwork-cache"),
+            1,
             provider_for_context,
             "zh-CN".to_string(),
         );
@@ -1516,6 +1519,7 @@ mod tests {
         let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
         let mut context = MetadataEnrichmentContext::new(
             std::env::temp_dir().join("mova-test-disabled-artwork-cache"),
+            1,
             provider_for_context,
             "zh-CN".to_string(),
         );
@@ -1541,6 +1545,7 @@ mod tests {
         let provider: Arc<dyn MetadataProvider> = Arc::new(SeasonArtworkProvider);
         let mut context = MetadataEnrichmentContext::new(
             std::env::temp_dir().join("mova-test-artwork-cache"),
+            1,
             provider,
             "zh-CN".to_string(),
         );
@@ -1566,6 +1571,7 @@ mod tests {
         let provider: Arc<dyn MetadataProvider> = Arc::new(EpisodeStillOutlineProvider);
         let mut context = MetadataEnrichmentContext::new(
             std::env::temp_dir().join("mova-test-artwork-cache"),
+            1,
             provider,
             "zh-CN".to_string(),
         );

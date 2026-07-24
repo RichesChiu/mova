@@ -72,6 +72,7 @@ SSE 同步由两类信息组成：
   "server_epoch": "019f...",
   "resources": {
     "admin:libraries": 14,
+    "admin:notifications": 2,
     "library:7:settings": 3,
     "library:7:catalog": 128,
     "library:7:scan": 9,
@@ -119,6 +120,7 @@ SSE 同步由两类信息组成：
 | 资源键 | 触发条件 | 可见范围 | 客户端读取内容 |
 | --- | --- | --- | --- |
 | `admin:libraries` | 媒体库插入或删除 | 管理员 | 管理员媒体库集合、首页库摘要 |
+| `admin:notifications` | 产生或更新只对管理员可见的系统通知 | 管理员 | 通用通知中心和未读数 |
 | `library:{id}:settings` | 指定媒体库更新或删除 | 有权访问该库的用户 | 媒体库详情、列表摘要、首页库摘要 |
 | `library:{id}:catalog` | 媒体条目、媒体文件、外部身份、评分、季或集发生写入 | 有权访问该库的用户 | 库目录、最近添加、首页预览、媒体详情、演员、资源版本、播放头部、剧集大纲 |
 | `library:{id}:scan` | 扫描任务创建或状态改变 | 有权访问该库的用户 | 扫描任务、库详情、realtime active scans |
@@ -129,7 +131,7 @@ SSE 同步由两类信息组成：
 | `user:{id}:notifications` | 指定用户的通知或已读状态改变 | 指定用户 | 通用通知中心和未读数 |
 | `admin:users` | 用户插入、更新或删除 | 管理员 | 用户管理列表 |
 
-通知不是独立 SSE 事件。服务端把通知正文和每个用户的已读状态持久化后只推进对应 `notifications` revision；客户端收到失效信号后调用 `GET /api/notifications`。因此断线期间产生的通知不会丢失，重复或乱序的 revision 也不会重复创建通知。
+通知不是独立 SSE 事件。服务端把通知正文和每个用户的已读状态持久化后只推进对应 `notifications` revision；库通知使用 `library:{id}:notifications`，管理员系统通知使用 `admin:notifications`，用户自己的通知及已读状态使用 `user:{id}:notifications`。客户端收到失效信号后调用 `GET /api/notifications`。因此断线期间产生的通知不会丢失，重复或乱序的 revision 也不会重复创建通知。
 
 内部资源键 `session:user:{id}` 不出现在 state 和 `resources.changed` 中。以下操作触发该键，并转换为 `session.invalidated`：
 

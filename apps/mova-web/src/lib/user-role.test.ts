@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getUserRolePresentation } from './user-role'
+import { canManageUser, getUserRolePresentation } from './user-role'
 
 describe('getUserRolePresentation', () => {
   it('presents the primary account as the system administrator', () => {
@@ -21,5 +21,25 @@ describe('getUserRolePresentation', () => {
       label: 'Standard User',
       tone: 'user',
     })
+  })
+})
+
+describe('canManageUser', () => {
+  const primaryAdmin = { id: 1, is_primary_admin: true, role: 'admin' as const }
+  const admin = { id: 2, is_primary_admin: false, role: 'admin' as const }
+  const peerAdmin = { id: 3, is_primary_admin: false, role: 'admin' as const }
+  const viewer = { id: 4, is_primary_admin: false, role: 'viewer' as const }
+
+  it('allows only strictly higher privilege levels to manage a user', () => {
+    expect(canManageUser(primaryAdmin, admin)).toBe(true)
+    expect(canManageUser(primaryAdmin, viewer)).toBe(true)
+    expect(canManageUser(admin, viewer)).toBe(true)
+    expect(canManageUser(admin, peerAdmin)).toBe(false)
+    expect(canManageUser(viewer, admin)).toBe(false)
+  })
+
+  it('never allows a user to manage themselves', () => {
+    expect(canManageUser(primaryAdmin, primaryAdmin)).toBe(false)
+    expect(canManageUser(admin, admin)).toBe(false)
   })
 })

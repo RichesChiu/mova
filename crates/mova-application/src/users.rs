@@ -22,7 +22,6 @@ const NATIVE_TOKEN_BYTES: usize = 32;
 #[derive(Debug, Clone)]
 pub struct CreateUserInput {
     pub username: String,
-    pub nickname: Option<String>,
     pub password: String,
     pub role: String,
     pub is_enabled: bool,
@@ -31,7 +30,6 @@ pub struct CreateUserInput {
 
 #[derive(Debug, Clone, Default)]
 pub struct UpdateUserInput {
-    pub nickname: Option<String>,
     pub role: Option<String>,
     pub is_enabled: Option<bool>,
     pub library_ids: Option<Vec<i64>>,
@@ -398,10 +396,11 @@ pub async fn create_user(
     input: CreateUserInput,
 ) -> ApplicationResult<UserProfile> {
     let username = normalize_username(input.username)?;
-    let nickname = normalize_nickname(input.nickname, &username)?;
+    let nickname = username.clone();
     validate_password("password", &input.password)?;
     let role = normalize_user_role(input.role)?;
-    validate_admin_scope_for_role_change(pool, actor_user_id, None, role).await?;
+    let actor = get_user(pool, actor_user_id).await?;
+    validate_role_assignment(&actor, role)?;
     let library_ids = normalize_library_ids(input.library_ids);
     validate_library_access(pool, role, &library_ids).await?;
     let password_hash = hash_password(&input.password)?;
@@ -434,14 +433,14 @@ pub async fn update_user(
     input: UpdateUserInput,
 ) -> ApplicationResult<UserProfile> {
     let existing = get_user(pool, user_id).await?;
-    validate_self_user_management(actor_user_id, user_id, &input)?;
+    let actor = get_user(pool, actor_user_id).await?;
+    validate_user_management_scope(&actor, &existing)?;
 
-    let nickname = normalize_nickname(input.nickname, &existing.user.username)?;
     let role = match input.role {
         Some(role) => normalize_user_role(role)?,
         None => existing.user.role,
     };
-    validate_admin_scope_for_role_change(pool, actor_user_id, Some(&existing), role).await?;
+    validate_role_assignment(&actor, role)?;
     let is_enabled = input.is_enabled.unwrap_or(existing.user.is_enabled);
     validate_admin_retention(pool, &existing, role, is_enabled).await?;
 
@@ -456,7 +455,6 @@ pub async fn update_user(
         pool,
         user_id,
         mova_db::UpdateUserParams {
-            nickname,
             role,
             is_enabled,
             library_ids,
@@ -485,7 +483,8 @@ pub async fn delete_user(pool: &PgPool, actor_user_id: i64, user_id: i64) -> App
     }
 
     let existing = get_user(pool, user_id).await?;
-    validate_admin_scope_for_target(pool, actor_user_id, &existing).await?;
+    let actor = get_user(pool, actor_user_id).await?;
+    validate_user_management_scope(&actor, &existing)?;
     validate_admin_retention(pool, &existing, existing.user.role, false).await?;
 
     let deleted = mova_db::delete_user(pool, user_id)
@@ -516,7 +515,8 @@ pub async fn reset_user_password(
     }
 
     let target_user = get_user(pool, user_id).await?;
-    validate_admin_scope_for_target(pool, actor_user_id, &target_user).await?;
+    let actor = get_user(pool, actor_user_id).await?;
+    validate_user_management_scope(&actor, &target_user)?;
     validate_password("new_password", &input.new_password)?;
     let password_hash = hash_password(&input.new_password)?;
 
@@ -681,71 +681,45 @@ async fn is_primary_admin_user(pool: &PgPool, user_id: i64) -> ApplicationResult
     Ok(primary_admin_user_id == Some(user_id))
 }
 
-async fn validate_admin_scope_for_target(
-    pool: &PgPool,
-    actor_user_id: i64,
-    target_user: &UserProfile,
-) -> ApplicationResult<()> {
-    if !target_user.user.role.is_admin() {
-        return Ok(());
+fn user_management_level(user: &UserProfile) -> u8 {
+    if user.is_primary_admin {
+        2
+    } else if user.user.role.is_admin() {
+        1
+    } else {
+        0
     }
-
-    if is_primary_admin_user(pool, actor_user_id).await? {
-        return Ok(());
-    }
-
-    Err(ApplicationError::Forbidden(
-        "only the primary admin can manage administrator accounts".to_string(),
-    ))
 }
 
-async fn validate_admin_scope_for_role_change(
-    pool: &PgPool,
-    actor_user_id: i64,
-    existing_user: Option<&UserProfile>,
-    next_role: UserRole,
+fn validate_user_management_scope(
+    actor: &UserProfile,
+    target: &UserProfile,
 ) -> ApplicationResult<()> {
-    if next_role.is_admin() {
-        if is_primary_admin_user(pool, actor_user_id).await? {
-            return Ok(());
-        }
-
-        let is_stable_admin_edit = existing_user
-            .map(|user| user.user.role.is_admin())
-            .unwrap_or(false);
-
-        if !is_stable_admin_edit {
-            return Err(ApplicationError::Forbidden(
-                "only the primary admin can create or promote administrator accounts".to_string(),
-            ));
-        }
+    if actor.user.id == target.user.id {
+        return Err(ApplicationError::Conflict(
+            "current user cannot manage themselves through user management".to_string(),
+        ));
     }
 
-    if let Some(existing_user) = existing_user {
-        validate_admin_scope_for_target(pool, actor_user_id, existing_user).await?;
+    if user_management_level(actor) <= user_management_level(target) {
+        return Err(ApplicationError::Forbidden(
+            "users can only manage accounts with a lower privilege level".to_string(),
+        ));
     }
 
     Ok(())
 }
 
-fn validate_self_user_management(
-    actor_user_id: i64,
-    user_id: i64,
-    input: &UpdateUserInput,
-) -> ApplicationResult<()> {
-    if actor_user_id != user_id {
-        return Ok(());
-    }
-
-    if matches!(input.is_enabled, Some(false)) {
-        return Err(ApplicationError::Conflict(
-            "current user cannot disable themselves".to_string(),
+fn validate_role_assignment(actor: &UserProfile, next_role: UserRole) -> ApplicationResult<()> {
+    if !actor.user.role.is_admin() {
+        return Err(ApplicationError::Forbidden(
+            "administrator permission required".to_string(),
         ));
     }
 
-    if input.role.is_some() {
-        return Err(ApplicationError::Conflict(
-            "current user cannot change their own role through user management".to_string(),
+    if next_role.is_admin() && !actor.is_primary_admin {
+        return Err(ApplicationError::Forbidden(
+            "only the primary admin can assign administrator role".to_string(),
         ));
     }
 
@@ -988,10 +962,28 @@ fn is_unique_violation(error: &SqlxError) -> bool {
 mod tests {
     use super::{
         enabled_admin_is_removed, normalize_library_ids, normalize_nickname, normalize_user_role,
-        normalize_username, validate_self_user_management, UpdateUserInput, MAX_USERNAME_LENGTH,
+        normalize_username, user_management_level, validate_role_assignment,
+        validate_user_management_scope, MAX_USERNAME_LENGTH,
     };
     use crate::error::ApplicationError;
-    use mova_domain::UserRole;
+    use mova_domain::{User, UserProfile, UserRole};
+    use time::OffsetDateTime;
+
+    fn test_user(id: i64, role: UserRole, is_primary_admin: bool) -> UserProfile {
+        UserProfile {
+            user: User {
+                id,
+                username: format!("user-{id}"),
+                nickname: format!("User {id}"),
+                role,
+                is_enabled: true,
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                updated_at: OffsetDateTime::UNIX_EPOCH,
+            },
+            is_primary_admin,
+            library_ids: Vec::new(),
+        }
+    }
 
     #[test]
     fn normalize_user_role_accepts_admin() {
@@ -1049,17 +1041,49 @@ mod tests {
     }
 
     #[test]
-    fn validate_self_user_management_rejects_self_disable() {
-        let error = validate_self_user_management(
-            7,
-            7,
-            &UpdateUserInput {
-                is_enabled: Some(false),
-                ..UpdateUserInput::default()
-            },
-        )
-        .unwrap_err();
+    fn management_levels_order_primary_admin_admin_and_viewer() {
+        assert_eq!(
+            user_management_level(&test_user(1, UserRole::Admin, true)),
+            2
+        );
+        assert_eq!(
+            user_management_level(&test_user(2, UserRole::Admin, false)),
+            1
+        );
+        assert_eq!(
+            user_management_level(&test_user(3, UserRole::Viewer, false)),
+            0
+        );
+    }
 
-        assert!(matches!(error, ApplicationError::Conflict(_)));
+    #[test]
+    fn user_management_requires_strictly_higher_privilege() {
+        let primary_admin = test_user(1, UserRole::Admin, true);
+        let admin = test_user(2, UserRole::Admin, false);
+        let peer_admin = test_user(3, UserRole::Admin, false);
+        let viewer = test_user(4, UserRole::Viewer, false);
+
+        validate_user_management_scope(&primary_admin, &admin).unwrap();
+        validate_user_management_scope(&admin, &viewer).unwrap();
+
+        assert!(matches!(
+            validate_user_management_scope(&admin, &peer_admin),
+            Err(ApplicationError::Forbidden(_))
+        ));
+        assert!(matches!(
+            validate_user_management_scope(&primary_admin, &primary_admin),
+            Err(ApplicationError::Conflict(_))
+        ));
+    }
+
+    #[test]
+    fn only_primary_admin_can_assign_admin_role() {
+        let primary_admin = test_user(1, UserRole::Admin, true);
+        let admin = test_user(2, UserRole::Admin, false);
+
+        validate_role_assignment(&primary_admin, UserRole::Admin).unwrap();
+        let error = validate_role_assignment(&admin, UserRole::Admin).unwrap_err();
+
+        assert!(matches!(error, ApplicationError::Forbidden(_)));
     }
 }

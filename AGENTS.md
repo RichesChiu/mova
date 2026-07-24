@@ -25,6 +25,7 @@ The root `AGENTS.md` defines repository-wide rules. A directory-level `AGENTS.md
 - Update relevant Markdown in the same change whenever a feature, API, behavior, runtime contract, or product direction changes.
 - Keep the root `README.md` focused on product positioning, core capabilities, deployment, first use, and major product direction. Do not add routine UI or implementation details.
 - Update `docs/API.md` and the relevant topic document when routes, requests, responses, fields, or API behavior change.
+- Every `docs/API.md` change must update the corresponding public API content in `apps/mova-site` in the same change. After the change reaches `master`, confirm that the root `Deploy Site` GitHub Action was triggered and completed successfully; manually dispatch it when the automatic path-based trigger did not run.
 - Update the closest app, crate, or topic README when internal behavior, module ownership, or operating instructions change.
 - Do not add release-history wording such as “previously X, now Y” to specification documents. Describe the current contract directly.
 

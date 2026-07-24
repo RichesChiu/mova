@@ -170,6 +170,7 @@ fn resource_keys_for_user(
     if user.is_admin() {
         keys.push("admin:libraries".to_string());
         keys.push("admin:users".to_string());
+        keys.push("admin:notifications".to_string());
     } else {
         keys.push(format!("user:{}:libraries", user.user.id));
     }
@@ -210,5 +211,27 @@ mod tests {
         assert!(!keys.contains(&"library:8:catalog".to_string()));
         assert!(!keys.contains(&"admin:libraries".to_string()));
         assert!(!keys.contains(&"admin:users".to_string()));
+        assert!(!keys.contains(&"admin:notifications".to_string()));
+    }
+
+    #[test]
+    fn realtime_state_includes_admin_notifications_for_admins() {
+        let user = UserProfile {
+            user: User {
+                id: 1,
+                username: "admin".to_string(),
+                nickname: "admin".to_string(),
+                role: UserRole::Admin,
+                is_enabled: true,
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                updated_at: OffsetDateTime::UNIX_EPOCH,
+            },
+            is_primary_admin: true,
+            library_ids: Vec::new(),
+        };
+
+        let keys = resource_keys_for_user(&user, &[]);
+
+        assert!(keys.contains(&"admin:notifications".to_string()));
     }
 }

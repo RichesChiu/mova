@@ -936,6 +936,10 @@
   line-height: 1.5;
 }
 
+.notification-center__generic-message code {
+  overflow-wrap: anywhere;
+}
+
 .notification-center__summary {
   display: flex;
   flex-wrap: wrap;

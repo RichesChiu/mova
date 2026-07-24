@@ -213,7 +213,8 @@ async fn materialize_audio_track_variant(
     media_file: &mova_domain::MediaFile,
     audio_track: &mova_domain::AudioTrack,
 ) -> Result<PathBuf, ApiError> {
-    let cache_dir = state.artwork_cache_dir.join("audio-tracks");
+    let cache_dir =
+        mova_application::library_audio_track_cache_dir(&state.cache_dir, media_file.library_id);
     fs::create_dir_all(&cache_dir)
         .await
         .map_err(|_| ApiError::Internal)?;

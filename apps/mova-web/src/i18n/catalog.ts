@@ -49,6 +49,9 @@ const zhCN: Record<string, string> = {
   'Library scan completed': '媒体库扫描完成',
   'Library scan completed with issues': '媒体库扫描完成，但存在问题',
   'Library scan failed': '媒体库扫描失败',
+  'Library cache cleanup failed': '媒体库缓存清理失败',
+  'The library data was deleted, but its cache could not be removed after all retries.':
+    '媒体库数据已删除，但缓存经过全部重试后仍无法清理。',
   'New notification': '新通知',
   'Open for details.': '打开查看详情。',
   'Updates from Mova': '来自 Mova 的动态',

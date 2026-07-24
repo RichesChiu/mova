@@ -38,7 +38,7 @@ import {
   getScanStatusTone,
 } from '../../lib/settings-admin'
 import { getUserInitial } from '../../lib/user-identity'
-import { getUserRolePresentation } from '../../lib/user-role'
+import { canManageUser, getUserRolePresentation } from '../../lib/user-role'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 
@@ -346,8 +346,6 @@ export const SettingsPage = () => {
   const libraryDetailsById = new Map(
     libraries.map((library, index) => [library.id, libraryDetailQueries[index]?.data ?? null]),
   )
-  const canManageAdminAccounts = currentUser.is_primary_admin
-
   return (
     <>
       <HomeDashboardShell ariaLabel={l('Server Settings')} currentUser={currentUser}>
@@ -412,9 +410,7 @@ export const SettingsPage = () => {
                 ? users.map((user) => {
                     const nickname = user.nickname.trim()
                     const rolePresentation = getUserRolePresentation(user)
-                    const canManageThisUser = user.role === 'viewer' || canManageAdminAccounts
-                    const canEditUser =
-                      canManageThisUser && user.id !== currentUser.id && !user.is_primary_admin
+                    const canEditUser = canManageUser(currentUser, user)
                     const canDeleteUser = canEditUser
                     const canToggleUser = canEditUser
 
@@ -644,7 +640,6 @@ export const SettingsPage = () => {
       </HomeDashboardShell>
 
       <UserEditorModal
-        currentUserId={currentUser.id}
         currentUserIsPrimaryAdmin={currentUser.is_primary_admin}
         error={activeUserModalError}
         isOpen={isCreateUserOpen || editingUser !== null}

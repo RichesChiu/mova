@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { listNotifications, markAllNotificationsRead, markNotificationRead } from '../../api/client'
 import type {
+  CacheCleanupFailureNotificationPayload,
   NotificationItem,
   ScanNotificationIssue,
   ScanNotificationPayload,
@@ -23,6 +24,17 @@ const isScanPayload = (value: unknown): value is ScanNotificationPayload =>
   typeof value.total_files === 'number' &&
   typeof value.issue_count === 'number' &&
   Array.isArray(value.issues)
+
+const isCacheCleanupFailurePayload = (
+  value: unknown,
+): value is CacheCleanupFailureNotificationPayload =>
+  isRecord(value) &&
+  typeof value.background_job_id === 'number' &&
+  typeof value.library_id === 'number' &&
+  typeof value.library_name === 'string' &&
+  typeof value.attempt_count === 'number' &&
+  typeof value.max_attempts === 'number' &&
+  typeof value.error_message === 'string'
 
 const getCategoryLabel = (category: string, l: Translate) => {
   switch (category) {
@@ -49,6 +61,8 @@ const getNotificationTitle = (notification: NotificationItem, l: Translate) => {
       return l('Library scan completed with issues')
     case 'scan.failed':
       return l('Library scan failed')
+    case 'cache.cleanup.failed':
+      return l('Library cache cleanup failed')
     default:
       return l('New notification')
   }
@@ -145,6 +159,26 @@ const ScanNotificationContent = ({ payload }: { payload: ScanNotificationPayload
   )
 }
 
+const CacheCleanupFailureContent = ({
+  payload,
+}: {
+  payload: CacheCleanupFailureNotificationPayload
+}) => {
+  const { l } = useI18n()
+
+  return (
+    <>
+      <strong className="notification-center__subject">{payload.library_name}</strong>
+      <p className="notification-center__job-error">
+        {l('The library data was deleted, but its cache could not be removed after all retries.')}
+      </p>
+      <p className="notification-center__generic-message">
+        <code>{payload.error_message}</code>
+      </p>
+    </>
+  )
+}
+
 const NotificationCard = ({
   notification,
   onRead,
@@ -154,6 +188,9 @@ const NotificationCard = ({
 }) => {
   const { formatDateTime, l } = useI18n()
   const scanPayload = isScanPayload(notification.payload) ? notification.payload : null
+  const cacheCleanupFailurePayload = isCacheCleanupFailurePayload(notification.payload)
+    ? notification.payload
+    : null
 
   return (
     <article
@@ -178,6 +215,9 @@ const NotificationCard = ({
       </div>
       {notification.category === 'scan' && scanPayload ? (
         <ScanNotificationContent payload={scanPayload} />
+      ) : notification.notification_type === 'cache.cleanup.failed' &&
+        cacheCleanupFailurePayload ? (
+        <CacheCleanupFailureContent payload={cacheCleanupFailurePayload} />
       ) : (
         <p className="notification-center__generic-message">{l('Open for details.')}</p>
       )}
