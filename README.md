@@ -47,19 +47,14 @@ cd mova
 services:
   app:
     image: richeschiu/mova:preview
-    container_name: mova-app
     depends_on:
       database:
         condition: service_healthy
     ports:
       - "36080:36080"
     environment:
-      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
-      MOVA_WEB_DIST_DIR: /app/web
       # TMDB API Read Access Token；留空时会跳过远端元数据刮削
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # 后台 worker 并发数，普通部署保持 2 即可
-      MOVA_WORKER_CONCURRENCY: "2"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -75,7 +70,6 @@ services:
       POSTGRES_USER: mova
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: mova
-      PGDATA: /var/lib/postgresql/18/docker
     volumes:
       - ./data/postgres:/var/lib/postgresql
     healthcheck:
@@ -86,6 +80,20 @@ services:
     shm_size: 256mb
     restart: unless-stopped
 ```
+
+### 配置出站代理
+
+默认不需要代理配置。只有 MOVA 无法访问 TMDB 时，才把下面的内容合并到 `services.app`，并按实际端口修改地址：
+
+```yaml
+environment:
+  HTTP_PROXY: "http://host.docker.internal:7890"
+  HTTPS_PROXY: "http://host.docker.internal:7890"
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
+
+容器内的 `127.0.0.1` 指向容器自身，因此宿主机代理应使用 `host.docker.internal`。这些变量只控制 MOVA 运行时请求；如果 `docker compose pull` 无法访问 Docker Hub，需要在 Docker Desktop 或 Docker Engine 中单独配置代理。
 
 ### 获取 TMDB Access Token
 
@@ -122,11 +130,11 @@ docker compose up -d
 
 媒体目录只读挂载，Mova 不会修改你的原始媒体文件。
 
-默认 Compose 文件会直接运行公开体验通道 `richeschiu/mova:preview`，不在部署机器上从源码构建。本地没有镜像时，`docker compose up -d` 会自动拉取；如果你想主动升级到最新预览版本，先执行 `docker compose pull`，再执行 `docker compose up -d`。需要固定版本时，可改用 `richeschiu/mova:1.0.0-preview.3`。
+默认 Compose 文件会直接运行公开体验通道 `richeschiu/mova:preview`，不在部署机器上从源码构建。本地没有镜像时，`docker compose up -d` 会自动拉取；如果你想主动升级到最新预览版本，先执行 `docker compose pull`，再执行 `docker compose up -d`。需要固定版本时，可改用 `richeschiu/mova:1.0.0-preview.4`。
 
 已发布镜像覆盖 `linux/amd64` 和 `linux/arm64`。Windows 和 macOS 宿主机通过 Docker Desktop 运行同一个 Linux 镜像，Linux 宿主机通过 Docker Engine 或 Docker Desktop 运行，Docker 会自动选择匹配的架构。
 
-应用服务名是 `app`，运行时容器固定为 `mova-app`；查看服务日志时使用 `docker compose logs -f app`。
+应用服务名是 `app`；查看服务日志时使用 `docker compose logs -f app`。
 
 ### 首次使用
 

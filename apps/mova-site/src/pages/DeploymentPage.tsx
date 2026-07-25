@@ -7,19 +7,14 @@ import './DeploymentPage.css'
 const composeExampleZh = `services:
   app:
     image: richeschiu/mova:preview
-    container_name: mova-app
     depends_on:
       database:
         condition: service_healthy
     ports:
       - "36080:36080"
     environment:
-      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
-      MOVA_WEB_DIST_DIR: /app/web
       # TMDB API Read Access Token；留空时会跳过远端元数据刮削
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # 后台 worker 并发数，普通部署保持 2 即可
-      MOVA_WORKER_CONCURRENCY: "2"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -35,7 +30,6 @@ const composeExampleZh = `services:
       POSTGRES_USER: mova
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: mova
-      PGDATA: /var/lib/postgresql/18/docker
     volumes:
       - ./data/postgres:/var/lib/postgresql
     healthcheck:
@@ -49,19 +43,14 @@ const composeExampleZh = `services:
 const composeExampleEn = `services:
   app:
     image: richeschiu/mova:preview
-    container_name: mova-app
     depends_on:
       database:
         condition: service_healthy
     ports:
       - "36080:36080"
     environment:
-      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
-      MOVA_WEB_DIST_DIR: /app/web
       # TMDB API Read Access Token; remote metadata scraping is skipped when empty
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # Background worker concurrency; keep 2 for a typical deployment
-      MOVA_WORKER_CONCURRENCY: "2"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -77,7 +66,6 @@ const composeExampleEn = `services:
       POSTGRES_USER: mova
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: mova
-      PGDATA: /var/lib/postgresql/18/docker
     volumes:
       - ./data/postgres:/var/lib/postgresql
     healthcheck:
@@ -87,6 +75,14 @@ const composeExampleEn = `services:
       retries: 12
     shm_size: 256mb
     restart: unless-stopped`
+
+const proxyComposeExample = `services:
+  app:
+    environment:
+      HTTP_PROXY: "http://host.docker.internal:7890"
+      HTTPS_PROXY: "http://host.docker.internal:7890"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"`
 
 export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string) => void }) {
   const { language } = useI18n()
@@ -172,8 +168,8 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
             eyebrow="Docker Compose"
             title={isChinese ? '完整 Compose 配置' : 'Complete Compose configuration'}
             text={isChinese
-              ? '保存为 docker-compose.yml。复制后只需修改媒体目录，并按需填写 TMDB Token。'
-              : 'Save as docker-compose.yml. After copying, update the media directory and optionally add a TMDB token.'}
+              ? '保存为 docker-compose.yml。只需修改媒体目录；需要自动刮削时再填写 TMDB Token，其余配置均有默认值。'
+              : 'Save as docker-compose.yml. Only the media path must be changed; add a TMDB token for automatic scraping. Everything else has a default.'}
           />
           <div className="deploy-preview-note">
             <div>
@@ -182,8 +178,8 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
             </div>
             <p>
               {isChinese
-                ? '需要固定版本时可改用 richeschiu/mova:1.0.0-preview.1。Preview 阶段的 schema 仍可能变化，升级后如不兼容，需要重建数据库并重新扫描媒体库。'
-                : 'Use richeschiu/mova:1.0.0-preview.1 to pin this release. The schema may still change during Preview; incompatible upgrades require rebuilding the database and rescanning libraries.'}
+                ? '需要固定版本时可改用 richeschiu/mova:1.0.0-preview.4。Preview 阶段的 schema 仍可能变化，升级后如不兼容，需要重建数据库并重新扫描媒体库。'
+                : 'Use richeschiu/mova:1.0.0-preview.4 to pin this release. The schema may still change during Preview; incompatible upgrades require rebuilding the database and rescanning libraries.'}
             </p>
           </div>
           <div className="deploy-compose-block">
@@ -197,17 +193,36 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
           </div>
           <div className="deploy-compose-meta">
             <article>
-              <strong>{isChinese ? '必须修改' : 'Required change'}</strong>
+              <strong>{isChinese ? '唯一必改项' : 'Only required change'}</strong>
               <p><code>/absolute/path/to/media</code></p>
             </article>
             <article>
               <strong>{isChinese ? '可选配置' : 'Optional setting'}</strong>
-              <p><code>MOVA_TMDB_ACCESS_TOKEN</code></p>
+              <p>
+                <code>MOVA_TMDB_ACCESS_TOKEN</code><br />
+                <code>HTTP_PROXY / HTTPS_PROXY</code>
+              </p>
             </article>
             <article>
               <strong>{isChinese ? '持久化数据' : 'Persistent data'}</strong>
               <p><code>./data/postgres</code><br /><code>./data/cache</code></p>
             </article>
+          </div>
+          <div className="deploy-proxy-note">
+            <div>
+              <strong>{isChinese ? '需要代理时再添加' : 'Add only when a proxy is needed'}</strong>
+              <p>
+                {isChinese
+                  ? '默认无需代理配置。只有 MOVA 无法访问 TMDB 时，才把右侧片段合并到主 Compose。宿主机代理使用 host.docker.internal，不能填写 127.0.0.1。'
+                  : 'No proxy configuration is needed by default. Merge the snippet into the main Compose file only when MOVA cannot reach TMDB. Use host.docker.internal for a proxy on the host, not 127.0.0.1.'}
+              </p>
+              <p>
+                {isChinese
+                  ? '该片段只控制 MOVA 运行时请求。Docker 拉取镜像失败时，应在 Docker Desktop 或 Docker Engine 中配置代理。'
+                  : 'This snippet only controls MOVA runtime requests. Configure proxy access in Docker Desktop or Docker Engine when image pulls fail.'}
+              </p>
+            </div>
+            <pre className="deploy-proxy-code"><code>{proxyComposeExample}</code></pre>
           </div>
         </section>
 

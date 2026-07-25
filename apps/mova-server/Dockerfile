@@ -64,18 +64,9 @@ RUN --mount=type=cache,id=mova-cargo-registry-${TARGETOS}-${TARGETARCH},target=/
     cargo build --locked --release -p mova-server
 
 FROM richeschiu/mova-runtime-base:bookworm-ffmpeg-python3 AS runtime
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG NO_PROXY
-ARG ALL_PROXY
-ENV HTTP_PROXY=$HTTP_PROXY \
-    HTTPS_PROXY=$HTTPS_PROXY \
-    NO_PROXY=$NO_PROXY \
-    ALL_PROXY=$ALL_PROXY \
-    http_proxy=$HTTP_PROXY \
-    https_proxy=$HTTPS_PROXY \
-    no_proxy=$NO_PROXY \
-    all_proxy=$ALL_PROXY
+ENV MOVA_DATABASE_URL=postgres://mova:postgres@database:5432/mova \
+    MOVA_WEB_DIST_DIR=/app/web \
+    MOVA_CACHE_DIR=/app/data/cache
 WORKDIR /app
 
 COPY --from=builder /app/target/release/mova-server /usr/local/bin/mova-server
