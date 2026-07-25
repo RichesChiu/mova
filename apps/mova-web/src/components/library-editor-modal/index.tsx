@@ -225,7 +225,7 @@ export const LibraryEditorModal = ({
                   <span className="field__label-copy">{l('Root Path')}</span>
                   <SectionHelp
                     detail={l(
-                      'This shows the in-container path. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so the /media/... value shown here is the real scan path used by the app.',
+                      'This shows the in-container path. The host media directory configured in Docker Compose is mounted at /media, so the /media/... value shown here is the real scan path used by the app.',
                     )}
                     title={l('Root path help')}
                   />

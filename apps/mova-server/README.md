@@ -275,7 +275,7 @@ Web 端：
 
 ## 7. 测试与验证
 
-默认部署时，`docker-compose.yml` 直接运行已发布的 `richeschiu/mova:latest`，不会在部署机器上从源码构建镜像。本地没有镜像时，`docker compose up -d` 会自动拉取；是否升级到最新发布镜像由用户自己通过 `docker compose pull` 决定。发布镜像默认覆盖 `linux/amd64` 和 `linux/arm64`，Windows / macOS 用户通过 Docker Desktop 运行同一个 Linux 镜像，Linux 用户通过 Docker Engine / Docker Desktop 运行同一镜像。应用服务名是 `app`，容器名固定为 `mova-app`，查看日志用 `docker compose logs -f app`。需要本地源码构建时，使用 `docker-compose.build.yml` 覆盖默认服务。
+默认部署时，`docker-compose.yml` 直接运行已发布的 `richeschiu/mova:latest`，不会在部署机器上从源码构建镜像。本地没有镜像时，`docker compose up -d` 会自动拉取；是否升级到最新发布镜像由用户自己通过 `docker compose pull` 决定。发布镜像默认覆盖 `linux/amd64` 和 `linux/arm64`，Windows / macOS 用户通过 Docker Desktop 运行同一个 Linux 镜像，Linux 用户通过 Docker Engine / Docker Desktop 运行同一镜像。应用服务名是 `app`，查看日志用 `docker compose logs -f app`。镜像已经内置数据库连接、Web 资源目录、缓存目录和 worker 并发的 Compose 默认值；用户只需提供媒体目录，并在需要 TMDB 刮削时填写 Access Token。需要本地源码构建时，使用 `docker-compose.build.yml` 覆盖默认服务。
 
 源码构建时，前端阶段使用 `richeschiu/mova-web-build-base:node24-pnpm11`，Rust builder 阶段使用 `richeschiu/mova-rust-build-base:1-bookworm`，runtime 阶段使用 `richeschiu/mova-runtime-base:bookworm-ffmpeg-python3`。这些基础镜像提前内置 pnpm、Rust toolchain、ffmpeg、Python 和 runtime 证书依赖，减少本地 Docker build 时重复访问上游镜像与 apt/npm 源；对应定义集中放在 `docker/base`。发布入口是 `./scripts/publish-docker-images.sh`，脚本默认会检查基础镜像是否已经包含 `linux/amd64` 和 `linux/arm64`，缺失时先发布基础镜像，再发布主镜像。
 

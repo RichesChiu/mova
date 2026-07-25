@@ -206,8 +206,8 @@ const zhCN: Record<string, string> = {
   'Reading the in-container `/media` tree…': '正在读取容器内 `/media` 目录树…',
   'Failed to read directories. Check the Docker volume mapping.':
     '读取目录失败，请检查 Docker 卷挂载。',
-  'No in-container `/media` directory was detected yet. Make sure `.env` sets `MOVA_MEDIA_ROOT`, then restart Docker Compose.':
-    '暂未检测到容器内 `/media` 目录。请确认 `.env` 已设置 `MOVA_MEDIA_ROOT`，然后重启 Docker Compose。',
+  'No in-container `/media` directory was detected yet. Make sure Docker Compose mounts the host media directory at `/media`, then restart the service.':
+    '暂未检测到容器内 `/media` 目录。请确认 Docker Compose 已将宿主机媒体目录挂载到 `/media`，然后重启服务。',
   Security: '安全',
   'Current Password': '当前密码',
   'New Password': '新密码',
@@ -241,10 +241,10 @@ const zhCN: Record<string, string> = {
   'Close user editor dialog': '关闭编辑用户弹窗',
   'Close metadata match dialog': '关闭元数据匹配弹窗',
   'Root path help': '根路径说明',
-  'This picker shows in-container paths. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so every /media/... path here maps to the actual library root available to the app.':
-    '这里显示的是容器内路径。宿主机的 `MOVA_MEDIA_ROOT` 会挂载到容器中的 `/media`，因此这里的 `/media/...` 就是应用实际扫描使用的路径。',
-  'This shows the in-container path. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so the /media/... value shown here is the real scan path used by the app.':
-    '这里显示的是容器内路径。宿主机的 `MOVA_MEDIA_ROOT` 会挂载到容器中的 `/media`，因此这里显示的 `/media/...` 就是应用实际使用的扫描路径。',
+  'This picker shows in-container paths. The host media directory configured in Docker Compose is mounted at /media, so every /media/... path here maps to content available to the app.':
+    '这里显示的是容器内路径。Docker Compose 中配置的宿主机媒体目录会挂载到 `/media`，因此这里的 `/media/...` 就是应用可访问的内容路径。',
+  'This shows the in-container path. The host media directory configured in Docker Compose is mounted at /media, so the /media/... value shown here is the real scan path used by the app.':
+    '这里显示的是容器内路径。Docker Compose 中配置的宿主机媒体目录会挂载到 `/media`，因此这里显示的 `/media/...` 就是应用实际使用的扫描路径。',
   'Admin permission required.': '需要管理员权限。',
   'Failed to delete library': '删除媒体库失败',
   Version: '版本',
