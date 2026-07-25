@@ -288,7 +288,7 @@ export const MediaItemPage = () => {
       : (mediaVersionOptions[0]?.value ?? '')
   const playbackPrimaryPath = playbackTargetMediaItemId
     ? mediaItemPlayPath(playbackTargetMediaItemId, {
-        fileId: !isSeriesView ? (selectedMediaFile?.id ?? null) : null,
+        fileId: selectedMediaFile?.id ?? null,
       })
     : null
   const playbackActionLinks = playbackTargetMediaItemId
@@ -501,7 +501,7 @@ export const MediaItemPage = () => {
           </div>
 
           <div className="detail-hero__controls">
-            {!isSeriesView && mediaVersionOptions.length > 1 ? (
+            {mediaVersionOptions.length > 1 ? (
               <div className="detail-hero__version-picker">
                 <p className="detail-hero__version-label">{l('Version')}</p>
                 <GlassSelect
