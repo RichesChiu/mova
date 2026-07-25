@@ -7,11 +7,19 @@ services:
     ports:
       - "36080:36080"
     environment:
-      MOVA_TMDB_ACCESS_TOKEN: ${MOVA_TMDB_ACCESS_TOKEN:-}
+      # Optional: TMDB API Read Access Token. Leave empty to skip remote metadata scraping.
+      MOVA_TMDB_ACCESS_TOKEN: ""
+      # Optional: uncomment when MOVA must use a proxy running on the Docker host.
+      # HTTP_PROXY: "http://host.docker.internal:7890"
+      # HTTPS_PROXY: "http://host.docker.internal:7890"
+    # Required on Linux when the optional host proxy above is enabled.
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
-        source: ${MOVA_MEDIA_ROOT:?MOVA_MEDIA_ROOT must be set to an existing host media directory}
+        # Replace with the absolute media directory on the Docker host.
+        source: /absolute/path/to/media
         target: /media
         read_only: true
     restart: unless-stopped

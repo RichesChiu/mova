@@ -750,7 +750,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - `children`：子文件夹节点；接口只返回文件夹，不返回普通文件
 
 说明：
-- 宿主机媒体根目录由服务端配置文件中的 `MOVA_MEDIA_ROOT` 配置，并挂载到容器内 `/media`
+- 宿主机媒体根目录在 Docker Compose 的卷挂载中直接配置，并只读挂载到容器内 `/media`；无需创建 `.env`
 - 返回树的根节点 `path` 表示客户端当前可见的服务端根目录
 - 服务端递归读取全部子文件夹，并按名称排序
 - 客户端不得把本机文件系统路径作为服务端 `root_path`

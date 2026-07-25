@@ -99,7 +99,7 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
           <span className="field__label-copy">{l('Root Path')}</span>
           <SectionHelp
             detail={l(
-              'This picker shows in-container paths. The host MOVA_MEDIA_ROOT is mounted into the container as /media, so every /media/... path here maps to the actual library root available to the app.',
+              'This picker shows in-container paths. The host media directory configured in Docker Compose is mounted at /media, so every /media/... path here maps to content available to the app.',
             )}
             title={l('Root path help')}
           />
@@ -144,7 +144,7 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
         {!mediaTreeQuery.isLoading && !mediaTreeQuery.isError && !mediaTree ? (
           <p className="root-path-picker__hint">
             {l(
-              'No in-container `/media` directory was detected yet. Make sure `.env` sets `MOVA_MEDIA_ROOT`, then restart Docker Compose.',
+              'No in-container `/media` directory was detected yet. Make sure Docker Compose mounts the host media directory at `/media`, then restart the service.',
             )}
           </p>
         ) : null}
