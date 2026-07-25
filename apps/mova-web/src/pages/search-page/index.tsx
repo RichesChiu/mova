@@ -4,6 +4,7 @@ import { Link, useNavigate, useOutletContext, useSearchParams } from 'react-rout
 import { globalSearch } from '../../api/client'
 import type { GlobalSearchResult, MediaType } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
+import { MediaRatingBadges } from '../../components/media-rating-badges'
 import { type Translate, useI18n } from '../../i18n'
 import { mediaTypePrimaryPath } from '../../lib/media-routes'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
@@ -182,7 +183,15 @@ export const SearchPage = () => {
                     </span>
 
                     <span className="search-card__body">
-                      <strong title={result.title}>{result.title}</strong>
+                      <span className="media-card-title-row">
+                        <strong
+                          className="search-card__title media-card-title-row__title"
+                          title={result.title}
+                        >
+                          {result.title}
+                        </strong>
+                        <MediaRatingBadges ratings={result.ratings} />
+                      </span>
                       <em title={meta.join(' · ')}>{meta.join(' · ')}</em>
                       {result.overview ? (
                         <small title={result.overview}>{result.overview}</small>

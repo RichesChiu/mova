@@ -91,6 +91,7 @@ export const LibrarySpotlightCard = ({
   const cardClassName = [
     'library-spotlight',
     className,
+    canManageLibraries ? 'library-spotlight--manageable' : '',
     isScanning ? 'library-spotlight--scanning' : '',
     libraryArtworkSrc ? '' : 'library-spotlight--empty-artwork',
   ]

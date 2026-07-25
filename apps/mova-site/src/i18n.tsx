@@ -203,6 +203,8 @@ const translations: Record<string, string> = {
     'Deleting a library cascades its authoritative database data and persists a background job that removes the library-scoped artwork, subtitle, and audio caches.',
   '搜索会在当前用户可见库内匹配电影、剧集和本地可用的集条目。':
     'Search matches movies, series, and locally available episodes in libraries visible to the current user.',
+  '搜索结果会返回条目自身的来源原生 ratings 数组，当前评分来源为 TMDB。':
+    'Search results include the item’s source-native ratings array; TMDB is the current rating source.',
   查询媒体库列表: 'List media libraries',
   查询按库分组的最新添加内容: 'Get recently added content grouped by library',
   创建媒体库: 'Create a media library',

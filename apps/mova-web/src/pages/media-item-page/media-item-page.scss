@@ -89,20 +89,6 @@
     box-shadow: var(--detail-readable-surface-shadow);
   }
 
-  .detail-hero__rating-badge {
-    border-color: var(--detail-rating-badge-border);
-    background: var(--detail-rating-badge-background);
-    box-shadow: var(--detail-rating-badge-shadow);
-    color: var(--detail-rating-badge-text);
-  }
-
-  .detail-hero__rating-label {
-    color: var(--detail-rating-label);
-  }
-
-  .detail-hero__rating-badge strong {
-    color: var(--detail-rating-strong);
-  }
 
   .media-technical-badge {
     border-color: var(--media-technical-badge-border);
@@ -239,36 +225,6 @@
   justify-content: flex-start;
 }
 
-.detail-hero__rating-badge {
-  display: inline-flex;
-  align-items: center;
-  align-self: center;
-  gap: 5px;
-  min-height: 0;
-  padding: 5px 9px;
-  border: 1px solid var(--detail-rating-badge-border);
-  border-radius: var(--radius-control);
-  background: var(--detail-rating-badge-background);
-  box-shadow: var(--detail-rating-badge-shadow);
-  color: var(--detail-rating-badge-text);
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.detail-hero__rating-label {
-  color: var(--detail-rating-label);
-  font-size: 0.64rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.detail-hero__rating-badge strong {
-  color: var(--detail-rating-strong);
-  font-size: 0.8rem;
-  line-height: 1;
-}
-
 .detail-hero__actions {
   display: flex;
   align-items: center;
@@ -290,7 +246,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  width: min(100%, 560px);
+  width: fit-content;
   max-width: 100%;
 }
 
@@ -305,13 +261,27 @@
 }
 
 .detail-hero__version-picker .glass-select {
-  flex: 1 1 auto;
-  width: auto;
+  flex: 0 1 auto;
+  width: fit-content;
+  max-width: min(100%, 480px);
   min-width: 0;
 }
 
 .detail-hero__version-picker .glass-select__trigger {
+  justify-content: flex-start;
+  width: auto;
+  max-width: 100%;
   min-width: 0;
+}
+
+.detail-hero__version-picker .glass-select__value {
+  flex: 0 1 auto;
+  max-width: min(52vw, 420px);
+}
+
+.detail-hero__version-picker .glass-select__caret {
+  flex: 0 0 auto;
+  margin-right: 2px;
 }
 
 .detail-hero__overview {

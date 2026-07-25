@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { MediaItem, RecentlyAddedLibraryMediaItems } from '../../../api/types'
 import { EmptyState } from '../../../components/empty-state'
 import { HoverTooltip } from '../../../components/hover-tooltip'
+import { MediaRatingBadges } from '../../../components/media-rating-badges'
 import { useI18n } from '../../../i18n'
 import { mediaItemPrimaryPath } from '../../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../../lib/media-type-label'
@@ -75,8 +76,13 @@ const RecentlyAddedMediaCard = ({ item }: { item: MediaItem }) => {
         src={item.poster_path}
       />
       <div className="recently-added-card__body">
+        <div className="media-card-title-row">
+          <strong className="recently-added-card__title media-card-title-row__title" title={title}>
+            {title}
+          </strong>
+          <MediaRatingBadges ratings={item.ratings} />
+        </div>
         <span>{metaLabel}</span>
-        <strong title={title}>{title}</strong>
         {overview ? <p title={overview}>{overview}</p> : null}
       </div>
     </Link>

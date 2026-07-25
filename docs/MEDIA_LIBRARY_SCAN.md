@@ -320,6 +320,7 @@ Season 1 Episode 2
 - 整部剧只选择一个 TMDB series ID。
 - TMDB series metadata 在组内复用。
 - 只为本地存在的季和集创建可播放结构。
+- 本地标题、原始标题或目录边界不同，但严格匹配到同一 provider series ID 的组，持久化时归并为一个 series；相同季集坐标的物理文件作为同一 episode 的多个播放版本。
 
 series group key 在存在明确季目录树时使用规范化容器路径，否则使用文件名解析出的规范化剧名。容器路径只是不透明分组边界，不从目录文字提取标题、别名或年份。
 

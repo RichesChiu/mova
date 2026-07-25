@@ -8,7 +8,7 @@ use crate::{
     metadata::{MetadataLookup, MetadataProvider, RemoteSeriesEpisodeOutline},
 };
 use mova_domain::{
-    AudioTrack, Library, MediaFile, MediaItem, PlaybackProgress, Season, SubtitleFile,
+    AudioTrack, Library, MediaFile, MediaItem, MediaRating, PlaybackProgress, Season, SubtitleFile,
     METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED, METADATA_STATUS_MATCHED,
     METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE,
     REMOTE_MEDIA_TYPE_SERIES,
@@ -85,6 +85,7 @@ pub struct GlobalSearchResult {
     pub backdrop_path: Option<String>,
     pub season_number: Option<i32>,
     pub episode_number: Option<i32>,
+    pub ratings: Vec<MediaRating>,
     pub updated_at: OffsetDateTime,
 }
 
@@ -271,6 +272,7 @@ pub async fn global_search(
             backdrop_path: result.backdrop_path,
             season_number: result.season_number,
             episode_number: result.episode_number,
+            ratings: result.ratings,
             updated_at: result.updated_at,
         })
         .collect())

@@ -234,6 +234,7 @@ export interface GlobalSearchResult {
   backdrop_path: string | null
   season_number: number | null
   episode_number: number | null
+  ratings: MediaRating[]
 }
 
 export interface EpisodeOutline {

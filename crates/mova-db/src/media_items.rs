@@ -240,6 +240,7 @@ pub struct GlobalSearchResult {
     pub backdrop_path: Option<String>,
     pub season_number: Option<i32>,
     pub episode_number: Option<i32>,
+    pub ratings: Vec<MediaRating>,
     pub updated_at: OffsetDateTime,
 }
 

@@ -1153,6 +1153,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - `library_id` / `library_name`：结果所属媒体库
 - `poster_path` / `backdrop_path`：只来自该搜索结果自身记录；没有值时保持 `null`，不会使用其他层级图片兜底
 - `season_number` / `episode_number`：只有集条目有值
+- `ratings`：搜索结果自身的来源原生评分数组，结构与媒体条目详情一致；当前已匹配的电影和剧集通常包含 TMDB 评分，未获取到有效投票时为空数组
 
 ## 6. 媒体条目
 

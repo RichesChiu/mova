@@ -158,7 +158,7 @@
   padding: 10px 11px 12px;
 }
 
-.search-card__body strong,
+.search-card__title,
 .search-card__body em,
 .search-card__body small {
   min-width: 0;
@@ -166,12 +166,12 @@
   text-overflow: ellipsis;
 }
 
-.search-card__body strong,
+.search-card__title,
 .search-card__body em {
   white-space: nowrap;
 }
 
-.search-card__body strong {
+.search-card__title {
   color: var(--text);
   font-size: 0.92rem;
   font-weight: 820;

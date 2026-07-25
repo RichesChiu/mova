@@ -15,6 +15,7 @@ import {
   getMediaItemScanRuntimeItems,
 } from '../../components/app-shell/scan-runtime'
 import { GlassSelect } from '../../components/glass-select'
+import { MediaRatingBadges } from '../../components/media-rating-badges'
 import { MetadataMatchPanel } from '../../components/metadata-match-panel'
 import { useI18n } from '../../i18n'
 import { formatMediaCountry } from '../../lib/media-country'
@@ -38,24 +39,6 @@ import { MediaItemCastSection, MediaItemEpisodesSection } from './media-item-sec
 import { MediaItemSourceFilesSection } from './source-files-section'
 
 const GENERATED_EPISODE_STILL_SEGMENT = '/generated/episode-stills/'
-
-const RATING_SOURCE_LABELS: Record<string, string> = {
-  imdb: 'IMDb',
-  rotten_tomatoes: 'Rotten Tomatoes',
-  tmdb: 'TMDB',
-}
-
-const formatRatingSource = (source: string) => {
-  const normalizedSource = source.trim().toLowerCase()
-  return (
-    RATING_SOURCE_LABELS[normalizedSource] ??
-    normalizedSource
-      .split('_')
-      .filter(Boolean)
-      .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-      .join(' ')
-  )
-}
 
 function preferHeroArtwork(path: string | null | undefined): string | null {
   if (!path) {
@@ -343,14 +326,6 @@ export const MediaItemPage = () => {
     : undefined
   const heroTitle = mediaItemQuery.data?.title ?? ''
   const heroTitleLogoPath = mediaItemQuery.data?.logo_path ?? null
-  const heroRatings = (mediaItemQuery.data?.ratings ?? []).filter(
-    (rating) =>
-      Number.isFinite(rating.score) &&
-      Number.isFinite(rating.scale) &&
-      rating.scale > 0 &&
-      rating.score >= 0 &&
-      rating.score <= rating.scale,
-  )
   const heroCountry = formatMediaCountry(mediaItemQuery.data?.country)
   const heroGenres = mediaItemQuery.data?.genres?.trim() || null
   const heroStudio = mediaItemQuery.data?.studio?.trim() || null
@@ -480,30 +455,7 @@ export const MediaItemPage = () => {
                 />
               ) : null}
               <h2>{heroTitle}</h2>
-              {heroRatings.map((rating) => {
-                const sourceLabel = formatRatingSource(rating.source)
-                const scoreLabel = Number.isInteger(rating.score)
-                  ? String(rating.score)
-                  : rating.score.toFixed(1)
-                const scaleLabel = Number.isInteger(rating.scale)
-                  ? String(rating.scale)
-                  : rating.scale.toFixed(1)
-
-                return (
-                  <span
-                    className="detail-hero__rating-badge"
-                    key={`${rating.source}:${rating.kind}`}
-                    title={l('{{source}} rating {{value}} out of {{scale}}', {
-                      source: sourceLabel,
-                      value: scoreLabel,
-                      scale: scaleLabel,
-                    })}
-                  >
-                    <span className="detail-hero__rating-label">{sourceLabel}</span>
-                    <strong>{scoreLabel}</strong>
-                  </span>
-                )
-              })}
+              <MediaRatingBadges limit={3} ratings={mediaItemQuery.data.ratings} />
             </div>
             {heroSecondaryFacts.length > 0 ? (
               <div className="detail-hero__facts detail-hero__facts--secondary">

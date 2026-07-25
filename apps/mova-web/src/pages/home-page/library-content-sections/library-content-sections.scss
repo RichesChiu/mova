@@ -48,7 +48,7 @@
   white-space: nowrap;
 }
 
-.recently-added-card__body strong {
+.recently-added-card__title {
   overflow: hidden;
   color: var(--text);
   font-weight: 760;
@@ -134,7 +134,7 @@
   padding-block: 3px;
 }
 
-.recently-added-card__body strong {
+.recently-added-card__title {
   font-size: clamp(0.88rem, 0.92vw, 1.04rem);
   line-height: 1.22;
 }

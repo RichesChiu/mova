@@ -15,22 +15,6 @@
   overflow: visible;
 }
 
-.libraries-page__card {
-  min-height: clamp(196px, 17vw, 226px);
-}
-
-.libraries-page__card .library-spotlight__content {
-  padding: clamp(13px, 1.2vw, 16px);
-}
-
-.libraries-page__card .library-spotlight__title {
-  font-size: clamp(1.02rem, 1.02vw, 1.16rem);
-}
-
-.libraries-page__card .library-spotlight__resource-count {
-  font-size: 0.78rem;
-}
-
 .libraries-page__grid .library-spotlight {
   box-shadow: var(--library-spotlight-card-shadow);
 }

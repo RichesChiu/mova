@@ -8,15 +8,15 @@ import {
 } from './home-sections'
 
 describe('home-sections', () => {
-  it('keeps at most five libraries in the home row', () => {
-    expect(HOME_LIBRARY_LIMIT).toBe(5)
+  it('keeps at most four libraries in the home row', () => {
+    expect(HOME_LIBRARY_LIMIT).toBe(4)
     expect(getVisibleHomeLibraries([1, 2, 3, 4])).toEqual([1, 2, 3, 4])
-    expect(getVisibleHomeLibraries([1, 2, 3, 4, 5, 6])).toEqual([1, 2, 3, 4, 5])
+    expect(getVisibleHomeLibraries([1, 2, 3, 4, 5])).toEqual([1, 2, 3, 4])
   })
 
-  it('only shows the library collection link when more than five libraries exist', () => {
-    expect(shouldShowAllHomeLibraries(5)).toBe(false)
-    expect(shouldShowAllHomeLibraries(6)).toBe(true)
+  it('only shows the library collection link when more than four libraries exist', () => {
+    expect(shouldShowAllHomeLibraries(4)).toBe(false)
+    expect(shouldShowAllHomeLibraries(5)).toBe(true)
   })
 
   it('hides an empty completed continue-watching module', () => {
