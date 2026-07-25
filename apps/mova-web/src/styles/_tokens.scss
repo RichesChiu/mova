@@ -327,6 +327,9 @@
     var(--mova-color-rgba-7-17-28-a66);
   --home-sidebar-edge-shadow: inset -1px 0 0 color-mix(in srgb, var(--color-white) 4%, transparent);
   --home-sidebar-shadow: 12px 0 44px color-mix(in srgb, var(--color-black) 18%, transparent);
+  --home-account-popover-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a05), transparent 42%),
+    var(--mova-color-hex-090f1a);
   --home-brand-text-background:
     linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a96) 0%, var(--mova-color-rgba-222-235-255-a96) 38%, var(--mova-color-rgba-116-168-255-a92) 100%),
     linear-gradient(90deg, var(--mova-color-hex-7aa7ff), var(--mova-color-hex-eef6ff) 44%, var(--mova-color-hex-8fd7ff));
@@ -809,6 +812,9 @@
     var(--mova-color-rgba-238-246-255-a42);
   --home-sidebar-edge-shadow: inset -1px 0 0 color-mix(in srgb, var(--color-white) 4%, transparent);
   --home-sidebar-shadow: 12px 0 44px color-mix(in srgb, var(--color-black) 18%, transparent);
+  --home-account-popover-background:
+    linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a46), transparent 42%),
+    var(--mova-color-hex-f7faff);
   --home-brand-text-background:
     linear-gradient(180deg, var(--mova-color-hex-1f3358) 0%, var(--mova-color-hex-426fbf) 54%, var(--mova-color-hex-5aa5dd) 100%),
     linear-gradient(90deg, var(--mova-color-hex-315ca8), var(--mova-color-hex-233853) 48%, var(--mova-color-hex-4c86c8));

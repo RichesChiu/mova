@@ -27,7 +27,7 @@ import {
   formatAudioTrackLabel,
   formatAudioTrackMeta,
 } from '../../lib/audio-tracks'
-import { formatDuration } from '../../lib/format'
+import { formatDuration, formatPlaybackTime } from '../../lib/format'
 import { shouldMarkPlaybackFinished } from '../../lib/playback'
 import {
   buildFullscreenWarningMessage,
@@ -49,6 +49,7 @@ import {
 
 const PROGRESS_SYNC_INTERVAL_SECONDS = 5
 const PLAYER_CONTROLS_IDLE_HIDE_MS = 1_400
+const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const
 const PLAYBACK_PROGRESS_SAVE_ERROR = () =>
   translateCurrent('Playback progress could not be saved. We will retry on the next sync.')
 const SUBTITLE_LOAD_ERROR = () =>
@@ -248,6 +249,7 @@ export const MediaPlayerPanel = ({
   const episodeMenuListRef = useRef<HTMLDivElement | null>(null)
   const audioMenuRef = useRef<HTMLDivElement | null>(null)
   const subtitleMenuRef = useRef<HTMLDivElement | null>(null)
+  const playbackRateMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedMediaFileRef = useRef<MediaFile | null>(null)
   const audioTrackNoticeTimeoutRef = useRef<number | null>(null)
   const playerControlsHideTimeoutRef = useRef<number | null>(null)
@@ -284,15 +286,22 @@ export const MediaPlayerPanel = ({
   const [isEpisodeMenuOpen, setIsEpisodeMenuOpen] = useState(false)
   const [isAudioMenuOpen, setIsAudioMenuOpen] = useState(false)
   const [isSubtitleMenuOpen, setIsSubtitleMenuOpen] = useState(false)
+  const [isPlaybackRateMenuOpen, setIsPlaybackRateMenuOpen] = useState(false)
+  const [playbackRate, setPlaybackRate] = useState(1)
   const [arePlayerControlsVisible, setArePlayerControlsVisible] = useState(false)
   const episodeMenuPresence = usePresenceTransition(isEpisodeMenuOpen, 140)
   const audioMenuPresence = usePresenceTransition(isAudioMenuOpen, 140)
   const subtitleMenuPresence = usePresenceTransition(isSubtitleMenuOpen, 140)
+  const playbackRateMenuPresence = usePresenceTransition(isPlaybackRateMenuOpen, 140)
   const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<number | null>(null)
   const [selectedSubtitleId, setSelectedSubtitleId] = useState<number | null>(null)
   const [hasSkippedIntro, setHasSkippedIntro] = useState(false)
   const arePlayerControlsPinned =
-    isAutoplayBlocked || isEpisodeMenuOpen || isAudioMenuOpen || isSubtitleMenuOpen
+    isAutoplayBlocked ||
+    isEpisodeMenuOpen ||
+    isAudioMenuOpen ||
+    isSubtitleMenuOpen ||
+    isPlaybackRateMenuOpen
 
   const clearPlayerControlsHideTimeout = useCallback(() => {
     if (playerControlsHideTimeoutRef.current === null) {
@@ -492,6 +501,7 @@ export const MediaPlayerPanel = ({
     setIsEpisodeMenuOpen(false)
     setIsAudioMenuOpen(false)
     setIsSubtitleMenuOpen(false)
+    setIsPlaybackRateMenuOpen(false)
 
     if (!keepBuffering) {
       setIsBuffering(false)
@@ -566,6 +576,7 @@ export const MediaPlayerPanel = ({
     setIsEpisodeMenuOpen(false)
     setIsAudioMenuOpen(false)
     setIsSubtitleMenuOpen(false)
+    setIsPlaybackRateMenuOpen(false)
     setIsBuffering(selectedMediaFileId !== null)
     setBufferedSeconds(0)
     setPositionSeconds(0)
@@ -623,7 +634,7 @@ export const MediaPlayerPanel = ({
   }, [selectedSubtitleId, subtitleFiles])
 
   useEffect(() => {
-    if (!isSubtitleMenuOpen && !isEpisodeMenuOpen && !isAudioMenuOpen) {
+    if (!isSubtitleMenuOpen && !isEpisodeMenuOpen && !isAudioMenuOpen && !isPlaybackRateMenuOpen) {
       return
     }
 
@@ -635,9 +646,11 @@ export const MediaPlayerPanel = ({
       const subtitleMenuRoot = subtitleMenuRef.current
       const audioMenuRoot = audioMenuRef.current
       const episodeMenuRoot = episodeMenuRef.current
+      const playbackRateMenuRoot = playbackRateMenuRef.current
       const clickedSubtitleMenu = subtitleMenuRoot?.contains(event.target)
       const clickedAudioMenu = audioMenuRoot?.contains(event.target)
       const clickedEpisodeMenu = episodeMenuRoot?.contains(event.target)
+      const clickedPlaybackRateMenu = playbackRateMenuRoot?.contains(event.target)
 
       if (!clickedSubtitleMenu) {
         setIsSubtitleMenuOpen(false)
@@ -650,6 +663,10 @@ export const MediaPlayerPanel = ({
       if (!clickedEpisodeMenu) {
         setIsEpisodeMenuOpen(false)
       }
+
+      if (!clickedPlaybackRateMenu) {
+        setIsPlaybackRateMenuOpen(false)
+      }
     }
 
     const handleEscape = (event: KeyboardEvent) => {
@@ -657,6 +674,7 @@ export const MediaPlayerPanel = ({
         setIsSubtitleMenuOpen(false)
         setIsAudioMenuOpen(false)
         setIsEpisodeMenuOpen(false)
+        setIsPlaybackRateMenuOpen(false)
       }
     }
 
@@ -667,7 +685,7 @@ export const MediaPlayerPanel = ({
       window.removeEventListener('mousedown', handlePointerDown)
       window.removeEventListener('keydown', handleEscape)
     }
-  }, [isAudioMenuOpen, isEpisodeMenuOpen, isSubtitleMenuOpen])
+  }, [isAudioMenuOpen, isEpisodeMenuOpen, isPlaybackRateMenuOpen, isSubtitleMenuOpen])
 
   useEffect(() => {
     if (!isEpisodeMenuOpen || !episodeMenuPresence.shouldRender) {
@@ -982,6 +1000,8 @@ export const MediaPlayerPanel = ({
     if (!video || !selectedMediaFile) {
       return
     }
+
+    video.playbackRate = playbackRate
 
     const handleAutomaticPlaybackFailure = (error: unknown) => {
       if (isAutoplayBlockedError(error)) {
@@ -1348,6 +1368,17 @@ export const MediaPlayerPanel = ({
     video.muted = normalizedVolume === 0
   }
 
+  const changePlaybackRate = (nextPlaybackRate: number) => {
+    const video = videoRef.current
+    if (!video) {
+      return
+    }
+
+    video.playbackRate = nextPlaybackRate
+    setPlaybackRate(nextPlaybackRate)
+    setIsPlaybackRateMenuOpen(false)
+  }
+
   const toggleFullscreen = async () => {
     const stage = stageRef.current
     if (!stage) {
@@ -1591,7 +1622,8 @@ export const MediaPlayerPanel = ({
                         </div>
                       </div>
                       <span className="player-stage__time">
-                        {formatDuration(positionSeconds)} / {formatDuration(durationSeconds)}
+                        {formatPlaybackTime(positionSeconds)} /{' '}
+                        {formatPlaybackTime(durationSeconds)}
                       </span>
                     </div>
                   </div>
@@ -1632,7 +1664,9 @@ export const MediaPlayerPanel = ({
                             }
                             onClick={() => {
                               setIsEpisodeMenuOpen((open) => !open)
+                              setIsAudioMenuOpen(false)
                               setIsSubtitleMenuOpen(false)
+                              setIsPlaybackRateMenuOpen(false)
                             }}
                             type="button"
                           >
@@ -1709,6 +1743,7 @@ export const MediaPlayerPanel = ({
                               setIsAudioMenuOpen((open) => !open)
                               setIsEpisodeMenuOpen(false)
                               setIsSubtitleMenuOpen(false)
+                              setIsPlaybackRateMenuOpen(false)
                             }}
                             type="button"
                           >
@@ -1803,6 +1838,7 @@ export const MediaPlayerPanel = ({
                             setIsSubtitleMenuOpen((open) => !open)
                             setIsEpisodeMenuOpen(false)
                             setIsAudioMenuOpen(false)
+                            setIsPlaybackRateMenuOpen(false)
                           }}
                           type="button"
                         >
@@ -1873,6 +1909,73 @@ export const MediaPlayerPanel = ({
                                     : translateCurrent('Failed to load subtitles')}
                                 </p>
                               ) : null}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div
+                        className={
+                          isPlaybackRateMenuOpen
+                            ? 'player-popover-menu player-popover-menu--open'
+                            : 'player-popover-menu'
+                        }
+                        ref={playbackRateMenuRef}
+                      >
+                        <button
+                          aria-expanded={isPlaybackRateMenuOpen}
+                          aria-haspopup="menu"
+                          aria-label={translateCurrent('Playback speed: {{rate}}', {
+                            rate: `${playbackRate}×`,
+                          })}
+                          className={
+                            playbackRate !== 1 || isPlaybackRateMenuOpen
+                              ? 'player-control-button player-control-button--toolbar player-control-button--rate player-control-button--active'
+                              : 'player-control-button player-control-button--toolbar player-control-button--rate'
+                          }
+                          onClick={() => {
+                            setIsPlaybackRateMenuOpen((open) => !open)
+                            setIsEpisodeMenuOpen(false)
+                            setIsAudioMenuOpen(false)
+                            setIsSubtitleMenuOpen(false)
+                          }}
+                          title={translateCurrent('Playback speed: {{rate}}', {
+                            rate: `${playbackRate}×`,
+                          })}
+                          type="button"
+                        >
+                          {playbackRate}×
+                        </button>
+
+                        {playbackRateMenuPresence.shouldRender ? (
+                          <div
+                            className="player-popover-menu__bubble player-popover-menu__bubble--compact glass-popover-surface floating-transition"
+                            data-state={playbackRateMenuPresence.transitionState}
+                            role="menu"
+                          >
+                            <div className="player-popover-menu__header">
+                              <strong>{translateCurrent('Playback Speed')}</strong>
+                            </div>
+                            <div className="player-popover-menu__list" role="none">
+                              {PLAYBACK_RATE_OPTIONS.map((rate) => {
+                                const isCurrentRate = rate === playbackRate
+                                return (
+                                  <button
+                                    aria-checked={isCurrentRate}
+                                    className={
+                                      isCurrentRate
+                                        ? 'player-popover-menu__option player-popover-menu__option--active'
+                                        : 'player-popover-menu__option'
+                                    }
+                                    key={rate}
+                                    onClick={() => changePlaybackRate(rate)}
+                                    role="menuitemradio"
+                                    type="button"
+                                  >
+                                    <span>{rate}×</span>
+                                  </button>
+                                )
+                              })}
                             </div>
                           </div>
                         ) : null}
