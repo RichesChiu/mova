@@ -60,3 +60,20 @@ export const formatDuration = (seconds: number | null | undefined, locale?: stri
 
   return `${minutes}m ${remainingSeconds}s`
 }
+
+export const formatPlaybackTime = (seconds: number | null | undefined) => {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) {
+    return '--:--'
+  }
+
+  const wholeSeconds = Math.floor(seconds)
+  const hours = Math.floor(wholeSeconds / 3600)
+  const minutes = Math.floor((wholeSeconds % 3600) / 60)
+  const remainingSeconds = wholeSeconds % 60
+  const paddedMinutes = String(minutes).padStart(2, '0')
+  const paddedSeconds = String(remainingSeconds).padStart(2, '0')
+
+  return hours > 0
+    ? `${hours}:${paddedMinutes}:${paddedSeconds}`
+    : `${paddedMinutes}:${paddedSeconds}`
+}

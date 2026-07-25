@@ -50,6 +50,7 @@ const installVideoTestState = (video: HTMLVideoElement) => {
   let paused = true
   let muted = false
   let volume = 1
+  let playbackRate = 1
 
   Object.defineProperty(video, 'currentTime', {
     configurable: true,
@@ -78,6 +79,13 @@ const installVideoTestState = (video: HTMLVideoElement) => {
     get: () => volume,
     set: (value: number) => {
       volume = Number(value)
+    },
+  })
+  Object.defineProperty(video, 'playbackRate', {
+    configurable: true,
+    get: () => playbackRate,
+    set: (value: number) => {
+      playbackRate = Number(value)
     },
   })
   Object.defineProperty(video, 'buffered', {
@@ -368,6 +376,28 @@ describe('MediaPlayerPanel', () => {
 
     fireEvent.keyDown(window, { code: 'Space', key: ' ' })
     expect(video.play).toHaveBeenCalledTimes(1)
+  })
+
+  it('changes playback speed from the immersive player toolbar', async () => {
+    const { container } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel mediaItemId={31} title="Interstellar" variant="immersive" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
+    const video = container.querySelector('video') as HTMLVideoElement
+    installVideoTestState(video)
+    fireEvent.loadedMetadata(video)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Playback speed: 1×' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '1.5×' }))
+
+    expect(video.playbackRate).toBe(1.5)
+    expect(screen.getByRole('button', { name: 'Playback speed: 1.5×' })).toBeInTheDocument()
   })
 
   it('requests fullscreen on the complete player screen', async () => {

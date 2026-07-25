@@ -339,6 +339,8 @@ const zhCN: Record<string, string> = {
   'Seek forward 10 seconds': '前进 10 秒',
   'Forward 10 seconds': '前进 10 秒',
   'Switch episode': '切换剧集',
+  'Playback Speed': '播放速度',
+  'Playback speed: {{rate}}': '播放速度：{{rate}}',
   'Select audio track': '选择音轨',
   'Loading embedded audio tracks…': '正在加载内嵌音轨…',
   Embedded: '内嵌',
