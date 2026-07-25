@@ -18,8 +18,6 @@ const composeExampleZh = `services:
       # 宿主机代理地址；不需要代理时保持为空
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -59,8 +57,6 @@ const composeExampleEn = `services:
       # Proxy on the Docker host; leave empty when no proxy is needed
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -212,8 +208,8 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
           </div>
           <p className="deploy-compose-guidance">
             {isChinese
-              ? '不需要代理时保持 HTTP_PROXY 和 HTTPS_PROXY 为空；需要宿主机代理时填写类似 http://host.docker.internal:7890 的地址。容器内不能使用 127.0.0.1 访问宿主机。Docker 拉取镜像所需的代理仍应在 Docker Desktop 或 Docker Engine 中配置。'
-              : 'Leave HTTP_PROXY and HTTPS_PROXY empty when no proxy is needed. For a proxy on the Docker host, use an address such as http://host.docker.internal:7890; 127.0.0.1 inside the container does not reach the host. Proxy access for image pulls must still be configured in Docker Desktop or Docker Engine.'}
+              ? '不需要代理时保持 HTTP_PROXY 和 HTTPS_PROXY 为空；需要代理时填写容器可以访问的实际 IP 地址，例如 http://192.168.1.10:7890。容器内不能使用 127.0.0.1 访问宿主机。Docker 拉取镜像所需的代理仍应在 Docker Desktop 或 Docker Engine 中配置。'
+              : 'Leave HTTP_PROXY and HTTPS_PROXY empty when no proxy is needed. Otherwise, enter an actual proxy IP reachable from the container, such as http://192.168.1.10:7890. The container cannot use 127.0.0.1 to reach the host. Proxy access for image pulls must still be configured in Docker Desktop or Docker Engine.'}
           </p>
         </section>
 

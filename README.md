@@ -58,8 +58,6 @@ services:
       # 宿主机代理地址；不需要代理时保持为空
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -86,7 +84,7 @@ services:
     restart: unless-stopped
 ```
 
-媒体目录、TMDB Token 和代理地址都直接在这一份 `docker-compose.yml` 中配置。无需创建 `.env`，也无需合并额外配置片段。默认不使用代理；需要通过宿主机代理访问 TMDB 时，将 `HTTP_PROXY` 和 `HTTPS_PROXY` 填为类似 `http://host.docker.internal:7890` 的实际地址。容器内的 `127.0.0.1` 指向容器自身，不能用于访问宿主机代理。
+媒体目录、TMDB Token 和代理地址都直接在这一份 `docker-compose.yml` 中配置。无需创建 `.env`，也无需合并额外配置片段。默认不使用代理；需要代理时，将 `HTTP_PROXY` 和 `HTTPS_PROXY` 填为容器可以访问的实际 IP 地址，例如 `http://192.168.1.10:7890`。容器内的 `127.0.0.1` 指向容器自身，不能用于访问宿主机代理。
 
 这些代理变量只控制 MOVA 运行时请求；如果 `docker compose pull` 无法访问 Docker Hub，需要在 Docker Desktop 或 Docker Engine 中单独配置代理。
 

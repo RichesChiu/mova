@@ -42,8 +42,6 @@ services:
       # 宿主机代理地址；不需要代理时保持为空
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -70,7 +68,7 @@ services:
     restart: unless-stopped
 ```
 
-媒体目录、TMDB Token 和代理地址都直接在这一份 `docker-compose.yml` 中配置，不需要创建 `.env`。默认不使用代理；需要通过宿主机代理访问 TMDB 时，将 `HTTP_PROXY` 和 `HTTPS_PROXY` 填为类似 `http://host.docker.internal:7890` 的实际地址，不能填写容器自身的 `127.0.0.1`。如果拉取 Docker 镜像也需要代理，请在 Docker Desktop 或 Docker Engine 中单独配置。
+媒体目录、TMDB Token 和代理地址都直接在这一份 `docker-compose.yml` 中配置，不需要创建 `.env`。默认不使用代理；需要代理时，将 `HTTP_PROXY` 和 `HTTPS_PROXY` 填为容器可以访问的实际 IP 地址，例如 `http://192.168.1.10:7890`，不能填写容器自身的 `127.0.0.1`。如果拉取 Docker 镜像也需要代理，请在 Docker Desktop 或 Docker Engine 中单独配置。
 
 `MOVA_TMDB_ACCESS_TOKEN` 用于启用 TMDB 自动刮削、海报/背景图以及元数据搜索与替换。获取方式：
 
@@ -177,8 +175,6 @@ services:
       # Proxy on the Docker host; leave empty when no proxy is needed
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -205,7 +201,7 @@ services:
     restart: unless-stopped
 ```
 
-Configure the media directory, TMDB token, and proxy directly in this single `docker-compose.yml`; no `.env` file is required. Leave the proxy values empty by default. To reach a proxy on the Docker host, set `HTTP_PROXY` and `HTTPS_PROXY` to an address such as `http://host.docker.internal:7890`, not the container's own `127.0.0.1`. Configure Docker Desktop or Docker Engine separately when image pulls also require a proxy.
+Configure the media directory, TMDB token, and proxy directly in this single `docker-compose.yml`; no `.env` file is required. Leave the proxy values empty by default. When a proxy is needed, set `HTTP_PROXY` and `HTTPS_PROXY` to an actual IP address reachable from the container, such as `http://192.168.1.10:7890`, not the container's own `127.0.0.1`. Configure Docker Desktop or Docker Engine separately when image pulls also require a proxy.
 
 `MOVA_TMDB_ACCESS_TOKEN` enables automatic TMDB scraping, remote artwork, and metadata search/replacement:
 
