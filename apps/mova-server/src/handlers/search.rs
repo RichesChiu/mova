@@ -40,6 +40,6 @@ pub async fn global_search(
 
     Ok(ok(results
         .into_iter()
-        .map(GlobalSearchResultResponse::from_domain)
+        .map(|result| GlobalSearchResultResponse::from_domain(result, state.api_time_offset))
         .collect()))
 }

@@ -20,6 +20,7 @@ import {
   shouldShowScanPlaceholder,
 } from '../../components/app-shell/scan-runtime'
 import { EmptyState } from '../../components/empty-state'
+import { MediaRatingBadges } from '../../components/media-rating-badges'
 import { useI18n } from '../../i18n'
 import {
   filterCompletedScanItemsWithSavedMedia,
@@ -72,7 +73,12 @@ const LibraryDetailMediaTile = ({ item }: { item: MediaItem }) => {
         src={item.poster_path}
       />
       <div className="library-detail-tile__copy">
-        <strong title={title}>{title}</strong>
+        <div className="media-card-title-row">
+          <strong className="library-detail-tile__title media-card-title-row__title" title={title}>
+            {title}
+          </strong>
+          <MediaRatingBadges ratings={item.ratings} />
+        </div>
         <span>{metaLabel}</span>
       </div>
     </Link>
@@ -105,7 +111,9 @@ const LibraryDetailScanTile = ({ item }: { item: ScanRuntimeItem }) => {
         </div>
       </LibraryDetailTileArtwork>
       <div className="library-detail-tile__copy">
-        <strong title={item.title}>{item.title}</strong>
+        <strong className="library-detail-tile__title" title={item.title}>
+          {item.title}
+        </strong>
         <span title={progressText}>{subtitle ?? progressText}</span>
       </div>
     </div>

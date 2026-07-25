@@ -54,21 +54,14 @@
 
 .libraries-section__grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: clamp(10px, 1.1vw, 13px);
   align-items: stretch;
   overflow: visible;
 }
 
 .libraries-section__grid .library-spotlight {
-  aspect-ratio: 16 / 9;
-  min-height: 0;
   box-shadow: var(--library-spotlight-card-shadow);
-}
-
-.libraries-section__grid .library-spotlight__link {
-  min-height: 0;
-  height: 100%;
 }
 
 .libraries-section__grid .library-spotlight:hover {
@@ -80,7 +73,7 @@
   position: relative;
   overflow: visible;
   display: grid;
-  min-height: clamp(190px, 18.8vw, 204px);
+  min-height: clamp(196px, 17vw, 226px);
   border: 0;
   border-radius: var(--radius-control);
   background: var(--library-spotlight-card-background);
@@ -170,27 +163,31 @@
 
 .library-spotlight > .library-spotlight__actions {
   position: absolute;
-  top: 13px;
-  right: 13px;
+  top: 16px;
+  right: 16px;
 }
 
 .library-spotlight__content {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   align-content: stretch;
   gap: 6px;
   min-height: 100%;
-  padding: 13px;
+  padding: 16px;
 }
 
 .library-spotlight__summary {
   display: grid;
-  grid-row: 2;
+  grid-row: 1;
   gap: 3px;
   min-width: 0;
-  align-self: end;
+  align-self: start;
+}
+
+.library-spotlight--manageable .library-spotlight__summary {
+  max-width: calc(100% - 38px);
 }
 
 .library-spotlight__title {
@@ -357,8 +354,17 @@
   text-shadow: var(--library-spotlight-stat-shadow);
 }
 
+.library-spotlight__stat:first-child {
+  justify-content: start;
+  padding-left: 0;
+  text-align: left;
+}
+
 .library-spotlight__stat:last-child {
+  justify-content: end;
+  padding-right: 0;
   border-right: 0;
+  text-align: right;
 }
 
 .library-spotlight__stat--wide {
@@ -366,6 +372,9 @@
   max-width: none;
   display: inline-flex;
   height: 30px;
+  justify-content: center;
+  padding: 0 6px;
+  text-align: center;
 }
 
 .library-spotlight__stat--loading {

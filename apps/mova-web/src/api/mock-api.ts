@@ -341,6 +341,7 @@ const globalSearch = (url: URL): GlobalSearchResult[] => {
       backdrop_path: item.backdrop_path,
       season_number: null,
       episode_number: null,
+      ratings: item.ratings,
     }))
 
   const episodeResults: GlobalSearchResult[] = mockMediaItems
@@ -368,6 +369,7 @@ const globalSearch = (url: URL): GlobalSearchResult[] => {
             backdrop_path: episode.backdrop_path,
             season_number: season.season_number,
             episode_number: episode.episode_number,
+            ratings: [],
           })),
       ),
     )

@@ -57,7 +57,7 @@
 | `src/media_items.rs` | 媒体条目相关父模块。 |
 | `src/media_items/query.rs` | 媒体列表、详情、文件、音轨、季集、outline cache 等读侧查询，也负责按 `file_path` 读取既有 metadata 摘要、`metadata_status` 复核状态、`scan_hash` 和 `local_analysis_version`；复用本地分析时音轨与字幕按 media file ID 集合各执行一次批量查询。 |
 | `src/media_items/sync.rs` | 按路径 upsert / delete 媒体项、媒体文件、音轨和字幕轨道，并在文件删除或重归属时清理孤立条目；同一 TMDB `provider_item_id` 的电影本地版本会在这里复用同一个 `movie media_item`。扫描组使用单个短事务写入全部成员，任一成员失败时整组回滚，每个组只执行一次孤儿结构清理，并在延迟逐行 trigger 后显式增加一次 catalog revision；媒体终态与进度检查点原子一致。 |
-| `src/media_items/series.rs` | 剧集聚合写入与 `series / seasons / episodes` 相关持久化；同一季同一集的多个文件版本会复用同一个 episode 记录，并把剧集级 metadata 复核状态写在 series media item 上；扫描 pending / unmatched 阶段不会用空 artwork 覆盖已有剧集、季或集图片，只有 matched 元数据写入能确认清空缺失图片。 |
+| `src/media_items/series.rs` | 剧集聚合写入与 `series / seasons / episodes` 相关持久化；严格匹配后优先按 provider 与 `provider_item_id` 复用 series，使不同本地标题或目录边界的同一远端剧集归并为一个顶层条目；同一季同一集的多个文件版本复用同一个 episode 记录。剧集级 metadata 复核状态写在 series media item 上；扫描 pending / unmatched 阶段不会用空 artwork 覆盖已有剧集、季或集图片，只有 matched 元数据写入能确认清空缺失图片。 |
 
 ## 5. 主要导出能力
 

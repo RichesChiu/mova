@@ -464,6 +464,8 @@ const zhCN: Record<string, string> = {
   '{{title}} artwork': '{{title}} 图片',
   '{{title}} poster': '{{title}} 海报',
   '{{source}} rating {{value}} out of {{scale}}': '{{source}} 评分 {{value}} / {{scale}}',
+  '{{source}} rating {{value}} out of {{scale}} from {{count}} votes':
+    '{{source}} 评分 {{value}} / {{scale}}，{{count}} 人评分',
   'Use horizontal scrolling or click arrows to move through episodes.':
     '可横向滚动或点击箭头浏览剧集列表。',
   'Use horizontal scrolling or click arrows to move through the cast list.':

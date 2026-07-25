@@ -30,7 +30,6 @@ const LIBRARY_SPOTLIGHT_SKELETON_KEYS = [
   'library-b',
   'library-c',
   'library-d',
-  'library-e',
 ] as const
 
 export const LibrariesSection = ({

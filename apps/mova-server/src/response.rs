@@ -242,6 +242,7 @@ pub struct GlobalSearchResultResponse {
     pub backdrop_path: Option<String>,
     pub season_number: Option<i32>,
     pub episode_number: Option<i32>,
+    pub ratings: Vec<MediaRatingResponse>,
 }
 
 #[derive(Debug, Serialize)]
@@ -712,7 +713,7 @@ impl MediaItemListResponse {
 }
 
 impl GlobalSearchResultResponse {
-    pub fn from_domain(result: GlobalSearchResult) -> Self {
+    pub fn from_domain(result: GlobalSearchResult, offset: UtcOffset) -> Self {
         Self {
             kind: result.kind,
             library_id: result.library_id,
@@ -738,6 +739,11 @@ impl GlobalSearchResultResponse {
             ),
             season_number: result.season_number,
             episode_number: result.episode_number,
+            ratings: result
+                .ratings
+                .into_iter()
+                .map(|rating| MediaRatingResponse::from_domain(rating, offset))
+                .collect(),
         }
     }
 }

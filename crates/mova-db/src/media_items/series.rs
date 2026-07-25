@@ -113,9 +113,7 @@ async fn upsert_series_item_from_entry(
     tx: &mut Transaction<'_, Postgres>,
     entry: &CreateMediaEntryParams,
 ) -> Result<i64> {
-    if let Some(series_id) =
-        find_existing_series_item(tx, entry.library_id, &entry.source_title, entry.year).await?
-    {
+    if let Some(series_id) = find_existing_series_item(tx, entry).await? {
         update_series_item_from_entry(tx, series_id, entry).await?;
         Ok(series_id)
     } else {
@@ -125,10 +123,36 @@ async fn upsert_series_item_from_entry(
 
 async fn find_existing_series_item(
     tx: &mut Transaction<'_, Postgres>,
-    library_id: i64,
-    title: &str,
-    year: Option<i32>,
+    entry: &CreateMediaEntryParams,
 ) -> Result<Option<i64>> {
+    if let (Some(provider), Some(provider_item_id)) = (
+        entry.metadata_provider.as_deref(),
+        entry.metadata_provider_item_id,
+    ) {
+        let row = sqlx::query(
+            r#"
+            select id
+            from media_items
+            where library_id = $1
+              and media_type = 'series'
+              and metadata_provider = $2
+              and metadata_provider_item_id = $3
+            order by id asc
+            limit 1
+            "#,
+        )
+        .bind(entry.library_id)
+        .bind(provider)
+        .bind(provider_item_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .context("failed to find existing series item by remote metadata id")?;
+
+        if let Some(row) = row {
+            return Ok(Some(row.get("id")));
+        }
+    }
+
     let row = sqlx::query(
         r#"
         select id
@@ -143,9 +167,9 @@ async fn find_existing_series_item(
         limit 1
         "#,
     )
-    .bind(library_id)
-    .bind(title)
-    .bind(year)
+    .bind(entry.library_id)
+    .bind(&entry.source_title)
+    .bind(entry.year)
     .fetch_optional(&mut **tx)
     .await
     .context("failed to find existing series item")?;

@@ -184,9 +184,7 @@ export const HomePage = () => {
       ? `${mediaItemDetailPath(entry.media_item.id)}?season=${seasonNumber}`
       : mediaItemPrimaryPath(entry.media_item)
     const artwork = hasEpisodeContext ? entry.episode_poster_path : entry.media_item.poster_path
-    const title = hasEpisodeContext
-      ? (entry.episode_title ?? entry.media_item.title)
-      : entry.media_item.title
+    const title = entry.media_item.title.trim() || l('Untitled')
     const placeholderLabel = hasEpisodeContext ? `${seasonNumber}-${episodeNumber}` : l('Movies')
 
     return {

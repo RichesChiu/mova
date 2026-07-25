@@ -1,4 +1,4 @@
-export const HOME_LIBRARY_LIMIT = 5
+export const HOME_LIBRARY_LIMIT = 4
 
 export const getVisibleHomeLibraries = <Item>(items: Item[]) => items.slice(0, HOME_LIBRARY_LIMIT)
 

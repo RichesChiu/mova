@@ -1,14 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { useOutletContext } from 'react-router-dom'
 import { listContinueWatching } from '../../api/client'
-import type { ContinueWatchingItem, MediaItem } from '../../api/types'
+import type { ContinueWatchingItem } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import {
   ContinueWatchingCard,
   ContinueWatchingCardSkeleton,
 } from '../../components/continue-watching-card'
 import { EmptyState } from '../../components/empty-state'
-import { type Translate, useI18n } from '../../i18n'
+import { useI18n } from '../../i18n'
 import { mediaItemDetailPath, mediaItemPrimaryPath } from '../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
@@ -32,9 +32,6 @@ const progressPercent = (position: number, duration: number | null) => {
   return Math.max(0, Math.min(100, Math.round((position / duration) * 100)))
 }
 
-const titleForMediaItem = (item: MediaItem, l: Translate) =>
-  item.title.trim() || item.source_title.trim() || l('Untitled')
-
 const ContinuePageCard = ({ item }: { item: ContinueWatchingItem }) => {
   const { l } = useI18n()
   const mediaItem = item.media_item
@@ -42,7 +39,7 @@ const ContinuePageCard = ({ item }: { item: ContinueWatchingItem }) => {
   const seasonNumber = typeof item.season_number === 'number' ? item.season_number : null
   const episodeNumber = typeof item.episode_number === 'number' ? item.episode_number : null
   const hasEpisodeContext = seasonNumber !== null && episodeNumber !== null
-  const title = item.episode_title?.trim() || titleForMediaItem(mediaItem, l)
+  const title = mediaItem.title.trim() || l('Untitled')
   const mediaTypeLabel = formatLibraryMediaTypeLabel(mediaItem.media_type, l)
   const metaLabel = hasEpisodeContext
     ? `S${String(seasonNumber).padStart(2, '0')} · E${String(episodeNumber).padStart(2, '0')}`

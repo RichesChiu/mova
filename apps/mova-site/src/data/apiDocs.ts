@@ -158,6 +158,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '创建媒体库后会自动触发一次后台扫描；媒体库不提供启用/禁用状态。',
       '删除媒体库会由数据库级联清理权威数据，并持久化后台任务删除该库独立的图片、字幕和音轨缓存。',
       '搜索会在当前用户可见库内匹配电影、剧集和本地可用的集条目。',
+      '搜索结果会返回条目自身的来源原生 ratings 数组，当前评分来源为 TMDB。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/libraries', description: '查询媒体库列表' },

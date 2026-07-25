@@ -404,11 +404,23 @@
     0 8px 18px color-mix(in srgb, var(--color-black) 28%, transparent);
   --library-spotlight-menu-dot-shadow: 0 1px 3px var(--mova-color-rgba-0-0-0-a42);
   --library-spotlight-overlay:
-    linear-gradient(180deg, var(--mova-color-rgba-7-12-19-a04), var(--mova-color-rgba-5-10-16-a5) 54%, var(--mova-color-rgba-4-8-14-a9)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-black) 68%, transparent) 0%,
+      color-mix(in srgb, var(--color-black) 28%, transparent) 38%,
+      color-mix(in srgb, var(--color-black) 40%, transparent) 62%,
+      color-mix(in srgb, var(--color-black) 90%, transparent) 100%
+    ),
     radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 18%, transparent), transparent 44%),
     radial-gradient(circle at 18% 8%, var(--mova-color-rgba-255-255-255-a08), transparent 34%);
   --library-spotlight-scanning-overlay:
-    linear-gradient(180deg, var(--mova-color-rgba-5-8-12-a08), var(--mova-color-rgba-5-8-12-a56) 52%, var(--mova-color-rgba-5-8-12-a9)),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-black) 70%, transparent) 0%,
+      color-mix(in srgb, var(--color-black) 34%, transparent) 38%,
+      color-mix(in srgb, var(--color-black) 46%, transparent) 62%,
+      color-mix(in srgb, var(--color-black) 90%, transparent) 100%
+    ),
     radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 16%, transparent), transparent 44%);
   --library-spotlight-scan-active-color: var(--mova-color-hex-f7f9ff);
   --library-spotlight-scan-active-shadow: 0 1px 3px var(--mova-color-rgba-0-0-0-a72);
@@ -557,16 +569,16 @@
   --detail-tag-background: color-mix(in srgb, var(--floating-surface-strong) 90%, var(--color-black));
   --detail-tag-label: color-mix(in srgb, var(--accent-strong) 68%, var(--text-soft));
   --detail-tag-value: var(--text);
-  --detail-rating-badge-border: color-mix(in srgb, var(--mova-color-hex-f5c518) 68%, var(--floating-border));
-  --detail-rating-badge-background:
+  --media-rating-badge-border: color-mix(in srgb, var(--mova-color-hex-f5c518) 68%, var(--floating-border));
+  --media-rating-badge-background:
     linear-gradient(180deg, var(--mova-color-rgba-245-197-24-a28), var(--mova-color-rgba-245-197-24-a14)),
     color-mix(in srgb, var(--floating-surface-strong) 90%, var(--color-black));
-  --detail-rating-badge-shadow:
+  --media-rating-badge-shadow:
     inset 0 1px 0 var(--mova-color-rgba-255-255-255-a12),
     0 8px 20px var(--mova-color-rgba-245-197-24-a12);
-  --detail-rating-badge-text: var(--text);
-  --detail-rating-label: var(--mova-color-hex-f5c518);
-  --detail-rating-strong: var(--mova-color-hex-fff4bf);
+  --media-rating-badge-text: var(--text);
+  --media-rating-label: var(--mova-color-hex-f5c518);
+  --media-rating-strong: var(--mova-color-hex-fff4bf);
   --media-technical-badge-border: color-mix(in srgb, var(--mova-color-white) 14%, var(--floating-border));
   --media-technical-badge-background:
     linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a13), transparent 52%),
@@ -949,16 +961,16 @@
   --detail-tag-background: var(--mova-color-rgba-245-249-255-a68);
   --detail-tag-label: var(--mova-color-hex-53627d);
   --detail-tag-value: var(--mova-color-hex-172033);
-  --detail-rating-badge-border: var(--mova-color-rgba-181-124-25-a34);
-  --detail-rating-badge-background:
+  --media-rating-badge-border: var(--mova-color-rgba-181-124-25-a34);
+  --media-rating-badge-background:
     linear-gradient(180deg, var(--mova-color-rgba-255-213-102-a34), var(--mova-color-rgba-255-236-179-a2)),
     var(--mova-color-rgba-255-250-236-a78);
-  --detail-rating-badge-shadow:
+  --media-rating-badge-shadow:
     inset 0 1px 0 var(--mova-color-rgba-255-255-255-a76),
     0 12px 28px var(--mova-color-rgba-171-111-18-a12);
-  --detail-rating-badge-text: var(--mova-color-hex-1f2937);
-  --detail-rating-label: var(--mova-color-hex-8a5408);
-  --detail-rating-strong: var(--mova-color-hex-172033);
+  --media-rating-badge-text: var(--mova-color-hex-1f2937);
+  --media-rating-label: var(--mova-color-hex-8a5408);
+  --media-rating-strong: var(--mova-color-hex-172033);
   --media-technical-badge-border: var(--mova-color-rgba-14-26-44-a22);
   --media-technical-badge-background:
     linear-gradient(180deg, var(--mova-color-rgba-255-255-255-a16), transparent 52%),

@@ -45,7 +45,9 @@ export const ContinueWatchingCard = ({ item }: { item: ContinueWatchingCardData 
         </div>
       </div>
       <div className="continue-watching-card__copy">
-        <strong title={item.title}>{item.title}</strong>
+        <strong className="continue-watching-card__title" title={item.title}>
+          {item.title}
+        </strong>
         {item.metaLabel ? <span>{item.metaLabel}</span> : null}
         <em>{progressPercent}%</em>
       </div>

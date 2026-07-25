@@ -456,7 +456,23 @@ pub async fn global_search(
     .await
     .context("failed to search media library")?;
 
-    Ok(rows.into_iter().map(map_global_search_result_row).collect())
+    let mut results = rows
+        .into_iter()
+        .map(map_global_search_result_row)
+        .collect::<Vec<_>>();
+    let media_item_ids = results
+        .iter()
+        .map(|result| result.media_item_id)
+        .collect::<Vec<_>>();
+    let mut ratings_by_media_item = list_media_item_ratings(pool, &media_item_ids).await?;
+
+    for result in &mut results {
+        result.ratings = ratings_by_media_item
+            .remove(&result.media_item_id)
+            .unwrap_or_default();
+    }
+
+    Ok(results)
 }
 
 /// 按主键读取单个媒体条目。
@@ -1883,6 +1899,7 @@ fn map_global_search_result_row(row: PgRow) -> GlobalSearchResult {
         backdrop_path: row.get("backdrop_path"),
         season_number: row.get("season_number"),
         episode_number: row.get("episode_number"),
+        ratings: Vec::new(),
         updated_at: row.get("updated_at"),
     }
 }

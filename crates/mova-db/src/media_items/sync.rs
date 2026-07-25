@@ -1572,6 +1572,84 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn sync_library_media_merges_episode_versions_with_the_same_remote_series_id(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let library = create_library(
+            &pool,
+            CreateLibraryParams {
+                name: "Shows".to_string(),
+                description: None,
+                metadata_language: "zh-CN".to_string(),
+                root_path: "/media/shows".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let mut localized_entry = build_episode_entry(
+            library.id,
+            "/media/shows/金斯敦市长/S01/金斯敦市长.S01E01.1080p.mkv",
+        );
+        localized_entry.metadata_provider_item_id = Some(97_951);
+        localized_entry.title = "金斯敦市长".to_string();
+        localized_entry.source_title = "金斯敦市长".to_string();
+        localized_entry.original_title = Some("Mayor of Kingstown".to_string());
+        localized_entry.year = Some(2021);
+
+        let mut original_title_entry = build_episode_entry(
+            library.id,
+            "/media/shows/Mayor of Kingstown/Season 01/Mayor of Kingstown.S01E01.2160p.mkv",
+        );
+        original_title_entry.metadata_provider_item_id = Some(97_951);
+        original_title_entry.title = "金斯敦市长".to_string();
+        original_title_entry.source_title = "Mayor of Kingstown".to_string();
+        original_title_entry.original_title = Some("Mayor of Kingstown".to_string());
+        original_title_entry.year = Some(2021);
+
+        sync_library_media(&pool, library.id, &[localized_entry, original_title_entry])
+            .await
+            .unwrap();
+
+        let series_media_item_count = sqlx::query_scalar::<_, i64>(
+            "select count(*) from media_items where media_type = 'series'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let episode_media_item_count = sqlx::query_scalar::<_, i64>(
+            "select count(*) from media_items where media_type = 'episode'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let media_file_count = sqlx::query_scalar::<_, i64>("select count(*) from media_files")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let linked_file_count = sqlx::query_scalar::<_, i64>(
+            r#"
+            select count(*)
+            from media_files
+            where media_item_id = (
+                select media_item_id
+                from episodes
+                limit 1
+            )
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(series_media_item_count, 1);
+        assert_eq!(episode_media_item_count, 1);
+        assert_eq!(media_file_count, 2);
+        assert_eq!(linked_file_count, 2);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
     async fn sync_library_media_best_effort_keeps_healthy_entries_when_one_entry_is_invalid(
         pool: sqlx::postgres::PgPool,
     ) {
