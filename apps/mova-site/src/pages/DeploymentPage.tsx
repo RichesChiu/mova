@@ -15,6 +15,11 @@ const composeExampleZh = `services:
     environment:
       # TMDB API Read Access Token；留空时会跳过远端元数据刮削
       MOVA_TMDB_ACCESS_TOKEN: ""
+      # 宿主机代理地址；不需要代理时保持为空
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -51,6 +56,11 @@ const composeExampleEn = `services:
     environment:
       # TMDB API Read Access Token; remote metadata scraping is skipped when empty
       MOVA_TMDB_ACCESS_TOKEN: ""
+      # Proxy on the Docker host; leave empty when no proxy is needed
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -75,14 +85,6 @@ const composeExampleEn = `services:
       retries: 12
     shm_size: 256mb
     restart: unless-stopped`
-
-const proxyComposeExample = `services:
-  app:
-    environment:
-      HTTP_PROXY: "http://host.docker.internal:7890"
-      HTTPS_PROXY: "http://host.docker.internal:7890"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"`
 
 export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string) => void }) {
   const { language } = useI18n()
@@ -168,8 +170,8 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
             eyebrow="Docker Compose"
             title={isChinese ? '完整 Compose 配置' : 'Complete Compose configuration'}
             text={isChinese
-              ? '保存为 docker-compose.yml。只需修改媒体目录；需要自动刮削时再填写 TMDB Token，其余配置均有默认值。'
-              : 'Save as docker-compose.yml. Only the media path must be changed; add a TMDB token for automatic scraping. Everything else has a default.'}
+              ? '复制并保存为 docker-compose.yml，在同一份文件中填写媒体目录、TMDB Token 和可选代理，然后直接启动。'
+              : 'Copy and save as docker-compose.yml, set the media path, TMDB token, and optional proxy in this one file, then start the stack.'}
           />
           <div className="deploy-preview-note">
             <div>
@@ -208,22 +210,11 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
               <p><code>./data/postgres</code><br /><code>./data/cache</code></p>
             </article>
           </div>
-          <div className="deploy-proxy-note">
-            <div>
-              <strong>{isChinese ? '需要代理时再添加' : 'Add only when a proxy is needed'}</strong>
-              <p>
-                {isChinese
-                  ? '默认无需代理配置。只有 MOVA 无法访问 TMDB 时，才把右侧片段合并到主 Compose。宿主机代理使用 host.docker.internal，不能填写 127.0.0.1。'
-                  : 'No proxy configuration is needed by default. Merge the snippet into the main Compose file only when MOVA cannot reach TMDB. Use host.docker.internal for a proxy on the host, not 127.0.0.1.'}
-              </p>
-              <p>
-                {isChinese
-                  ? '该片段只控制 MOVA 运行时请求。Docker 拉取镜像失败时，应在 Docker Desktop 或 Docker Engine 中配置代理。'
-                  : 'This snippet only controls MOVA runtime requests. Configure proxy access in Docker Desktop or Docker Engine when image pulls fail.'}
-              </p>
-            </div>
-            <pre className="deploy-proxy-code"><code>{proxyComposeExample}</code></pre>
-          </div>
+          <p className="deploy-compose-guidance">
+            {isChinese
+              ? '不需要代理时保持 HTTP_PROXY 和 HTTPS_PROXY 为空；需要宿主机代理时填写类似 http://host.docker.internal:7890 的地址。容器内不能使用 127.0.0.1 访问宿主机。Docker 拉取镜像所需的代理仍应在 Docker Desktop 或 Docker Engine 中配置。'
+              : 'Leave HTTP_PROXY and HTTPS_PROXY empty when no proxy is needed. For a proxy on the Docker host, use an address such as http://host.docker.internal:7890; 127.0.0.1 inside the container does not reach the host. Proxy access for image pulls must still be configured in Docker Desktop or Docker Engine.'}
+          </p>
         </section>
 
         <section className="deploy-section" id="deploy-after">

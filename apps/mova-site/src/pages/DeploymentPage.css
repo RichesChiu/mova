@@ -291,50 +291,19 @@
     overflow-wrap: anywhere;
   }
 
-  .deploy-proxy-note {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
-    gap: 12px;
+  .deploy-compose-guidance {
     margin-top: 14px;
-  }
-
-  .deploy-proxy-note > div {
     padding: 18px;
     border: 1px solid #e7e9f0;
     border-radius: 12px;
-    background: #fafbfc;
-  }
-
-  .deploy-proxy-note strong {
-    display: block;
-    margin-bottom: 8px;
-    color: var(--ink);
-    font-size: 13px;
-  }
-
-  .deploy-proxy-note p {
-    margin: 0;
     color: var(--muted);
+    background: #fafbfc;
     font-size: 12px;
     line-height: 1.75;
   }
 
-  .deploy-proxy-note p + p {
-    margin-top: 8px;
-  }
-
-  .deploy-proxy-code {
-    margin: 0;
-    padding: 18px;
-    overflow: auto;
-    border: 1px solid #222d48;
-    border-radius: 12px;
-    color: #e8edff;
-    background: #11192c;
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-    font-size: 11px;
-    line-height: 1.75;
-    scrollbar-width: thin;
+  .deploy-compose-guidance code {
+    color: #5545cc;
   }
 
   .deploy-after-grid {
@@ -364,9 +333,6 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .deploy-proxy-note {
-      grid-template-columns: 1fr;
-    }
   }
 
   @media (max-width: 720px) {
@@ -410,7 +376,6 @@
 
     .deploy-requirement-grid,
     .deploy-compose-meta,
-    .deploy-proxy-note,
     .deploy-after-grid {
       grid-template-columns: 1fr;
     }

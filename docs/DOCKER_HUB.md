@@ -31,19 +31,19 @@ cd mova
 services:
   app:
     image: richeschiu/mova:preview
-    container_name: mova-app
     depends_on:
       database:
         condition: service_healthy
     ports:
       - "36080:36080"
     environment:
-      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
-      MOVA_WEB_DIST_DIR: /app/web
       # TMDB API Read Access Token；留空时会跳过远端元数据刮削
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # 后台 worker 并发数，普通部署保持 2 即可
-      MOVA_WORKER_CONCURRENCY: "2"
+      # 宿主机代理地址；不需要代理时保持为空
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -59,7 +59,6 @@ services:
       POSTGRES_USER: mova
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: mova
-      PGDATA: /var/lib/postgresql/18/docker
     volumes:
       - ./data/postgres:/var/lib/postgresql
     healthcheck:
@@ -70,6 +69,8 @@ services:
     shm_size: 256mb
     restart: unless-stopped
 ```
+
+媒体目录、TMDB Token 和代理地址都直接在这一份 `docker-compose.yml` 中配置，不需要创建 `.env`。默认不使用代理；需要通过宿主机代理访问 TMDB 时，将 `HTTP_PROXY` 和 `HTTPS_PROXY` 填为类似 `http://host.docker.internal:7890` 的实际地址，不能填写容器自身的 `127.0.0.1`。如果拉取 Docker 镜像也需要代理，请在 Docker Desktop 或 Docker Engine 中单独配置。
 
 `MOVA_TMDB_ACCESS_TOKEN` 用于启用 TMDB 自动刮削、海报/背景图以及元数据搜索与替换。获取方式：
 
@@ -165,19 +166,19 @@ Create `docker-compose.yml` in that directory with the following complete conten
 services:
   app:
     image: richeschiu/mova:preview
-    container_name: mova-app
     depends_on:
       database:
         condition: service_healthy
     ports:
       - "36080:36080"
     environment:
-      MOVA_DATABASE_URL: postgres://mova:postgres@database:5432/mova
-      MOVA_WEB_DIST_DIR: /app/web
       # TMDB API Read Access Token; leave empty to skip remote metadata scraping
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # Background worker concurrency; 2 is suitable for most deployments
-      MOVA_WORKER_CONCURRENCY: "2"
+      # Proxy on the Docker host; leave empty when no proxy is needed
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -193,7 +194,6 @@ services:
       POSTGRES_USER: mova
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: mova
-      PGDATA: /var/lib/postgresql/18/docker
     volumes:
       - ./data/postgres:/var/lib/postgresql
     healthcheck:
@@ -204,6 +204,8 @@ services:
     shm_size: 256mb
     restart: unless-stopped
 ```
+
+Configure the media directory, TMDB token, and proxy directly in this single `docker-compose.yml`; no `.env` file is required. Leave the proxy values empty by default. To reach a proxy on the Docker host, set `HTTP_PROXY` and `HTTPS_PROXY` to an address such as `http://host.docker.internal:7890`, not the container's own `127.0.0.1`. Configure Docker Desktop or Docker Engine separately when image pulls also require a proxy.
 
 `MOVA_TMDB_ACCESS_TOKEN` enables automatic TMDB scraping, remote artwork, and metadata search/replacement:
 

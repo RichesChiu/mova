@@ -9,12 +9,11 @@ services:
     environment:
       # Optional: TMDB API Read Access Token. Leave empty to skip remote metadata scraping.
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # Optional: uncomment when MOVA must use a proxy running on the Docker host.
-      # HTTP_PROXY: "http://host.docker.internal:7890"
-      # HTTPS_PROXY: "http://host.docker.internal:7890"
-    # Required on Linux when the optional host proxy above is enabled.
-    # extra_hosts:
-    #   - "host.docker.internal:host-gateway"
+      # Optional: proxy running on the Docker host. Leave empty when no proxy is needed.
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind

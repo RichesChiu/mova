@@ -55,6 +55,11 @@ services:
     environment:
       # TMDB API Read Access Token；留空时会跳过远端元数据刮削
       MOVA_TMDB_ACCESS_TOKEN: ""
+      # 宿主机代理地址；不需要代理时保持为空
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data/cache:/app/data/cache
       - type: bind
@@ -81,19 +86,9 @@ services:
     restart: unless-stopped
 ```
 
-### 配置出站代理
+媒体目录、TMDB Token 和代理地址都直接在这一份 `docker-compose.yml` 中配置。无需创建 `.env`，也无需合并额外配置片段。默认不使用代理；需要通过宿主机代理访问 TMDB 时，将 `HTTP_PROXY` 和 `HTTPS_PROXY` 填为类似 `http://host.docker.internal:7890` 的实际地址。容器内的 `127.0.0.1` 指向容器自身，不能用于访问宿主机代理。
 
-默认不需要代理配置。只有 MOVA 无法访问 TMDB 时，才把下面的内容合并到 `services.app`，并按实际端口修改地址：
-
-```yaml
-environment:
-  HTTP_PROXY: "http://host.docker.internal:7890"
-  HTTPS_PROXY: "http://host.docker.internal:7890"
-extra_hosts:
-  - "host.docker.internal:host-gateway"
-```
-
-容器内的 `127.0.0.1` 指向容器自身，因此宿主机代理应使用 `host.docker.internal`。这些变量只控制 MOVA 运行时请求；如果 `docker compose pull` 无法访问 Docker Hub，需要在 Docker Desktop 或 Docker Engine 中单独配置代理。
+这些代理变量只控制 MOVA 运行时请求；如果 `docker compose pull` 无法访问 Docker Hub，需要在 Docker Desktop 或 Docker Engine 中单独配置代理。
 
 ### 获取 TMDB Access Token
 
