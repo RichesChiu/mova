@@ -78,7 +78,7 @@
 
 .library-spotlight {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   display: grid;
   min-height: clamp(190px, 18.8vw, 204px);
   border: 0;
@@ -97,6 +97,8 @@
   position: relative;
   display: grid;
   min-height: inherit;
+  overflow: hidden;
+  border-radius: inherit;
   color: inherit;
 }
 
@@ -112,6 +114,7 @@
 }
 
 .library-spotlight--loading {
+  overflow: hidden;
   cursor: progress;
 }
 

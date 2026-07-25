@@ -368,6 +368,8 @@
   min-width: 196px;
   padding: 8px;
   border-radius: var(--radius-card);
+  background: var(--home-account-popover-background);
+  backdrop-filter: none;
 }
 
 .home-sidebar__account-action {
