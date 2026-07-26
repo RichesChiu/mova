@@ -389,6 +389,9 @@
   --library-spotlight-title-shadow: 0 1px 4px var(--mova-color-rgba-0-0-0-a62);
   --library-spotlight-resource-color: color-mix(in srgb, var(--mova-color-hex-f4f7ff) 76%, var(--text-muted));
   --library-spotlight-resource-shadow: 0 1px 4px var(--mova-color-rgba-0-0-0-a62);
+  --library-spotlight-description-color:
+    color-mix(in srgb, var(--mova-color-hex-f4f7ff) 68%, transparent);
+  --library-spotlight-description-shadow: 0 1px 4px var(--mova-color-rgba-0-0-0-a58);
   --library-spotlight-stat-text: var(--text);
   --library-spotlight-stat-label: color-mix(in srgb, var(--text) 74%, var(--text-muted));
   --library-spotlight-stat-shadow: none;
@@ -858,12 +861,41 @@
     0 0 18px var(--mova-color-rgba-255-255-255-a2);
   --library-spotlight-resource-color: var(--mova-color-hex-f4f8ff);
   --library-spotlight-resource-shadow: 0 1px 5px var(--mova-color-rgba-15-26-42-a76);
+  --library-spotlight-description-color:
+    color-mix(in srgb, var(--mova-color-hex-f8fbff) 82%, transparent);
+  --library-spotlight-description-shadow: 0 1px 5px var(--mova-color-rgba-15-26-42-a76);
   --library-spotlight-stat-text: var(--mova-color-hex-f4f8ff);
   --library-spotlight-stat-label: var(--mova-color-hex-e7efff);
   --library-spotlight-stat-shadow: 0 1px 5px var(--mova-color-rgba-15-26-42-a76);
   --library-spotlight-stat-separator: var(--mova-color-rgba-247-250-255-a28);
   --library-spotlight-scan-text: var(--mova-color-hex-f4f8ff);
   --library-spotlight-scan-text-shadow: 0 1px 5px var(--mova-color-rgba-15-26-42-a76);
+  --library-spotlight-overlay:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-black) 76%, transparent) 0%,
+      color-mix(in srgb, var(--color-black) 54%, transparent) 34%,
+      color-mix(in srgb, var(--color-black) 48%, transparent) 62%,
+      color-mix(in srgb, var(--color-black) 90%, transparent) 100%
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-black) 42%, transparent) 0%,
+      transparent 72%
+    );
+  --library-spotlight-scanning-overlay:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-black) 80%, transparent) 0%,
+      color-mix(in srgb, var(--color-black) 58%, transparent) 38%,
+      color-mix(in srgb, var(--color-black) 52%, transparent) 64%,
+      color-mix(in srgb, var(--color-black) 92%, transparent) 100%
+    ),
+    radial-gradient(
+      circle at top right,
+      color-mix(in srgb, var(--accent) 14%, transparent),
+      transparent 44%
+    );
   --library-spotlight-image-overlay:
     linear-gradient(180deg, var(--mova-color-rgba-235-242-252-a08), var(--mova-color-rgba-174-196-228-a24)),
     radial-gradient(circle at top right, var(--mova-color-rgba-89-120-197-a12), transparent 42%);

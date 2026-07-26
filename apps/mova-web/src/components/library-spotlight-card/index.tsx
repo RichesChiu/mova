@@ -69,6 +69,7 @@ export const LibrarySpotlightCard = ({
   const movieCount = detail?.movie_count ?? 0
   const seriesCount = detail?.series_count ?? 0
   const otherCount = mediaCount - movieCount - seriesCount
+  const libraryDescription = library.description?.trim() || null
   const libraryArtworkSrc = getLibraryArtworkSrc(recentItems)
   const lastScan = getEffectiveScanJob(detail?.last_scan ?? null, scanRuntime)
   const isScanning = isLibraryScanActive(lastScan, scanRuntime)
@@ -118,6 +119,11 @@ export const LibrarySpotlightCard = ({
             <span className="library-spotlight__resource-count">
               {formatNumber(mediaCount)} {l('Resources')}
             </span>
+            {libraryDescription ? (
+              <span className="library-spotlight__description" title={libraryDescription}>
+                {libraryDescription}
+              </span>
+            ) : null}
           </div>
 
           {scanCopy ? (

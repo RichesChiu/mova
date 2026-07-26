@@ -24,21 +24,36 @@ export const getUserLibraryAccessSummary = (user: UserAccount, libraries: Librar
     : 'Access: No libraries assigned'
 }
 
-export const getScanStatusLabel = (scanJob: ScanJob | null | undefined) => {
-  switch (scanJob?.status) {
-    case 'running':
-      return translateCurrent('Running')
-    case 'success':
-      return translateCurrent('Success')
-    case 'failed':
-      return translateCurrent('Failed')
-    case 'cancelled':
-      return translateCurrent('Cancelled')
-    case 'pending':
-      return translateCurrent('Pending')
-    default:
-      return translateCurrent('Idle')
+export const getScanStatusLabel = (
+  scanJob: ScanJob | null | undefined,
+  progressPercent?: number,
+) => {
+  const statusLabel = (() => {
+    switch (scanJob?.status) {
+      case 'running':
+        return translateCurrent('Running')
+      case 'success':
+        return translateCurrent('Success')
+      case 'failed':
+        return translateCurrent('Failed')
+      case 'cancelled':
+        return translateCurrent('Cancelled')
+      case 'pending':
+        return translateCurrent('Pending')
+      default:
+        return translateCurrent('Idle')
+    }
+  })()
+
+  if (
+    progressPercent === undefined ||
+    (scanJob?.status !== 'pending' && scanJob?.status !== 'running')
+  ) {
+    return statusLabel
   }
+
+  const normalizedProgressPercent = Math.round(Math.max(0, Math.min(100, progressPercent)))
+  return `${statusLabel} ${normalizedProgressPercent}%`
 }
 
 export const getScanStatusTone = (scanJob: ScanJob | null | undefined) => {

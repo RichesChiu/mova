@@ -14,6 +14,12 @@ import {
 } from '../../api/client'
 import type { CreateLibraryInput, Library, LibraryDetail, UserAccount } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
+import {
+  getEffectiveScanJob,
+  getLibraryScanRuntime,
+  getScanJobProgressPercent,
+  isLibraryScanActive,
+} from '../../components/app-shell/scan-runtime'
 import { ConfirmActionModal } from '../../components/confirm-action-modal'
 import { CreateLibraryModal } from '../../components/create-library-modal'
 import { EmptyState } from '../../components/empty-state'
@@ -98,7 +104,8 @@ const SettingsLibraryCardSkeleton = ({ rootPathLabel }: { rootPathLabel: string 
 
 export const SettingsPage = () => {
   const { l } = useI18n()
-  const { currentUser, libraries, librariesLoading } = useOutletContext<AppShellOutletContext>()
+  const { currentUser, libraries, librariesLoading, scanRuntimeByLibrary } =
+    useOutletContext<AppShellOutletContext>()
   const queryClient = useQueryClient()
   const [isCreateLibraryOpen, setIsCreateLibraryOpen] = useState(false)
   const [isCreateUserOpen, setIsCreateUserOpen] = useState(false)
@@ -536,16 +543,24 @@ export const SettingsPage = () => {
                   : libraries.map((library) => {
                       const libraryDescription = library.description ?? l('No description')
                       const libraryDetail = libraryDetailsById.get(library.id)
-                      const lastScan = libraryDetail?.last_scan ?? null
-                      const lastScanStatusLabel = getScanStatusLabel(lastScan)
+                      const persistedLastScan = libraryDetail?.last_scan ?? null
+                      const scanRuntime = getLibraryScanRuntime(scanRuntimeByLibrary, library.id)
+                      const lastScan = getEffectiveScanJob(persistedLastScan, scanRuntime)
+                      const scanProgressPercent = getScanJobProgressPercent(
+                        persistedLastScan,
+                        scanRuntime,
+                      )
+                      const isScanActive = isLibraryScanActive(persistedLastScan, scanRuntime)
+                      const lastScanStatusLabel = getScanStatusLabel(
+                        lastScan,
+                        isScanActive ? scanProgressPercent : undefined,
+                      )
                       const lastScanStatusTone = getScanStatusTone(lastScan)
                       const isTriggeringScan =
                         scanMutation.isPending && scanMutation.variables === library.id
                       const isDeletingLibrary =
                         deleteLibraryMutation.isPending &&
                         deleteLibraryMutation.variables === library.id
-                      const isScanActive =
-                        lastScan?.status === 'pending' || lastScan?.status === 'running'
                       return (
                         <article className="settings-library-card" key={library.id}>
                           <div aria-hidden="true" className="settings-library-card__backdrop">
