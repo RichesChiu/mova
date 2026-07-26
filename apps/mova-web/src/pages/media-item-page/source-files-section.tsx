@@ -142,7 +142,6 @@ export const MediaItemSourceFilesSection = ({
                       ariaLabel={l('Select audio track for {{name}}', {
                         name: getMediaFileDisplayName(selectedMediaFile.file_path),
                       })}
-                      compact
                       disabled={audioTrackOptions.length === 0}
                       onChange={setSelectedAudioTrackId}
                       options={
@@ -202,7 +201,6 @@ export const MediaItemSourceFilesSection = ({
                       ariaLabel={l('Select subtitle track for {{name}}', {
                         name: getMediaFileDisplayName(selectedMediaFile.file_path),
                       })}
-                      compact
                       disabled={subtitleTrackOptions.length === 0}
                       onChange={setSelectedSubtitleTrackId}
                       options={

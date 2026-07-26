@@ -10,7 +10,6 @@ export interface GlassSelectOption {
 
 interface GlassSelectProps {
   ariaLabel?: string
-  compact?: boolean
   disabled?: boolean
   onChange: (value: string) => void
   options: GlassSelectOption[]
@@ -19,7 +18,6 @@ interface GlassSelectProps {
 
 export const GlassSelect = ({
   ariaLabel,
-  compact = false,
   disabled = false,
   onChange,
   options,
@@ -124,18 +122,7 @@ export const GlassSelect = ({
   }, [isOpen])
 
   return (
-    <div
-      className={
-        compact
-          ? isOpen
-            ? 'glass-select glass-select--compact glass-select--open'
-            : 'glass-select glass-select--compact'
-          : isOpen
-            ? 'glass-select glass-select--open'
-            : 'glass-select'
-      }
-      ref={rootRef}
-    >
+    <div className={isOpen ? 'glass-select glass-select--open' : 'glass-select'} ref={rootRef}>
       <button
         aria-expanded={isOpen}
         aria-haspopup="listbox"
@@ -147,17 +134,29 @@ export const GlassSelect = ({
         type="button"
       >
         <span className="glass-select__value">{selectedOption?.label ?? ''}</span>
-        <span aria-hidden className="glass-select__caret" />
+        <span aria-hidden className="glass-select__caret">
+          <svg
+            aria-hidden="true"
+            className="glass-select__caret-icon"
+            fill="none"
+            viewBox="0 0 16 16"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="m4 6 4 4 4-4"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="1.6"
+            />
+          </svg>
+        </span>
       </button>
 
       {menuPresence.shouldRender && menuStyle
         ? createPortal(
             <div
-              className={
-                compact
-                  ? 'glass-select__menu glass-select__menu--compact glass-select__menu--portal glass-popover-surface floating-transition'
-                  : 'glass-select__menu glass-select__menu--portal glass-popover-surface floating-transition'
-              }
+              className="glass-select__menu glass-select__menu--portal glass-popover-surface floating-transition"
               data-state={menuPresence.transitionState}
               ref={menuRef}
               role="listbox"
