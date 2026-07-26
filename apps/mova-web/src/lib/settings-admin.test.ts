@@ -256,6 +256,10 @@ describe('settings admin helpers', () => {
     ).toBe('')
 
     expect(getScanStatusLabel(scanJob)).toBe('Running')
+    expect(getScanStatusLabel(scanJob, 42.4)).toBe('Running 42%')
+    expect(getScanStatusLabel({ ...scanJob, status: 'pending' }, -2)).toBe('Pending 0%')
+    expect(getScanStatusLabel({ ...scanJob, status: 'running' }, 104)).toBe('Running 100%')
+    expect(getScanStatusLabel({ ...scanJob, status: 'success' }, 100)).toBe('Success')
     expect(getScanStatusTone(scanJob)).toBe('running')
     expect(
       buildUpdatedUserCacheState([viewer], viewer.id, { ...viewer, is_enabled: false }),

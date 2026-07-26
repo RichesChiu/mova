@@ -213,6 +213,20 @@
   white-space: nowrap;
 }
 
+.library-spotlight__description {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--library-spotlight-description-color);
+  font-size: 0.66rem;
+  font-weight: 520;
+  line-height: 1.38;
+  text-shadow: var(--library-spotlight-description-shadow);
+  -webkit-box-orient: vertical;
+  line-clamp: 4;
+  -webkit-line-clamp: 4;
+}
+
 .library-spotlight__line {
   display: block;
   border-radius: var(--radius-full);
