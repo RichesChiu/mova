@@ -91,33 +91,11 @@
 
   .deploy-code {
     margin: 0;
-    overflow: auto;
-    scrollbar-width: thin;
-    scrollbar-color: #4b566f #0d1425;
+    overflow: visible;
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-  }
-
-  .deploy-code::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-
-  .deploy-code::-webkit-scrollbar-track {
-    background: #0d1425;
-  }
-
-  .deploy-code::-webkit-scrollbar-thumb {
-    border: 2px solid #0d1425;
-    border-radius: 999px;
-    background: #4b566f;
-  }
-
-  .deploy-code::-webkit-scrollbar-thumb:hover {
-    background: #66728e;
-  }
-
-  .deploy-code::-webkit-scrollbar-corner {
-    background: #0d1425;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .deploy-content {
@@ -260,7 +238,6 @@
   }
 
   .deploy-code {
-    max-height: 820px;
     padding: 28px;
     color: #e8edff;
     font-size: 12px;
