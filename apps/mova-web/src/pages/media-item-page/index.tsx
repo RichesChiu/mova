@@ -489,7 +489,6 @@ export const MediaItemPage = () => {
                 <div className="detail-hero__season-select">
                   <GlassSelect
                     ariaLabel={l('Select season for {{title}}', { title: heroTitle })}
-                    compact
                     onChange={(value) => setSelectedSeasonNumber(Number(value))}
                     options={seasonOptions}
                     value={selectedSeasonValue}
@@ -506,7 +505,6 @@ export const MediaItemPage = () => {
                 <p className="detail-hero__version-label">{l('Version')}</p>
                 <GlassSelect
                   ariaLabel={l('Select playback version for {{title}}', { title: heroTitle })}
-                  compact
                   onChange={(value) => setSelectedMediaVersionId(Number(value))}
                   options={mediaVersionOptions}
                   value={selectedMediaVersionValue}
