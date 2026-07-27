@@ -176,8 +176,8 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
             </div>
             <p>
               {isChinese
-                ? '需要固定版本时可改用 richeschiu/mova:1.0.0-preview.4。Preview 阶段的 schema 仍可能变化，升级后如不兼容，需要重建数据库并重新扫描媒体库。'
-                : 'Use richeschiu/mova:1.0.0-preview.4 to pin this release. The schema may still change during Preview; incompatible upgrades require rebuilding the database and rescanning libraries.'}
+                ? 'preview 始终指向最新预览镜像。Preview 阶段的 schema 仍可能变化，升级后如不兼容，需要重建数据库并重新扫描媒体库。'
+                : 'preview always points to the latest preview image. The schema may still change during Preview; incompatible upgrades require rebuilding the database and rescanning libraries.'}
             </p>
           </div>
           <div className="deploy-compose-block">

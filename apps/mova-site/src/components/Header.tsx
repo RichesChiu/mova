@@ -1,4 +1,4 @@
-import { dockerUrl, githubUrl, navItems } from '../data/homeContent'
+import { dockerUrl, githubUrl, navItems, telegramUrl } from '../data/homeContent'
 import { useI18n } from '../i18n-context'
 import './Header.css'
 
@@ -64,6 +64,20 @@ export function Header({
             <path
               fill="currentColor"
               d="M4.25 11.25h2.5v-2.5h-2.5v2.5Zm3.25 0H10v-2.5H7.5v2.5Zm3.25 0h2.5v-2.5h-2.5v2.5Zm-3.25-3.25H10v-2.5H7.5V8Zm3.25 0h2.5v-2.5h-2.5V8Zm3.25 3.25h2.5v-2.5H14v2.5Zm6.1-.86c-.63-.43-1.58-.56-2.28-.34-.1-.75-.57-1.42-1.37-2.02l-.48-.36-.32.52c-.62 1.01-.77 2.33-.35 3.23-.66.37-1.78.35-5.82.35H3.11l-.08.45c-.26 1.58.03 2.92.86 3.98.94 1.2 2.48 1.8 4.58 1.8h.2c4.62 0 8.04-2.12 9.73-6.02.67.03 1.58-.1 2.24-.86l.35-.41-.89-.32Zm-11.43 6.5h-.19c-1.72 0-2.94-.44-3.64-1.31-.47-.59-.7-1.34-.68-2.28h9.25c2.67 0 3.8-.02 4.64-.44-1.56 2.62-4.3 4.03-8.1 4.03Z"
+            />
+          </svg>
+        </a>
+        <a
+          className="header-icon-link telegram-link"
+          href={telegramUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={t('加入 Telegram 群')}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M21.72 2.36a1.34 1.34 0 0 0-1.38-.15L2.82 9.14c-.9.36-.87 1.64.05 1.96l4.43 1.55 1.7 5.28c.29.9 1.45 1.16 2.1.47l2.48-2.63 4.75 3.49c.77.56 1.87.14 2.05-.79l2.1-14.78a1.34 1.34 0 0 0-.76-1.33ZM9.08 12.08l8.92-5.6-7.14 7.04-.56 2.75-1.22-4.19Z"
             />
           </svg>
         </a>

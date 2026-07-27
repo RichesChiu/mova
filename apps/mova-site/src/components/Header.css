@@ -136,6 +136,10 @@
     color: #2275ec;
   }
 
+  .telegram-link {
+    color: #229ed9;
+  }
+
   .language-switch {
     display: inline-grid;
     grid-template-columns: repeat(2, auto);

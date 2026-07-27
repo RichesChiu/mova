@@ -1,5 +1,5 @@
 import { useI18n } from '../i18n-context'
-import { githubUrl } from '../data/homeContent'
+import { githubUrl, telegramUrl } from '../data/homeContent'
 import './LegalPage.css'
 
 const supportEmail = 'riches.chiu@gmail.com'
@@ -34,6 +34,9 @@ export function SupportPage({ onOpenPrivacy }: { onOpenPrivacy: () => void }) {
           <div className="support-contact-actions">
             <a className="support-issue-link" href={issueUrl} target="_blank" rel="noreferrer">
               {isChinese ? '提交 GitHub Issue' : 'Open a GitHub Issue'}
+            </a>
+            <a className="support-telegram-link" href={telegramUrl} target="_blank" rel="noreferrer">
+              {isChinese ? '加入 Telegram 群' : 'Join the Telegram group'}
             </a>
             <a className="support-email-link" href={`mailto:${supportEmail}`}>{supportEmail}</a>
           </div>
