@@ -726,7 +726,7 @@ fn merge_remote_outline_with_local(
             let local_episode = local_season.episodes.get(&episode_number);
             let title = remote_episode
                 .title
-                .and_then(|title| normalize_non_empty(title))
+                .and_then(normalize_non_empty)
                 .or_else(|| local_episode.map(|episode| episode.title.clone()))
                 .unwrap_or_else(|| default_episode_title(episode_number));
 

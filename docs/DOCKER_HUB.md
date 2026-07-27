@@ -70,6 +70,8 @@ services:
 
 媒体目录、TMDB Token 和代理地址都直接在这一份 `docker-compose.yml` 中配置，不需要创建 `.env`。默认不使用代理；需要代理时，将 `HTTP_PROXY` 和 `HTTPS_PROXY` 填为容器可以访问的实际 IP 地址，例如 `http://192.168.1.10:7890`，不能填写容器自身的 `127.0.0.1`。如果拉取 Docker 镜像也需要代理，请在 Docker Desktop 或 Docker Engine 中单独配置。
 
+通过 HTTPS 反向代理公开 Web 页面时，在 `app.environment` 中额外设置 `MOVA_SESSION_COOKIE_SECURE: "true"`。本地纯 HTTP 部署保持默认值，否则浏览器不会回传登录 Cookie。
+
 `MOVA_TMDB_ACCESS_TOKEN` 用于启用 TMDB 自动刮削、海报/背景图以及元数据搜索与替换。获取方式：
 
 1. 注册并登录 [TMDB](https://www.themoviedb.org/)，完成邮箱验证。
@@ -202,6 +204,8 @@ services:
 ```
 
 Configure the media directory, TMDB token, and proxy directly in this single `docker-compose.yml`; no `.env` file is required. Leave the proxy values empty by default. When a proxy is needed, set `HTTP_PROXY` and `HTTPS_PROXY` to an actual IP address reachable from the container, such as `http://192.168.1.10:7890`, not the container's own `127.0.0.1`. Configure Docker Desktop or Docker Engine separately when image pulls also require a proxy.
+
+When exposing the Web app through an HTTPS reverse proxy, add `MOVA_SESSION_COOKIE_SECURE: "true"` to `app.environment`. Keep the default for local HTTP deployments, otherwise the browser will not return the session cookie.
 
 `MOVA_TMDB_ACCESS_TOKEN` enables automatic TMDB scraping, remote artwork, and metadata search/replacement:
 

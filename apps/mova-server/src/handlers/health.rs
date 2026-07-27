@@ -10,6 +10,7 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 pub struct HealthResponse {
     status: &'static str,
+    version: String,
 }
 
 /// 在返回健康状态前顺便探测数据库，确保服务依赖也是可用的。
@@ -18,5 +19,8 @@ pub async fn health(State(state): State<AppState>) -> Result<ApiJson<HealthRespo
         .await
         .map_err(|_| ApiError::ServiceUnavailable("database unavailable".to_string()))?;
 
-    Ok(ok(HealthResponse { status: "ok" }))
+    Ok(ok(HealthResponse {
+        status: "ok",
+        version: state.build_version,
+    }))
 }

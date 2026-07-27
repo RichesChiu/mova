@@ -150,13 +150,13 @@ mod tests {
         let season_one = severance.join("Season 1");
         let loose_file = root.join("README.txt");
 
-        let result = (|| {
+        let result = {
             create_dir(&alien);
             create_dir(&season_one);
             fs::write(&loose_file, b"not a directory").expect("failed to write loose file");
 
             build_media_tree(&root).expect("failed to build tree")
-        })();
+        };
 
         let _ = fs::remove_dir_all(&root);
 

@@ -17,6 +17,10 @@ pub enum ApiError {
     },
     Forbidden(String),
     NotFound(String),
+    TooManyRequests {
+        message: String,
+        retry_after_seconds: u64,
+    },
     ServiceUnavailable(String),
     RangeNotSatisfiable {
         message: String,
@@ -87,6 +91,28 @@ impl IntoResponse for ApiError {
                 ApiCode::Http(StatusCode::NOT_FOUND.as_u16()),
                 message,
             ),
+            Self::TooManyRequests {
+                message,
+                retry_after_seconds,
+            } => {
+                let mut response = (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    Json(ApiEnvelope {
+                        code: ApiCode::Http(StatusCode::TOO_MANY_REQUESTS.as_u16()),
+                        message,
+                        data: (),
+                    }),
+                )
+                    .into_response();
+
+                response.headers_mut().insert(
+                    axum::http::header::RETRY_AFTER,
+                    axum::http::HeaderValue::from_str(&retry_after_seconds.to_string())
+                        .unwrap_or_else(|_| axum::http::HeaderValue::from_static("1")),
+                );
+
+                return response;
+            }
             Self::ServiceUnavailable(message) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 ApiCode::Http(StatusCode::SERVICE_UNAVAILABLE.as_u16()),
@@ -127,5 +153,26 @@ impl IntoResponse for ApiError {
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ApiError;
+    use axum::{
+        http::{header, StatusCode},
+        response::IntoResponse,
+    };
+
+    #[test]
+    fn rate_limit_response_includes_retry_after() {
+        let response = ApiError::TooManyRequests {
+            message: "try again later".to_string(),
+            retry_after_seconds: 90,
+        }
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers().get(header::RETRY_AFTER).unwrap(), "90");
     }
 }

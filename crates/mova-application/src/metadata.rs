@@ -412,10 +412,8 @@ impl TmdbMetadataProvider {
             .iter()
             .filter(|candidate| candidate_matches_year(lookup.year, *candidate))
             .collect::<Vec<_>>();
-        let direct_candidates = strongest_direct_title_matches(
-            &lookup.title,
-            eligible_candidates.iter().copied().collect(),
-        );
+        let direct_candidates =
+            strongest_direct_title_matches(&lookup.title, eligible_candidates.to_vec());
         if !direct_candidates.is_empty() {
             return Ok(select_strict_candidate(lookup.year, direct_candidates));
         }
@@ -476,10 +474,8 @@ impl TmdbMetadataProvider {
             .iter()
             .filter(|candidate| candidate_matches_year(lookup.year, *candidate))
             .collect::<Vec<_>>();
-        let direct_candidates = strongest_direct_title_matches(
-            &lookup.title,
-            eligible_candidates.iter().copied().collect(),
-        );
+        let direct_candidates =
+            strongest_direct_title_matches(&lookup.title, eligible_candidates.to_vec());
         if !direct_candidates.is_empty() {
             let direct_candidates = self
                 .filter_tv_candidates_by_season_air_year(lookup, direct_candidates)
@@ -940,6 +936,7 @@ impl TmdbMetadataProvider {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn map_search_result(
         &self,
         provider_item_id: i64,
@@ -1078,6 +1075,7 @@ where
 
 /// 把远程元数据补到本地扫描结果里。
 /// 展示标题会优先使用远端返回的本地化标题；原始文件名标题则单独存到 `source_title`。
+#[allow(clippy::too_many_arguments)]
 pub fn apply_remote_metadata(
     metadata: Option<RemoteMetadata>,
     metadata_provider: &mut Option<String>,
@@ -1538,7 +1536,7 @@ fn tmdb_tv_season_matches_air_year(details: &TmdbTvSeasonDetails, year: i32) -> 
             .any(|episode| parse_year(episode.air_date.as_deref()) == Some(year))
 }
 
-fn select_strict_candidate<'a, T>(query_year: Option<i32>, candidates: Vec<&'a T>) -> Option<&'a T>
+fn select_strict_candidate<T>(query_year: Option<i32>, candidates: Vec<&T>) -> Option<&T>
 where
     T: TmdbSearchCandidate,
 {
@@ -1701,10 +1699,10 @@ fn select_tmdb_logo<'a>(
                         .cmp(&left.vote_count.unwrap_or_default())
                 })
                 .then_with(|| {
-                    let left_area = i64::from(left.width.unwrap_or_default())
-                        * i64::from(left.height.unwrap_or_default());
-                    let right_area = i64::from(right.width.unwrap_or_default())
-                        * i64::from(right.height.unwrap_or_default());
+                    let left_area =
+                        left.width.unwrap_or_default() * left.height.unwrap_or_default();
+                    let right_area =
+                        right.width.unwrap_or_default() * right.height.unwrap_or_default();
                     right_area.cmp(&left_area)
                 })
         })
@@ -2239,7 +2237,7 @@ mod tests {
 
     #[test]
     fn exact_original_title_outranks_numbered_subtitle_compatibility() {
-        let candidates = vec![
+        let candidates = [
             TmdbMovieSearchResult {
                 id: 324_552,
                 title: Some("疾速追杀2".to_string()),
@@ -2273,7 +2271,7 @@ mod tests {
 
     #[test]
     fn strict_match_prefers_original_title_over_localized_title_only() {
-        let candidates = vec![
+        let candidates = [
             TmdbMovieSearchResult {
                 id: 1_395_515,
                 title: Some("奇遇".to_string()),
@@ -2306,7 +2304,7 @@ mod tests {
 
     #[test]
     fn strict_match_rejects_multiple_original_title_matches() {
-        let candidates = vec![
+        let candidates = [
             TmdbMovieSearchResult {
                 id: 1,
                 title: Some("Same Title".to_string()),
@@ -2335,7 +2333,7 @@ mod tests {
 
     #[test]
     fn strict_match_requires_exact_title_and_year() {
-        let candidates = vec![
+        let candidates = [
             TmdbMovieSearchResult {
                 id: 1,
                 title: Some("Castle in the Sky".to_string()),
@@ -2374,7 +2372,7 @@ mod tests {
 
     #[test]
     fn strict_match_without_year_selects_newest_exact_title() {
-        let candidates = vec![
+        let candidates = [
             TmdbMovieSearchResult {
                 id: 1,
                 title: Some("Dune".to_string()),
@@ -2402,7 +2400,7 @@ mod tests {
 
     #[test]
     fn strict_match_without_year_rejects_tied_latest_candidates() {
-        let candidates = vec![
+        let candidates = [
             TmdbMovieSearchResult {
                 id: 1,
                 title: Some("Same".to_string()),

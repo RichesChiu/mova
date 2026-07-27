@@ -242,10 +242,10 @@ mod tests {
     fn validate_root_path_accepts_existing_directory() {
         let dir = unique_temp_path("dir");
 
-        let result = (|| {
+        let result = {
             fs::create_dir_all(&dir).unwrap();
             validate_root_path(dir.to_str().unwrap())
-        })();
+        };
 
         let _ = fs::remove_dir_all(&dir);
 
@@ -269,10 +269,10 @@ mod tests {
     fn validate_root_path_rejects_file_path() {
         let path = unique_temp_path("file");
 
-        let result = (|| {
+        let result = {
             fs::write(&path, b"not a directory").unwrap();
             validate_root_path(path.to_str().unwrap())
-        })();
+        };
 
         let _ = fs::remove_file(&path);
 

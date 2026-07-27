@@ -1667,8 +1667,7 @@ mod tests {
 
         let mut invalid_entry =
             build_movie_entry(library.id, "/media/movies/Broken/Broken.invalid.mkv");
-        invalid_entry.title = "X".repeat(700);
-        invalid_entry.source_title = "X".repeat(700);
+        invalid_entry.metadata_provider = Some("x".repeat(33));
 
         let valid_entry = build_movie_entry(library.id, "/media/movies/Healthy/Healthy.mkv");
 

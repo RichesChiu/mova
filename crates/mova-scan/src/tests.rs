@@ -674,7 +674,7 @@ fn infer_series_sidecar_metadata_has_priority_fields_without_using_directories()
         .join("错误目录 2030")
         .join("Fallback.Title.S02E01.2025.mkv");
 
-    let result = (|| {
+    let result = {
         fs::create_dir_all(video_path.parent().unwrap()).unwrap();
         fs::write(&video_path, b"video").unwrap();
         fs::write(
@@ -684,7 +684,7 @@ fn infer_series_sidecar_metadata_has_priority_fields_without_using_directories()
         .unwrap();
 
         infer_series_sidecar_metadata(&video_path)
-    })();
+    };
 
     let _ = fs::remove_dir_all(&root);
 
@@ -1069,14 +1069,14 @@ fn discover_media_files_only_returns_supported_videos() {
     let root = unique_temp_path("root");
     let nested = root.join("nested");
 
-    let result = (|| {
+    let result = {
         fs::create_dir_all(&nested).unwrap();
         fs::write(root.join("movie.mp4"), b"video").unwrap();
         fs::write(nested.join("episode.mkv"), b"video").unwrap();
         fs::write(root.join("notes.txt"), b"ignore").unwrap();
 
         discover_media_files(&root)
-    })();
+    };
 
     let _ = fs::remove_dir_all(&root);
 
@@ -1103,7 +1103,7 @@ fn discover_media_paths_only_returns_supported_video_paths() {
     let root = unique_temp_path("paths");
     let nested = root.join("nested");
 
-    let result = (|| {
+    let result = {
         fs::create_dir_all(&nested).unwrap();
         fs::write(root.join("movie.mp4"), b"video").unwrap();
         fs::write(nested.join("episode.mkv"), b"video").unwrap();
@@ -1111,7 +1111,7 @@ fn discover_media_paths_only_returns_supported_video_paths() {
         fs::write(root.join("poster.jpg"), b"art").unwrap();
 
         discover_media_paths(&root)
-    })();
+    };
 
     let _ = fs::remove_dir_all(&root);
 
@@ -1132,7 +1132,7 @@ fn discover_media_files_reads_sidecar_metadata_and_artwork() {
     let movie_dir = root.join("spirited-away");
     let video_path = movie_dir.join("Spirited.Away.2001.mkv");
 
-    let result = (|| {
+    let result = {
         fs::create_dir_all(&movie_dir).unwrap();
         fs::write(&video_path, b"video").unwrap();
         fs::write(
@@ -1150,7 +1150,7 @@ fn discover_media_files_reads_sidecar_metadata_and_artwork() {
         fs::write(movie_dir.join("fanart.jpg"), b"fanart").unwrap();
 
         discover_media_files(&root)
-    })();
+    };
 
     let _ = fs::remove_dir_all(&root);
 
@@ -1183,7 +1183,7 @@ fn inspect_media_file_reads_sidecar_metadata_and_artwork() {
     let root = unique_temp_path("inspect");
     let video_path = root.join("Spirited.Away.2001.mkv");
 
-    let result = (|| {
+    let result = {
         fs::create_dir_all(&root).unwrap();
         fs::write(&video_path, b"video").unwrap();
         fs::write(
@@ -1201,7 +1201,7 @@ fn inspect_media_file_reads_sidecar_metadata_and_artwork() {
         fs::write(root.join("fanart.jpg"), b"fanart").unwrap();
 
         inspect_media_file(&video_path)
-    })();
+    };
 
     let _ = fs::remove_dir_all(&root);
 
@@ -1231,14 +1231,14 @@ fn parse_media_metadata_ignores_empty_local_artwork_files() {
     let root = unique_temp_path("empty-artwork");
     let video_path = root.join("Spirited.Away.2001.mkv");
 
-    let result = (|| {
+    let result = {
         fs::create_dir_all(&root).unwrap();
         fs::write(&video_path, b"video").unwrap();
         fs::write(root.join("poster.jpg"), b"").unwrap();
         fs::write(root.join("fanart.jpg"), b"").unwrap();
 
         parse_media_metadata(&video_path)
-    })();
+    };
 
     let _ = fs::remove_dir_all(&root);
 
@@ -1251,7 +1251,7 @@ fn parse_episode_metadata_keeps_file_artwork_separate_from_series_artwork() {
     let root = unique_temp_path("episode-artwork-scope");
     let video_path = root.join("Arcane.S01E01.mkv");
 
-    let result = (|| {
+    let result = {
         fs::create_dir_all(&root).unwrap();
         fs::write(&video_path, b"video").unwrap();
         fs::write(root.join("Arcane.S01E01-poster.jpg"), b"episode poster").unwrap();
@@ -1260,7 +1260,7 @@ fn parse_episode_metadata_keeps_file_artwork_separate_from_series_artwork() {
         fs::write(root.join("fanart.jpg"), b"series backdrop").unwrap();
 
         parse_media_metadata(&video_path)
-    })();
+    };
 
     let _ = fs::remove_dir_all(&root);
 
@@ -1295,14 +1295,14 @@ fn parse_episode_metadata_does_not_use_generic_artwork_as_episode_artwork() {
     let root = unique_temp_path("episode-generic-artwork");
     let video_path = root.join("Arcane.S01E01.mkv");
 
-    let result = (|| {
+    let result = {
         fs::create_dir_all(&root).unwrap();
         fs::write(&video_path, b"video").unwrap();
         fs::write(root.join("poster.jpg"), b"series poster").unwrap();
         fs::write(root.join("fanart.jpg"), b"series backdrop").unwrap();
 
         parse_media_metadata(&video_path)
-    })();
+    };
 
     let _ = fs::remove_dir_all(&root);
 
@@ -1323,7 +1323,7 @@ fn parse_episode_metadata_does_not_use_sidecar_artwork_as_episode_artwork() {
     let root = unique_temp_path("episode-sidecar-artwork");
     let video_path = root.join("Arcane.S01E01.mkv");
 
-    let result = (|| {
+    let result = {
         fs::create_dir_all(&root).unwrap();
         fs::write(&video_path, b"video").unwrap();
         fs::write(root.join("sidecar-poster.jpg"), b"sidecar poster").unwrap();
@@ -1343,7 +1343,7 @@ fn parse_episode_metadata_does_not_use_sidecar_artwork_as_episode_artwork() {
         .unwrap();
 
         parse_media_metadata(&video_path)
-    })();
+    };
 
     let _ = fs::remove_dir_all(&root);
 
@@ -1357,7 +1357,7 @@ fn parse_episode_metadata_does_not_use_sidecar_artwork_as_episode_artwork() {
 fn discover_media_files_with_progress_and_cancel_stops_when_requested() {
     let root = unique_temp_path("cancel");
 
-    let result = (|| {
+    let result = {
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("movie-a.mp4"), b"video").unwrap();
         fs::write(root.join("movie-b.mp4"), b"video").unwrap();
@@ -1372,7 +1372,7 @@ fn discover_media_files_with_progress_and_cancel_stops_when_requested() {
             },
             || cancelled.get(),
         )
-    })();
+    };
 
     let _ = fs::remove_dir_all(&root);
 
@@ -1386,7 +1386,7 @@ fn discover_media_files_with_progress_and_cancel_stops_when_requested() {
 fn discover_media_files_with_progress_item_and_cancel_emits_discovered_files() {
     let root = unique_temp_path("progress-items");
 
-    let (result, discovered_titles) = (|| {
+    let (result, discovered_titles) = {
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("movie-a.mp4"), b"video").unwrap();
         fs::write(root.join("Show.S01E01.mkv"), b"video").unwrap();
@@ -1402,7 +1402,7 @@ fn discover_media_files_with_progress_item_and_cancel_emits_discovered_files() {
         );
 
         (result, discovered_titles.into_inner())
-    })();
+    };
 
     let _ = fs::remove_dir_all(&root);
 

@@ -47,8 +47,13 @@ pub async fn require_admin(
     Ok(user)
 }
 
-pub fn attach_session_cookie(jar: CookieJar, token: &str, expires_at: OffsetDateTime) -> CookieJar {
-    jar.add(build_session_cookie(token, expires_at))
+pub fn attach_session_cookie(
+    jar: CookieJar,
+    token: &str,
+    expires_at: OffsetDateTime,
+    secure: bool,
+) -> CookieJar {
+    jar.add(build_session_cookie(token, expires_at, secure))
 }
 
 pub fn clear_session_cookie(jar: CookieJar) -> CookieJar {
@@ -156,20 +161,22 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
     Some(token.to_string())
 }
 
-fn build_session_cookie(token: &str, expires_at: OffsetDateTime) -> Cookie<'static> {
+fn build_session_cookie(token: &str, expires_at: OffsetDateTime, secure: bool) -> Cookie<'static> {
     Cookie::build((SESSION_COOKIE_NAME, token.to_string()))
         .path("/")
         .http_only(true)
         .same_site(SameSite::Lax)
+        .secure(secure)
         .expires(expires_at)
         .build()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{request_auth_token, SESSION_COOKIE_NAME};
+    use super::{build_session_cookie, request_auth_token, SESSION_COOKIE_NAME};
     use axum::http::{header, HeaderMap, HeaderValue};
     use axum_extra::extract::cookie::{Cookie, CookieJar};
+    use time::OffsetDateTime;
 
     #[test]
     fn request_auth_token_reads_bearer_token_from_authorization_header() {
@@ -205,5 +212,15 @@ mod tests {
         let token = request_auth_token(&headers, &jar).unwrap();
 
         assert_eq!(token, "native-client-token");
+    }
+
+    #[test]
+    fn secure_session_cookie_is_explicitly_configurable() {
+        let secure_cookie = build_session_cookie("token", OffsetDateTime::now_utc(), true);
+        let local_cookie = build_session_cookie("token", OffsetDateTime::now_utc(), false);
+
+        assert_eq!(secure_cookie.secure(), Some(true));
+        assert_eq!(local_cookie.secure(), Some(false));
+        assert_eq!(secure_cookie.http_only(), Some(true));
     }
 }

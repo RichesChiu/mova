@@ -409,11 +409,9 @@ fn parse_series_token(token: &str) -> Option<(i32, i32)> {
         return None;
     }
 
-    let e_position = bytes.iter().position(|byte| *byte == b'E' || *byte == b'e');
-
-    let Some(e_position) = e_position else {
-        return None;
-    };
+    let e_position = bytes
+        .iter()
+        .position(|byte| *byte == b'E' || *byte == b'e')?;
 
     if !(e_position > 1
         && e_position < bytes.len() - 1
@@ -437,9 +435,7 @@ fn parse_series_token(token: &str) -> Option<(i32, i32)> {
 
 fn parse_x_episode_token(token: &str) -> Option<(i32, i32)> {
     let lower = token.to_ascii_lowercase();
-    let Some(separator_index) = lower.find('x') else {
-        return None;
-    };
+    let separator_index = lower.find('x')?;
 
     if !(separator_index > 0
         && separator_index < lower.len() - 1

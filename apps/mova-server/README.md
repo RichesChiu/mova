@@ -13,11 +13,12 @@
 | 文件 | 作用 |
 | --- | --- |
 | `src/main.rs` | 进程入口。负责加载环境变量、初始化 tracing、连接数据库、执行 migration、启动 realtime dispatcher 与后台 worker 池、准备缓存目录、创建 `AppState`，并启动 Axum 服务。 |
-| `src/config.rs` | 读取 `MOVA_HTTP_HOST`、`MOVA_HTTP_PORT`、`MOVA_TIMEZONE`、`MOVA_CACHE_DIR`、`MOVA_WEB_DIST_DIR`、`MOVA_WORKER_CONCURRENCY` 等运行时配置。 |
+| `src/config.rs` | 读取监听地址、构建版本、Cookie 策略、认证限流、缓存目录、Web 资源和 worker 并发等运行时配置。 |
 | `src/metadata_provider_config.rs` | 解析 TMDB token、语言和 endpoint 环境变量，并交给 `mova-application` 构建具体 provider。 |
 | `src/app.rs` | 组装顶层 `Router`，把所有子路由统一挂到 `/api` 下，并在有前端构建产物时托管静态文件。 |
 | `src/state.rs` | 定义 `AppState`、进程内扫描租约注册表、后台任务唤醒器以及 realtime 依赖。 |
 | `src/auth.rs` | 公用鉴权与访问控制助手，包括 Web session cookie、原生客户端 Bearer access token、`require_user`、`require_admin`、媒体库/媒体项/媒体文件访问校验。 |
+| `src/auth_rate_limit.rs` | 有界的进程内密码认证失败限流器，统一保护 Web、原生登录和当前用户改密。 |
 | `src/sync_runtime.rs` | PostgreSQL 后台任务 worker 池、扫描任务领取/续租/重试和扫描执行运行时。 |
 | `src/realtime.rs` | PostgreSQL revision 监听、服务端批量 dispatcher、有界 SSE 最后一跳和事件可见性过滤。 |
 | `src/response.rs` | 把领域对象映射成 API response DTO，并统一包裹 JSON envelope。 |
@@ -100,8 +101,11 @@
 
 - `db: PgPool`
 - `api_time_offset: UtcOffset`
-- `artwork_cache_dir: PathBuf`
+- `build_version: String`
+- `cache_dir: PathBuf`
 - `metadata_provider: Arc<dyn mova_application::MetadataProvider>`
+- `session_cookie_secure: bool`
+- `auth_rate_limiter: AuthRateLimiter`
 - `scan_registry: ScanRegistry`
 - `realtime_hub: RealtimeHub`
 - `realtime_dispatcher: RealtimeDispatcherHandle`
@@ -239,6 +243,10 @@ Web 端：
 
 原生客户端业务接口只接受 `Authorization: Bearer <access_token>`。`refresh_token` 只用于 `/auth/refresh`，成功刷新后会轮换 refresh token 并撤销旧值；用户禁用、删除或改密时会同步撤销该用户现有原生客户端会话。
 
+Web 登录与原生客户端密码登录对同一账户共享进程内失败计数。默认在 5 分钟内达到 5 次失败后锁定 15 分钟，受限请求返回 `429` 和 `Retry-After`；成功认证会清除失败状态。限流器最多保留 4096 个近期键，避免攻击流量造成无界内存增长。四项参数可分别通过 `MOVA_AUTH_RATE_LIMIT_MAX_FAILURES`、`MOVA_AUTH_RATE_LIMIT_WINDOW_SECONDS`、`MOVA_AUTH_RATE_LIMIT_LOCKOUT_SECONDS` 和 `MOVA_AUTH_RATE_LIMIT_MAX_KEYS` 调整。
+
+Web session cookie 默认兼容本地 HTTP。通过 HTTPS 反向代理部署时设置 `MOVA_SESSION_COOKIE_SECURE=true`，使浏览器只在 HTTPS 请求中发送 Cookie。`MOVA_BUILD_VERSION` 是编译进二进制、由 `/api/health` 和启动日志返回的权威构建版本，官方镜像构建时由发布脚本注入；源码构建默认使用 Cargo package version。
+
 ### 6.2 建库与配置更新链路
 
 `routes/libraries.rs` -> `handlers::libraries::{create_library, update_library}` -> `mova_application::{create_library, update_library}` -> PostgreSQL resource revision trigger
@@ -275,7 +283,7 @@ Web 端：
 
 ## 7. 测试与验证
 
-默认部署时，`docker-compose.yml` 直接运行已发布的 `richeschiu/mova:latest`，不会在部署机器上从源码构建镜像。本地没有镜像时，`docker compose up -d` 会自动拉取；是否升级到最新发布镜像由用户自己通过 `docker compose pull` 决定。发布镜像默认覆盖 `linux/amd64` 和 `linux/arm64`，Windows / macOS 用户通过 Docker Desktop 运行同一个 Linux 镜像，Linux 用户通过 Docker Engine / Docker Desktop 运行同一镜像。应用服务名是 `app`，查看日志用 `docker compose logs -f app`。镜像已经内置数据库连接、Web 资源目录、缓存目录和 worker 并发的 Compose 默认值；用户只需提供媒体目录，并在需要 TMDB 刮削时填写 Access Token。需要本地源码构建时，使用 `docker-compose.build.yml` 覆盖默认服务。
+默认部署时，`docker-compose.yml` 直接运行已发布的 `richeschiu/mova:preview`，不会在部署机器上从源码构建镜像。本地没有镜像时，`docker compose up -d` 会自动拉取；是否升级到最新发布镜像由用户自己通过 `docker compose pull` 决定。发布镜像默认覆盖 `linux/amd64` 和 `linux/arm64`，Windows / macOS 用户通过 Docker Desktop 运行同一个 Linux 镜像，Linux 用户通过 Docker Engine / Docker Desktop 运行同一镜像。应用服务名是 `app`，查看日志用 `docker compose logs -f app`。镜像已经内置数据库连接、Web 资源目录、缓存目录和 worker 并发的 Compose 默认值；用户只需提供媒体目录，并在需要 TMDB 刮削时填写 Access Token。需要本地源码构建时，使用 `docker-compose.build.yml` 覆盖默认服务。
 
 源码构建时，前端阶段使用 `richeschiu/mova-web-build-base:node24-pnpm11`，Rust builder 阶段使用 `richeschiu/mova-rust-build-base:1-bookworm`，runtime 阶段使用 `richeschiu/mova-runtime-base:bookworm-ffmpeg-python3`。这些基础镜像提前内置 pnpm、Rust toolchain、ffmpeg、Python 和 runtime 证书依赖，减少本地 Docker build 时重复访问上游镜像与 apt/npm 源；对应定义集中放在 `docker/base`。发布入口是 `./scripts/publish-docker-images.sh`，脚本默认会检查基础镜像是否已经包含 `linux/amd64` 和 `linux/arm64`，缺失时先发布基础镜像，再发布主镜像。
 

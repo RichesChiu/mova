@@ -10,6 +10,7 @@ use std::{
 use time::UtcOffset;
 use tokio::sync::Notify;
 
+pub use crate::auth_rate_limit::AuthRateLimiter;
 pub use crate::realtime::{RealtimeDispatcherHandle, RealtimeHub};
 
 /// 通过 Axum state 注入到各个 handler 的共享依赖。
@@ -17,8 +18,11 @@ pub use crate::realtime::{RealtimeDispatcherHandle, RealtimeHub};
 pub struct AppState {
     pub db: PgPool,
     pub api_time_offset: UtcOffset,
+    pub build_version: String,
     pub cache_dir: PathBuf,
     pub metadata_provider: Arc<dyn mova_application::MetadataProvider>,
+    pub session_cookie_secure: bool,
+    pub auth_rate_limiter: AuthRateLimiter,
     pub scan_registry: ScanRegistry,
     pub realtime_hub: RealtimeHub,
     pub realtime_dispatcher: RealtimeDispatcherHandle,

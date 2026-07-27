@@ -35,6 +35,7 @@ RUN pnpm --dir apps/mova-web build
 FROM richeschiu/mova-rust-build-base:1-bookworm AS builder
 ARG TARGETARCH
 ARG TARGETOS
+ARG MOVA_BUILD_VERSION=development
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
 ARG NO_PROXY
@@ -47,6 +48,7 @@ ENV HTTP_PROXY=$HTTP_PROXY \
     https_proxy=$HTTPS_PROXY \
     no_proxy=$NO_PROXY \
     all_proxy=$ALL_PROXY \
+    MOVA_BUILD_VERSION=$MOVA_BUILD_VERSION \
     CARGO_HTTP_LOW_SPEED_LIMIT=1 \
     CARGO_HTTP_LOW_SPEED_TIME=600 \
     CARGO_HTTP_TIMEOUT=600 \
@@ -64,9 +66,15 @@ RUN --mount=type=cache,id=mova-cargo-registry-${TARGETOS}-${TARGETARCH},target=/
     cargo build --locked --release -p mova-server
 
 FROM richeschiu/mova-runtime-base:bookworm-ffmpeg-python3 AS runtime
+ARG MOVA_BUILD_VERSION=development
 ENV MOVA_DATABASE_URL=postgres://mova:postgres@database:5432/mova \
     MOVA_WEB_DIST_DIR=/app/web \
-    MOVA_CACHE_DIR=/app/data/cache
+    MOVA_CACHE_DIR=/app/data/cache \
+    MOVA_BUILD_VERSION=$MOVA_BUILD_VERSION
+LABEL org.opencontainers.image.title="Mova" \
+    org.opencontainers.image.description="Open-source media server built with Rust" \
+    org.opencontainers.image.version=$MOVA_BUILD_VERSION \
+    org.opencontainers.image.source="https://github.com/RichesChiu/mova"
 WORKDIR /app
 
 COPY --from=builder /app/target/release/mova-server /usr/local/bin/mova-server
