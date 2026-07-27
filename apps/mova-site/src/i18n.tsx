@@ -9,6 +9,7 @@ const translations: Record<string, string> = {
   主要导航: 'Main navigation',
   '打开 GitHub 仓库': 'Open the GitHub repository',
   '打开 Docker 镜像': 'Open the Docker image',
+  '加入 Telegram 群': 'Join the Telegram group',
   '切换为英文': 'Switch to English',
   '切换为中文': 'Switch to Chinese',
   首屏操作: 'Hero actions',

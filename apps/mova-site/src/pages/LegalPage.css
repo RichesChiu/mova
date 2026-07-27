@@ -159,6 +159,11 @@
   background: #fff;
 }
 
+.support-contact-card .support-telegram-link {
+  background: linear-gradient(135deg, #229ed9, #168ac2);
+  box-shadow: 0 10px 24px rgba(34, 158, 217, 0.2);
+}
+
 .support-contact-card a:hover {
   text-decoration: none;
   transform: translateY(-1px);

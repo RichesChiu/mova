@@ -35,6 +35,7 @@ export const navItems: NavItem[] = [
 
 export const githubUrl = 'https://github.com/RichesChiu/mova'
 export const dockerUrl = 'https://hub.docker.com/repository/docker/richeschiu/mova/general'
+export const telegramUrl = 'https://t.me/mova_feedback'
 
 export const heroBadges = [
   { icon: 'data-shield', label: '隐私优先', text: '媒体和账户数据始终由你掌控。' },
