@@ -4,6 +4,11 @@ set -euo pipefail
 PLATFORMS="${MOVA_DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
 IMAGE_TAG="${MOVA_DOCKER_IMAGE_TAG:-richeschiu/mova:latest}"
 PUBLISH_BASE_IMAGES="${MOVA_PUBLISH_BASE_IMAGES:-auto}"
+DEFAULT_BUILD_VERSION="development"
+if [[ "$IMAGE_TAG" == *:* ]]; then
+  DEFAULT_BUILD_VERSION="${IMAGE_TAG##*:}"
+fi
+BUILD_VERSION="${MOVA_BUILD_VERSION:-$DEFAULT_BUILD_VERSION}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -19,6 +24,7 @@ done
 build_and_push() {
   local dockerfile="$1"
   local tag="$2"
+  local include_build_version="${3:-false}"
 
   local build_command=(
     docker buildx build
@@ -30,6 +36,10 @@ build_and_push() {
 
   if ((${#BUILD_ARGS[@]} > 0)); then
     build_command+=("${BUILD_ARGS[@]}")
+  fi
+
+  if [[ "$include_build_version" == "true" ]]; then
+    build_command+=(--build-arg "MOVA_BUILD_VERSION=$BUILD_VERSION")
   fi
 
   build_command+=(.)
@@ -99,5 +109,5 @@ if should_publish_base_images; then
   done
 fi
 
-build_and_push apps/mova-server/Dockerfile "$IMAGE_TAG"
+build_and_push apps/mova-server/Dockerfile "$IMAGE_TAG" true
 docker buildx imagetools inspect "$IMAGE_TAG"

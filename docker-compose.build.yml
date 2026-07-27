@@ -25,6 +25,7 @@ services:
       context: .
       dockerfile: apps/mova-server/Dockerfile
       args:
+        MOVA_BUILD_VERSION: ${MOVA_BUILD_VERSION:-development}
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,database}

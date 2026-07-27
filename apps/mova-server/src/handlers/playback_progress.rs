@@ -130,8 +130,11 @@ mod tests {
         AppState {
             db: pool,
             api_time_offset: UtcOffset::UTC,
+            build_version: "test".to_string(),
             cache_dir: PathBuf::from("/tmp/mova-test-artwork"),
             metadata_provider: Arc::new(NullMetadataProvider),
+            session_cookie_secure: false,
+            auth_rate_limiter: Default::default(),
             scan_registry: ScanRegistry::default(),
             realtime_hub: RealtimeHub::default(),
             realtime_dispatcher: RealtimeDispatcherHandle::default(),
@@ -214,7 +217,7 @@ mod tests {
         .unwrap();
 
         (
-            attach_session_cookie(CookieJar::new(), session_token, expires_at),
+            attach_session_cookie(CookieJar::new(), session_token, expires_at, false),
             user.user.id,
             media_item_id,
             media_file_id,

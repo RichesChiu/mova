@@ -884,6 +884,7 @@ fn prepare_scan_groups_for_metadata_lookup(groups: &mut [ScanDiscoveredGroup]) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn enrich_discovered_groups(
     pool: &PgPool,
     library: &Library,
@@ -965,10 +966,8 @@ async fn enrich_discovered_groups(
                 &mut group.files,
                 season_air_year,
                 move |stage, file| {
-                    if stage != MetadataEnrichmentStage::Metadata {
-                        if !file.title.trim().is_empty() {
-                            presentation.title = file.title.clone();
-                        }
+                    if stage != MetadataEnrichmentStage::Metadata && !file.title.trim().is_empty() {
+                        presentation.title = file.title.clone();
                     }
 
                     if stage == MetadataEnrichmentStage::Completed {
@@ -2769,12 +2768,11 @@ fn build_scan_presentation_group(
         return ScanPresentationGroup {
             item_key: series_group_item_key(&file.file_path, &file.source_title),
             media_type: "series".to_string(),
-            title: file
-                .title
-                .trim()
-                .is_empty()
-                .then(|| file.source_title.clone())
-                .unwrap_or_else(|| file.title.clone()),
+            title: if file.title.trim().is_empty() {
+                file.source_title.clone()
+            } else {
+                file.title.clone()
+            },
             lookup_title: file.source_title.clone(),
             year: file.year,
             season_air_year: None,
@@ -2784,12 +2782,11 @@ fn build_scan_presentation_group(
     ScanPresentationGroup {
         item_key: file.file_path.to_string_lossy().to_string(),
         media_type: "movie".to_string(),
-        title: file
-            .title
-            .trim()
-            .is_empty()
-            .then(|| file.source_title.clone())
-            .unwrap_or_else(|| file.title.clone()),
+        title: if file.title.trim().is_empty() {
+            file.source_title.clone()
+        } else {
+            file.title.clone()
+        },
         lookup_title: file.source_title.clone(),
         year: file.year,
         season_air_year: None,
@@ -2876,10 +2873,10 @@ fn build_scan_group_progress_update(
     }
 }
 
-fn scan_progress_artwork_preview_file<'a>(
+fn scan_progress_artwork_preview_file(
     stage: ScanItemStage,
-    file: Option<&'a DiscoveredMediaFile>,
-) -> Option<&'a DiscoveredMediaFile> {
+    file: Option<&DiscoveredMediaFile>,
+) -> Option<&DiscoveredMediaFile> {
     if matches!(stage, ScanItemStage::Completed) {
         file
     } else {
@@ -3002,6 +2999,7 @@ async fn emit_current_scan_job_update(
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use crate::{
         media_classification::{LIBRARY_TYPE_MIXED, LIBRARY_TYPE_SERIES},

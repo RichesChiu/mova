@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.0.8 --activate
+
+      - name: Install dependencies
+        run: pnpm --dir apps/mova-web install --frozen-lockfile
+
+      - name: Test
+        run: pnpm --dir apps/mova-web test
+
+      - name: Check
+        run: pnpm --dir apps/mova-web check
+
+      - name: Build
+        run: pnpm --dir apps/mova-web build
+
+  site:
+    name: Website
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/mova-site/package-lock.json
+
+      - name: Install dependencies
+        run: npm --prefix apps/mova-site ci
+
+      - name: Check API documentation
+        run: npm --prefix apps/mova-site run check:api-docs
+
+      - name: Lint
+        run: npm --prefix apps/mova-site run lint
+
+      - name: Typecheck
+        run: npm --prefix apps/mova-site run typecheck
+
+      - name: Build
+        run: npm --prefix apps/mova-site run build
+
+  rust:
+    name: Rust and PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: mova
+          POSTGRES_USER: mova
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mova -d mova"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://mova:postgres@127.0.0.1:5432/mova
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked -- --include-ignored --test-threads=1
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Build image
+        run: >-
+          docker build
+          --file apps/mova-server/Dockerfile
+          --build-arg MOVA_BUILD_VERSION=ci-${{ github.sha }}
+          --tag mova:ci
+          .

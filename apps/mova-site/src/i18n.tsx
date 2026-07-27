@@ -119,6 +119,8 @@ const translations: Record<string, string> = {
     'Media image URLs include a version parameter for long-lived browser caching; the version changes after metadata updates.',
   '认证错误可能使用 TOKEN_EXPIRED、TOKEN_INVALID 或 REFRESH_TOKEN_INVALID 等字符串 code，客户端应按 code 处理重新登录或刷新。':
     'Authentication errors may use string codes such as TOKEN_EXPIRED, TOKEN_INVALID, or REFRESH_TOKEN_INVALID; clients should use the code to refresh credentials or sign in again.',
+  '密码认证失败达到限制时返回 429 和 Retry-After；Web 与原生客户端对同一账户共享失败计数。':
+    'Password authentication returns 429 and Retry-After when the limit is reached; Web and native clients share the failure count for the same account.',
   'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；当前评分来源仅接入 TMDB，其他外部 ID 只用于跨来源识别。':
     'The TMDB token comes from MOVA_TMDB_ACCESS_TOKEN; ratings currently come only from TMDB, while other external IDs are stored only for cross-provider identity.',
   'OK，请求成功': 'OK, request succeeded',
@@ -129,6 +131,7 @@ const translations: Record<string, string> = {
   'Forbidden，权限不足': 'Forbidden, insufficient permission',
   'Not Found，资源不存在': 'Not Found, resource does not exist',
   'Conflict，当前资源状态不允许操作': 'Conflict, the current resource state does not allow this operation',
+  'Too Many Requests，认证尝试过多': 'Too Many Requests, too many authentication attempts',
   'Range Not Satisfiable，媒体 Range 越界': 'Range Not Satisfiable, media range is out of bounds',
   'Internal Server Error，服务内部错误': 'Internal Server Error',
 
@@ -136,7 +139,7 @@ const translations: Record<string, string> = {
   '用于探测服务进程和数据库是否可用，适合容器探针、本地调试和部署后的联通性检查。':
     'Checks service and database availability for container probes, local debugging, and post-deployment connectivity tests.',
   匿名可访问: 'Publicly accessible',
-  '成功时返回 { "status": "ok" }': 'Returns { "status": "ok" } on success',
+  返回服务状态和权威构建版本: 'Returns service status and the authoritative build version',
   适合作为部署后第一条检查接口: 'A good first check after deployment',
   '认证、用户与实时同步': 'Authentication, users, and realtime sync',
   '覆盖首次初始化、Cookie / Bearer 登录、Token 轮换、首页快照、资源 revision、SSE 和管理员用户管理。':
@@ -145,6 +148,8 @@ const translations: Record<string, string> = {
     'bootstrap can create the first admin only when none exists, and immediately establishes an authenticated session.',
   'token-login 返回短期 access token 和长期 refresh token，refresh 会轮换两者。':
     'token-login returns a short-lived access token and a long-lived refresh token; refresh rotates both.',
+  '密码认证默认在 5 分钟内允许 5 次失败，受限时返回 429 和 Retry-After。':
+    'Password authentication allows five failures within five minutes by default, then returns 429 with Retry-After.',
   '/api/home 返回当前用户的有界首页快照，并携带 realtime revision 基线。':
     '/api/home returns a bounded home snapshot for the current user with the realtime revision baseline.',
   'SSE 只承载资源失效与临时进度；断线恢复必须使用 /api/realtime/state。':

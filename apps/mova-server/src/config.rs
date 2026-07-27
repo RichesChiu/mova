@@ -1,4 +1,4 @@
-use crate::metadata_provider_config;
+use crate::{auth_rate_limit::AuthRateLimitSettings, metadata_provider_config};
 use anyhow::{anyhow, Context, Result};
 use mova_application::MetadataProviderConfig;
 use mova_db::DatabaseSettings;
@@ -16,9 +16,12 @@ pub struct AppConfig {
     port: u16,
     pub database: DatabaseSettings,
     pub api_time: ApiTimeSettings,
+    pub build_version: String,
     pub cache_dir: PathBuf,
     pub web_dist_dir: Option<PathBuf>,
     pub metadata_provider: MetadataProviderConfig,
+    pub session_cookie_secure: bool,
+    pub auth_rate_limit: AuthRateLimitSettings,
     pub worker_concurrency: usize,
 }
 
@@ -36,9 +39,14 @@ impl AppConfig {
             port,
             database: DatabaseSettings::from_env()?,
             api_time: ApiTimeSettings::from_env()?,
+            build_version: option_env!("MOVA_BUILD_VERSION")
+                .unwrap_or(env!("CARGO_PKG_VERSION"))
+                .to_string(),
             cache_dir: cache_dir_from_env()?,
             web_dist_dir: web_dist_dir_from_env()?,
             metadata_provider: metadata_provider_config::metadata_provider_config_from_env()?,
+            session_cookie_secure: parse_boolean_env("MOVA_SESSION_COOKIE_SECURE", false)?,
+            auth_rate_limit: auth_rate_limit_settings_from_env()?,
             worker_concurrency: env::var("MOVA_WORKER_CONCURRENCY")
                 .ok()
                 .and_then(|value| value.parse::<usize>().ok())
@@ -50,6 +58,59 @@ impl AppConfig {
     /// 把配置里的 host/port 组合成 Axum 最终绑定的监听地址。
     pub fn socket_addr(&self) -> Result<SocketAddr> {
         Ok(format!("{}:{}", self.host, self.port).parse()?)
+    }
+}
+
+fn auth_rate_limit_settings_from_env() -> Result<AuthRateLimitSettings> {
+    let defaults = AuthRateLimitSettings::default();
+
+    Ok(AuthRateLimitSettings {
+        max_failures: parse_positive_env(
+            "MOVA_AUTH_RATE_LIMIT_MAX_FAILURES",
+            defaults.max_failures,
+        )?,
+        window: std::time::Duration::from_secs(parse_positive_env(
+            "MOVA_AUTH_RATE_LIMIT_WINDOW_SECONDS",
+            defaults.window.as_secs(),
+        )?),
+        lockout: std::time::Duration::from_secs(parse_positive_env(
+            "MOVA_AUTH_RATE_LIMIT_LOCKOUT_SECONDS",
+            defaults.lockout.as_secs(),
+        )?),
+        max_keys: parse_positive_env("MOVA_AUTH_RATE_LIMIT_MAX_KEYS", defaults.max_keys)?,
+    })
+}
+
+fn parse_positive_env<T>(name: &str, default: T) -> Result<T>
+where
+    T: std::str::FromStr + Copy + PartialOrd + From<u8>,
+    T::Err: std::fmt::Display,
+{
+    let Some(value) = env::var(name).ok() else {
+        return Ok(default);
+    };
+    let value = value
+        .trim()
+        .parse::<T>()
+        .map_err(|error| anyhow!("invalid {name} value: {error}"))?;
+    if value <= T::from(0) {
+        return Err(anyhow!("{name} must be greater than zero"));
+    }
+
+    Ok(value)
+}
+
+fn parse_boolean_env(name: &str, default: bool) -> Result<bool> {
+    let Some(value) = env::var(name).ok() else {
+        return Ok(default);
+    };
+
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(anyhow!(
+            "{name} must be one of true, false, 1, 0, yes, no, on, or off"
+        )),
     }
 }
 
@@ -176,7 +237,10 @@ fn parse_offset_part(value: &str) -> Result<i8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cache_dir_from_env, parse_timezone_offset, web_dist_dir_from_env};
+    use super::{
+        cache_dir_from_env, parse_boolean_env, parse_positive_env, parse_timezone_offset,
+        web_dist_dir_from_env,
+    };
     use std::sync::{Mutex, OnceLock};
 
     fn env_lock() -> &'static Mutex<()> {
@@ -230,6 +294,38 @@ mod tests {
 
         unsafe {
             std::env::remove_var("MOVA_WEB_DIST_DIR");
+        }
+    }
+
+    #[test]
+    fn boolean_environment_values_are_strict() {
+        let _guard = env_lock().lock().unwrap();
+        unsafe {
+            std::env::set_var("MOVA_TEST_BOOLEAN", "yes");
+        }
+        assert!(parse_boolean_env("MOVA_TEST_BOOLEAN", false).unwrap());
+
+        unsafe {
+            std::env::set_var("MOVA_TEST_BOOLEAN", "sometimes");
+        }
+        assert!(parse_boolean_env("MOVA_TEST_BOOLEAN", false).is_err());
+
+        unsafe {
+            std::env::remove_var("MOVA_TEST_BOOLEAN");
+        }
+    }
+
+    #[test]
+    fn positive_environment_values_reject_zero() {
+        let _guard = env_lock().lock().unwrap();
+        unsafe {
+            std::env::set_var("MOVA_TEST_POSITIVE", "0");
+        }
+        let result = parse_positive_env::<u32>("MOVA_TEST_POSITIVE", 5);
+        assert!(result.is_err());
+
+        unsafe {
+            std::env::remove_var("MOVA_TEST_POSITIVE");
         }
     }
 }

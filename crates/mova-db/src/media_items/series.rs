@@ -520,20 +520,6 @@ fn metadata_status_allows_artwork_clear(metadata_status: &str) -> bool {
     metadata_status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::metadata_status_allows_artwork_clear;
-
-    #[test]
-    fn only_matched_metadata_status_clears_artwork() {
-        assert!(metadata_status_allows_artwork_clear("matched"));
-        assert!(metadata_status_allows_artwork_clear("MATCHED"));
-        assert!(!metadata_status_allows_artwork_clear("unmatched"));
-        assert!(!metadata_status_allows_artwork_clear("skipped"));
-        assert!(!metadata_status_allows_artwork_clear("failed"));
-    }
-}
-
 async fn insert_episode_record(
     tx: &mut Transaction<'_, Postgres>,
     media_item_id: i64,
@@ -670,4 +656,18 @@ pub(super) async fn cleanup_orphan_series_structure(
     .context("failed to delete orphan series items")?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::metadata_status_allows_artwork_clear;
+
+    #[test]
+    fn only_matched_metadata_status_clears_artwork() {
+        assert!(metadata_status_allows_artwork_clear("matched"));
+        assert!(metadata_status_allows_artwork_clear("MATCHED"));
+        assert!(!metadata_status_allows_artwork_clear("unmatched"));
+        assert!(!metadata_status_allows_artwork_clear("skipped"));
+        assert!(!metadata_status_allows_artwork_clear("failed"));
+    }
 }

@@ -1,5 +1,6 @@
 mod app;
 mod auth;
+mod auth_rate_limit;
 mod config;
 mod error;
 mod handlers;
@@ -50,8 +51,11 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         db: pool,
         api_time_offset: config.api_time.offset,
+        build_version: config.build_version.clone(),
         cache_dir: config.cache_dir.clone(),
         metadata_provider,
+        session_cookie_secure: config.session_cookie_secure,
+        auth_rate_limiter: state::AuthRateLimiter::new(config.auth_rate_limit),
         scan_registry: state::ScanRegistry::default(),
         realtime_hub,
         realtime_dispatcher,
@@ -62,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = app::build_router(state, config.web_dist_dir.clone());
     let addr = config.socket_addr()?;
-    info!("mova-server listening on {}", addr);
+    info!(version = %config.build_version, "mova-server listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

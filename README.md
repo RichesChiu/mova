@@ -88,6 +88,8 @@ services:
 
 这些代理变量只控制 MOVA 运行时请求；如果 `docker compose pull` 无法访问 Docker Hub，需要在 Docker Desktop 或 Docker Engine 中单独配置代理。
 
+如果通过 HTTPS 反向代理公开 Web 页面，请在 `app.environment` 中额外设置 `MOVA_SESSION_COOKIE_SECURE: "true"`，让浏览器只通过 HTTPS 发送登录 Cookie。本地纯 HTTP 部署保持默认值即可，否则浏览器不会回传 Cookie。
+
 ### 获取 TMDB Access Token
 
 1. 注册并登录 [TMDB](https://www.themoviedb.org/)，完成邮箱验证。

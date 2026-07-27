@@ -211,6 +211,11 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
               ? '不需要代理时保持 HTTP_PROXY 和 HTTPS_PROXY 为空；需要代理时填写容器可以访问的实际 IP 地址，例如 http://192.168.1.10:7890。容器内不能使用 127.0.0.1 访问宿主机。Docker 拉取镜像所需的代理仍应在 Docker Desktop 或 Docker Engine 中配置。'
               : 'Leave HTTP_PROXY and HTTPS_PROXY empty when no proxy is needed. Otherwise, enter an actual proxy IP reachable from the container, such as http://192.168.1.10:7890. The container cannot use 127.0.0.1 to reach the host. Proxy access for image pulls must still be configured in Docker Desktop or Docker Engine.'}
           </p>
+          <p className="deploy-compose-guidance">
+            {isChinese
+              ? '通过 HTTPS 反向代理公开 Web 页面时，在 app.environment 中额外设置 MOVA_SESSION_COOKIE_SECURE: "true"。本地纯 HTTP 部署保持默认值即可。'
+              : 'When exposing the Web app through an HTTPS reverse proxy, add MOVA_SESSION_COOKIE_SECURE: "true" to app.environment. Keep the default for local HTTP deployments.'}
+          </p>
         </section>
 
         <section className="deploy-section" id="deploy-after">

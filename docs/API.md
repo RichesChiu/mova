@@ -58,6 +58,7 @@
   - `403 Forbidden`：已登录但没有权限访问
   - `409 Conflict`：资源当前状态不允许执行该操作
   - `404 Not Found`：资源不存在
+  - `429 Too Many Requests`：认证失败次数达到限制，按 `Retry-After` 响应头等待后重试
   - `416 Range Not Satisfiable`：媒体流的 `Range` 请求越界
   - `500 Internal Server Error`：服务内部错误
 - TMDB provider 从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取，值必须是 TMDB 账户 API 设置页中的 **API Read Access Token**，不是较短的 `API Key (v3 auth)`。变量为空或只含空白时服务仍正常启动，本地扫描、NFO/sidecar、入库和播放保持可用；扫描不会发起 TMDB 请求，条目以 `skipped / metadata_provider_disabled` 完成。后续配置 Token、重启并重扫后，这些条目会进入远端补全。每个媒体库可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。TMDB endpoint、严格候选规则和字段覆盖见 [`TMDB.md`](TMDB.md)。
@@ -141,13 +142,18 @@
 
 ```json
 {
-  "status": "ok"
+  "status": "ok",
+  "version": "development"
 }
 ```
+
+`version` 是当前运行构建的权威版本标识。官方镜像在构建阶段使用不可变镜像 tag 注入该值；源码构建默认回退到 Cargo package version。自定义镜像可以通过 Docker build argument `MOVA_BUILD_VERSION` 注入版本，运行容器时不能改写已经编译进二进制的值。
 
 ## 2. 认证与用户
 
 初始化、登录和创建用户接口使用 `username` 作为登录账户字段，界面将它展示为账户。服务端会去除首尾空白，并限制为 1–254 个字符，因此可以使用普通账号名或邮箱形式的登录标识；邮箱形式只作为精确匹配的账户字符串，不代表 Mova 会校验邮箱归属或发送邮件。账户创建后不可修改，昵称初始化为账户名称，之后只能由用户本人通过个人设置修改。已有 pre-1.0 数据库需要重建 `data/postgres/`，才能把底层 `users.username` 字段从 64 个字符扩展到 254 个字符。
+
+密码认证默认按账户合并 Web 与原生客户端的失败次数：5 分钟窗口内达到 5 次失败后锁定 15 分钟。当前用户修改密码使用独立限制，只把当前密码校验失败计入次数。受限请求返回 `429 Too Many Requests`，并通过 `Retry-After` 返回剩余等待秒数。服务端只在内存中保留最多 4096 个近期键，成功认证会清除对应失败状态；服务重启会清空该临时状态。部署方可以通过 `MOVA_AUTH_RATE_LIMIT_MAX_FAILURES`、`MOVA_AUTH_RATE_LIMIT_WINDOW_SECONDS`、`MOVA_AUTH_RATE_LIMIT_LOCKOUT_SECONDS` 和 `MOVA_AUTH_RATE_LIMIT_MAX_KEYS` 调整正整数配置。
 
 ### `GET /api/auth/bootstrap-status`
 
@@ -199,6 +205,7 @@
 - 当前登录账户精确匹配
 - 密码最少 8 位
 - 成功后会写入 session cookie
+- 达到认证失败限制时返回 `429 Too Many Requests` 和 `Retry-After`
 
 ### `POST /api/auth/token-login`
 

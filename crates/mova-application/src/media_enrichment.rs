@@ -998,18 +998,16 @@ fn parse_lookup_title_year(value: &str) -> ParsedLookupTitleYear {
     let mut title_end = tokens.len();
     let mut year = None;
 
-    for index in 0..tokens.len() {
-        if let Some(parsed_year) = parse_lookup_year_token(tokens[index].as_str()) {
+    for (index, token) in tokens.iter_mut().enumerate() {
+        if let Some(parsed_year) = parse_lookup_year_token(token.as_str()) {
             year = Some(parsed_year);
             title_end = index;
             break;
         }
 
-        if let Some((prefix, parsed_year)) =
-            split_lookup_trailing_year_suffix(tokens[index].as_str())
-        {
+        if let Some((prefix, parsed_year)) = split_lookup_trailing_year_suffix(token.as_str()) {
             year = Some(parsed_year);
-            tokens[index] = prefix;
+            *token = prefix;
             title_end = index + 1;
             break;
         }

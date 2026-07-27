@@ -44,6 +44,7 @@ export const apiCommonNotes = [
   'realtime/events 返回 text/event-stream，不使用统一 JSON envelope；重连后应先请求 realtime/state。',
   '媒体条目图片 URL 会带版本参数，浏览器可长期缓存；元数据更新后版本会变化。',
   '认证错误可能使用 TOKEN_EXPIRED、TOKEN_INVALID 或 REFRESH_TOKEN_INVALID 等字符串 code，客户端应按 code 处理重新登录或刷新。',
+  '密码认证失败达到限制时返回 429 和 Retry-After；Web 与原生客户端对同一账户共享失败计数。',
   'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；当前评分来源仅接入 TMDB，其他外部 ID 只用于跨来源识别。',
 ]
 
@@ -62,6 +63,7 @@ export const apiStatusCodes = [
   ['403', 'Forbidden，权限不足'],
   ['404', 'Not Found，资源不存在'],
   ['409', 'Conflict，当前资源状态不允许操作'],
+  ['429', 'Too Many Requests，认证尝试过多'],
   ['416', 'Range Not Satisfiable，媒体 Range 越界'],
   ['500', 'Internal Server Error，服务内部错误'],
 ]
@@ -85,7 +87,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     id: 'health',
     title: '健康检查',
     summary: '用于探测服务进程和数据库是否可用，适合容器探针、本地调试和部署后的联通性检查。',
-    highlights: ['匿名可访问', '成功时返回 { "status": "ok" }', '适合作为部署后第一条检查接口'],
+    highlights: ['匿名可访问', '返回服务状态和权威构建版本', '适合作为部署后第一条检查接口'],
     endpoints: [{ method: 'GET', path: '/api/health', description: '健康检查' }],
   },
   {
@@ -95,6 +97,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     highlights: [
       'bootstrap 只在系统没有管理员时允许创建首个 admin，并直接建立登录态。',
       'token-login 返回短期 access token 和长期 refresh token，refresh 会轮换两者。',
+      '密码认证默认在 5 分钟内允许 5 次失败，受限时返回 429 和 Retry-After。',
       '/api/home 返回当前用户的有界首页快照，并携带 realtime revision 基线。',
       'SSE 只承载资源失效与临时进度；断线恢复必须使用 /api/realtime/state。',
     ],

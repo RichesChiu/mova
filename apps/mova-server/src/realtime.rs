@@ -247,6 +247,7 @@ pub fn start_realtime_dispatcher(
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 enum RealtimeCommand {
     ResourceChanged(String),
     ResourceChangedImmediate(String),
