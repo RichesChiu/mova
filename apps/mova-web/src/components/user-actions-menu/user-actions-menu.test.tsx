@@ -9,7 +9,6 @@ const user: UserAccount = {
   username: 'viewer01',
   nickname: 'Viewer',
   role: 'viewer',
-  is_primary_admin: false,
   is_enabled: true,
   library_ids: [],
   created_at: '2026-07-17T00:00:00Z',

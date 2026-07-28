@@ -5,24 +5,17 @@ export type UserRolePresentation = {
   tone: 'system-admin' | 'admin' | 'user'
 }
 
-const getUserManagementLevel = (user: Pick<UserAccount, 'is_primary_admin' | 'role'>): number => {
-  if (user.is_primary_admin) {
-    return 2
-  }
-
-  return user.role === 'admin' ? 1 : 0
-}
+const getUserManagementLevel = (user: Pick<UserAccount, 'role'>): number =>
+  user.role === 'owner' ? 2 : user.role === 'admin' ? 1 : 0
 
 export const canManageUser = (
-  actor: Pick<UserAccount, 'id' | 'is_primary_admin' | 'role'>,
-  target: Pick<UserAccount, 'id' | 'is_primary_admin' | 'role'>,
+  actor: Pick<UserAccount, 'id' | 'role'>,
+  target: Pick<UserAccount, 'id' | 'role'>,
 ): boolean =>
   actor.id !== target.id && getUserManagementLevel(actor) > getUserManagementLevel(target)
 
-export const getUserRolePresentation = (
-  user: Pick<UserAccount, 'is_primary_admin' | 'role'>,
-): UserRolePresentation => {
-  if (user.is_primary_admin) {
+export const getUserRolePresentation = (user: Pick<UserAccount, 'role'>): UserRolePresentation => {
+  if (user.role === 'owner') {
     return { label: 'System Administrator', tone: 'system-admin' }
   }
 

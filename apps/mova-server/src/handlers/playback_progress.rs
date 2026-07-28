@@ -123,8 +123,13 @@ mod tests {
     use axum_extra::extract::cookie::CookieJar;
     use mova_application::NullMetadataProvider;
     use mova_domain::UserRole;
+    use sha2::{Digest, Sha256};
     use std::{path::PathBuf, sync::Arc};
     use time::{OffsetDateTime, UtcOffset};
+
+    fn hash_session_token(token: &str) -> String {
+        format!("{:x}", Sha256::digest(token.as_bytes()))
+    }
 
     fn build_test_state(pool: sqlx::postgres::PgPool) -> AppState {
         AppState {
@@ -158,6 +163,7 @@ mod tests {
             pool,
             mova_db::CreateUserParams {
                 username: "viewer01".to_string(),
+                username_normalized: "viewer01".to_string(),
                 nickname: "viewer01".to_string(),
                 password_hash: "hash".to_string(),
                 role: UserRole::Viewer,
@@ -208,7 +214,7 @@ mod tests {
         mova_db::create_session(
             pool,
             mova_db::CreateSessionParams {
-                token: session_token.to_string(),
+                token_hash: hash_session_token(session_token),
                 user_id: user.user.id,
                 expires_at,
             },
@@ -482,19 +488,15 @@ mod tests {
                 r#"
                 insert into episodes (
                     media_item_id,
-                    series_id,
                     season_id,
-                    episode_number,
-                    title
+                    episode_number
                 )
-                values ($1, $2, $3, $4, $5)
+                values ($1, $2, $3)
                 "#,
             )
             .bind(episode_id)
-            .bind(series_id)
             .bind(season_id)
             .bind(episode_number)
-            .bind(format!("Episode {episode_number}"))
             .execute(&pool)
             .await
             .unwrap();

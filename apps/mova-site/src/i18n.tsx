@@ -109,8 +109,8 @@ const translations: Record<string, string> = {
     'GET /api/realtime/events pushes resource invalidation and transient scan progress.',
   'health、bootstrap-status、bootstrap-admin、login、token-login 和 refresh 可匿名访问，其余接口都要求登录态。':
     'health, bootstrap-status, bootstrap-admin, login, token-login, and refresh are public; all other endpoints require authentication.',
-  '用户管理、建库、删库、触发扫描、服务器根目录等管理类接口要求 admin 权限。':
-    'Administrative endpoints for users, libraries, scans, and server roots require admin permission.',
+  '管理类接口允许 owner 和 admin；用户角色提升等所有者操作只允许 owner。':
+    'Administrative endpoints allow owner and admin roles; owner-only operations such as role elevation require the owner role.',
   'Web 端使用 session cookie；原生客户端使用 access token，refresh token 仅用于调用 refresh 接口。':
     'The Web app uses a session cookie; native clients use an access token, and the refresh token is only used by the refresh endpoint.',
   'realtime/events 返回 text/event-stream，不使用统一 JSON envelope；重连后应先请求 realtime/state。':
@@ -144,8 +144,10 @@ const translations: Record<string, string> = {
   '认证、用户与实时同步': 'Authentication, users, and realtime sync',
   '覆盖首次初始化、Cookie / Bearer 登录、Token 轮换、首页快照、资源 revision、SSE 和管理员用户管理。':
     'Covers first-time setup, Cookie/Bearer login, token rotation, home snapshots, resource revisions, SSE, and administrator user management.',
-  'bootstrap 只在系统没有管理员时允许创建首个 admin，并直接建立登录态。':
-    'bootstrap can create the first admin only when none exists, and immediately establishes an authenticated session.',
+  'bootstrap 只在系统没有管理账户时创建唯一 owner，并直接建立登录态。':
+    'Bootstrap creates the unique owner only when no management account exists and immediately establishes a session.',
+  '账户按去除首尾空白后的小写值唯一；Web Session 与原生 Token 都只在数据库保存 hash。':
+    'Accounts are unique by their trimmed lowercase value; Web sessions and native tokens are stored only as hashes.',
   'token-login 返回短期 access token 和长期 refresh token，refresh 会轮换两者。':
     'token-login returns a short-lived access token and a long-lived refresh token; refresh rotates both.',
   '密码认证默认在 5 分钟内允许 5 次失败，受限时返回 429 和 Retry-After。':
@@ -154,8 +156,8 @@ const translations: Record<string, string> = {
     '/api/home returns a bounded home snapshot for the current user with the realtime revision baseline.',
   'SSE 只承载资源失效与临时进度；断线恢复必须使用 /api/realtime/state。':
     'SSE carries resource invalidation and transient progress only; reconnect recovery must use /api/realtime/state.',
-  查询是否需要初始化首个管理员: 'Check whether the first administrator must be initialized',
-  初始化首个管理员并登录: 'Initialize the first administrator and sign in',
+  查询是否需要初始化系统所有者: 'Check whether the system owner must be initialized',
+  初始化系统所有者并登录: 'Initialize the system owner and sign in',
   登录: 'Sign in',
   '为原生客户端创建 access token 和 refresh token': 'Create access and refresh tokens for native clients',
   '使用 refresh token 轮换并获取新的 token': 'Rotate tokens with a refresh token',
@@ -227,6 +229,8 @@ const translations: Record<string, string> = {
     'Provides movies, series, seasons, episodes, cast, playback headers, file lists, metadata matching, and image resources.',
   'media_item_id 不是 library_id；详情、文件列表、播放进度都围绕 media_item_id 展开。':
     'media_item_id is not library_id; details, file lists, and playback progress all use media_item_id.',
+  'metadata_provider_item_id、provider_item_id 和 person_id 都是字符串，客户端不得假设远端 ID 一定是数字。':
+    'metadata_provider_item_id, provider_item_id, and person_id are strings; clients must not assume remote IDs are numeric.',
   'metadata_status 使用 matched / unmatched / failed / skipped 表达元数据处理状态。':
     'metadata_status uses matched, unmatched, failed, and skipped to represent metadata processing state.',
   '剧集可通过 seasons、episodes、episode-outline 获取本地可用集和远端大纲合并结果。':
@@ -252,6 +256,10 @@ const translations: Record<string, string> = {
     'A null progress response is normal and means the current user has not watched the item.',
   '写入进度时同时提交 media_file_id、position_seconds 和 duration_seconds。':
     'Progress updates include media_file_id, position_seconds, and duration_seconds.',
+  '进度按用户与媒体条目唯一；多个文件版本共享进度，last_media_file_id 只记录最近选择的版本。':
+    'Progress is unique per user and media item; file variants share progress, while last_media_file_id records the latest selected variant.',
+  '重复媒体条目合并时，文件、进度和继续观看状态在同一事务迁移，并保留较新的观看状态。':
+    'When duplicate media items merge, files, progress, and continue-watching state move in one transaction and the newest viewing state is retained.',
   'continue-watching 只返回未看完内容，剧集会按 series 聚合到最近观看的一集。':
     'continue-watching returns unfinished items only and groups series by the most recently watched episode.',
   '已看完内容不会出现在继续观看列表中。': 'Completed items do not appear in continue watching.',

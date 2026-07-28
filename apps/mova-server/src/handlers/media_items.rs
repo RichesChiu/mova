@@ -29,7 +29,7 @@ pub struct SearchMediaItemMetadataQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct ApplyMediaItemMetadataMatchRequest {
-    pub provider_item_id: i64,
+    pub provider_item_id: String,
 }
 
 /// 查询单个媒体条目详情。

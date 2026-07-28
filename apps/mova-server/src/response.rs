@@ -128,7 +128,7 @@ pub struct MediaItemResponse {
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
     pub metadata_provider: Option<String>,
-    pub metadata_provider_item_id: Option<i64>,
+    pub metadata_provider_item_id: Option<String>,
     pub metadata_status: String,
     pub metadata_failure_reason: Option<String>,
     pub remote_media_type: Option<String>,
@@ -158,7 +158,7 @@ pub struct MediaRatingResponse {
 
 #[derive(Debug, Serialize)]
 pub struct MediaCastMemberResponse {
-    pub person_id: Option<i64>,
+    pub person_id: Option<String>,
     pub sort_order: i32,
     pub name: String,
     pub character_name: Option<String>,
@@ -175,7 +175,7 @@ pub struct MediaItemDetailResponse {
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
     pub metadata_provider: Option<String>,
-    pub metadata_provider_item_id: Option<i64>,
+    pub metadata_provider_item_id: Option<String>,
     pub metadata_status: String,
     pub metadata_failure_reason: Option<String>,
     pub remote_media_type: Option<String>,
@@ -209,7 +209,7 @@ pub struct MediaItemPlaybackHeaderResponse {
 
 #[derive(Debug, Serialize)]
 pub struct MetadataMatchCandidateResponse {
-    pub provider_item_id: i64,
+    pub provider_item_id: String,
     pub title: String,
     pub original_title: Option<String>,
     pub year: Option<i32>,
@@ -446,7 +446,7 @@ pub struct ScanItemProgressResponse {
 pub struct PlaybackProgressResponse {
     pub id: i64,
     pub media_item_id: i64,
-    pub media_file_id: i64,
+    pub last_media_file_id: Option<i64>,
     pub position_seconds: i32,
     pub duration_seconds: Option<i32>,
     pub last_watched_at: String,
@@ -472,7 +472,6 @@ pub struct UserResponse {
     pub username: String,
     pub nickname: String,
     pub role: String,
-    pub is_primary_admin: bool,
     pub is_enabled: bool,
     pub library_ids: Vec<i64>,
     pub created_at: String,
@@ -813,7 +812,6 @@ impl UserResponse {
             username: user.user.username,
             nickname: user.user.nickname,
             role: user.user.role.as_str().to_string(),
-            is_primary_admin: user.is_primary_admin,
             is_enabled: user.user.is_enabled,
             library_ids: user.library_ids,
             created_at: format_datetime(user.user.created_at, offset),
@@ -1106,7 +1104,7 @@ impl PlaybackProgressResponse {
         Self {
             id: progress.id,
             media_item_id: progress.media_item_id,
-            media_file_id: progress.media_file_id,
+            last_media_file_id: progress.last_media_file_id,
             position_seconds: progress.position_seconds,
             duration_seconds: progress.duration_seconds,
             last_watched_at: format_datetime(progress.last_watched_at, offset),
@@ -1252,7 +1250,7 @@ mod tests {
             original_title: None,
             sort_title: None,
             metadata_provider: Some("tmdb".to_string()),
-            metadata_provider_item_id: Some(129),
+            metadata_provider_item_id: Some("129".to_string()),
             metadata_status: METADATA_STATUS_MATCHED.to_string(),
             metadata_failure_reason: None,
             remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE.to_string()),
@@ -1361,7 +1359,7 @@ mod tests {
             Some("/api/media-items/42/logo?v=1704164645")
         );
         assert_eq!(response.metadata_provider.as_deref(), Some("tmdb"));
-        assert_eq!(response.metadata_provider_item_id, Some(129));
+        assert_eq!(response.metadata_provider_item_id, Some("129".to_string()));
         assert_eq!(response.metadata_status, METADATA_STATUS_MATCHED);
         assert_eq!(response.metadata_failure_reason, None);
         assert_eq!(response.ratings.len(), 1);
@@ -1378,7 +1376,7 @@ mod tests {
         let response = MediaItemDetailResponse::from_domain(sample_media_item(), UtcOffset::UTC);
 
         assert_eq!(response.metadata_provider.as_deref(), Some("tmdb"));
-        assert_eq!(response.metadata_provider_item_id, Some(129));
+        assert_eq!(response.metadata_provider_item_id, Some("129".to_string()));
         assert_eq!(response.metadata_status, METADATA_STATUS_MATCHED);
         assert_eq!(response.metadata_failure_reason, None);
         assert_eq!(

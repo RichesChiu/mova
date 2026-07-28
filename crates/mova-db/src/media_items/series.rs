@@ -1,8 +1,8 @@
 use super::{
     ratings::replace_media_item_remote_data,
     sync::{
-        cleanup_media_item_if_no_files, delete_media_item, display_title_for_entry,
-        insert_media_file, reassign_media_file_to_media_item, update_media_file_from_entry,
+        cleanup_media_item_if_no_files, display_title_for_entry, insert_media_file,
+        reassign_media_file_to_media_item, update_media_file_from_entry,
         ExistingLibraryMediaFileRecord,
     },
     CreateMediaEntryParams,
@@ -10,6 +10,8 @@ use super::{
 use anyhow::{Context, Result};
 use mova_domain::METADATA_STATUS_MATCHED;
 use sqlx::{Postgres, Row, Transaction};
+
+use crate::playback_progress::merge_media_item_user_state;
 
 pub(super) async fn upsert_episode_media_entry(
     tx: &mut Transaction<'_, Postgres>,
@@ -29,16 +31,31 @@ pub(super) async fn upsert_episode_media_entry(
 
     if let Some(existing) = existing {
         if !existing.media_type.eq_ignore_ascii_case("episode") {
-            delete_media_item(tx, existing.media_item_id).await?;
-            if let Some(existing_episode_media_item_id) = existing_episode_media_item_id {
-                update_episode_media_item_from_entry(tx, existing_episode_media_item_id, entry)
-                    .await?;
-                insert_media_file(tx, existing_episode_media_item_id, entry).await?;
-            } else {
-                insert_episode_media_tree(tx, entry, series_id, season_id, episode_number).await?;
+            let target_media_item_id =
+                if let Some(existing_episode_media_item_id) = existing_episode_media_item_id {
+                    update_episode_media_item_from_entry(tx, existing_episode_media_item_id, entry)
+                        .await?;
+                    existing_episode_media_item_id
+                } else {
+                    insert_episode_structure(tx, entry, season_id, episode_number).await?
+                };
+            reassign_media_file_to_media_item(
+                tx,
+                existing.media_file_id,
+                target_media_item_id,
+                entry,
+            )
+            .await?;
+            merge_media_item_user_state(&mut **tx, existing.media_item_id, target_media_item_id)
+                .await?;
+            cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
+            if existing.media_type.eq_ignore_ascii_case("series") {
+                cleanup_orphan_series_structure(tx, entry.library_id).await?;
             }
             return Ok(());
         }
+
+        let previous_series_id = find_series_id_for_episode(tx, existing.media_item_id).await?;
 
         if let Some(existing_episode_media_item_id) = existing_episode_media_item_id {
             if existing_episode_media_item_id != existing.media_item_id {
@@ -51,21 +68,25 @@ pub(super) async fn upsert_episode_media_entry(
                     entry,
                 )
                 .await?;
+                merge_media_item_user_state(
+                    &mut **tx,
+                    existing.media_item_id,
+                    existing_episode_media_item_id,
+                )
+                .await?;
+                if let Some(previous_series_id) = previous_series_id {
+                    merge_media_item_user_state(&mut **tx, previous_series_id, series_id).await?;
+                }
                 cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
                 return Ok(());
             }
         }
 
         update_episode_media_item_from_entry(tx, existing.media_item_id, entry).await?;
-        update_episode_record(
-            tx,
-            existing.media_item_id,
-            series_id,
-            season_id,
-            episode_number,
-            episode_title_for_entry(entry, episode_number),
-        )
-        .await?;
+        update_episode_record(tx, existing.media_item_id, season_id, episode_number).await?;
+        if let Some(previous_series_id) = previous_series_id {
+            merge_media_item_user_state(&mut **tx, previous_series_id, series_id).await?;
+        }
         update_media_file_from_entry(tx, existing.media_file_id, entry).await?;
         return Ok(());
     }
@@ -76,8 +97,26 @@ pub(super) async fn upsert_episode_media_entry(
         return Ok(());
     }
 
-    insert_episode_media_tree(tx, entry, series_id, season_id, episode_number).await?;
+    insert_episode_media_tree(tx, entry, season_id, episode_number).await?;
     Ok(())
+}
+
+async fn find_series_id_for_episode(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+) -> Result<Option<i64>> {
+    sqlx::query_scalar(
+        r#"
+        select s.series_id
+        from episodes e
+        join seasons s on s.id = e.season_id
+        where e.media_item_id = $1
+        "#,
+    )
+    .bind(media_item_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to resolve the current series for an episode")
 }
 
 fn episode_title_for_entry(entry: &CreateMediaEntryParams, episode_number: i32) -> String {
@@ -91,22 +130,23 @@ fn episode_title_for_entry(entry: &CreateMediaEntryParams, episode_number: i32) 
 async fn insert_episode_media_tree(
     tx: &mut Transaction<'_, Postgres>,
     entry: &CreateMediaEntryParams,
-    series_id: i64,
     season_id: i64,
     episode_number: i32,
 ) -> Result<()> {
-    let media_item_id = insert_episode_media_item(tx, entry, episode_number).await?;
-    insert_episode_record(
-        tx,
-        media_item_id,
-        series_id,
-        season_id,
-        episode_number,
-        episode_title_for_entry(entry, episode_number),
-    )
-    .await?;
+    let media_item_id = insert_episode_structure(tx, entry, season_id, episode_number).await?;
     insert_media_file(tx, media_item_id, entry).await?;
     Ok(())
+}
+
+async fn insert_episode_structure(
+    tx: &mut Transaction<'_, Postgres>,
+    entry: &CreateMediaEntryParams,
+    season_id: i64,
+    episode_number: i32,
+) -> Result<i64> {
+    let media_item_id = insert_episode_media_item(tx, entry, episode_number).await?;
+    insert_episode_record(tx, media_item_id, season_id, episode_number).await?;
+    Ok(media_item_id)
 }
 
 async fn upsert_series_item_from_entry(
@@ -127,7 +167,7 @@ async fn find_existing_series_item(
 ) -> Result<Option<i64>> {
     if let (Some(provider), Some(provider_item_id)) = (
         entry.metadata_provider.as_deref(),
-        entry.metadata_provider_item_id,
+        entry.metadata_provider_item_id.clone(),
     ) {
         let row = sqlx::query(
             r#"
@@ -221,7 +261,7 @@ async fn insert_series_item_from_entry(
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
     .bind(&entry.metadata_provider)
-    .bind(entry.metadata_provider_item_id)
+    .bind(entry.metadata_provider_item_id.as_deref())
     .bind(&entry.metadata_status)
     .bind(&entry.metadata_failure_reason)
     .bind(&entry.remote_media_type)
@@ -303,7 +343,7 @@ async fn update_series_item_from_entry(
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
     .bind(&entry.metadata_provider)
-    .bind(entry.metadata_provider_item_id)
+    .bind(entry.metadata_provider_item_id.as_deref())
     .bind(&entry.metadata_status)
     .bind(&entry.metadata_failure_reason)
     .bind(&entry.remote_media_type)
@@ -523,22 +563,18 @@ fn metadata_status_allows_artwork_clear(metadata_status: &str) -> bool {
 async fn insert_episode_record(
     tx: &mut Transaction<'_, Postgres>,
     media_item_id: i64,
-    series_id: i64,
     season_id: i64,
     episode_number: i32,
-    title: String,
 ) -> Result<()> {
     sqlx::query(
         r#"
-        insert into episodes (media_item_id, series_id, season_id, episode_number, title)
-        values ($1, $2, $3, $4, $5)
+        insert into episodes (media_item_id, season_id, episode_number)
+        values ($1, $2, $3)
         "#,
     )
     .bind(media_item_id)
-    .bind(series_id)
     .bind(season_id)
     .bind(episode_number)
-    .bind(title)
     .execute(&mut **tx)
     .await
     .context("failed to insert episode record")?;
@@ -572,42 +608,27 @@ async fn find_existing_episode_media_item(
 async fn update_episode_record(
     tx: &mut Transaction<'_, Postgres>,
     media_item_id: i64,
-    series_id: i64,
     season_id: i64,
     episode_number: i32,
-    title: String,
 ) -> Result<()> {
     let updated = sqlx::query(
         r#"
         update episodes
         set
-            series_id = $2,
-            season_id = $3,
-            episode_number = $4,
-            title = $5,
-            updated_at = now()
+            season_id = $2,
+            episode_number = $3
         where media_item_id = $1
         "#,
     )
     .bind(media_item_id)
-    .bind(series_id)
     .bind(season_id)
     .bind(episode_number)
-    .bind(title.clone())
     .execute(&mut **tx)
     .await
     .context("failed to update episode record")?;
 
     if updated.rows_affected() == 0 {
-        insert_episode_record(
-            tx,
-            media_item_id,
-            series_id,
-            season_id,
-            episode_number,
-            title,
-        )
-        .await?;
+        insert_episode_record(tx, media_item_id, season_id, episode_number).await?;
     }
 
     Ok(())

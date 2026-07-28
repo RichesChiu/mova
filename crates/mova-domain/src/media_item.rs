@@ -28,7 +28,7 @@ pub struct MediaItem {
     pub original_title: Option<String>,
     pub sort_title: Option<String>,
     pub metadata_provider: Option<String>,
-    pub metadata_provider_item_id: Option<i64>,
+    pub metadata_provider_item_id: Option<String>,
     pub metadata_status: String,
     pub metadata_failure_reason: Option<String>,
     pub remote_media_type: Option<String>,

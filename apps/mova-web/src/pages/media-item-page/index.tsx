@@ -239,7 +239,7 @@ export const MediaItemPage = () => {
     const preferredMediaFile =
       mediaItemQuery.data?.media_type === 'movie'
         ? ((moviePlaybackProgress &&
-            mediaFiles.find((file) => file.id === moviePlaybackProgress.media_file_id)) ??
+            mediaFiles.find((file) => file.id === moviePlaybackProgress.last_media_file_id)) ??
           mediaFiles[0])
         : mediaFiles[0]
 

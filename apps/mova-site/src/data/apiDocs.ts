@@ -39,7 +39,7 @@ export const apiOverviewCards = [
 
 export const apiCommonNotes = [
   'health、bootstrap-status、bootstrap-admin、login、token-login 和 refresh 可匿名访问，其余接口都要求登录态。',
-  '用户管理、建库、删库、触发扫描、服务器根目录等管理类接口要求 admin 权限。',
+  '管理类接口允许 owner 和 admin；用户角色提升等所有者操作只允许 owner。',
   'Web 端使用 session cookie；原生客户端使用 access token，refresh token 仅用于调用 refresh 接口。',
   'realtime/events 返回 text/event-stream，不使用统一 JSON envelope；重连后应先请求 realtime/state。',
   '媒体条目图片 URL 会带版本参数，浏览器可长期缓存；元数据更新后版本会变化。',
@@ -95,15 +95,16 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     title: '认证、用户与实时同步',
     summary: '覆盖首次初始化、Cookie / Bearer 登录、Token 轮换、首页快照、资源 revision、SSE 和管理员用户管理。',
     highlights: [
-      'bootstrap 只在系统没有管理员时允许创建首个 admin，并直接建立登录态。',
+      'bootstrap 只在系统没有管理账户时创建唯一 owner，并直接建立登录态。',
+      '账户按去除首尾空白后的小写值唯一；Web Session 与原生 Token 都只在数据库保存 hash。',
       'token-login 返回短期 access token 和长期 refresh token，refresh 会轮换两者。',
       '密码认证默认在 5 分钟内允许 5 次失败，受限时返回 429 和 Retry-After。',
       '/api/home 返回当前用户的有界首页快照，并携带 realtime revision 基线。',
       'SSE 只承载资源失效与临时进度；断线恢复必须使用 /api/realtime/state。',
     ],
     endpoints: [
-      { method: 'GET', path: '/api/auth/bootstrap-status', description: '查询是否需要初始化首个管理员' },
-      { method: 'POST', path: '/api/auth/bootstrap-admin', description: '初始化首个管理员并登录' },
+      { method: 'GET', path: '/api/auth/bootstrap-status', description: '查询是否需要初始化系统所有者' },
+      { method: 'POST', path: '/api/auth/bootstrap-admin', description: '初始化系统所有者并登录' },
       { method: 'POST', path: '/api/auth/login', description: '登录' },
       { method: 'POST', path: '/api/auth/token-login', description: '为原生客户端创建 access token 和 refresh token' },
       { method: 'POST', path: '/api/auth/refresh', description: '使用 refresh token 轮换并获取新的 token' },
@@ -183,6 +184,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     summary: '提供电影、剧集、季、集、演员、播放头、文件列表、元数据匹配与图片资源读取。',
     highlights: [
       'media_item_id 不是 library_id；详情、文件列表、播放进度都围绕 media_item_id 展开。',
+      'metadata_provider_item_id、provider_item_id 和 person_id 都是字符串，客户端不得假设远端 ID 一定是数字。',
       'metadata_status 使用 matched / unmatched / failed / skipped 表达元数据处理状态。',
       '剧集可通过 seasons、episodes、episode-outline 获取本地可用集和远端大纲合并结果。',
       'poster/backdrop/logo 返回图片流；若详情字段是远程 URL，前端可直接使用远程地址。',
@@ -210,6 +212,8 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     highlights: [
       '查询进度返回 null 是正常语义，表示当前用户尚未观看该内容。',
       '写入进度时同时提交 media_file_id、position_seconds 和 duration_seconds。',
+      '进度按用户与媒体条目唯一；多个文件版本共享进度，last_media_file_id 只记录最近选择的版本。',
+      '重复媒体条目合并时，文件、进度和继续观看状态在同一事务迁移，并保留较新的观看状态。',
       'continue-watching 只返回未看完内容，剧集会按 series 聚合到最近观看的一集。',
       '已看完内容不会出现在继续观看列表中。',
     ],

@@ -381,7 +381,7 @@ export const searchMediaItemMetadata = (
   )
 }
 
-export const applyMediaItemMetadataMatch = (mediaItemId: number, providerItemId: number) =>
+export const applyMediaItemMetadataMatch = (mediaItemId: number, providerItemId: string) =>
   requestJson<MediaItem>(withApiPrefix(`/media-items/${mediaItemId}/metadata-match`), {
     method: 'POST',
     body: JSON.stringify({

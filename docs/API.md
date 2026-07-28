@@ -13,7 +13,7 @@
   - 其他接口都要求登录态
   - Web 端继续使用 session cookie
   - 原生客户端使用 `Authorization: Bearer <access_token>` 访问业务接口，`access_token` 和 `refresh_token` 通过 `POST /api/auth/token-login` 获取；`refresh_token` 只能调用 `POST /api/auth/refresh`，不能访问普通业务接口
-  - 管理类接口（用户管理、建库、删库、触发扫描、服务器根目录等）要求 `admin`
+  - 标注为管理类的接口（用户管理、建库、删库、触发扫描、服务器根目录等）允许 `owner` 和 `admin`；只有用户角色提升等所有者操作明确要求 `owner`
   - `GET /api/realtime/events` 返回 `text/event-stream`，不使用统一 JSON envelope
 - 成功格式：
 
@@ -151,14 +151,16 @@
 
 ## 2. 认证与用户
 
-初始化、登录和创建用户接口使用 `username` 作为登录账户字段，界面将它展示为账户。服务端会去除首尾空白，并限制为 1–254 个字符，因此可以使用普通账号名或邮箱形式的登录标识；邮箱形式只作为精确匹配的账户字符串，不代表 Mova 会校验邮箱归属或发送邮件。账户创建后不可修改，昵称初始化为账户名称，之后只能由用户本人通过个人设置修改。已有 pre-1.0 数据库需要重建 `data/postgres/`，才能把底层 `users.username` 字段从 64 个字符扩展到 254 个字符。
+初始化、登录和创建用户接口使用 `username` 作为登录账户字段，界面将它展示为账户。服务端会去除首尾空白，并限制为 1–254 个字符，因此可以使用普通账号名或邮箱形式的登录标识；邮箱形式只作为账户字符串，不代表 Mova 会校验邮箱归属或发送邮件。账户按去除空白后的 Unicode 小写值唯一并用于登录查找，因此大小写不同不能创建为两个账户。账户创建后不可修改，昵称初始化为账户名称，之后只能由用户本人通过个人设置修改。
+
+Web session、原生 access token 和 refresh token 在数据库中都只保存 SHA-256 hash，原始凭据只在签发时返回给客户端。
 
 密码认证默认按账户合并 Web 与原生客户端的失败次数：5 分钟窗口内达到 5 次失败后锁定 15 分钟。当前用户修改密码使用独立限制，只把当前密码校验失败计入次数。受限请求返回 `429 Too Many Requests`，并通过 `Retry-After` 返回剩余等待秒数。服务端只在内存中保留最多 4096 个近期键，成功认证会清除对应失败状态；服务重启会清空该临时状态。部署方可以通过 `MOVA_AUTH_RATE_LIMIT_MAX_FAILURES`、`MOVA_AUTH_RATE_LIMIT_WINDOW_SECONDS`、`MOVA_AUTH_RATE_LIMIT_LOCKOUT_SECONDS` 和 `MOVA_AUTH_RATE_LIMIT_MAX_KEYS` 调整正整数配置。
 
 ### `GET /api/auth/bootstrap-status`
 
 作用：
-- 查询当前系统是否还没有管理员，前端可据此决定显示“初始化首个管理员”还是普通登录页
+- 查询当前系统是否还没有系统所有者，前端可据此决定显示“初始化首个账户”还是普通登录页
 
 返回：
 - `200 OK`
@@ -172,7 +174,7 @@
 ### `POST /api/auth/bootstrap-admin`
 
 作用：
-- 仅在系统还没有管理员时，创建第一个 `admin` 用户并直接建立登录态
+- 仅在系统还没有管理账户时，创建唯一的 `owner` 用户并直接建立登录态
 
 请求体：
 
@@ -184,7 +186,7 @@
 ```
 
 说明：
-- 一旦系统里已经存在管理员，再调用会返回 `409 Conflict`
+- 一旦系统里已经存在 `owner` 或 `admin`，再调用会返回 `409 Conflict`
 - 成功后会写入 session cookie
 
 ### `POST /api/auth/login`
@@ -240,8 +242,7 @@
     "id": 1,
     "username": "admin",
     "nickname": "admin",
-    "role": "admin",
-    "is_primary_admin": true,
+    "role": "owner",
     "is_enabled": true,
     "library_ids": []
   }
@@ -282,8 +283,7 @@
     "id": 1,
     "username": "admin",
     "nickname": "admin",
-    "role": "admin",
-    "is_primary_admin": true,
+    "role": "owner",
     "is_enabled": true,
     "library_ids": []
   }
@@ -326,9 +326,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 返回：
 - `200 OK`
-- 返回字段包括 `id`、`username`、`nickname`、`role`、`is_primary_admin`、`is_enabled`、`library_ids`
+- 返回字段包括 `id`、`username`、`nickname`、`role`、`is_enabled`、`library_ids`
 - 支持 cookie 和 Bearer access token 两种登录态；不接受 refresh token
-- `is_primary_admin = true` 只会出现在系统初始化出来的首个管理员身上；它可以创建、提升、编辑和删除普通管理员
+- `role` 使用 `owner` / `admin` / `viewer`。初始化接口创建的唯一 `owner` 是系统所有者；`owner` 和 `admin` 都拥有全部媒体库访问权
 
 ### `PATCH /api/auth/me`
 
@@ -515,9 +515,9 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - 管理员查看当前所有用户
 
 说明：
-- `admin` 用户的 `library_ids` 始终为空数组，语义上表示“默认拥有全部媒体库访问权”
+- `owner` / `admin` 用户的 `library_ids` 始终为空数组，语义上表示“默认拥有全部媒体库访问权”
 - `viewer` 用户的 `library_ids` 表示允许访问的媒体库 ID 列表
-- `is_primary_admin = true` 的管理员表示当前系统的主管理员；普通管理员仍然拥有媒体库管理能力，但不能管理平级管理员，也不能管理主管理员
+- `owner` 是唯一系统所有者，可以管理 `admin` 和 `viewer`；`admin` 可以管理 `viewer`，不能管理平级管理员或所有者
 
 ### `POST /api/users`
 
@@ -539,11 +539,11 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 字段说明：
 - `username`：用于登录的账户；服务端会去除首尾空白，长度必须为 1–254 个字符，可使用普通账号名或邮箱形式的精确匹配字符串
 - 新用户的 `nickname` 会初始化为规范化后的 `username`；请求不能指定昵称，用户登录后只能通过 `PATCH /api/auth/me` 修改自己的昵称
-- `role`：只支持 `admin` / `viewer`
-- `library_ids`：只对 `viewer` 生效；`admin` 会忽略这个字段
+- `role`：用户管理接口只支持创建 `admin` / `viewer`；`owner` 只能由系统初始化接口创建
+- `library_ids`：只对 `viewer` 生效；`owner` / `admin` 会忽略这个字段
 
 权限约束：
-- 只有主管理员可以创建新的 `admin`
+- 只有 `owner` 可以创建新的 `admin`
 - 普通管理员只能创建 `viewer`
 
 ### `PATCH /api/users/{id}`
@@ -568,13 +568,12 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - `library_ids` 只对 `viewer` 生效；更新为 `admin` 时会自动清空库授权
 
 关键约束：
-- 权限层级固定为“主管理员 > 管理员 > 普通用户”，调用者只能管理权限层级严格低于自己的用户
+- 权限层级固定为 `owner > admin > viewer`，调用者只能管理权限层级严格低于自己的用户
 - 当前用户不能通过该接口修改自己
 - 不能降级、禁用最后一个启用中的管理员
 - 禁用用户后，服务端会清理该用户现有 Web session 和原生客户端 access/refresh token 会话
-- 只有主管理员可以编辑普通管理员
-- 主管理员也可以启用或禁用普通管理员
-- 普通管理员不能修改或降级其他管理员，也不能修改主管理员
+- 只有 `owner` 可以编辑、启用或禁用普通管理员
+- 普通管理员不能修改或降级其他管理员，也不能修改 `owner`
 
 ### `DELETE /api/users/{id}`
 
@@ -585,8 +584,8 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - 当前用户不能删除自己
 - 不能删除最后一个启用中的管理员
 - 删除后会级联清理该用户的库授权、会话和播放进度
-- 只有主管理员可以删除普通管理员
-- 主管理员本身不能通过该接口被删除
+- 只有 `owner` 可以删除普通管理员
+- `owner` 本身不能通过该接口被删除
 
 返回：
 - `200 OK`
@@ -609,7 +608,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - `new_password` 最少 8 位
 - 当前用户不能通过该接口重置自己的密码；应使用 `PUT /api/auth/password`
 - 重置成功后，该用户现有 Web session 和原生客户端 access/refresh token 会话会全部失效
-- 只有主管理员可以重置普通管理员密码
+- 只有 `owner` 可以重置普通管理员密码
 
 ## 3. 通知中心
 
@@ -838,7 +837,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
         "original_title": null,
         "sort_title": null,
         "metadata_provider": "tmdb",
-        "metadata_provider_item_id": 123,
+        "metadata_provider_item_id": "123",
         "metadata_status": "matched",
         "metadata_failure_reason": null,
         "remote_media_type": "series",
@@ -1187,7 +1186,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 关键字段：
 - `title`：当前前端默认展示名；TMDB 命中后优先使用当前媒体库语言对应的标题
 - `source_title`：文件名解析出的原始资源名，主要用于元数据匹配和问题排查，不建议直接作为前端展示名
-- `metadata_provider` / `metadata_provider_item_id`：远端 metadata binding，表示条目绑定到具体 TMDB 条目
+- `metadata_provider` / `metadata_provider_item_id`：远端 metadata binding，表示条目绑定到具体远端条目。提供商 ID 以字符串传输和存储，客户端不得假设它一定是数字
 - `metadata_status`：使用 `pending` / `matched` / `unmatched` / `failed` / `skipped`；`pending` 表示扫描中的远端确认中间态
 - `metadata_failure_reason`：`unmatched` 或 `failed` 的原因，使用 `no_remote_match` 或 `metadata_provider_error`
 - `remote_media_type`：使用 `movie` / `series`；没有远端判断或 TMDB 未启用时为 `null`
@@ -1212,7 +1211,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
   "original_title": "Arcane",
   "sort_title": null,
   "metadata_provider": "tmdb",
-  "metadata_provider_item_id": 94605,
+  "metadata_provider_item_id": "94605",
   "metadata_status": "matched",
   "metadata_failure_reason": null,
   "remote_media_type": "series",
@@ -1418,7 +1417,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 ```json
 [
   {
-    "provider_item_id": 1100988,
+    "provider_item_id": "1100988",
     "title": "创：战神",
     "original_title": "TRON: Ares",
     "year": 2025,
@@ -1444,7 +1443,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 
 ```json
 {
-  "provider_item_id": 1100988
+  "provider_item_id": "1100988"
 }
 ```
 
@@ -1598,7 +1597,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - 没有记录时返回 `null`
 
 关键字段：
-- `media_file_id`：最近播放的文件 ID
+- `last_media_file_id`：最近播放的文件 ID；对应文件已被删除时为 `null`
 - `position_seconds`：当前记录的播放秒数
 - `duration_seconds`：记录的总时长
 - `last_watched_at`：最近一次上报时间
@@ -1606,6 +1605,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 
 说明：
 - `null` 是这个接口的正常语义，表示“当前用户还没有这条内容的播放记录”，不应当被当成异常
+- 播放进度以 `(user_id, media_item_id)` 唯一；同一媒体条目的多个文件版本共享一条进度，`last_media_file_id` 仅记录最近选中的版本
 - Web 播放器在播放中按 `5s` 心跳上报，并在暂停、播放结束、切源、切集、页面隐藏和离开页面时强制 flush 一次
 
 ### `PUT /api/media-items/{id}/playback-progress`
@@ -1646,7 +1646,9 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 
 说明：
 - 播放进度按当前登录用户隔离；不同用户的观看记录、继续观看列表互不共享
-- `playback_progress` 只保留“当前最新状态”，不承担完整历史时间线
+- `playback_progress` 按用户与媒体条目唯一，只保留“当前最新状态”，不承担完整历史时间线
+- 同一媒体条目的不同 `media_file_id` 是资源版本，不会产生多条独立进度；返回的 `last_media_file_id` 用于恢复最近选择的版本
+- 扫描或人工匹配合并重复媒体条目时，媒体文件重归属、播放进度和继续观看状态在同一事务内迁移；同一用户存在两份状态时以 `last_watched_at` 较新的记录为准
 - 当 `is_finished = false` 时，服务端会把电影或所属 Series upsert 到 `continue_watching`；同系列切换集数只更新原行
 - 当 `is_finished = true` 时，播放进度和完成状态仍保留，但电影或所属 Series 会从 `continue_watching` 删除
 - `continue_watching` 每个用户最多保留 20 部唯一电影或 Series，超过上限时服务端删除最旧记录
@@ -1691,7 +1693,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
     "playback_progress": {
       "id": 3,
       "media_item_id": 5,
-      "media_file_id": 5,
+      "last_media_file_id": 5,
       "position_seconds": 368,
       "duration_seconds": 5400,
       "last_watched_at": "...",

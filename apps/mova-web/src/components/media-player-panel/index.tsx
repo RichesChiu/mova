@@ -558,7 +558,8 @@ export const MediaPlayerPanel = ({
     const playbackProgress = playbackProgressQuery.data
     const preferredFile =
       mediaFiles.find((file) => file.id === preferredMediaFileId) ??
-      (playbackProgress && mediaFiles.find((file) => file.id === playbackProgress.media_file_id)) ??
+      (playbackProgress &&
+        mediaFiles.find((file) => file.id === playbackProgress.last_media_file_id)) ??
       mediaFiles[0]
 
     setSelectedMediaFileId((current) =>
@@ -904,7 +905,7 @@ export const MediaPlayerPanel = ({
     continueRegistrationKeyRef.current = registrationKey
     const savedProgress = playbackProgressQuery.data
     const canResumeSelectedFile =
-      savedProgress?.media_file_id === selectedMediaFile.id && !savedProgress.is_finished
+      savedProgress?.last_media_file_id === selectedMediaFile.id && !savedProgress.is_finished
 
     // Opening a selected movie or episode must enter Continue immediately without losing its resume point.
     playbackProgressMutation.mutate({
@@ -1077,7 +1078,7 @@ export const MediaPlayerPanel = ({
       restoredForFileRef.current === selectedMediaFile.id ||
       !playbackProgress ||
       playbackProgress.is_finished ||
-      playbackProgress.media_file_id !== selectedMediaFile.id ||
+      playbackProgress.last_media_file_id !== selectedMediaFile.id ||
       playbackProgress.position_seconds <= 0
     ) {
       attemptAutoplay()

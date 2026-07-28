@@ -113,6 +113,7 @@ pub async fn bootstrap_admin(
     }
 
     let username = normalize_username(input.username)?;
+    let username_normalized = normalize_username_key(&username);
     let nickname = normalize_nickname(None, &username)?;
     validate_password("password", &input.password)?;
     let password_hash = hash_password(&input.password)?;
@@ -121,9 +122,10 @@ pub async fn bootstrap_admin(
         pool,
         mova_db::CreateUserParams {
             username,
+            username_normalized,
             nickname,
             password_hash,
-            role: UserRole::Admin,
+            role: UserRole::Owner,
             is_enabled: true,
             library_ids: Vec::new(),
         },
@@ -131,7 +133,7 @@ pub async fn bootstrap_admin(
     .await
     .map_err(map_user_write_error)?;
 
-    create_session_for_user(pool, enrich_user_profile(pool, user).await?, session_ttl).await
+    create_session_for_user(pool, user, session_ttl).await
 }
 
 pub async fn login(
@@ -201,7 +203,7 @@ pub async fn get_user_by_native_access_token(
         .await
         .map_err(ApplicationError::from)?;
 
-    enrich_user_profile(pool, session.user).await
+    Ok(session.user)
 }
 
 pub async fn refresh_native_client_session(
@@ -284,7 +286,7 @@ pub async fn refresh_native_client_session(
     }
 
     Ok(NativeAuthSession {
-        user: enrich_user_profile(pool, session.user).await?,
+        user: session.user,
         access_token,
         access_token_expires_at,
         refresh_token,
@@ -339,7 +341,8 @@ pub async fn get_user_by_session_token(
     pool: &PgPool,
     token: &str,
 ) -> ApplicationResult<UserProfile> {
-    let Some(user) = mova_db::get_user_by_session_token(pool, token)
+    let token_hash = hash_token(token);
+    let Some(user) = mova_db::get_user_by_session_token_hash(pool, &token_hash)
         .await
         .map_err(ApplicationError::from)?
     else {
@@ -355,11 +358,11 @@ pub async fn get_user_by_session_token(
         )));
     }
 
-    enrich_user_profile(pool, user).await
+    Ok(user)
 }
 
 pub async fn logout(pool: &PgPool, token: &str) -> ApplicationResult<()> {
-    mova_db::delete_session(pool, token)
+    mova_db::delete_session_by_token_hash(pool, &hash_token(token))
         .await
         .map_err(ApplicationError::from)?;
 
@@ -367,16 +370,9 @@ pub async fn logout(pool: &PgPool, token: &str) -> ApplicationResult<()> {
 }
 
 pub async fn list_users(pool: &PgPool) -> ApplicationResult<Vec<UserProfile>> {
-    let users = mova_db::list_users(pool)
+    mova_db::list_users(pool)
         .await
-        .map_err(ApplicationError::from)?;
-
-    let mut enriched = Vec::with_capacity(users.len());
-    for user in users {
-        enriched.push(enrich_user_profile(pool, user).await?);
-    }
-
-    Ok(enriched)
+        .map_err(ApplicationError::from)
 }
 
 pub async fn get_user(pool: &PgPool, user_id: i64) -> ApplicationResult<UserProfile> {
@@ -387,7 +383,7 @@ pub async fn get_user(pool: &PgPool, user_id: i64) -> ApplicationResult<UserProf
     let user =
         user.ok_or_else(|| ApplicationError::NotFound(format!("user not found: {}", user_id)))?;
 
-    enrich_user_profile(pool, user).await
+    Ok(user)
 }
 
 pub async fn create_user(
@@ -396,6 +392,7 @@ pub async fn create_user(
     input: CreateUserInput,
 ) -> ApplicationResult<UserProfile> {
     let username = normalize_username(input.username)?;
+    let username_normalized = normalize_username_key(&username);
     let nickname = username.clone();
     validate_password("password", &input.password)?;
     let role = normalize_user_role(input.role)?;
@@ -409,6 +406,7 @@ pub async fn create_user(
         pool,
         mova_db::CreateUserParams {
             username,
+            username_normalized,
             nickname,
             password_hash,
             role,
@@ -423,7 +421,7 @@ pub async fn create_user(
     .await
     .map_err(map_user_write_error)?;
 
-    enrich_user_profile(pool, created).await
+    Ok(created)
 }
 
 pub async fn update_user(
@@ -472,7 +470,7 @@ pub async fn update_user(
             .map_err(ApplicationError::from)?;
     }
 
-    enrich_user_profile(pool, updated).await
+    Ok(updated)
 }
 
 pub async fn delete_user(pool: &PgPool, actor_user_id: i64, user_id: i64) -> ApplicationResult<()> {
@@ -545,7 +543,7 @@ pub async fn update_own_profile(
         .await
         .map_err(map_user_write_error)?;
 
-    enrich_user_profile(pool, updated).await
+    Ok(updated)
 }
 
 pub async fn change_own_password(
@@ -608,6 +606,10 @@ fn normalize_username(value: String) -> ApplicationResult<String> {
     }
 
     Ok(value)
+}
+
+fn normalize_username_key(value: &str) -> String {
+    value.trim().to_lowercase()
 }
 
 fn normalize_nickname(value: Option<String>, fallback_username: &str) -> ApplicationResult<String> {
@@ -673,21 +675,11 @@ async fn validate_library_access(
     Ok(())
 }
 
-async fn is_primary_admin_user(pool: &PgPool, user_id: i64) -> ApplicationResult<bool> {
-    let primary_admin_user_id = mova_db::get_primary_admin_user_id(pool)
-        .await
-        .map_err(ApplicationError::from)?;
-
-    Ok(primary_admin_user_id == Some(user_id))
-}
-
 fn user_management_level(user: &UserProfile) -> u8 {
-    if user.is_primary_admin {
-        2
-    } else if user.user.role.is_admin() {
-        1
-    } else {
-        0
+    match user.user.role {
+        UserRole::Owner => 2,
+        UserRole::Admin => 1,
+        UserRole::Viewer => 0,
     }
 }
 
@@ -717,9 +709,15 @@ fn validate_role_assignment(actor: &UserProfile, next_role: UserRole) -> Applica
         ));
     }
 
-    if next_role.is_admin() && !actor.is_primary_admin {
+    if next_role.is_owner() {
         return Err(ApplicationError::Forbidden(
-            "only the primary admin can assign administrator role".to_string(),
+            "the system owner role cannot be assigned through user management".to_string(),
+        ));
+    }
+
+    if next_role.is_admin() && !actor.user.role.is_owner() {
+        return Err(ApplicationError::Forbidden(
+            "only the system owner can assign administrator role".to_string(),
         ));
     }
 
@@ -791,9 +789,10 @@ async fn authenticate_login(
     password: String,
 ) -> ApplicationResult<UserProfile> {
     let username = normalize_username(username)?;
+    let username_normalized = normalize_username_key(&username);
     validate_password("password", &password)?;
 
-    let Some(record) = mova_db::get_user_by_username(pool, &username)
+    let Some(record) = mova_db::get_user_by_username(pool, &username_normalized)
         .await
         .map_err(ApplicationError::from)?
     else {
@@ -819,15 +818,10 @@ async fn authenticate_login(
         .await
         .map_err(ApplicationError::from)?;
 
-    enrich_user_profile(
-        pool,
-        UserProfile {
-            user: record.user,
-            is_primary_admin: false,
-            library_ids,
-        },
-    )
-    .await
+    Ok(UserProfile {
+        user: record.user,
+        library_ids,
+    })
 }
 
 async fn create_session_for_user(
@@ -841,7 +835,7 @@ async fn create_session_for_user(
     mova_db::create_session(
         pool,
         mova_db::CreateSessionParams {
-            token: token.clone(),
+            token_hash: hash_token(&token),
             user_id: user.user.id,
             expires_at,
         },
@@ -933,14 +927,6 @@ fn normalize_client_type(value: Option<String>) -> String {
     normalize_optional_text(value).unwrap_or_else(|| "native".to_string())
 }
 
-async fn enrich_user_profile(
-    pool: &PgPool,
-    mut user: UserProfile,
-) -> ApplicationResult<UserProfile> {
-    user.is_primary_admin = is_primary_admin_user(pool, user.user.id).await?;
-    Ok(user)
-}
-
 fn map_user_write_error(error: anyhow::Error) -> ApplicationError {
     if let Some(sqlx_error) = error.downcast_ref::<SqlxError>() {
         if is_unique_violation(sqlx_error) {
@@ -969,7 +955,7 @@ mod tests {
     use mova_domain::{User, UserProfile, UserRole};
     use time::OffsetDateTime;
 
-    fn test_user(id: i64, role: UserRole, is_primary_admin: bool) -> UserProfile {
+    fn test_user(id: i64, role: UserRole) -> UserProfile {
         UserProfile {
             user: User {
                 id,
@@ -980,7 +966,6 @@ mod tests {
                 created_at: OffsetDateTime::UNIX_EPOCH,
                 updated_at: OffsetDateTime::UNIX_EPOCH,
             },
-            is_primary_admin,
             library_ids: Vec::new(),
         }
     }
@@ -1041,29 +1026,20 @@ mod tests {
     }
 
     #[test]
-    fn management_levels_order_primary_admin_admin_and_viewer() {
-        assert_eq!(
-            user_management_level(&test_user(1, UserRole::Admin, true)),
-            2
-        );
-        assert_eq!(
-            user_management_level(&test_user(2, UserRole::Admin, false)),
-            1
-        );
-        assert_eq!(
-            user_management_level(&test_user(3, UserRole::Viewer, false)),
-            0
-        );
+    fn management_levels_order_owner_admin_and_viewer() {
+        assert_eq!(user_management_level(&test_user(1, UserRole::Owner)), 2);
+        assert_eq!(user_management_level(&test_user(2, UserRole::Admin)), 1);
+        assert_eq!(user_management_level(&test_user(3, UserRole::Viewer)), 0);
     }
 
     #[test]
     fn user_management_requires_strictly_higher_privilege() {
-        let primary_admin = test_user(1, UserRole::Admin, true);
-        let admin = test_user(2, UserRole::Admin, false);
-        let peer_admin = test_user(3, UserRole::Admin, false);
-        let viewer = test_user(4, UserRole::Viewer, false);
+        let owner = test_user(1, UserRole::Owner);
+        let admin = test_user(2, UserRole::Admin);
+        let peer_admin = test_user(3, UserRole::Admin);
+        let viewer = test_user(4, UserRole::Viewer);
 
-        validate_user_management_scope(&primary_admin, &admin).unwrap();
+        validate_user_management_scope(&owner, &admin).unwrap();
         validate_user_management_scope(&admin, &viewer).unwrap();
 
         assert!(matches!(
@@ -1071,17 +1047,17 @@ mod tests {
             Err(ApplicationError::Forbidden(_))
         ));
         assert!(matches!(
-            validate_user_management_scope(&primary_admin, &primary_admin),
+            validate_user_management_scope(&owner, &owner),
             Err(ApplicationError::Conflict(_))
         ));
     }
 
     #[test]
-    fn only_primary_admin_can_assign_admin_role() {
-        let primary_admin = test_user(1, UserRole::Admin, true);
-        let admin = test_user(2, UserRole::Admin, false);
+    fn only_owner_can_assign_admin_role() {
+        let owner = test_user(1, UserRole::Owner);
+        let admin = test_user(2, UserRole::Admin);
 
-        validate_role_assignment(&primary_admin, UserRole::Admin).unwrap();
+        validate_role_assignment(&owner, UserRole::Admin).unwrap();
         let error = validate_role_assignment(&admin, UserRole::Admin).unwrap_err();
 
         assert!(matches!(error, ApplicationError::Forbidden(_)));

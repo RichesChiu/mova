@@ -118,7 +118,7 @@ async fn sync_media_item_cast(
         season_air_year: None,
         library_type: metadata_lookup_type_for_media_type(&media_item.media_type).to_string(),
         language: Some(library.metadata_language),
-        provider_item_id: media_item.metadata_provider_item_id,
+        provider_item_id: media_item.metadata_provider_item_id.clone(),
     };
 
     let remote_cast = match metadata_provider.lookup_cast(&lookup).await {
@@ -160,7 +160,7 @@ async fn persist_cast_members(
             members: members
                 .iter()
                 .map(|member| mova_db::ReplaceMediaItemCastMember {
-                    person_id: member.person_id,
+                    person_id: member.person_id.clone(),
                     sort_order: member.sort_order,
                     name: member.name.clone(),
                     character_name: member.character_name.clone(),
@@ -233,7 +233,7 @@ mod tests {
         let mut remote_cast = (0..25)
             .rev()
             .map(|index| RemoteCastMember {
-                person_id: Some(index),
+                person_id: Some(index.to_string()),
                 sort_order: i32::try_from(index).expect("test index fits in i32"),
                 name: format!("Cast {index}"),
                 character_name: None,
@@ -241,7 +241,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         remote_cast.push(RemoteCastMember {
-            person_id: Some(100),
+            person_id: Some("100".to_string()),
             sort_order: 100,
             name: "   ".to_string(),
             character_name: None,

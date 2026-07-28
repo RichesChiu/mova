@@ -31,7 +31,7 @@ export const MetadataMatchPanel = ({
   const [query, setQuery] = useState(initialQuery)
   const [yearInput, setYearInput] = useState(initialYear ? String(initialYear) : '')
   const [results, setResults] = useState<MetadataSearchResult[]>([])
-  const [selectedProviderItemId, setSelectedProviderItemId] = useState<number | null>(null)
+  const [selectedProviderItemId, setSelectedProviderItemId] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const modalPresence = usePresenceTransition(isOpen)
 
@@ -84,7 +84,7 @@ export const MetadataMatchPanel = ({
   })
 
   const matchMutation = useMutation({
-    mutationFn: (providerItemId: number) =>
+    mutationFn: (providerItemId: string) =>
       applyMediaItemMetadataMatch(mediaItemId, providerItemId),
     onMutate: () => {
       setStatusMessage(null)

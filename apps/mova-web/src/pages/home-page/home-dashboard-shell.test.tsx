@@ -14,12 +14,11 @@ vi.mock('../../api/client', () => ({
   logout: clientMocks.logout,
 }))
 
-const buildUser = (role: UserAccount['role'], isPrimaryAdmin = false): UserAccount => ({
+const buildUser = (role: UserAccount['role']): UserAccount => ({
   id: 1,
   username: 'account',
   nickname: 'Account',
   role,
-  is_primary_admin: isPrimaryAdmin,
   is_enabled: true,
   library_ids: [],
   created_at: '2026-07-17T00:00:00Z',
@@ -58,7 +57,7 @@ describe('HomeDashboardShell account menu', () => {
   })
 
   it('moves settings out of primary navigation and shows server settings to administrators', () => {
-    renderShell(buildUser('admin', true))
+    renderShell(buildUser('owner'))
 
     expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Open account menu' }))

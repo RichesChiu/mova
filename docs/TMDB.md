@@ -310,6 +310,7 @@ TMDB 官方推荐的基本流程也是“先 search，再使用选中的 ID quer
 评分与主元数据字段解耦存储：
 
 - `media_item_external_ids` 使用 `(media_item_id, provider)` 唯一保存 TMDB、IMDb、TVDB、Wikidata 和社交平台等外部身份。`media_items.metadata_provider + metadata_provider_item_id` 单独表达当前主元数据身份；外部身份表只承担跨源关联，不决定主数据归属。
+- 所有提供商条目 ID 和人物 ID 都以非空字符串保存并通过 API 传输。TMDB 当前返回数字形式的 ID，适配层负责转换为字符串；领域模型和客户端不依赖提供商 ID 的数字范围或编码形式。
 - `media_item_ratings` 使用 `(media_item_id, source, kind)` 唯一保存来源原始分值、量纲、评价数量、获取渠道和获取时间。
 - 当前只写入 `source=tmdb`、`kind=audience`、`scale=10`；`retrieved_via=tmdb`。
 - `source` 和 `kind` 不使用数据库枚举。未来增加 IMDb、Rotten Tomatoes critics/audience 等来源时不修改表结构。

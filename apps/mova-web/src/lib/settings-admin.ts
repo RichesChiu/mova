@@ -11,7 +11,7 @@ export const getUserAvatarInitial = (username: string) =>
   username.trim().charAt(0).toUpperCase() || 'U'
 
 export const getUserLibraryAccessSummary = (user: UserAccount, libraries: Library[]) => {
-  if (user.role === 'admin') {
+  if (user.role !== 'viewer') {
     return ''
   }
 

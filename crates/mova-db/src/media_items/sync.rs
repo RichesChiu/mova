@@ -3,6 +3,8 @@ use anyhow::{Context, Result};
 use sqlx::{postgres::PgPool, Postgres, Row, Transaction};
 use std::collections::{HashMap, HashSet};
 
+use crate::playback_progress::merge_media_item_user_state;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SyncLibraryMediaBestEffortOutcome {
     pub removed_count: usize,
@@ -499,14 +501,26 @@ async fn upsert_movie_media_entry(
 
     if let Some(existing) = existing {
         if !existing.media_type.eq_ignore_ascii_case("movie") {
-            delete_media_item(tx, existing.media_item_id).await?;
+            let target_media_item_id =
+                if let Some(existing_movie_media_item_id) = existing_movie_media_item_id {
+                    update_media_item_from_entry(tx, existing_movie_media_item_id, entry).await?;
+                    existing_movie_media_item_id
+                } else {
+                    insert_media_item(tx, entry).await?
+                };
+            reassign_media_file_to_media_item(
+                tx,
+                existing.media_file_id,
+                target_media_item_id,
+                entry,
+            )
+            .await?;
+            merge_media_item_user_state(&mut **tx, existing.media_item_id, target_media_item_id)
+                .await?;
+            cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
 
-            if let Some(existing_movie_media_item_id) = existing_movie_media_item_id {
-                update_media_item_from_entry(tx, existing_movie_media_item_id, entry).await?;
-                insert_media_file(tx, existing_movie_media_item_id, entry).await?;
-            } else {
-                let media_item_id = insert_media_item(tx, entry).await?;
-                insert_media_file(tx, media_item_id, entry).await?;
+            if existing.media_type.eq_ignore_ascii_case("series") {
+                series::cleanup_orphan_series_structure(tx, entry.library_id).await?;
             }
 
             return Ok(());
@@ -520,6 +534,12 @@ async fn upsert_movie_media_entry(
                     existing.media_file_id,
                     existing_movie_media_item_id,
                     entry,
+                )
+                .await?;
+                merge_media_item_user_state(
+                    &mut **tx,
+                    existing.media_item_id,
+                    existing_movie_media_item_id,
                 )
                 .await?;
                 cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
@@ -559,7 +579,7 @@ async fn find_existing_movie_media_item(
 ) -> Result<Option<i64>> {
     if let (Some(provider), Some(provider_item_id)) = (
         entry.metadata_provider.as_deref(),
-        entry.metadata_provider_item_id,
+        entry.metadata_provider_item_id.clone(),
     ) {
         let row = sqlx::query(
             r#"
@@ -728,7 +748,7 @@ async fn insert_media_item(
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
     .bind(&entry.metadata_provider)
-    .bind(entry.metadata_provider_item_id)
+    .bind(entry.metadata_provider_item_id.as_deref())
     .bind(&entry.metadata_status)
     .bind(&entry.metadata_failure_reason)
     .bind(&entry.remote_media_type)
@@ -799,7 +819,7 @@ async fn update_media_item_from_entry(
     .bind(&entry.original_title)
     .bind(&entry.sort_title)
     .bind(&entry.metadata_provider)
-    .bind(entry.metadata_provider_item_id)
+    .bind(entry.metadata_provider_item_id.as_deref())
     .bind(&entry.metadata_status)
     .bind(&entry.metadata_failure_reason)
     .bind(&entry.remote_media_type)
@@ -1238,7 +1258,7 @@ mod tests {
             library_id,
             media_type: "movie".to_string(),
             metadata_provider: Some("tmdb".to_string()),
-            metadata_provider_item_id: Some(101),
+            metadata_provider_item_id: Some("101".to_string()),
             metadata_status: METADATA_STATUS_MATCHED.to_string(),
             metadata_failure_reason: None,
             allow_artwork_clear: true,
@@ -1303,7 +1323,7 @@ mod tests {
             library_id,
             media_type: "episode".to_string(),
             metadata_provider: Some("tmdb".to_string()),
-            metadata_provider_item_id: Some(202),
+            metadata_provider_item_id: Some("202".to_string()),
             metadata_status: METADATA_STATUS_MATCHED.to_string(),
             metadata_failure_reason: None,
             allow_artwork_clear: true,
@@ -1447,7 +1467,7 @@ mod tests {
             library.id,
             "/media/movies/Avatar: Fire and Ash/Avatar: Fire and Ash.2025.2160p.mkv",
         );
-        first_entry.metadata_provider_item_id = Some(999_001);
+        first_entry.metadata_provider_item_id = Some("999_001".to_string());
         first_entry.title = "阿凡达：火与烬".to_string();
         first_entry.source_title = "Avatar: Fire and Ash".to_string();
         first_entry.original_title = Some("Avatar: Fire and Ash".to_string());
@@ -1456,7 +1476,7 @@ mod tests {
             library.id,
             "/media/movies/阿凡达.2025/Avatar： Fire and Ash (2025) - 1080p WEB-DL.mkv",
         );
-        second_entry.metadata_provider_item_id = Some(999_001);
+        second_entry.metadata_provider_item_id = Some("999_001".to_string());
         second_entry.title = "阿凡达：火与烬".to_string();
         second_entry.source_title = "Avatar： Fire and Ash".to_string();
         second_entry.original_title = Some("Avatar: Fire and Ash".to_string());
@@ -1591,7 +1611,7 @@ mod tests {
             library.id,
             "/media/shows/金斯敦市长/S01/金斯敦市长.S01E01.1080p.mkv",
         );
-        localized_entry.metadata_provider_item_id = Some(97_951);
+        localized_entry.metadata_provider_item_id = Some("97_951".to_string());
         localized_entry.title = "金斯敦市长".to_string();
         localized_entry.source_title = "金斯敦市长".to_string();
         localized_entry.original_title = Some("Mayor of Kingstown".to_string());
@@ -1601,7 +1621,7 @@ mod tests {
             library.id,
             "/media/shows/Mayor of Kingstown/Season 01/Mayor of Kingstown.S01E01.2160p.mkv",
         );
-        original_title_entry.metadata_provider_item_id = Some(97_951);
+        original_title_entry.metadata_provider_item_id = Some("97_951".to_string());
         original_title_entry.title = "金斯敦市长".to_string();
         original_title_entry.source_title = "Mayor of Kingstown".to_string();
         original_title_entry.original_title = Some("Mayor of Kingstown".to_string());

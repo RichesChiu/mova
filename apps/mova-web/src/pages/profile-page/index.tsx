@@ -76,7 +76,7 @@ export const ProfilePage = () => {
     },
     onSuccess: async (updatedUser) => {
       queryClient.setQueryData(['current-user'], updatedUser)
-      if (updatedUser.role === 'admin') {
+      if (updatedUser.role !== 'viewer') {
         await queryClient.invalidateQueries({ queryKey: ['users'] })
       }
       setIsEditingNickname(false)

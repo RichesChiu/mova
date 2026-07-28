@@ -59,7 +59,7 @@ pub struct DiscoveredMediaFile {
     pub file_modified_at_ms: Option<i64>,
     pub probe_error: Option<String>,
     pub metadata_provider: Option<String>,
-    pub metadata_provider_item_id: Option<i64>,
+    pub metadata_provider_item_id: Option<String>,
     pub title: String,
     pub source_title: String,
     pub original_title: Option<String>,

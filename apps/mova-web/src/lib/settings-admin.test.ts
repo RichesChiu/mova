@@ -56,7 +56,6 @@ const viewer: UserAccount = {
   username: 'viewer01',
   nickname: 'viewer01',
   role: 'viewer',
-  is_primary_admin: false,
   is_enabled: true,
   library_ids: [7],
   created_at: '2026-04-08T00:00:00Z',

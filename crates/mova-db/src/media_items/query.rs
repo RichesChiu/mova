@@ -395,9 +395,9 @@ pub async fn global_search(
                 episode_mi.library_id,
                 l.name as library_name,
                 episode_mi.id as media_item_id,
-                e.series_id as series_media_item_id,
+                s.series_id as series_media_item_id,
                 episode_mi.media_type,
-                e.title,
+                episode_mi.title,
                 series_mi.title as subtitle,
                 series_mi.year,
                 episode_mi.overview,
@@ -405,22 +405,21 @@ pub async fn global_search(
                 episode_mi.backdrop_path,
                 s.season_number,
                 e.episode_number,
-                greatest(episode_mi.updated_at, e.updated_at) as updated_at,
+                episode_mi.updated_at,
                 case
-                    when lower(e.title) = lower($1) then 0
-                    when e.title ilike $1 || '%' then 1
+                    when lower(episode_mi.title) = lower($1) then 0
+                    when episode_mi.title ilike $1 || '%' then 1
                     when series_mi.title ilike $1 || '%' then 2
                     else 3
                 end as result_rank
             from episodes e
             join media_items episode_mi on episode_mi.id = e.media_item_id
-            join media_items series_mi on series_mi.id = e.series_id
             join seasons s on s.id = e.season_id
+            join media_items series_mi on series_mi.id = s.series_id
             join libraries l on l.id = episode_mi.library_id
             where ($2::bigint[] is null or episode_mi.library_id = any($2))
               and (
-                    e.title ilike '%' || $1 || '%'
-                    or episode_mi.title ilike '%' || $1 || '%'
+                    episode_mi.title ilike '%' || $1 || '%'
                     or episode_mi.source_title ilike '%' || $1 || '%'
                     or coalesce(episode_mi.original_title, '') ilike '%' || $1 || '%'
                     or series_mi.title ilike '%' || $1 || '%'
@@ -529,7 +528,7 @@ pub async fn get_media_item_playback_header(
             mi.id as media_item_id,
             mi.library_id,
             mi.media_type,
-            e.series_id as series_media_item_id,
+            s.series_id as series_media_item_id,
             case
                 when mi.media_type = 'episode' then coalesce(nullif(series_mi.title, ''), mi.title)
                 else mi.title
@@ -554,7 +553,7 @@ pub async fn get_media_item_playback_header(
             s.season_number,
             e.episode_number,
             case
-                when mi.media_type = 'episode' then coalesce(nullif(e.title, ''), nullif(mi.title, ''))
+                when mi.media_type = 'episode' then nullif(mi.title, '')
                 else null
             end as episode_title,
             s.intro_start_seconds as season_intro_start_seconds,
@@ -564,7 +563,7 @@ pub async fn get_media_item_playback_header(
         from media_items mi
         left join episodes e on e.media_item_id = mi.id
         left join seasons s on s.id = e.season_id
-        left join media_items series_mi on series_mi.id = e.series_id
+        left join media_items series_mi on series_mi.id = s.series_id
         where mi.id = $1
         "#,
     )
@@ -1243,7 +1242,7 @@ pub async fn list_seasons_for_series(pool: &PgPool, series_id: i64) -> Result<Ve
             s.backdrop_path,
             s.intro_start_seconds,
             s.intro_end_seconds,
-            count(e.id) as episode_count,
+            count(e.media_item_id) as episode_count,
             s.created_at,
             s.updated_at
         from seasons s
@@ -1276,23 +1275,21 @@ pub async fn list_episodes_for_season(pool: &PgPool, season_id: i64) -> Result<V
     let rows = sqlx::query(
         r#"
         select
-            e.id,
             e.media_item_id,
-            e.series_id,
+            s.series_id,
             e.season_id,
             e.episode_number,
-            e.title,
+            mi.title,
             mi.overview,
             mi.poster_path,
             mi.backdrop_path,
             e.intro_start_seconds,
-            e.intro_end_seconds,
-            e.created_at,
-            e.updated_at
+            e.intro_end_seconds
         from episodes e
         join media_items mi on mi.id = e.media_item_id
+        join seasons s on s.id = e.season_id
         where e.season_id = $1
-        order by e.episode_number asc, e.id asc
+        order by e.episode_number asc, e.media_item_id asc
         "#,
     )
     .bind(season_id)
@@ -1400,39 +1397,13 @@ pub async fn update_series_episode_metadata(
         .await
         .context("failed to start series episode metadata update transaction")?;
 
-    sqlx::query(
-        r#"
-        with target as (
-            select e.id as episode_id
-            from episodes e
-            join seasons s on s.id = e.season_id
-            where e.series_id = $1
-              and s.season_number = $2
-              and e.episode_number = $3
-        )
-        update episodes e
-        set
-            title = coalesce($4, e.title),
-            updated_at = now()
-        from target
-        where e.id = target.episode_id
-        "#,
-    )
-    .bind(params.series_id)
-    .bind(params.season_number)
-    .bind(params.episode_number)
-    .bind(&params.title)
-    .execute(&mut *tx)
-    .await
-    .context("failed to update episode metadata row")?;
-
     let media_item_result = sqlx::query(
         r#"
         with target as (
             select e.media_item_id
             from episodes e
             join seasons s on s.id = e.season_id
-            where e.series_id = $1
+            where s.series_id = $1
               and s.season_number = $2
               and e.episode_number = $3
         )
@@ -1478,7 +1449,7 @@ pub async fn get_season(pool: &PgPool, season_id: i64) -> Result<Option<Season>>
             s.backdrop_path,
             s.intro_start_seconds,
             s.intro_end_seconds,
-            count(e.id) as episode_count,
+            count(e.media_item_id) as episode_count,
             s.created_at,
             s.updated_at
         from seasons s
@@ -1724,13 +1695,13 @@ pub async fn list_existing_media_metadata_for_file_paths(
             s.overview as season_overview,
             s.poster_path as season_poster_path,
             s.backdrop_path as season_backdrop_path,
-            e.title as episode_title,
+            mi.title as episode_title,
             e.episode_number
         from media_files mf
         join media_items mi on mi.id = mf.media_item_id
         left join episodes e on e.media_item_id = mi.id
         left join seasons s on s.id = e.season_id
-        left join media_items series_mi on series_mi.id = e.series_id
+        left join media_items series_mi on series_mi.id = s.series_id
         where mf.library_id = $1
           and mf.file_path = any($2)
         order by mf.file_path asc
@@ -1867,7 +1838,6 @@ fn map_season_row(row: PgRow) -> Season {
 
 fn map_episode_row(row: PgRow) -> Episode {
     Episode {
-        id: row.get("id"),
         media_item_id: row.get("media_item_id"),
         series_id: row.get("series_id"),
         season_id: row.get("season_id"),
@@ -1878,8 +1848,6 @@ fn map_episode_row(row: PgRow) -> Episode {
         backdrop_path: row.get("backdrop_path"),
         intro_start_seconds: row.get("intro_start_seconds"),
         intro_end_seconds: row.get("intro_end_seconds"),
-        created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
     }
 }
 

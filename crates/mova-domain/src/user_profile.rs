@@ -26,7 +26,6 @@ impl<'a> LibraryVisibility<'a> {
 #[derive(Debug, Clone, Serialize)]
 pub struct UserProfile {
     pub user: User,
-    pub is_primary_admin: bool,
     pub library_ids: Vec<i64>,
 }
 
@@ -67,7 +66,6 @@ mod tests {
                 created_at: now,
                 updated_at: now,
             },
-            is_primary_admin: false,
             library_ids,
         }
     }

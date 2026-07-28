@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use mova_domain::{ContinueWatchingItem, MediaItem, PlaybackProgress};
 use sqlx::{
-    postgres::{PgPool, PgRow},
+    postgres::{PgConnection, PgPool, PgRow},
     Row,
 };
 use std::collections::HashMap;
@@ -54,7 +54,7 @@ pub async fn list_continue_watching(
             mi.updated_at,
             pp.id as progress_id,
             pp.media_item_id as progress_media_item_id,
-            pp.media_file_id,
+            pp.last_media_file_id,
             pp.position_seconds,
             pp.duration_seconds,
             pp.last_watched_at,
@@ -62,7 +62,7 @@ pub async fn list_continue_watching(
             s.season_number,
             e.episode_number,
             case
-                when watched_mi.media_type = 'episode' then coalesce(nullif(e.title, ''), nullif(watched_mi.title, ''))
+                when watched_mi.media_type = 'episode' then nullif(watched_mi.title, '')
                 else null
             end as episode_title,
             case when watched_mi.media_type = 'episode' then watched_mi.overview else null end
@@ -76,7 +76,7 @@ pub async fn list_continue_watching(
         join media_items watched_mi on watched_mi.id = cw.last_played_media_item_id
         join playback_progress pp
           on pp.user_id = cw.user_id
-         and pp.media_file_id = cw.media_file_id
+         and pp.media_item_id = cw.last_played_media_item_id
         left join episodes e on e.media_item_id = cw.last_played_media_item_id
         left join seasons s on s.id = e.season_id
         where cw.user_id = $1
@@ -120,7 +120,7 @@ pub async fn get_playback_progress_for_media_item(
         select
             id,
             media_item_id,
-            media_file_id,
+            last_media_file_id,
             position_seconds,
             duration_seconds,
             last_watched_at,
@@ -156,7 +156,7 @@ pub async fn list_playback_progress_for_media_items(
         select distinct on (media_item_id)
             id,
             media_item_id,
-            media_file_id,
+            last_media_file_id,
             position_seconds,
             duration_seconds,
             last_watched_at,
@@ -194,15 +194,15 @@ pub async fn upsert_playback_progress(
         insert into playback_progress (
             user_id,
             media_item_id,
-            media_file_id,
+            last_media_file_id,
             position_seconds,
             duration_seconds,
             last_watched_at,
             is_finished
         )
         values ($1, $2, $3, $4, $5, now(), $6)
-        on conflict (user_id, media_file_id) do update
-        set media_item_id = excluded.media_item_id,
+        on conflict (user_id, media_item_id) do update
+        set last_media_file_id = excluded.last_media_file_id,
             position_seconds = excluded.position_seconds,
             duration_seconds = excluded.duration_seconds,
             last_watched_at = now(),
@@ -210,7 +210,7 @@ pub async fn upsert_playback_progress(
         returning
             id,
             media_item_id,
-            media_file_id,
+            last_media_file_id,
             position_seconds,
             duration_seconds,
             last_watched_at,
@@ -233,9 +233,10 @@ pub async fn upsert_playback_progress(
             delete from continue_watching
             where user_id = $1
               and media_item_id = (
-                  select coalesce(e.series_id, mi.id)
+                  select coalesce(s.series_id, mi.id)
                   from media_items mi
                   left join episodes e on e.media_item_id = mi.id
+                  left join seasons s on s.id = e.season_id
                   where mi.id = $2
               )
             "#,
@@ -252,21 +253,22 @@ pub async fn upsert_playback_progress(
                 user_id,
                 media_item_id,
                 last_played_media_item_id,
-                media_file_id,
+                last_media_file_id,
                 last_watched_at
             )
             select
                 $1,
-                coalesce(e.series_id, mi.id),
+                coalesce(s.series_id, mi.id),
                 mi.id,
                 $3,
                 now()
             from media_items mi
             left join episodes e on e.media_item_id = mi.id
+            left join seasons s on s.id = e.season_id
             where mi.id = $2
             on conflict (user_id, media_item_id) do update
             set last_played_media_item_id = excluded.last_played_media_item_id,
-                media_file_id = excluded.media_file_id,
+                last_media_file_id = excluded.last_media_file_id,
                 last_watched_at = excluded.last_watched_at
             "#,
         )
@@ -304,11 +306,146 @@ pub async fn upsert_playback_progress(
     Ok(map_playback_progress_row(row))
 }
 
+/// Merge user-owned state from a superseded media item into its canonical target.
+///
+/// This must run in the same transaction that reassigns the media files and removes the
+/// superseded item. For each user, the state with the newest `last_watched_at` wins.
+pub async fn merge_media_item_user_state(
+    connection: &mut PgConnection,
+    source_media_item_id: i64,
+    target_media_item_id: i64,
+) -> Result<()> {
+    if source_media_item_id == target_media_item_id {
+        return Ok(());
+    }
+
+    sqlx::query(
+        r#"
+        insert into playback_progress as current_progress (
+            user_id,
+            media_item_id,
+            last_media_file_id,
+            position_seconds,
+            duration_seconds,
+            last_watched_at,
+            is_finished
+        )
+        select
+            user_id,
+            $2,
+            last_media_file_id,
+            position_seconds,
+            duration_seconds,
+            last_watched_at,
+            is_finished
+        from playback_progress
+        where media_item_id = $1
+        on conflict (user_id, media_item_id) do update
+        set last_media_file_id = case
+                when excluded.last_watched_at >= current_progress.last_watched_at
+                    then excluded.last_media_file_id
+                else current_progress.last_media_file_id
+            end,
+            position_seconds = case
+                when excluded.last_watched_at >= current_progress.last_watched_at
+                    then excluded.position_seconds
+                else current_progress.position_seconds
+            end,
+            duration_seconds = case
+                when excluded.last_watched_at >= current_progress.last_watched_at
+                    then excluded.duration_seconds
+                else current_progress.duration_seconds
+            end,
+            last_watched_at = greatest(
+                excluded.last_watched_at,
+                current_progress.last_watched_at
+            ),
+            is_finished = case
+                when excluded.last_watched_at >= current_progress.last_watched_at
+                    then excluded.is_finished
+                else current_progress.is_finished
+            end
+        "#,
+    )
+    .bind(source_media_item_id)
+    .bind(target_media_item_id)
+    .execute(&mut *connection)
+    .await
+    .context("failed to merge playback progress into canonical media item")?;
+
+    sqlx::query("delete from playback_progress where media_item_id = $1")
+        .bind(source_media_item_id)
+        .execute(&mut *connection)
+        .await
+        .context("failed to remove superseded playback progress")?;
+
+    sqlx::query(
+        r#"
+        insert into continue_watching as current_item (
+            user_id,
+            media_item_id,
+            last_played_media_item_id,
+            last_media_file_id,
+            last_watched_at
+        )
+        select
+            user_id,
+            $2,
+            case
+                when last_played_media_item_id = $1 then $2
+                else last_played_media_item_id
+            end,
+            last_media_file_id,
+            last_watched_at
+        from continue_watching
+        where media_item_id = $1
+        on conflict (user_id, media_item_id) do update
+        set last_played_media_item_id = case
+                when excluded.last_watched_at >= current_item.last_watched_at
+                    then excluded.last_played_media_item_id
+                else current_item.last_played_media_item_id
+            end,
+            last_media_file_id = case
+                when excluded.last_watched_at >= current_item.last_watched_at
+                    then excluded.last_media_file_id
+                else current_item.last_media_file_id
+            end,
+            last_watched_at = greatest(excluded.last_watched_at, current_item.last_watched_at)
+        "#,
+    )
+    .bind(source_media_item_id)
+    .bind(target_media_item_id)
+    .execute(&mut *connection)
+    .await
+    .context("failed to merge continue watching into canonical media item")?;
+
+    sqlx::query("delete from continue_watching where media_item_id = $1")
+        .bind(source_media_item_id)
+        .execute(&mut *connection)
+        .await
+        .context("failed to remove superseded continue watching row")?;
+
+    sqlx::query(
+        r#"
+        update continue_watching
+        set last_played_media_item_id = $2
+        where last_played_media_item_id = $1
+        "#,
+    )
+    .bind(source_media_item_id)
+    .bind(target_media_item_id)
+    .execute(&mut *connection)
+    .await
+    .context("failed to repoint continue watching item")?;
+
+    Ok(())
+}
+
 fn map_playback_progress_row(row: PgRow) -> PlaybackProgress {
     PlaybackProgress {
         id: row.get("id"),
         media_item_id: row.get("media_item_id"),
-        media_file_id: row.get("media_file_id"),
+        last_media_file_id: row.get("last_media_file_id"),
         position_seconds: row.get("position_seconds"),
         duration_seconds: row.get("duration_seconds"),
         last_watched_at: row.get("last_watched_at"),
@@ -346,7 +483,7 @@ fn map_continue_watching_row(row: PgRow) -> ContinueWatchingItem {
         playback_progress: PlaybackProgress {
             id: row.get("progress_id"),
             media_item_id: row.get("progress_media_item_id"),
-            media_file_id: row.get("media_file_id"),
+            last_media_file_id: row.get("last_media_file_id"),
             position_seconds: row.get("position_seconds"),
             duration_seconds: row.get("duration_seconds"),
             last_watched_at: row.get("last_watched_at"),
@@ -359,5 +496,189 @@ fn map_continue_watching_row(row: PgRow) -> ContinueWatchingItem {
         episode_overview: row.get("episode_overview"),
         episode_poster_path: row.get("episode_poster_path"),
         episode_backdrop_path: row.get("episode_backdrop_path"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_media_item_user_state;
+    use sqlx::Row;
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn merging_media_items_preserves_the_newest_user_state(pool: sqlx::PgPool) {
+        let user_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into users (
+                username,
+                username_normalized,
+                nickname,
+                password_hash,
+                role
+            )
+            values ('owner', 'owner', 'Owner', 'hash', 'owner')
+            returning id
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let library_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into libraries (name, library_type, root_path)
+            values ('Movies', 'movie', '/media/movies')
+            returning id
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let source_media_item_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_items (library_id, media_type, title, source_title)
+            values ($1, 'movie', 'Source', 'Source')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let target_media_item_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_items (library_id, media_type, title, source_title)
+            values ($1, 'movie', 'Target', 'Target')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let source_media_file_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_files (library_id, media_item_id, file_path, file_size)
+            values ($1, $2, '/media/movies/source.mkv', 1)
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(source_media_item_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let target_media_file_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_files (library_id, media_item_id, file_path, file_size)
+            values ($1, $2, '/media/movies/target.mkv', 1)
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(target_media_item_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
+            insert into playback_progress (
+                user_id,
+                media_item_id,
+                last_media_file_id,
+                position_seconds,
+                last_watched_at
+            )
+            values
+                ($1, $2, $3, 120, '2026-01-02T00:00:00Z'),
+                ($1, $4, $5, 60, '2026-01-01T00:00:00Z')
+            "#,
+        )
+        .bind(user_id)
+        .bind(source_media_item_id)
+        .bind(source_media_file_id)
+        .bind(target_media_item_id)
+        .bind(target_media_file_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
+            insert into continue_watching (
+                user_id,
+                media_item_id,
+                last_played_media_item_id,
+                last_media_file_id,
+                last_watched_at
+            )
+            values
+                ($1, $2, $2, $3, '2026-01-02T00:00:00Z'),
+                ($1, $4, $4, $5, '2026-01-01T00:00:00Z')
+            "#,
+        )
+        .bind(user_id)
+        .bind(source_media_item_id)
+        .bind(source_media_file_id)
+        .bind(target_media_item_id)
+        .bind(target_media_file_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let mut transaction = pool.begin().await.unwrap();
+        merge_media_item_user_state(
+            &mut *transaction,
+            source_media_item_id,
+            target_media_item_id,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+
+        let progress = sqlx::query(
+            r#"
+            select media_item_id, last_media_file_id, position_seconds
+            from playback_progress
+            where user_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            progress.get::<i64, _>("media_item_id"),
+            target_media_item_id
+        );
+        assert_eq!(
+            progress.get::<Option<i64>, _>("last_media_file_id"),
+            Some(source_media_file_id)
+        );
+        assert_eq!(progress.get::<i32, _>("position_seconds"), 120);
+
+        let continue_item = sqlx::query(
+            r#"
+            select media_item_id, last_played_media_item_id, last_media_file_id
+            from continue_watching
+            where user_id = $1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            continue_item.get::<i64, _>("media_item_id"),
+            target_media_item_id
+        );
+        assert_eq!(
+            continue_item.get::<i64, _>("last_played_media_item_id"),
+            target_media_item_id
+        );
+        assert_eq!(
+            continue_item.get::<i64, _>("last_media_file_id"),
+            source_media_file_id
+        );
     }
 }
