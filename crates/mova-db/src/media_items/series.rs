@@ -46,8 +46,7 @@ pub(super) async fn upsert_episode_media_entry(
                 entry,
             )
             .await?;
-            merge_media_item_user_state(&mut **tx, existing.media_item_id, target_media_item_id)
-                .await?;
+            merge_media_item_user_state(tx, existing.media_item_id, target_media_item_id).await?;
             cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
             if existing.media_type.eq_ignore_ascii_case("series") {
                 cleanup_orphan_series_structure(tx, entry.library_id).await?;
@@ -69,13 +68,13 @@ pub(super) async fn upsert_episode_media_entry(
                 )
                 .await?;
                 merge_media_item_user_state(
-                    &mut **tx,
+                    tx,
                     existing.media_item_id,
                     existing_episode_media_item_id,
                 )
                 .await?;
                 if let Some(previous_series_id) = previous_series_id {
-                    merge_media_item_user_state(&mut **tx, previous_series_id, series_id).await?;
+                    merge_media_item_user_state(tx, previous_series_id, series_id).await?;
                 }
                 cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
                 return Ok(());
@@ -85,7 +84,7 @@ pub(super) async fn upsert_episode_media_entry(
         update_episode_media_item_from_entry(tx, existing.media_item_id, entry).await?;
         update_episode_record(tx, existing.media_item_id, season_id, episode_number).await?;
         if let Some(previous_series_id) = previous_series_id {
-            merge_media_item_user_state(&mut **tx, previous_series_id, series_id).await?;
+            merge_media_item_user_state(tx, previous_series_id, series_id).await?;
         }
         update_media_file_from_entry(tx, existing.media_file_id, entry).await?;
         return Ok(());

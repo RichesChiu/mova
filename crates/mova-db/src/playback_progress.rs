@@ -627,13 +627,9 @@ mod tests {
         .unwrap();
 
         let mut transaction = pool.begin().await.unwrap();
-        merge_media_item_user_state(
-            &mut *transaction,
-            source_media_item_id,
-            target_media_item_id,
-        )
-        .await
-        .unwrap();
+        merge_media_item_user_state(&mut transaction, source_media_item_id, target_media_item_id)
+            .await
+            .unwrap();
         transaction.commit().await.unwrap();
 
         let progress = sqlx::query(

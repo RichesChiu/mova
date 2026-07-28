@@ -234,7 +234,7 @@ mod tests {
             .rev()
             .map(|index| RemoteCastMember {
                 person_id: Some(index.to_string()),
-                sort_order: i32::try_from(index).expect("test index fits in i32"),
+                sort_order: index,
                 name: format!("Cast {index}"),
                 character_name: None,
                 profile_path: None,

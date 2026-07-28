@@ -515,8 +515,7 @@ async fn upsert_movie_media_entry(
                 entry,
             )
             .await?;
-            merge_media_item_user_state(&mut **tx, existing.media_item_id, target_media_item_id)
-                .await?;
+            merge_media_item_user_state(tx, existing.media_item_id, target_media_item_id).await?;
             cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
 
             if existing.media_type.eq_ignore_ascii_case("series") {
@@ -537,7 +536,7 @@ async fn upsert_movie_media_entry(
                 )
                 .await?;
                 merge_media_item_user_state(
-                    &mut **tx,
+                    tx,
                     existing.media_item_id,
                     existing_movie_media_item_id,
                 )
