@@ -126,7 +126,7 @@ const createMediaItem = ({
   original_title: null,
   sort_title: null,
   metadata_provider: 'tmdb',
-  metadata_provider_item_id: id * 100,
+  metadata_provider_item_id: String(id * 100),
   metadata_status: 'matched',
   metadata_failure_reason: null,
   remote_media_type: mediaType,
@@ -194,8 +194,7 @@ const mockCurrentUser: UserAccount = {
   id: 1,
   username: 'admin',
   nickname: 'Alex Chen',
-  role: 'admin',
-  is_primary_admin: true,
+  role: 'owner',
   is_enabled: true,
   library_ids: [],
   created_at: MOCK_NOW,
@@ -380,7 +379,7 @@ const globalSearch = (url: URL): GlobalSearchResult[] => {
 const playbackProgress = (mediaItemId: number, index = 0): PlaybackProgress => ({
   id: mediaItemId * 10,
   media_item_id: mediaItemId,
-  media_file_id: mediaItemId * 100,
+  last_media_file_id: mediaItemId * 100,
   position_seconds: 900 + index * 240,
   duration_seconds: 3600,
   last_watched_at: MOCK_NOW,
@@ -476,21 +475,21 @@ const playbackHeader = (mediaItem: MediaItem): MediaItemPlaybackHeader => ({
 
 const mockCast: MediaCastMember[] = [
   {
-    person_id: 1,
+    person_id: '1',
     sort_order: 1,
     name: 'Mira Stone',
     character_name: 'Captain',
     profile_path: null,
   },
   {
-    person_id: 2,
+    person_id: '2',
     sort_order: 2,
     name: 'Leon Vale',
     character_name: 'Navigator',
     profile_path: null,
   },
   {
-    person_id: 3,
+    person_id: '3',
     sort_order: 3,
     name: 'Ada Cross',
     character_name: 'Archivist',
@@ -540,12 +539,14 @@ const playbackProgressFromUpdate = (mediaItemId: number, init?: RequestInit): Pl
     return baseProgress
   }
 
-  const input = JSON.parse(init.body) as Partial<PlaybackProgress>
+  const input = JSON.parse(init.body) as Partial<PlaybackProgress> & { media_file_id?: number }
 
   return {
     ...baseProgress,
-    media_file_id:
-      typeof input.media_file_id === 'number' ? input.media_file_id : baseProgress.media_file_id,
+    last_media_file_id:
+      typeof input.media_file_id === 'number'
+        ? input.media_file_id
+        : baseProgress.last_media_file_id,
     position_seconds:
       typeof input.position_seconds === 'number'
         ? input.position_seconds

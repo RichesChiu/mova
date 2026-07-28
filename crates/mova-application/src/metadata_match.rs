@@ -25,7 +25,7 @@ pub struct SearchMetadataMatchesInput {
 
 #[derive(Debug, Clone)]
 pub struct MetadataMatchCandidate {
-    pub provider_item_id: i64,
+    pub provider_item_id: String,
     pub title: String,
     pub original_title: Option<String>,
     pub year: Option<i32>,
@@ -36,7 +36,7 @@ pub struct MetadataMatchCandidate {
 
 #[derive(Debug, Clone)]
 pub struct ApplyMetadataMatchInput {
-    pub provider_item_id: i64,
+    pub provider_item_id: String,
 }
 
 /// 管理员手动搜索候选元数据时，始终按当前媒体项类型和所属库语言去搜。
@@ -93,7 +93,7 @@ pub async fn apply_media_item_metadata_match(
         season_air_year: None,
         library_type: lookup_type.to_string(),
         language: Some(library.metadata_language.clone()),
-        provider_item_id: Some(input.provider_item_id),
+        provider_item_id: Some(input.provider_item_id.clone()),
     };
 
     let remote_metadata = metadata_provider.lookup(&lookup).await.map_err(|error| {
@@ -129,7 +129,7 @@ pub async fn apply_media_item_metadata_match(
             // 手动匹配目前不会单独生成 sort title，因此保留现有值避免意外清空。
             sort_title: media_item.sort_title,
             metadata_provider: Some(TMDB_PROVIDER_NAME.to_string()),
-            metadata_provider_item_id: Some(input.provider_item_id),
+            metadata_provider_item_id: Some(input.provider_item_id.clone()),
             metadata_status: METADATA_STATUS_MATCHED.to_string(),
             metadata_failure_reason: None,
             replace_remote_data: true,

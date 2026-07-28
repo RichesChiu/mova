@@ -192,7 +192,7 @@ describe('library-media-sections', () => {
       {
         id: 2,
         media_type: 'series',
-        metadata_provider_item_id: 839,
+        metadata_provider_item_id: '839',
         metadata_status: 'matched',
         remote_media_type: 'series',
         title: '月鳞绮纪',
@@ -226,7 +226,7 @@ describe('library-media-sections', () => {
       {
         id: 1,
         media_type: 'series',
-        metadata_provider_item_id: 456,
+        metadata_provider_item_id: '456',
         metadata_status: 'matched',
         remote_media_type: 'series',
         title: '良陈美锦',
@@ -260,7 +260,7 @@ describe('library-media-sections', () => {
       {
         id: 1,
         media_type: 'series',
-        metadata_provider_item_id: 839,
+        metadata_provider_item_id: '839',
         metadata_status: 'matched',
         remote_media_type: 'series',
         title: 'Arcane',

@@ -162,8 +162,13 @@ mod tests {
     use mova_application::NullMetadataProvider;
     use mova_domain::UserRole;
     use serde_json::json;
+    use sha2::{Digest, Sha256};
     use std::{path::PathBuf, sync::Arc};
     use time::{OffsetDateTime, UtcOffset};
+
+    fn hash_session_token(token: &str) -> String {
+        format!("{:x}", Sha256::digest(token.as_bytes()))
+    }
 
     fn build_test_state(pool: sqlx::postgres::PgPool) -> AppState {
         AppState {
@@ -240,6 +245,7 @@ mod tests {
             pool,
             mova_db::CreateUserParams {
                 username: username.to_string(),
+                username_normalized: username.trim().to_ascii_lowercase(),
                 nickname: username.to_string(),
                 password_hash: "hash".to_string(),
                 role,
@@ -253,7 +259,7 @@ mod tests {
         mova_db::create_session(
             pool,
             mova_db::CreateSessionParams {
-                token: session_token.to_string(),
+                token_hash: hash_session_token(session_token),
                 user_id: user.user.id,
                 expires_at,
             },
@@ -305,10 +311,13 @@ mod tests {
         assert_eq!(response.data.id, viewer_id);
         assert!(!response.data.is_enabled);
         assert_eq!(response.data.library_ids, vec![library_id]);
-        assert!(mova_db::get_user_by_session_token(&pool, "viewer-session")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(mova_db::get_user_by_session_token_hash(
+            &pool,
+            &hash_session_token("viewer-session")
+        )
+        .await
+        .unwrap()
+        .is_none());
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -540,9 +549,12 @@ mod tests {
 
         assert_eq!(response.message, "user deleted");
         assert!(mova_db::get_user(&pool, viewer_id).await.unwrap().is_none());
-        assert!(mova_db::get_user_by_session_token(&pool, "viewer-session")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(mova_db::get_user_by_session_token_hash(
+            &pool,
+            &hash_session_token("viewer-session")
+        )
+        .await
+        .unwrap()
+        .is_none());
     }
 }

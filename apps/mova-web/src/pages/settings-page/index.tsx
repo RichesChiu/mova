@@ -45,6 +45,7 @@ import {
 } from '../../lib/settings-admin'
 import { getUserInitial } from '../../lib/user-identity'
 import { canManageUser, getUserRolePresentation } from '../../lib/user-role'
+import { canManageServer } from '../../lib/viewer'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 
@@ -114,13 +115,13 @@ export const SettingsPage = () => {
   const [pendingConfirmation, setPendingConfirmation] =
     useState<PendingSettingsConfirmation | null>(null)
   const usersQuery = useQuery<UserAccount[]>({
-    enabled: currentUser.role === 'admin',
+    enabled: canManageServer(currentUser),
     queryKey: ['users'],
     queryFn: listUsers,
   })
   const libraryDetailQueries = useQueries({
     queries: libraries.map((library) => ({
-      enabled: currentUser.role === 'admin',
+      enabled: canManageServer(currentUser),
       queryKey: ['library', library.id],
       queryFn: () => getLibrary(library.id),
     })),
@@ -300,7 +301,7 @@ export const SettingsPage = () => {
     },
   })
 
-  if (currentUser.role !== 'admin') {
+  if (!canManageServer(currentUser)) {
     return (
       <HomeDashboardShell ariaLabel={l('Server Settings')} currentUser={currentUser}>
         <div className="home-dashboard__content home-dashboard__content--settings">
@@ -655,7 +656,7 @@ export const SettingsPage = () => {
       </HomeDashboardShell>
 
       <UserEditorModal
-        currentUserIsPrimaryAdmin={currentUser.is_primary_admin}
+        currentUserIsOwner={currentUser.role === 'owner'}
         error={activeUserModalError}
         isOpen={isCreateUserOpen || editingUser !== null}
         isSubmitting={createUserMutation.isPending || updateUserMutation.isPending}

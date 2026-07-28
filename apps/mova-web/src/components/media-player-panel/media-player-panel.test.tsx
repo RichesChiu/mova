@@ -153,7 +153,7 @@ describe('MediaPlayerPanel', () => {
     clientMocks.getMediaItemPlaybackProgress.mockResolvedValue({
       id: 71,
       media_item_id: 31,
-      media_file_id: 401,
+      last_media_file_id: 401,
       position_seconds: 320,
       duration_seconds: 7200,
       last_watched_at: '2026-04-07T00:00:00Z',
@@ -188,7 +188,7 @@ describe('MediaPlayerPanel', () => {
       async (_mediaItemId: number, input: Record<string, unknown>) => ({
         id: 71,
         media_item_id: 31,
-        media_file_id: input.media_file_id as number,
+        last_media_file_id: input.media_file_id as number,
         position_seconds: input.position_seconds as number,
         duration_seconds: (input.duration_seconds as number | null | undefined) ?? null,
         last_watched_at: '2026-04-07T00:00:05Z',

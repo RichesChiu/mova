@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'viewer'
+export type UserRole = 'owner' | 'admin' | 'viewer'
 
 export interface Library {
   id: number
@@ -91,7 +91,7 @@ export interface NotificationFeed {
 export interface PlaybackProgress {
   id: number
   media_item_id: number
-  media_file_id: number
+  last_media_file_id: number | null
   position_seconds: number
   duration_seconds: number | null
   last_watched_at: string
@@ -127,7 +127,7 @@ export interface MediaItem {
   original_title: string | null
   sort_title: string | null
   metadata_provider: string | null
-  metadata_provider_item_id: number | null
+  metadata_provider_item_id: string | null
   metadata_status: MetadataStatus
   metadata_failure_reason: string | null
   remote_media_type: string | null
@@ -145,7 +145,7 @@ export interface MediaItem {
 }
 
 export interface MediaCastMember {
-  person_id: number | null
+  person_id: string | null
   sort_order: number
   name: string
   character_name: string | null
@@ -155,7 +155,7 @@ export interface MediaCastMember {
 export interface MediaItemDetail extends MediaItem {}
 
 export interface MetadataSearchResult {
-  provider_item_id: number
+  provider_item_id: string
   title: string
   original_title: string | null
   year: number | null
@@ -371,7 +371,6 @@ export interface UserAccount {
   username: string
   nickname: string
   role: UserRole
-  is_primary_admin: boolean
   is_enabled: boolean
   library_ids: number[]
   created_at: string

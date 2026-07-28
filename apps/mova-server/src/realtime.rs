@@ -709,7 +709,6 @@ mod tests {
                 created_at: OffsetDateTime::UNIX_EPOCH,
                 updated_at: OffsetDateTime::UNIX_EPOCH,
             },
-            is_primary_admin: false,
             library_ids,
         }
     }

@@ -19,7 +19,6 @@ const user: UserAccount = {
   username: 'viewer01',
   nickname: 'Viewer',
   role: 'viewer',
-  is_primary_admin: false,
   is_enabled: true,
   library_ids: [library.id],
   created_at: '2026-07-17T00:00:00Z',
@@ -27,8 +26,7 @@ const user: UserAccount = {
 }
 
 const baseProps = {
-  currentUserId: 1,
-  currentUserIsPrimaryAdmin: true,
+  currentUserIsOwner: true,
   error: null,
   isOpen: true,
   isSubmitting: false,
@@ -108,7 +106,7 @@ describe('UserEditorModal', () => {
   it('lets a regular admin edit viewer library access without exposing role controls', async () => {
     render(
       <I18nProvider>
-        <UserEditorModal {...baseProps} currentUserIsPrimaryAdmin={false} mode="edit" user={user} />
+        <UserEditorModal {...baseProps} currentUserIsOwner={false} mode="edit" user={user} />
       </I18nProvider>,
     )
 

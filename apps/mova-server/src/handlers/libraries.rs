@@ -441,11 +441,16 @@ mod tests {
     use axum_extra::extract::cookie::CookieJar;
     use mova_application::NullMetadataProvider;
     use mova_domain::UserRole;
+    use sha2::{Digest, Sha256};
     use std::{
         path::PathBuf,
         sync::{atomic::Ordering, Arc},
     };
     use time::{OffsetDateTime, UtcOffset};
+
+    fn hash_session_token(token: &str) -> String {
+        format!("{:x}", Sha256::digest(token.as_bytes()))
+    }
 
     fn build_test_state(pool: sqlx::postgres::PgPool) -> AppState {
         AppState {
@@ -499,6 +504,7 @@ mod tests {
             pool,
             mova_db::CreateUserParams {
                 username: username.to_string(),
+                username_normalized: username.trim().to_ascii_lowercase(),
                 nickname: username.to_string(),
                 password_hash: "hash".to_string(),
                 role,
@@ -512,7 +518,7 @@ mod tests {
         mova_db::create_session(
             pool,
             mova_db::CreateSessionParams {
-                token: session_token.to_string(),
+                token_hash: hash_session_token(session_token),
                 user_id: user.user.id,
                 expires_at,
             },
@@ -556,8 +562,16 @@ mod tests {
     ) {
         let series_id = sqlx::query_scalar::<_, i64>(
             r#"
-            insert into media_items (library_id, media_type, title, source_title, metadata_status)
-            values ($1, 'series', 'Series title', 'Series title', 'matched')
+            insert into media_items (
+                library_id,
+                media_type,
+                title,
+                source_title,
+                metadata_provider,
+                metadata_provider_item_id,
+                metadata_status
+            )
+            values ($1, 'series', 'Series title', 'Series title', 'tmdb', '101', 'matched')
             returning id
             "#,
         )
@@ -590,12 +604,11 @@ mod tests {
 
         sqlx::query(
             r#"
-            insert into episodes (media_item_id, series_id, season_id, episode_number, title)
-            values ($1, $2, $3, 1, 'Pilot')
+            insert into episodes (media_item_id, season_id, episode_number)
+            values ($1, $2, 1)
             "#,
         )
         .bind(episode_media_item_id)
-        .bind(series_id)
         .bind(season_id)
         .execute(pool)
         .await
@@ -671,7 +684,12 @@ mod tests {
 
         sqlx::query(
             r#"
-            insert into playback_progress (user_id, media_item_id, media_file_id, position_seconds)
+            insert into playback_progress (
+                user_id,
+                media_item_id,
+                last_media_file_id,
+                position_seconds
+            )
             values ($1, $2, $3, 60)
             "#,
         )
@@ -688,7 +706,7 @@ mod tests {
                 user_id,
                 media_item_id,
                 last_played_media_item_id,
-                media_file_id
+                last_media_file_id
             )
             values ($1, $2, $3, $4)
             "#,

@@ -9,6 +9,7 @@ use time::OffsetDateTime;
 #[derive(Debug, Clone)]
 pub struct CreateUserParams {
     pub username: String,
+    pub username_normalized: String,
     pub nickname: String,
     pub password_hash: String,
     pub role: UserRole,
@@ -25,7 +26,7 @@ pub struct UpdateUserParams {
 
 #[derive(Debug, Clone)]
 pub struct CreateSessionParams {
-    pub token: String,
+    pub token_hash: String,
     pub user_id: i64,
     pub expires_at: OffsetDateTime,
 }
@@ -68,7 +69,7 @@ pub async fn count_admin_users(pool: &PgPool) -> Result<i64> {
         r#"
         select count(*) as total
         from users
-        where role = 'admin'
+        where role in ('owner', 'admin')
         "#,
     )
     .fetch_one(pool)
@@ -83,7 +84,7 @@ pub async fn count_enabled_admin_users(pool: &PgPool) -> Result<i64> {
         r#"
         select count(*) as total
         from users
-        where role = 'admin'
+        where role in ('owner', 'admin')
           and is_enabled = true
         "#,
     )
@@ -92,23 +93,6 @@ pub async fn count_enabled_admin_users(pool: &PgPool) -> Result<i64> {
     .context("failed to count enabled admin users")?;
 
     Ok(row.get("total"))
-}
-
-pub async fn get_primary_admin_user_id(pool: &PgPool) -> Result<Option<i64>> {
-    let row = sqlx::query_scalar::<_, i64>(
-        r#"
-        select id
-        from users
-        where role = 'admin'
-        order by created_at asc, id asc
-        limit 1
-        "#,
-    )
-    .fetch_optional(pool)
-    .await
-    .context("failed to get primary admin user id")?;
-
-    Ok(row)
 }
 
 pub async fn list_users(pool: &PgPool) -> Result<Vec<UserProfile>> {
@@ -127,11 +111,7 @@ pub async fn list_users(pool: &PgPool) -> Result<Vec<UserProfile>> {
     for row in rows {
         let user = map_user_row(row);
         let library_ids = list_library_ids_for_user(pool, user.id).await?;
-        profiles.push(UserProfile {
-            user,
-            is_primary_admin: false,
-            library_ids,
-        });
+        profiles.push(UserProfile { user, library_ids });
     }
 
     Ok(profiles)
@@ -157,11 +137,7 @@ pub async fn get_user(pool: &PgPool, user_id: i64) -> Result<Option<UserProfile>
     let user = map_user_row(row);
     let library_ids = list_library_ids_for_user(pool, user.id).await?;
 
-    Ok(Some(UserProfile {
-        user,
-        is_primary_admin: false,
-        library_ids,
-    }))
+    Ok(Some(UserProfile { user, library_ids }))
 }
 
 pub async fn get_user_by_username(
@@ -172,7 +148,7 @@ pub async fn get_user_by_username(
         r#"
         select id, username, nickname, password_hash, role, is_enabled, created_at, updated_at
         from users
-        where username = $1
+        where username_normalized = $1
         "#,
     )
     .bind(username)
@@ -232,12 +208,20 @@ pub async fn create_user(pool: &PgPool, params: CreateUserParams) -> Result<User
 
     let row = sqlx::query(
         r#"
-        insert into users (username, nickname, password_hash, role, is_enabled)
-        values ($1, $2, $3, $4, $5)
+        insert into users (
+            username,
+            username_normalized,
+            nickname,
+            password_hash,
+            role,
+            is_enabled
+        )
+        values ($1, $2, $3, $4, $5, $6)
         returning id, username, nickname, role, is_enabled, created_at, updated_at
         "#,
     )
     .bind(params.username)
+    .bind(params.username_normalized)
     .bind(params.nickname)
     .bind(params.password_hash)
     .bind(params.role.as_str())
@@ -255,7 +239,6 @@ pub async fn create_user(pool: &PgPool, params: CreateUserParams) -> Result<User
 
     Ok(UserProfile {
         user,
-        is_primary_admin: false,
         library_ids: params.library_ids,
     })
 }
@@ -301,7 +284,6 @@ pub async fn update_user(
 
     Ok(UserProfile {
         user: map_user_row(row),
-        is_primary_admin: false,
         library_ids: params.library_ids,
     })
 }
@@ -329,11 +311,7 @@ pub async fn update_user_nickname(
     let user = map_user_row(row);
     let library_ids = list_library_ids_for_user(pool, user.id).await?;
 
-    Ok(UserProfile {
-        user,
-        is_primary_admin: false,
-        library_ids,
-    })
+    Ok(UserProfile { user, library_ids })
 }
 
 pub async fn update_user_password(pool: &PgPool, user_id: i64, password_hash: &str) -> Result<()> {
@@ -377,11 +355,11 @@ pub async fn list_library_ids_for_user(pool: &PgPool, user_id: i64) -> Result<Ve
 pub async fn create_session(pool: &PgPool, params: CreateSessionParams) -> Result<()> {
     sqlx::query(
         r#"
-        insert into user_sessions (token, user_id, expires_at)
+        insert into user_sessions (token_hash, user_id, expires_at)
         values ($1, $2, $3)
         "#,
     )
-    .bind(params.token)
+    .bind(params.token_hash)
     .bind(params.user_id)
     .bind(params.expires_at)
     .execute(pool)
@@ -391,7 +369,10 @@ pub async fn create_session(pool: &PgPool, params: CreateSessionParams) -> Resul
     Ok(())
 }
 
-pub async fn get_user_by_session_token(pool: &PgPool, token: &str) -> Result<Option<UserProfile>> {
+pub async fn get_user_by_session_token_hash(
+    pool: &PgPool,
+    token_hash: &str,
+) -> Result<Option<UserProfile>> {
     let row = sqlx::query(
         r#"
         select
@@ -404,11 +385,11 @@ pub async fn get_user_by_session_token(pool: &PgPool, token: &str) -> Result<Opt
             u.updated_at
         from user_sessions s
         join users u on u.id = s.user_id
-        where s.token = $1
+        where s.token_hash = $1
           and s.expires_at > now()
         "#,
     )
-    .bind(token)
+    .bind(token_hash)
     .fetch_optional(pool)
     .await
     .context("failed to get user by session token")?;
@@ -421,10 +402,10 @@ pub async fn get_user_by_session_token(pool: &PgPool, token: &str) -> Result<Opt
         r#"
         update user_sessions
         set last_seen_at = now()
-        where token = $1
+        where token_hash = $1
         "#,
     )
-    .bind(token)
+    .bind(token_hash)
     .execute(pool)
     .await
     .context("failed to update user session last_seen_at")?;
@@ -432,21 +413,17 @@ pub async fn get_user_by_session_token(pool: &PgPool, token: &str) -> Result<Opt
     let user = map_user_row(row);
     let library_ids = list_library_ids_for_user(pool, user.id).await?;
 
-    Ok(Some(UserProfile {
-        user,
-        is_primary_admin: false,
-        library_ids,
-    }))
+    Ok(Some(UserProfile { user, library_ids }))
 }
 
-pub async fn delete_session(pool: &PgPool, token: &str) -> Result<()> {
+pub async fn delete_session_by_token_hash(pool: &PgPool, token_hash: &str) -> Result<()> {
     sqlx::query(
         r#"
         delete from user_sessions
-        where token = $1
+        where token_hash = $1
         "#,
     )
-    .bind(token)
+    .bind(token_hash)
     .execute(pool)
     .await
     .context("failed to delete user session")?;
@@ -778,11 +755,7 @@ async fn map_native_client_session_user(
 
     Ok(Some(NativeClientSessionUser {
         session_id,
-        user: UserProfile {
-            user,
-            is_primary_admin: false,
-            library_ids,
-        },
+        user: UserProfile { user, library_ids },
         access_token_expires_at,
         refresh_token_expires_at,
         revoked_at,
@@ -791,6 +764,7 @@ async fn map_native_client_session_user(
 
 fn parse_user_role(value: &str) -> UserRole {
     match value {
+        "owner" => UserRole::Owner,
         "admin" => UserRole::Admin,
         "viewer" => UserRole::Viewer,
         other => panic!("unexpected user role in database: {}", other),

@@ -7,7 +7,7 @@ use time::OffsetDateTime;
 pub struct PlaybackProgress {
     pub id: i64,
     pub media_item_id: i64,
-    pub media_file_id: i64,
+    pub last_media_file_id: Option<i64>,
     pub position_seconds: i32,
     pub duration_seconds: Option<i32>,
     pub last_watched_at: OffsetDateTime,

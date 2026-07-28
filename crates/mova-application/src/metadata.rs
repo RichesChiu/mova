@@ -36,7 +36,7 @@ pub struct MetadataLookup {
     pub season_air_year: Option<MetadataSeasonAirYearHint>,
     pub library_type: String,
     pub language: Option<String>,
-    pub provider_item_id: Option<i64>,
+    pub provider_item_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -48,7 +48,7 @@ pub struct MetadataSeasonAirYearHint {
 /// 第三方元数据源返回的统一结构。
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RemoteMetadata {
-    pub provider_item_id: Option<i64>,
+    pub provider_item_id: Option<String>,
     pub title: Option<String>,
     pub original_title: Option<String>,
     pub year: Option<i32>,
@@ -65,7 +65,7 @@ pub struct RemoteMetadata {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemoteCastMember {
-    pub person_id: Option<i64>,
+    pub person_id: Option<String>,
     pub sort_order: i32,
     pub name: String,
     pub character_name: Option<String>,
@@ -75,7 +75,7 @@ pub struct RemoteCastMember {
 /// 手动匹配元数据时返回的候选条目。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemoteMetadataSearchResult {
-    pub provider_item_id: i64,
+    pub provider_item_id: String,
     pub title: String,
     pub original_title: Option<String>,
     pub year: Option<i32>,
@@ -220,8 +220,8 @@ impl TmdbMetadataProvider {
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Option<RemoteMetadata>> {
         let request_language = self.request_language(lookup);
-        let movie_id = match lookup.provider_item_id {
-            Some(movie_id) => movie_id,
+        let movie_id = match lookup.provider_item_id.as_deref() {
+            Some(movie_id) => parse_tmdb_provider_item_id(movie_id)?,
             None => {
                 let candidates = self.search_movie_candidates(lookup).await?;
                 let Some(best_match) = self.select_strict_movie_match(lookup, &candidates).await?
@@ -683,8 +683,8 @@ impl TmdbMetadataProvider {
     }
 
     async fn lookup_tv(&self, lookup: &MetadataLookup) -> anyhow::Result<Option<RemoteMetadata>> {
-        let tv_id = match lookup.provider_item_id {
-            Some(tv_id) => tv_id,
+        let tv_id = match lookup.provider_item_id.as_deref() {
+            Some(tv_id) => parse_tmdb_provider_item_id(tv_id)?,
             None => {
                 let Some(best_match) = self.search_tv_best_match(lookup).await? else {
                     return Ok(None);
@@ -698,7 +698,7 @@ impl TmdbMetadataProvider {
         let details = self.fetch_tv_details(tv_id, request_language).await?;
 
         Ok(Some(RemoteMetadata {
-            provider_item_id: Some(tv_id),
+            provider_item_id: Some(tv_id.to_string()),
             title: empty_to_none(details.name),
             original_title: empty_to_none(details.original_name),
             year: parse_year(details.first_air_date.as_deref()),
@@ -725,8 +725,8 @@ impl TmdbMetadataProvider {
         &self,
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
-        let tv_id = match lookup.provider_item_id {
-            Some(tv_id) => tv_id,
+        let tv_id = match lookup.provider_item_id.as_deref() {
+            Some(tv_id) => parse_tmdb_provider_item_id(tv_id)?,
             None => {
                 let Some(best_match) = self.search_tv_best_match(lookup).await? else {
                     return Ok(None);
@@ -813,8 +813,8 @@ impl TmdbMetadataProvider {
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Option<Vec<RemoteCastMember>>> {
         let request_language = self.request_language(lookup);
-        let movie_id = match lookup.provider_item_id {
-            Some(movie_id) => movie_id,
+        let movie_id = match lookup.provider_item_id.as_deref() {
+            Some(movie_id) => parse_tmdb_provider_item_id(movie_id)?,
             None => {
                 let candidates = self.search_movie_candidates(lookup).await?;
                 let Some(best_match) = self.select_strict_movie_match(lookup, &candidates).await?
@@ -836,7 +836,7 @@ impl TmdbMetadataProvider {
                     let name = empty_to_none(cast.name)?;
 
                     Some(RemoteCastMember {
-                        person_id: Some(cast.id),
+                        person_id: Some(cast.id.to_string()),
                         sort_order: cast
                             .order
                             .unwrap_or_else(|| i32::try_from(index).unwrap_or(i32::MAX)),
@@ -856,8 +856,8 @@ impl TmdbMetadataProvider {
         &self,
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Option<Vec<RemoteCastMember>>> {
-        let tv_id = match lookup.provider_item_id {
-            Some(tv_id) => tv_id,
+        let tv_id = match lookup.provider_item_id.as_deref() {
+            Some(tv_id) => parse_tmdb_provider_item_id(tv_id)?,
             None => {
                 let Some(best_match) = self.search_tv_best_match(lookup).await? else {
                     return Ok(None);
@@ -879,7 +879,7 @@ impl TmdbMetadataProvider {
                     let name = empty_to_none(cast.name)?;
 
                     Some(RemoteCastMember {
-                        person_id: Some(cast.id),
+                        person_id: Some(cast.id.to_string()),
                         sort_order: cast
                             .order
                             .unwrap_or_else(|| i32::try_from(index).unwrap_or(i32::MAX)),
@@ -919,7 +919,7 @@ impl TmdbMetadataProvider {
             .map(|path| self.build_image_url(path));
 
         RemoteMetadata {
-            provider_item_id: Some(movie_id),
+            provider_item_id: Some(movie_id.to_string()),
             title: empty_to_none(details.title),
             original_title: empty_to_none(details.original_title),
             year: parse_year(details.release_date.as_deref()),
@@ -950,7 +950,7 @@ impl TmdbMetadataProvider {
         let title = empty_to_none(title).or_else(|| empty_to_none(original_title.clone()))?;
 
         Some(RemoteMetadataSearchResult {
-            provider_item_id,
+            provider_item_id: provider_item_id.to_string(),
             title,
             original_title: empty_to_none(original_title),
             year,
@@ -1079,7 +1079,7 @@ where
 pub fn apply_remote_metadata(
     metadata: Option<RemoteMetadata>,
     metadata_provider: &mut Option<String>,
-    metadata_provider_item_id: &mut Option<i64>,
+    metadata_provider_item_id: &mut Option<String>,
     title: &mut String,
     original_title: &mut Option<String>,
     year: &mut Option<i32>,
@@ -1790,6 +1790,16 @@ fn empty_to_none(value: Option<String>) -> Option<String> {
     })
 }
 
+fn parse_tmdb_provider_item_id(value: &str) -> anyhow::Result<i64> {
+    value.parse::<i64>().map_err(|error| {
+        anyhow::anyhow!(
+            "TMDB provider item id must be a positive integer, got `{}`: {}",
+            value,
+            error
+        )
+    })
+}
+
 fn format_country_codes(codes: &[String]) -> Option<String> {
     join_non_empty_values(
         codes
@@ -1917,7 +1927,7 @@ mod tests {
 
         apply_remote_metadata(
             Some(RemoteMetadata {
-                provider_item_id: Some(129),
+                provider_item_id: Some("129".to_string()),
                 title: Some("Sen to Chihiro no Kamikakushi".to_string()),
                 original_title: Some("Sen to Chihiro no Kamikakushi".to_string()),
                 year: Some(2001),
@@ -1959,7 +1969,7 @@ mod tests {
         );
 
         assert_eq!(metadata_provider.as_deref(), Some(TMDB_PROVIDER_NAME));
-        assert_eq!(metadata_provider_item_id, Some(129));
+        assert_eq!(metadata_provider_item_id, Some("129".to_string()));
         assert_eq!(title, "Sen to Chihiro no Kamikakushi");
         assert_eq!(
             original_title.as_deref(),
@@ -1997,7 +2007,7 @@ mod tests {
 
         apply_remote_metadata(
             Some(RemoteMetadata {
-                provider_item_id: Some(321),
+                provider_item_id: Some("321".to_string()),
                 title: Some("   ".to_string()),
                 original_title: None,
                 year: None,
@@ -2027,7 +2037,7 @@ mod tests {
         );
 
         assert_eq!(metadata_provider.as_deref(), Some(TMDB_PROVIDER_NAME));
-        assert_eq!(metadata_provider_item_id, Some(321));
+        assert_eq!(metadata_provider_item_id, Some("321".to_string()));
         assert_eq!(title, "Local Title");
     }
 

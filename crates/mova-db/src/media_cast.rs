@@ -24,7 +24,7 @@ pub struct ReplaceMediaItemCastParams {
 
 #[derive(Debug, Clone)]
 pub struct ReplaceMediaItemCastMember {
-    pub person_id: Option<i64>,
+    pub person_id: Option<String>,
     pub sort_order: i32,
     pub name: String,
     pub character_name: Option<String>,
@@ -122,7 +122,7 @@ pub async fn replace_media_item_cast(
         query_builder.push_values(&params.members, |mut row, member| {
             row.push_bind(params.media_item_id)
                 .push_bind(member.sort_order)
-                .push_bind(member.person_id)
+                .push_bind(member.person_id.as_deref())
                 .push_bind(&member.name)
                 .push_bind(&member.character_name)
                 .push_bind(&member.profile_path);

@@ -83,24 +83,25 @@ impl MetadataEnrichmentContext {
 
         on_progress(MetadataEnrichmentStage::Metadata, &files[0]);
 
-        let resolved_remote_metadata =
-            if self.metadata_provider.is_enabled() && group_needs_remote_metadata(files) {
-                let metadata = self
-                    .lookup_group_remote_metadata(lookup_type, &files[0], season_air_year)
-                    .await?;
+        let resolved_remote_metadata = if self.metadata_provider.is_enabled()
+            && group_needs_remote_metadata(files)
+        {
+            let metadata = self
+                .lookup_group_remote_metadata(lookup_type, &files[0], season_air_year)
+                .await?;
 
-                if let Some(remote_metadata) = metadata.as_ref() {
-                    episode_outline_lookup.provider_item_id = remote_metadata.provider_item_id;
+            if let Some(remote_metadata) = metadata.as_ref() {
+                episode_outline_lookup.provider_item_id = remote_metadata.provider_item_id.clone();
 
-                    for file in files.iter_mut() {
-                        apply_remote_metadata_to_file(lookup_type, remote_metadata, file);
-                    }
+                for file in files.iter_mut() {
+                    apply_remote_metadata_to_file(lookup_type, remote_metadata, file);
                 }
+            }
 
-                metadata
-            } else {
-                None
-            };
+            metadata
+        } else {
+            None
+        };
 
         on_progress(MetadataEnrichmentStage::Artwork, &files[0]);
 
@@ -158,7 +159,7 @@ impl MetadataEnrichmentContext {
             }
 
             if let Some(remote_metadata) = metadata.as_ref() {
-                episode_outline_lookup.provider_item_id = remote_metadata.provider_item_id;
+                episode_outline_lookup.provider_item_id = remote_metadata.provider_item_id.clone();
             }
 
             if let Some(remote_metadata) = metadata.as_ref() {
@@ -658,7 +659,7 @@ fn apply_remote_series_metadata_to_episode_file(
     }
 
     if file.metadata_provider_item_id.is_none() {
-        file.metadata_provider_item_id = metadata.provider_item_id;
+        file.metadata_provider_item_id = metadata.provider_item_id.clone();
     }
 
     if let Some(remote_title) = crate::metadata::normalize_optional_value(metadata.title.clone()) {
@@ -821,7 +822,7 @@ fn metadata_lookup_candidates(
 
     // 元数据匹配应优先使用文件名解析出的原始标题，而不是已经被远端覆盖过的展示标题。
     let mut candidates = Vec::new();
-    if let Some(provider_item_id) = file.metadata_provider_item_id {
+    if let Some(provider_item_id) = file.metadata_provider_item_id.clone() {
         push_metadata_lookup_candidate_with_provider_item_id(
             &mut candidates,
             lookup_type,
@@ -910,7 +911,7 @@ fn push_metadata_lookup_candidate_with_provider_item_id(
     title: String,
     year: Option<i32>,
     season_air_year: Option<MetadataSeasonAirYearHint>,
-    provider_item_id: i64,
+    provider_item_id: String,
 ) {
     let title = title.trim();
     if title.is_empty() {
@@ -918,7 +919,7 @@ fn push_metadata_lookup_candidate_with_provider_item_id(
     }
 
     if candidates.iter().any(|candidate| {
-        candidate.provider_item_id == Some(provider_item_id)
+        candidate.provider_item_id.as_deref() == Some(provider_item_id.as_str())
             && candidate.library_type == lookup_type
             && candidate.language.as_deref() == Some(metadata_language)
     }) {
@@ -1358,13 +1359,13 @@ mod tests {
         file.year = Some(2025);
         file.season_number = None;
         file.episode_number = None;
-        file.metadata_provider_item_id = Some(123_456);
+        file.metadata_provider_item_id = Some("123_456".to_string());
 
         let lookups = metadata_lookup_candidates("movie", &file, "zh-CN", None);
 
         assert_eq!(lookups[0].title, "狂野时代");
         assert_eq!(lookups[0].year, Some(2025));
-        assert_eq!(lookups[0].provider_item_id, Some(123_456));
+        assert_eq!(lookups[0].provider_item_id, Some("123_456".to_string()));
         assert_eq!(lookups[1].title, "狂野时代");
         assert_eq!(lookups[1].year, Some(2025));
         assert_eq!(lookups[1].provider_item_id, None);
@@ -1395,7 +1396,7 @@ mod tests {
     fn needs_remote_metadata_retries_missing_or_external_episode_container_artwork() {
         let mut file = build_discovered_episode();
         file.metadata_provider = Some("tmdb".to_string());
-        file.metadata_provider_item_id = Some(77);
+        file.metadata_provider_item_id = Some("77".to_string());
         file.original_title = Some("Show Original".to_string());
         file.overview = Some("Overview".to_string());
         file.poster_path = Some("/cache/episode-poster.jpg".to_string());
@@ -1431,7 +1432,7 @@ mod tests {
         assert!(needs_remote_metadata(&file));
 
         file.metadata_provider = Some("tmdb".to_string());
-        file.metadata_provider_item_id = Some(83533);
+        file.metadata_provider_item_id = Some("83533".to_string());
         assert!(!needs_remote_metadata(&file));
 
         file.metadata_provider = None;
@@ -1441,7 +1442,7 @@ mod tests {
     #[test]
     fn needs_remote_title_refresh_detects_local_year_display_title() {
         let mut file = build_discovered_episode();
-        file.metadata_provider_item_id = Some(259909);
+        file.metadata_provider_item_id = Some("259909".to_string());
         file.source_title = "Alls Fair".to_string();
         file.title = "Alls Fair (2025)".to_string();
         file.year = Some(2025);
@@ -1494,7 +1495,7 @@ mod tests {
             .all(|file| file.original_title.as_deref() == Some("All's Fair")));
         assert!(files
             .iter()
-            .all(|file| file.metadata_provider_item_id == Some(259909)));
+            .all(|file| file.metadata_provider_item_id.as_deref() == Some("259909")));
         assert!(files
             .iter()
             .all(|file| file.series_poster_path.as_deref() == Some("/cache/series-poster.jpg")));
@@ -1612,7 +1613,7 @@ mod tests {
             self.lookup_count.fetch_add(1, Ordering::SeqCst);
 
             Ok(Some(RemoteMetadata {
-                provider_item_id: Some(259909),
+                provider_item_id: Some("259909".to_string()),
                 title: Some("诉讼女王".to_string()),
                 original_title: Some("All's Fair".to_string()),
                 year: Some(2025),
@@ -1694,7 +1695,7 @@ mod tests {
             season_air_year: None,
             library_type: "series".to_string(),
             language: Some("zh-CN".to_string()),
-            provider_item_id: Some(123),
+            provider_item_id: Some("123".to_string()),
         }
     }
 

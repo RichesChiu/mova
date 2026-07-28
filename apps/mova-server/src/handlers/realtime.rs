@@ -201,7 +201,6 @@ mod tests {
                 created_at: OffsetDateTime::UNIX_EPOCH,
                 updated_at: OffsetDateTime::UNIX_EPOCH,
             },
-            is_primary_admin: false,
             library_ids: vec![7],
         };
 
@@ -221,12 +220,11 @@ mod tests {
                 id: 1,
                 username: "admin".to_string(),
                 nickname: "admin".to_string(),
-                role: UserRole::Admin,
+                role: UserRole::Owner,
                 is_enabled: true,
                 created_at: OffsetDateTime::UNIX_EPOCH,
                 updated_at: OffsetDateTime::UNIX_EPOCH,
             },
-            is_primary_admin: true,
             library_ids: Vec::new(),
         };
 

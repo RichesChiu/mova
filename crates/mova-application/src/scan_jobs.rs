@@ -1621,14 +1621,15 @@ fn effective_existing_metadata_provider(
 
 fn effective_existing_metadata_provider_item_id(
     summary: &mova_db::ExistingMediaMetadataSummary,
-) -> Option<i64> {
+) -> Option<String> {
     if summary.media_type.eq_ignore_ascii_case("episode") {
         return summary
             .series_metadata_provider_item_id
-            .or(summary.metadata_provider_item_id);
+            .clone()
+            .or_else(|| summary.metadata_provider_item_id.clone());
     }
 
-    summary.metadata_provider_item_id
+    summary.metadata_provider_item_id.clone()
 }
 
 fn should_retry_external_cached_artwork(summary: &mova_db::ExistingMediaMetadataSummary) -> bool {
@@ -2560,7 +2561,7 @@ fn apply_existing_media_metadata(
         );
         replace_copy_if_present(
             &mut file.metadata_provider_item_id,
-            summary.metadata_provider_item_id,
+            summary.metadata_provider_item_id.clone(),
         );
         replace_string_option_if_present(
             &mut file.metadata_status,
@@ -2624,7 +2625,7 @@ fn apply_existing_media_metadata(
     );
     replace_copy_if_present(
         &mut file.metadata_provider_item_id,
-        summary.metadata_provider_item_id,
+        summary.metadata_provider_item_id.clone(),
     );
     replace_string_option_if_present(
         &mut file.metadata_status,
@@ -2691,7 +2692,7 @@ fn replace_option_if_present<T: Clone>(target: &mut Option<T>, candidate: Option
     }
 }
 
-fn replace_copy_if_present<T: Copy>(target: &mut Option<T>, candidate: Option<T>) {
+fn replace_copy_if_present<T>(target: &mut Option<T>, candidate: Option<T>) {
     *target = candidate;
 }
 
@@ -3209,7 +3210,7 @@ mod tests {
             file_path: "/media/movies/Arcane.mkv".to_string(),
             media_type: "movie".to_string(),
             metadata_provider: Some("tmdb".to_string()),
-            metadata_provider_item_id: Some(77),
+            metadata_provider_item_id: Some("77".to_string()),
             metadata_status: METADATA_STATUS_MATCHED.to_string(),
             metadata_failure_reason: None,
             remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE.to_string()),
@@ -3301,7 +3302,7 @@ mod tests {
             file_path: "/media/series/Arcane/Arcane.S01E01.mkv".to_string(),
             media_type: "episode".to_string(),
             metadata_provider: Some("tmdb".to_string()),
-            metadata_provider_item_id: Some(88),
+            metadata_provider_item_id: Some("88".to_string()),
             metadata_status: METADATA_STATUS_MATCHED.to_string(),
             metadata_failure_reason: None,
             remote_media_type: Some(REMOTE_MEDIA_TYPE_SERIES.to_string()),
@@ -3355,7 +3356,7 @@ mod tests {
             subtitle_tracks: Vec::new(),
             series_title: Some("Arcane".to_string()),
             series_metadata_provider: Some("tmdb".to_string()),
-            series_metadata_provider_item_id: Some(88),
+            series_metadata_provider_item_id: Some("88".to_string()),
             series_source_title: Some("Arcane".to_string()),
             series_original_title: Some("Arcane Original".to_string()),
             series_sort_title: Some("Arcane, The".to_string()),
@@ -3562,7 +3563,7 @@ mod tests {
             Path::new("/media/movies/Arcane.mkv"),
         ));
 
-        summary.metadata_provider_item_id = Some(77);
+        summary.metadata_provider_item_id = Some("77".to_string());
         summary.metadata_provider = None;
 
         assert!(!super::can_skip_existing_media_summary(
@@ -3660,7 +3661,7 @@ mod tests {
         summary.scan_hash = Some("same-hash".to_string());
         summary.series_title = Some("Alls Fair (2025)".to_string());
         summary.series_source_title = Some("Alls Fair".to_string());
-        summary.series_metadata_provider_item_id = Some(259909);
+        summary.series_metadata_provider_item_id = Some("259909".to_string());
         summary.series_poster_path = Some("/cache/series-poster.jpg".to_string());
         summary.series_backdrop_path = Some("/cache/series-backdrop.jpg".to_string());
 
@@ -4168,7 +4169,7 @@ mod tests {
             "/media/overseas_tv/All's Fair (2025)/Season 01/Alls Fair (2025) - S01E01.mkv",
         );
         file.metadata_provider = Some("tmdb".to_string());
-        file.metadata_provider_item_id = Some(259909);
+        file.metadata_provider_item_id = Some("259909".to_string());
         file.metadata_status = Some(METADATA_STATUS_MATCHED.to_string());
         file.remote_media_type = Some(REMOTE_MEDIA_TYPE_SERIES.to_string());
         file.title = "诉讼女王".to_string();
@@ -4194,7 +4195,7 @@ mod tests {
     fn build_media_entries_only_authoritative_matched_entries_can_clear_artwork() {
         let mut file = build_discovered_file();
         file.metadata_status = Some(METADATA_STATUS_MATCHED.to_string());
-        file.metadata_provider_item_id = Some(259909);
+        file.metadata_provider_item_id = Some("259909".to_string());
 
         let mut second_file = file.clone();
         second_file.file_path = PathBuf::from("shows/example/S01E02.mkv");
@@ -4499,7 +4500,7 @@ mod tests {
         file.episode_number = None;
         file.episode_title = None;
         file.metadata_provider = Some(super::TMDB_PROVIDER_NAME.to_string());
-        file.metadata_provider_item_id = Some(1_234_567);
+        file.metadata_provider_item_id = Some("1_234_567".to_string());
         file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
         file.remote_media_type = Some(REMOTE_MEDIA_TYPE_MOVIE.to_string());
 
@@ -4533,7 +4534,7 @@ mod tests {
         file.title = "Remote Movie Title".to_string();
         file.source_title = "Local File Title".to_string();
         file.metadata_provider = Some("tmdb".to_string());
-        file.metadata_provider_item_id = Some(123);
+        file.metadata_provider_item_id = Some("123".to_string());
         file.original_title = Some("Remote Original".to_string());
         file.poster_path = Some("/cache/tmdb/poster.jpg".to_string());
         file.backdrop_path = Some("/cache/tmdb/backdrop.jpg".to_string());

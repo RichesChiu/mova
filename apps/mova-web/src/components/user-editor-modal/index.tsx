@@ -14,7 +14,7 @@ import { GlassSelect } from '../glass-select'
 import { LibraryAccessOption } from './library-access-option'
 
 interface UserEditorModalProps {
-  currentUserIsPrimaryAdmin: boolean
+  currentUserIsOwner: boolean
   error: string | null
   isOpen: boolean
   isSubmitting: boolean
@@ -27,7 +27,7 @@ interface UserEditorModalProps {
 }
 
 export const UserEditorModal = ({
-  currentUserIsPrimaryAdmin,
+  currentUserIsOwner,
   error,
   isOpen,
   isSubmitting,
@@ -47,20 +47,20 @@ export const UserEditorModal = ({
 
   const roleOptions = useMemo(
     () =>
-      currentUserIsPrimaryAdmin
+      currentUserIsOwner
         ? [
             { label: l('Standard User'), value: 'viewer' },
             { label: l('Administrator'), value: 'admin' },
           ]
         : [{ label: l('Standard User'), value: 'viewer' }],
-    [currentUserIsPrimaryAdmin, l],
+    [currentUserIsOwner, l],
   )
   const sortedLibraries = useMemo(
     () => [...libraries].sort((left, right) => left.name.localeCompare(right.name)),
     [libraries],
   )
   const isCreateMode = mode === 'create'
-  const shouldShowRoleField = isCreateMode || (currentUserIsPrimaryAdmin && !user?.is_primary_admin)
+  const shouldShowRoleField = isCreateMode || (currentUserIsOwner && user?.role !== 'owner')
 
   useEffect(() => {
     if (!isOpen) {
@@ -112,7 +112,7 @@ export const UserEditorModal = ({
         password,
         role,
         is_enabled: true,
-        library_ids: role === 'admin' ? [] : selectedLibraryIds,
+        library_ids: role !== 'viewer' ? [] : selectedLibraryIds,
       })
       onClose()
       return
@@ -124,7 +124,7 @@ export const UserEditorModal = ({
 
     await onUpdate(user.id, {
       role,
-      library_ids: role === 'admin' ? [] : selectedLibraryIds,
+      library_ids: role !== 'viewer' ? [] : selectedLibraryIds,
     })
     onClose()
   }
@@ -229,7 +229,7 @@ export const UserEditorModal = ({
                     onChange={(value) => {
                       const nextRole = value as UserRole
                       setRole(nextRole)
-                      if (nextRole === 'admin') {
+                      if (nextRole !== 'viewer') {
                         setSelectedLibraryIds([])
                       }
                     }}
