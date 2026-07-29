@@ -33,6 +33,8 @@ const translations: Record<string, string> = {
   '强大功能，': 'Powerful features,',
   全面掌控你的媒体: 'complete control of your media',
   'MOVA 核心功能': 'MOVA core capabilities',
+  核心能力: 'Core capabilities',
+  支持: 'Support',
   私有媒体库: 'Private media library',
   '集中管理本地电影和剧集，本地文件只读挂载，不改动原始媒体。':
     'Organize local movies and series while mounting media read-only and leaving original files untouched.',
@@ -71,6 +73,10 @@ const translations: Record<string, string> = {
   'Pad 端': 'Pad',
   'Pad 客户端，敬请期待。': 'The Pad client is on the way. Stay tuned.',
   'MOVA API 文档': 'MOVA API Documentation',
+  'API 参考': 'API Reference',
+  权威来源: 'Source of truth',
+  通用: 'General',
+  播放器流程: 'Player flow',
 
   '根据服务端文档整理当前 mova-server 已实现的 HTTP 接口，覆盖鉴权、媒体库扫描、媒体条目、播放进度、媒体流和播放器接入需要的 ID 流转。':
     'A reference to the HTTP endpoints currently implemented by mova-server, covering authentication, library scanning, media items, playback progress, streaming, and the ID flow required by players.',
@@ -101,6 +107,8 @@ const translations: Record<string, string> = {
   响应格式: 'Response format',
   '业务接口统一 JSON envelope，媒体流和图片资源直接返回文件流。':
     'Business endpoints use a consistent JSON envelope, while media and image resources return file streams directly.',
+  '业务接口统一 JSON envelope；客户端按 error_code 和 params 本地化错误，媒体流和图片资源直接返回文件流。':
+    'Business endpoints use a consistent JSON envelope; clients localize errors with error_code and params, while media and image resources return file streams directly.',
   登录态: 'Authentication',
   'Web 使用 session cookie，原生客户端使用 token-login 返回的 Bearer token。':
     'The Web app uses a session cookie; native clients use the Bearer token returned by token-login.',
@@ -117,8 +125,10 @@ const translations: Record<string, string> = {
     'realtime/events returns text/event-stream instead of the JSON envelope; request realtime/state first after reconnecting.',
   '媒体条目图片 URL 会带版本参数，浏览器可长期缓存；元数据更新后版本会变化。':
     'Media image URLs include a version parameter for long-lived browser caching; the version changes after metadata updates.',
-  '认证错误可能使用 TOKEN_EXPIRED、TOKEN_INVALID 或 REFRESH_TOKEN_INVALID 等字符串 code，客户端应按 code 处理重新登录或刷新。':
-    'Authentication errors may use string codes such as TOKEN_EXPIRED, TOKEN_INVALID, or REFRESH_TOKEN_INVALID; clients should use the code to refresh credentials or sign in again.',
+  'code 始终是数字 HTTP 状态码；错误响应使用稳定的 error_code 和 params，message 只作为诊断兜底。':
+    'code is always a numeric HTTP status; error responses use stable error_code and params fields, while message is only a diagnostic fallback.',
+  '账户与用户管理使用独立业务错误码；客户端应本地化已知错误码，并只在遇到未知错误码时使用 message 兜底。':
+    'Account and user-management endpoints use dedicated business error codes; clients should localize known codes and use message only as a fallback for unknown codes.',
   '密码认证失败达到限制时返回 429 和 Retry-After；Web 与原生客户端对同一账户共享失败计数。':
     'Password authentication returns 429 and Retry-After when the limit is reached; Web and native clients share the failure count for the same account.',
   'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；当前评分来源仅接入 TMDB，其他外部 ID 只用于跨来源识别。':
@@ -181,6 +191,8 @@ const translations: Record<string, string> = {
     'Standard categories include scan, system, library, and account; unknown categories must remain visible.',
   '通知和已读状态持久化在 PostgreSQL，SSE 只通知客户端重新读取。':
     'Notifications and read states are persisted in PostgreSQL; SSE only tells clients to fetch again.',
+  '扫描通知使用 reason_code 和 reason_params 生成本地化主文案，diagnostic_message 仅用于排障。':
+    'Scan notifications use reason_code and reason_params for localized primary copy; diagnostic_message is only for troubleshooting.',
   'GET 响应的未读统计不受 category 筛选影响。':
     'Unread counts in GET responses are not affected by the category filter.',
   '标记已读操作幂等，只有状态首次变化时才推进 revision。':
@@ -237,6 +249,8 @@ const translations: Record<string, string> = {
     'Series use seasons, episodes, and episode-outline to merge locally available episodes with remote outlines.',
   'poster/backdrop 返回图片流；若详情字段是远程 URL，前端可直接使用远程地址。':
     'poster/backdrop return image streams; when a detail field is a remote URL, clients may use it directly.',
+  'poster/backdrop/logo 返回图片流；若详情字段是远程 URL，前端可直接使用远程地址。':
+    'poster/backdrop/logo return image streams; when a detail field is a remote URL, clients may use it directly.',
   查询单个媒体条目详情: 'Get media item details',
   查询单个媒体条目的演员列表: 'Get the cast for a media item',
   查询播放器页头部信息: 'Get player header information',
@@ -247,6 +261,7 @@ const translations: Record<string, string> = {
   手动重拉单个媒体条目元数据: 'Refresh metadata for one media item',
   读取媒体条目海报图: 'Read a media item poster',
   读取媒体条目背景图: 'Read a media item backdrop',
+  '读取媒体条目透明标题 Logo': 'Read a media item transparent title logo',
   读取某一季海报图: 'Read a season poster',
   读取某一季背景图: 'Read a season backdrop',
   播放进度: 'Playback progress',

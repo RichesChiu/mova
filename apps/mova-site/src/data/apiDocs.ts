@@ -22,8 +22,8 @@ export const apiOverviewCards = [
   },
   {
     label: '响应格式',
-    value: 'code / message / data',
-    text: '业务接口统一 JSON envelope，媒体流和图片资源直接返回文件流。',
+    value: 'error_code + params',
+    text: '业务接口统一 JSON envelope；客户端按 error_code 和 params 本地化错误，媒体流和图片资源直接返回文件流。',
   },
   {
     label: '登录态',
@@ -43,7 +43,8 @@ export const apiCommonNotes = [
   'Web 端使用 session cookie；原生客户端使用 access token，refresh token 仅用于调用 refresh 接口。',
   'realtime/events 返回 text/event-stream，不使用统一 JSON envelope；重连后应先请求 realtime/state。',
   '媒体条目图片 URL 会带版本参数，浏览器可长期缓存；元数据更新后版本会变化。',
-  '认证错误可能使用 TOKEN_EXPIRED、TOKEN_INVALID 或 REFRESH_TOKEN_INVALID 等字符串 code，客户端应按 code 处理重新登录或刷新。',
+  'code 始终是数字 HTTP 状态码；错误响应使用稳定的 error_code 和 params，message 只作为诊断兜底。',
+  '账户与用户管理使用独立业务错误码；客户端应本地化已知错误码，并只在遇到未知错误码时使用 message 兜底。',
   '密码认证失败达到限制时返回 429 和 Retry-After；Web 与原生客户端对同一账户共享失败计数。',
   'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；当前评分来源仅接入 TMDB，其他外部 ID 只用于跨来源识别。',
 ]
@@ -78,7 +79,9 @@ export const apiSuccessExample = `{
 
 export const apiErrorExample = `{
   "code": 404,
-  "message": "resource not found",
+  "error_code": "resource_not_found",
+  "params": {},
+  "message": "media item not found: 42",
   "data": null
 }`
 
@@ -129,6 +132,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     highlights: [
       '标准类别包括 scan、system、library 和 account，未知类别也必须保留展示。',
       '通知和已读状态持久化在 PostgreSQL，SSE 只通知客户端重新读取。',
+      '扫描通知使用 reason_code 和 reason_params 生成本地化主文案，diagnostic_message 仅用于排障。',
       'GET 响应的未读统计不受 category 筛选影响。',
       '标记已读操作幂等，只有状态首次变化时才推进 revision。',
     ],

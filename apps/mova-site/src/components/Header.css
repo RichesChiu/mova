@@ -111,33 +111,41 @@
 
   .header-icon-link {
     display: inline-grid;
-    width: 38px;
-    height: 38px;
+    width: 36px;
+    height: 36px;
     place-items: center;
+    border: 1px solid #e2e5ed;
     border-radius: 10px;
-    color: var(--ink);
-    background: transparent;
+    color: #46506a;
+    background: rgba(249, 250, 252, 0.94);
     text-decoration: none;
-    transition: color 180ms ease, transform 180ms ease, background 180ms ease;
+    transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
   }
 
   .header-icon-link:hover {
-    color: #5b43ef;
-    background: #f0f2f8;
-    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--brand-accent) 34%, #d9ddea);
+    color: var(--brand-accent);
+    background: color-mix(in srgb, var(--brand-accent) 7%, #ffffff);
   }
 
-  .header-icon-link svg {
-    width: 24px;
-    height: 24px;
+  .header-brand-icon {
+    display: block;
+    flex: none;
+    width: 20px;
+    height: 20px;
+    overflow: visible;
   }
 
-  .docker-link {
-    color: #2275ec;
+  .header-icon-link--github {
+    --brand-accent: #24292f;
   }
 
-  .telegram-link {
-    color: #229ed9;
+  .header-icon-link--docker {
+    --brand-accent: #1d63ed;
+  }
+
+  .header-icon-link--telegram {
+    --brand-accent: #168ac0;
   }
 
   .language-switch {

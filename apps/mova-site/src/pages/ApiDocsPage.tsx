@@ -36,7 +36,7 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
     <div className="api-page">
       <section className="api-hero" aria-labelledby="api-title">
         <div>
-          <p className="eyebrow">API Reference</p>
+          <p className="eyebrow">{t('API 参考')}</p>
           <h1 id="api-title">{t('MOVA API 文档')}</h1>
           <p className="api-hero-lede">
             {t('根据服务端文档整理当前 mova-server 已实现的 HTTP 接口，覆盖鉴权、媒体库扫描、媒体条目、播放进度、媒体流和播放器接入需要的 ID 流转。')}
@@ -76,7 +76,7 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
       <aside className="api-source-notice" aria-labelledby="api-source-title">
         <div>
           <div className="api-source-heading">
-            <p className="eyebrow">Source of Truth</p>
+            <p className="eyebrow">{t('权威来源')}</p>
             <span className="api-sync-status">
               <i aria-hidden="true" />
               {language === 'zh' ? `已核对 ${endpointTotal} 条接口` : `${endpointTotal} endpoints verified`}
@@ -132,7 +132,7 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
         <div className="api-content">
           <section className="api-doc-card" id="api-overview">
             <div className="api-section-heading">
-              <p className="eyebrow">General</p>
+              <p className="eyebrow">{t('通用')}</p>
               <h2>{t('通用说明')}</h2>
             </div>
 
@@ -187,7 +187,7 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
           {apiEndpointGroups.map((group) => (
             <section className="api-doc-card" id={`api-${group.id}`} key={group.id}>
               <div className="api-section-heading">
-                <p className="eyebrow">Endpoint Group</p>
+                <p className="eyebrow">{t('接口分组')}</p>
                 <h2>{t(group.title)}</h2>
                 <p>{t(group.summary)}</p>
               </div>
@@ -208,7 +208,7 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
 
           <section className="api-doc-card" id="api-id-relations">
             <div className="api-section-heading">
-              <p className="eyebrow">Player Flow</p>
+              <p className="eyebrow">{t('播放器流程')}</p>
               <h2>{t('ID 关系与播放流转')}</h2>
               <p>
                 {t('前端接入播放器时最容易混淆的是媒体库、媒体条目、媒体文件、音轨和字幕的 ID。下面按使用顺序整理一遍。')}

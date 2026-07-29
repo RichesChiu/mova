@@ -10,7 +10,7 @@ export function FeatureSection() {
   return (
     <section className="section-block" id="features" aria-labelledby="features-title">
       <div className="feature-intro">
-        <p className="eyebrow">Core capabilities</p>
+        <p className="eyebrow">{t('核心能力')}</p>
         <SectionTitle
           id="features-title"
           title={<>{t('强大功能，')}<br />{t('全面掌控你的媒体')}</>}
