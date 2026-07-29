@@ -34,11 +34,14 @@ export interface ScanNotificationIssue {
   year: number | null
   file_count: number
   metadata_status: MetadataStatus
-  metadata_failure_reason: string | null
-  failure_detail: string | null
+  reason_code: string
+  reason_params: Record<string, unknown>
+  diagnostic_message: string | null
   probe_warning_count: number
   probe_warning_file_path: string | null
-  probe_warning_detail: string | null
+  probe_warning_code: string | null
+  probe_warning_params: Record<string, unknown>
+  probe_warning_diagnostic: string | null
 }
 
 export type NotificationCategory = 'scan' | 'system' | 'library' | 'account' | string
@@ -57,7 +60,9 @@ export interface ScanNotificationPayload {
   skipped_files: number
   probe_warning_count: number
   issue_count: number
-  error_message: string | null
+  reason_code: string | null
+  reason_params: Record<string, unknown>
+  diagnostic_message: string | null
   issues: ScanNotificationIssue[]
 }
 
@@ -67,7 +72,9 @@ export interface CacheCleanupFailureNotificationPayload {
   library_name: string
   attempt_count: number
   max_attempts: number
-  error_message: string
+  reason_code: string
+  reason_params: Record<string, unknown>
+  diagnostic_message: string | null
 }
 
 export interface NotificationItem {

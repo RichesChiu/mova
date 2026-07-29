@@ -8,9 +8,11 @@ use argon2::{
 };
 use mova_domain::{UserProfile, UserRole};
 use rand_core::{OsRng, RngCore};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::postgres::PgPool;
 use sqlx::Error as SqlxError;
+use std::collections::BTreeMap;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
@@ -107,7 +109,9 @@ pub async fn bootstrap_admin(
     session_ttl: Duration,
 ) -> ApplicationResult<AuthSession> {
     if !bootstrap_required(pool).await? {
-        return Err(ApplicationError::Conflict(
+        return Err(ApplicationError::conflict(
+            "bootstrap_unavailable",
+            BTreeMap::new(),
             "bootstrap is no longer available because an admin account already exists".to_string(),
         ));
     }
@@ -346,16 +350,19 @@ pub async fn get_user_by_session_token(
         .await
         .map_err(ApplicationError::from)?
     else {
-        return Err(ApplicationError::Unauthorized(
+        return Err(ApplicationError::unauthorized(
+            "authentication_required",
+            BTreeMap::new(),
             "authentication required".to_string(),
         ));
     };
 
     if !user.user.is_enabled {
-        return Err(ApplicationError::Forbidden(format!(
-            "user {} is disabled",
-            user.user.username
-        )));
+        return Err(ApplicationError::forbidden(
+            "account_disabled",
+            BTreeMap::from([("account".to_string(), json!(user.user.username))]),
+            format!("user {} is disabled", user.user.username),
+        ));
     }
 
     Ok(user)
@@ -380,8 +387,13 @@ pub async fn get_user(pool: &PgPool, user_id: i64) -> ApplicationResult<UserProf
         .await
         .map_err(ApplicationError::from)?;
 
-    let user =
-        user.ok_or_else(|| ApplicationError::NotFound(format!("user not found: {}", user_id)))?;
+    let user = user.ok_or_else(|| {
+        ApplicationError::not_found(
+            "user_not_found",
+            BTreeMap::from([("user_id".to_string(), json!(user_id))]),
+            format!("user not found: {}", user_id),
+        )
+    })?;
 
     Ok(user)
 }
@@ -475,7 +487,9 @@ pub async fn update_user(
 
 pub async fn delete_user(pool: &PgPool, actor_user_id: i64, user_id: i64) -> ApplicationResult<()> {
     if actor_user_id == user_id {
-        return Err(ApplicationError::Conflict(
+        return Err(ApplicationError::conflict(
+            "self_management_not_allowed",
+            BTreeMap::from([("operation".to_string(), json!("delete"))]),
             "current user cannot delete themselves".to_string(),
         ));
     }
@@ -490,10 +504,11 @@ pub async fn delete_user(pool: &PgPool, actor_user_id: i64, user_id: i64) -> App
         .map_err(ApplicationError::from)?;
 
     if !deleted {
-        return Err(ApplicationError::NotFound(format!(
-            "user not found: {}",
-            user_id
-        )));
+        return Err(ApplicationError::not_found(
+            "user_not_found",
+            BTreeMap::from([("user_id".to_string(), json!(user_id))]),
+            format!("user not found: {}", user_id),
+        ));
     }
 
     Ok(())
@@ -506,7 +521,9 @@ pub async fn reset_user_password(
     input: ResetUserPasswordInput,
 ) -> ApplicationResult<()> {
     if actor_user_id == user_id {
-        return Err(ApplicationError::Conflict(
+        return Err(ApplicationError::conflict(
+            "self_management_not_allowed",
+            BTreeMap::from([("operation".to_string(), json!("reset_password"))]),
             "current user must use the personal password endpoint to change their own password"
                 .to_string(),
         ));
@@ -554,7 +571,9 @@ pub async fn change_own_password(
 ) -> ApplicationResult<AuthSession> {
     validate_password("new_password", &input.new_password)?;
     if input.current_password == input.new_password {
-        return Err(ApplicationError::Validation(
+        return Err(ApplicationError::validation(
+            "password_unchanged",
+            BTreeMap::new(),
             "new_password must be different from current_password".to_string(),
         ));
     }
@@ -563,14 +582,17 @@ pub async fn change_own_password(
         .await
         .map_err(ApplicationError::from)?
     else {
-        return Err(ApplicationError::NotFound(format!(
-            "user not found: {}",
-            user_id
-        )));
+        return Err(ApplicationError::not_found(
+            "user_not_found",
+            BTreeMap::from([("user_id".to_string(), json!(user_id))]),
+            format!("user not found: {}", user_id),
+        ));
     };
 
     if !verify_password(&record.password_hash, &input.current_password)? {
-        return Err(ApplicationError::Unauthorized(
+        return Err(ApplicationError::unauthorized(
+            "invalid_current_password",
+            BTreeMap::new(),
             "current password is invalid".to_string(),
         ));
     }
@@ -593,16 +615,25 @@ pub async fn change_own_password(
 fn normalize_username(value: String) -> ApplicationResult<String> {
     let value = value.trim().to_string();
     if value.is_empty() {
-        return Err(ApplicationError::Validation(
+        return Err(ApplicationError::validation(
+            "field_required",
+            BTreeMap::from([("field".to_string(), json!("account"))]),
             "username cannot be empty".to_string(),
         ));
     }
 
     if value.chars().count() > MAX_USERNAME_LENGTH {
-        return Err(ApplicationError::Validation(format!(
-            "username must be at most {} characters long",
-            MAX_USERNAME_LENGTH
-        )));
+        return Err(ApplicationError::validation(
+            "field_too_long",
+            BTreeMap::from([
+                ("field".to_string(), json!("account")),
+                ("max".to_string(), json!(MAX_USERNAME_LENGTH)),
+            ]),
+            format!(
+                "username must be at most {} characters long",
+                MAX_USERNAME_LENGTH
+            ),
+        ));
     }
 
     Ok(value)
@@ -619,10 +650,17 @@ fn normalize_nickname(value: Option<String>, fallback_username: &str) -> Applica
         .unwrap_or_else(|| fallback_username.to_string());
 
     if nickname.chars().count() > MAX_NICKNAME_LENGTH {
-        return Err(ApplicationError::Validation(format!(
-            "nickname must be at most {} characters long",
-            MAX_NICKNAME_LENGTH
-        )));
+        return Err(ApplicationError::validation(
+            "field_too_long",
+            BTreeMap::from([
+                ("field".to_string(), json!("nickname")),
+                ("max".to_string(), json!(MAX_NICKNAME_LENGTH)),
+            ]),
+            format!(
+                "nickname must be at most {} characters long",
+                MAX_NICKNAME_LENGTH
+            ),
+        ));
     }
 
     Ok(nickname)
@@ -630,10 +668,17 @@ fn normalize_nickname(value: Option<String>, fallback_username: &str) -> Applica
 
 fn validate_password(field_name: &str, value: &str) -> ApplicationResult<()> {
     if value.len() < MIN_PASSWORD_LENGTH {
-        return Err(ApplicationError::Validation(format!(
-            "{} must be at least {} characters long",
-            field_name, MIN_PASSWORD_LENGTH
-        )));
+        return Err(ApplicationError::validation(
+            "field_too_short",
+            BTreeMap::from([
+                ("field".to_string(), json!(field_name)),
+                ("min".to_string(), json!(MIN_PASSWORD_LENGTH)),
+            ]),
+            format!(
+                "{} must be at least {} characters long",
+                field_name, MIN_PASSWORD_LENGTH
+            ),
+        ));
     }
 
     Ok(())
@@ -643,7 +688,9 @@ fn normalize_user_role(value: String) -> ApplicationResult<UserRole> {
     match value.trim().to_ascii_lowercase().as_str() {
         "admin" => Ok(UserRole::Admin),
         "viewer" => Ok(UserRole::Viewer),
-        _ => Err(ApplicationError::Validation(
+        _ => Err(ApplicationError::validation(
+            "invalid_role",
+            BTreeMap::from([("allowed".to_string(), json!(["admin", "viewer"]))]),
             "user role must be `admin` or `viewer`".to_string(),
         )),
     }
@@ -688,13 +735,20 @@ fn validate_user_management_scope(
     target: &UserProfile,
 ) -> ApplicationResult<()> {
     if actor.user.id == target.user.id {
-        return Err(ApplicationError::Conflict(
+        return Err(ApplicationError::conflict(
+            "self_management_not_allowed",
+            BTreeMap::from([("operation".to_string(), json!("manage_user"))]),
             "current user cannot manage themselves through user management".to_string(),
         ));
     }
 
     if user_management_level(actor) <= user_management_level(target) {
-        return Err(ApplicationError::Forbidden(
+        return Err(ApplicationError::forbidden(
+            "insufficient_privilege",
+            BTreeMap::from([
+                ("actor_role".to_string(), json!(actor.user.role.as_str())),
+                ("target_role".to_string(), json!(target.user.role.as_str())),
+            ]),
             "users can only manage accounts with a lower privilege level".to_string(),
         ));
     }
@@ -704,19 +758,25 @@ fn validate_user_management_scope(
 
 fn validate_role_assignment(actor: &UserProfile, next_role: UserRole) -> ApplicationResult<()> {
     if !actor.user.role.is_admin() {
-        return Err(ApplicationError::Forbidden(
+        return Err(ApplicationError::forbidden(
+            "admin_required",
+            BTreeMap::new(),
             "administrator permission required".to_string(),
         ));
     }
 
     if next_role.is_owner() {
-        return Err(ApplicationError::Forbidden(
+        return Err(ApplicationError::forbidden(
+            "owner_role_not_assignable",
+            BTreeMap::new(),
             "the system owner role cannot be assigned through user management".to_string(),
         ));
     }
 
     if next_role.is_admin() && !actor.user.role.is_owner() {
-        return Err(ApplicationError::Forbidden(
+        return Err(ApplicationError::forbidden(
+            "owner_required",
+            BTreeMap::from([("operation".to_string(), json!("assign_admin"))]),
             "only the system owner can assign administrator role".to_string(),
         ));
     }
@@ -743,7 +803,9 @@ async fn validate_admin_retention(
         .await
         .map_err(ApplicationError::from)?;
     if enabled_admin_count <= 1 {
-        return Err(ApplicationError::Conflict(
+        return Err(ApplicationError::conflict(
+            "last_admin_required",
+            BTreeMap::new(),
             "cannot remove or disable the last enabled admin".to_string(),
         ));
     }
@@ -796,22 +858,27 @@ async fn authenticate_login(
         .await
         .map_err(ApplicationError::from)?
     else {
-        return Err(ApplicationError::Unauthorized(
+        return Err(ApplicationError::unauthorized(
+            "invalid_credentials",
+            BTreeMap::new(),
             "invalid username or password".to_string(),
         ));
     };
 
     if !verify_password(&record.password_hash, &password)? {
-        return Err(ApplicationError::Unauthorized(
+        return Err(ApplicationError::unauthorized(
+            "invalid_credentials",
+            BTreeMap::new(),
             "invalid username or password".to_string(),
         ));
     }
 
     if !record.user.is_enabled {
-        return Err(ApplicationError::Forbidden(format!(
-            "user {} is disabled",
-            record.user.username
-        )));
+        return Err(ApplicationError::forbidden(
+            "account_disabled",
+            BTreeMap::from([("account".to_string(), json!(record.user.username))]),
+            format!("user {} is disabled", record.user.username),
+        ));
     }
 
     let library_ids = mova_db::list_library_ids_for_user(pool, record.user.id)
@@ -930,7 +997,11 @@ fn normalize_client_type(value: Option<String>) -> String {
 fn map_user_write_error(error: anyhow::Error) -> ApplicationError {
     if let Some(sqlx_error) = error.downcast_ref::<SqlxError>() {
         if is_unique_violation(sqlx_error) {
-            return ApplicationError::Conflict("username already exists".to_string());
+            return ApplicationError::conflict(
+                "account_already_exists",
+                BTreeMap::new(),
+                "username already exists".to_string(),
+            );
         }
     }
 
@@ -953,6 +1024,7 @@ mod tests {
     };
     use crate::error::ApplicationError;
     use mova_domain::{User, UserProfile, UserRole};
+    use serde_json::json;
     use time::OffsetDateTime;
 
     fn test_user(id: i64, role: UserRole) -> UserProfile {
@@ -982,7 +1054,11 @@ mod tests {
     fn normalize_user_role_rejects_unknown_value() {
         let error = normalize_user_role("operator".to_string()).unwrap_err();
 
-        assert!(matches!(error, ApplicationError::Validation(_)));
+        let ApplicationError::Business(error) = error else {
+            panic!("expected structured business error");
+        };
+        assert_eq!(error.code(), "invalid_role");
+        assert_eq!(error.params()["allowed"], json!(["admin", "viewer"]));
     }
 
     #[test]
@@ -1002,7 +1078,12 @@ mod tests {
     fn normalize_username_rejects_values_over_the_account_limit() {
         let error = normalize_username("a".repeat(MAX_USERNAME_LENGTH + 1)).unwrap_err();
 
-        assert!(matches!(error, ApplicationError::Validation(_)));
+        let ApplicationError::Business(error) = error else {
+            panic!("expected structured business error");
+        };
+        assert_eq!(error.code(), "field_too_long");
+        assert_eq!(error.params()["field"], "account");
+        assert_eq!(error.params()["max"], MAX_USERNAME_LENGTH);
     }
 
     #[test]
@@ -1042,14 +1123,22 @@ mod tests {
         validate_user_management_scope(&owner, &admin).unwrap();
         validate_user_management_scope(&admin, &viewer).unwrap();
 
-        assert!(matches!(
-            validate_user_management_scope(&admin, &peer_admin),
-            Err(ApplicationError::Forbidden(_))
-        ));
-        assert!(matches!(
-            validate_user_management_scope(&owner, &owner),
-            Err(ApplicationError::Conflict(_))
-        ));
+        let ApplicationError::Business(error) =
+            validate_user_management_scope(&admin, &peer_admin).unwrap_err()
+        else {
+            panic!("expected structured business error");
+        };
+        assert_eq!(error.code(), "insufficient_privilege");
+        assert_eq!(error.params()["actor_role"], "admin");
+        assert_eq!(error.params()["target_role"], "admin");
+
+        let ApplicationError::Business(error) =
+            validate_user_management_scope(&owner, &owner).unwrap_err()
+        else {
+            panic!("expected structured business error");
+        };
+        assert_eq!(error.code(), "self_management_not_allowed");
+        assert_eq!(error.params()["operation"], "manage_user");
     }
 
     #[test]
@@ -1060,6 +1149,10 @@ mod tests {
         validate_role_assignment(&owner, UserRole::Admin).unwrap();
         let error = validate_role_assignment(&admin, UserRole::Admin).unwrap_err();
 
-        assert!(matches!(error, ApplicationError::Forbidden(_)));
+        let ApplicationError::Business(error) = error else {
+            panic!("expected structured business error");
+        };
+        assert_eq!(error.code(), "owner_required");
+        assert_eq!(error.params()["operation"], "assign_admin");
     }
 }

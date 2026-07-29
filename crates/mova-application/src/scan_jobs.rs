@@ -21,7 +21,7 @@ use mova_scan::{
 };
 use sqlx::postgres::PgPool;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
@@ -1157,6 +1157,26 @@ fn record_scan_notification_group(
         return;
     }
 
+    let metadata_failure_reason =
+        primary_file.and_then(|file| file.metadata_failure_reason.clone());
+    let reason_code = metadata_failure_reason.unwrap_or_else(|| {
+        if metadata_status == METADATA_STATUS_UNMATCHED {
+            METADATA_FAILURE_NO_REMOTE_MATCH.to_string()
+        } else if metadata_status == METADATA_STATUS_FAILED {
+            "metadata_processing_failed".to_string()
+        } else {
+            "media_probe_warning".to_string()
+        }
+    });
+    let probe_warning_params = if probe_warning_count > 0 {
+        BTreeMap::from([(
+            "count".to_string(),
+            serde_json::Value::from(probe_warning_count),
+        )])
+    } else {
+        BTreeMap::new()
+    };
+
     summary.issues.push(ScanNotificationIssue {
         item_key: group.presentation.item_key.clone(),
         media_type: group.presentation.media_type.clone(),
@@ -1164,13 +1184,16 @@ fn record_scan_notification_group(
         year: group.presentation.year,
         file_count,
         metadata_status,
-        metadata_failure_reason: primary_file.and_then(|file| file.metadata_failure_reason.clone()),
-        failure_detail: failure_detail.map(compact_scan_failure_detail),
+        reason_code,
+        reason_params: BTreeMap::new(),
+        diagnostic_message: failure_detail.map(compact_scan_failure_detail),
         probe_warning_count,
         probe_warning_file_path: first_probe_warning
             .as_ref()
             .map(|(file_path, _)| file_path.clone()),
-        probe_warning_detail: first_probe_warning.map(|(_, detail)| detail),
+        probe_warning_code: (probe_warning_count > 0).then(|| "media_probe_warning".to_string()),
+        probe_warning_params,
+        probe_warning_diagnostic: first_probe_warning.map(|(_, detail)| detail),
     });
 }
 
@@ -3114,17 +3137,18 @@ mod tests {
         assert_eq!(summary.probe_warning_count, 1);
         assert_eq!(summary.issue_count, 1);
         assert_eq!(result.metadata_status, METADATA_STATUS_FAILED);
+        assert_eq!(result.reason_code, METADATA_FAILURE_PROVIDER_ERROR);
         assert_eq!(
-            result.metadata_failure_reason.as_deref(),
-            Some(METADATA_FAILURE_PROVIDER_ERROR)
-        );
-        assert_eq!(
-            result.failure_detail.as_deref(),
+            result.diagnostic_message.as_deref(),
             Some("operation timed out")
         );
         assert_eq!(result.probe_warning_count, 1);
         assert_eq!(
-            result.probe_warning_detail.as_deref(),
+            result.probe_warning_code.as_deref(),
+            Some("media_probe_warning")
+        );
+        assert_eq!(
+            result.probe_warning_diagnostic.as_deref(),
             Some("ffprobe failed: EBML header parsing failed")
         );
     }

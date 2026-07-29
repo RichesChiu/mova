@@ -337,9 +337,16 @@ fn is_counted_auth_failure(
     error: &mova_application::ApplicationError,
     count_validation_failure: bool,
 ) -> bool {
-    matches!(error, mova_application::ApplicationError::Unauthorized(_))
-        || (count_validation_failure
-            && matches!(error, mova_application::ApplicationError::Validation(_)))
+    match error {
+        mova_application::ApplicationError::Unauthorized(_) => true,
+        mova_application::ApplicationError::Validation(_) => count_validation_failure,
+        mova_application::ApplicationError::Business(error) => match error.kind() {
+            mova_application::BusinessErrorKind::Unauthorized => true,
+            mova_application::BusinessErrorKind::Validation => count_validation_failure,
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 fn auth_rate_limit_error(retry_after_seconds: u64) -> ApiError {
@@ -390,10 +397,16 @@ mod tests {
 
     #[test]
     fn password_change_only_counts_current_password_failures() {
-        let validation =
-            mova_application::ApplicationError::Validation("invalid new password".to_string());
-        let unauthorized =
-            mova_application::ApplicationError::Unauthorized("wrong password".to_string());
+        let validation = mova_application::ApplicationError::validation(
+            "field_too_short",
+            std::collections::BTreeMap::new(),
+            "invalid new password",
+        );
+        let unauthorized = mova_application::ApplicationError::unauthorized(
+            "invalid_current_password",
+            std::collections::BTreeMap::new(),
+            "wrong password",
+        );
 
         assert!(!is_counted_auth_failure(&validation, false));
         assert!(is_counted_auth_failure(&unauthorized, false));

@@ -285,50 +285,18 @@ data: {
 
 ### 7.4 扫描任务状态
 
-扫描任务 phase：
+`scan_job` 与扫描任务 HTTP API 使用同一份持久化状态。状态、phase、计数含义和权威进度算法由 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md) 定义。
 
-- `null`：任务等待 worker 或等待后台重试。
-- `discovering`：发现文件、建立增量计划和浅层分组。
-- `processing`：local worker 与 remote worker 有界重叠运行。
-- `finalizing`：执行缺失路径对齐与任务收口。
-- `finished`：任务处于终态。
+客户端只需要遵守以下同步约束：
 
-任务进度由服务端持久化：
-
-| 状态 | 进度 | 含义 |
-| --- | ---: | --- |
-| 首次 `pending` | 0 | 任务等待 worker |
-| 重试 `pending` | 保留最后值 | 任务等待下一次执行，`error_message` 保存失败上下文 |
-| `running / discovering` | 1～10 | 发现文件与建立计划 |
-| `running / processing` | 10～99 | 本地分析、pending 提交和远端处理 |
-| `running / finalizing` | 99 | 收敛缺失路径和最终状态 |
-| `success / finished` | 100 | 任务成功完成 |
-| `failed / finished` | 保留最后值 | 任务失败或取消 |
-
-任务进度公式：
-
-```text
-progress = floor(
-  10
-  + 20 * local_analyzed_files / total_files
-  + 20 * local_committed_files / total_files
-  + 49 * remote_completed_files / total_files
-)
-```
-
-运行中最大为 99。`matched`、`unmatched`、`failed` 和 `skipped` 都表示扫描组已经完成本次远端处理，因此计入任务完成度。客户端必须直接展示 `scan_job.progress_percent`，不得根据 phase、事件数量或条目进度重新计算。
+- 直接展示 `scan_job.progress_percent`，不得根据 phase、事件数量或条目状态重新计算。
+- `pending` 可能表示首次排队或等待后台重试；保留的进度不代表任务已经终结。
+- `success`、`failed` 和 `cancelled` 是终态；终态仍以 `scan.finished` 和对应 resource revisions 收口。
+- 断线恢复使用 realtime state 中的 `active_scans`，不依赖临时事件回放。
 
 ### 7.5 扫描条目状态
 
-| stage | 展示百分比 | 含义 |
-| --- | ---: | --- |
-| `analyzed` | 30 | 完成 sidecar、`ffprobe` 和技术信息分析 |
-| `pending_committed` | 40 | pending 短事务已经提交 |
-| `metadata` | 60 | 正在获取或判断远端元数据 |
-| `artwork` | 85 | 正在获取海报与背景图 |
-| `completed` | 100 | 最终组事务已经提交 |
-
-条目百分比仅用于单个临时卡片动画，不参与任务总进度计算。
+`items[]` 是可丢失的展示快照，不是业务权威数据。`item_key` 是同一扫描任务内的合并键，`stage` 和 `progress_percent` 只用于临时卡片动画；阶段及百分比定义见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md)。
 
 客户端按 `library_id` 保存扫描运行时，按 `item_key` 合并条目；出现新的 `scan_job.id` 时删除该库上一个任务的临时条目。每个媒体库最多保留 40 个临时扫描条目。
 

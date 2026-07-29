@@ -8,6 +8,7 @@ import type {
   ScanNotificationPayload,
 } from '../../api/types'
 import { type Translate, useI18n } from '../../i18n'
+import { localizeApiError } from '../../lib/api-error'
 import { HomeIcon } from './home-icons'
 
 const MAX_VISIBLE_ISSUES = 5
@@ -34,7 +35,7 @@ const isCacheCleanupFailurePayload = (
   typeof value.library_name === 'string' &&
   typeof value.attempt_count === 'number' &&
   typeof value.max_attempts === 'number' &&
-  typeof value.error_message === 'string'
+  typeof value.reason_code === 'string'
 
 const getCategoryLabel = (category: string, l: Translate) => {
   switch (category) {
@@ -68,21 +69,7 @@ const getNotificationTitle = (notification: NotificationItem, l: Translate) => {
   }
 }
 
-const getMetadataIssueLabel = (item: ScanNotificationIssue, l: Translate) => {
-  if (item.metadata_failure_reason === 'metadata_provider_error') {
-    return l('Metadata provider request failed')
-  }
-  if (item.metadata_failure_reason === 'no_remote_match') {
-    return l('No exact metadata match')
-  }
-  if (item.metadata_failure_reason === 'metadata_provider_disabled') {
-    return l('Metadata provider is disabled')
-  }
-  return l('Metadata processing failed')
-}
-
 const NotificationIssue = ({ item }: { item: ScanNotificationIssue }) => {
-  const { l } = useI18n()
   const displayTitle = item.year ? `${item.title} (${item.year})` : item.title
   const hasMetadataIssue = item.metadata_status === 'failed' || item.metadata_status === 'unmatched'
 
@@ -91,14 +78,20 @@ const NotificationIssue = ({ item }: { item: ScanNotificationIssue }) => {
       <strong title={displayTitle}>{displayTitle}</strong>
       {hasMetadataIssue ? (
         <span>
-          {getMetadataIssueLabel(item, l)}
-          {item.failure_detail ? ` · ${item.failure_detail}` : ''}
+          {localizeApiError(
+            item.reason_code,
+            item.reason_params,
+            item.diagnostic_message ?? undefined,
+          )}
         </span>
       ) : null}
       {item.probe_warning_count > 0 ? (
         <span>
-          {l('Media inspection warning')}
-          {item.probe_warning_detail ? ` · ${item.probe_warning_detail}` : ''}
+          {localizeApiError(
+            item.probe_warning_code ?? 'media_probe_warning',
+            item.probe_warning_params,
+            item.probe_warning_diagnostic ?? undefined,
+          )}
         </span>
       ) : null}
       {item.probe_warning_file_path ? (
@@ -138,8 +131,14 @@ const ScanNotificationContent = ({ payload }: { payload: ScanNotificationPayload
           </span>
         ) : null}
       </div>
-      {payload.error_message ? (
-        <p className="notification-center__job-error">{payload.error_message}</p>
+      {payload.reason_code ? (
+        <p className="notification-center__job-error">
+          {localizeApiError(
+            payload.reason_code,
+            payload.reason_params,
+            payload.diagnostic_message ?? undefined,
+          )}
+        </p>
       ) : null}
       {visibleIssues.length > 0 ? (
         <ul className="notification-center__issues">
@@ -164,16 +163,15 @@ const CacheCleanupFailureContent = ({
 }: {
   payload: CacheCleanupFailureNotificationPayload
 }) => {
-  const { l } = useI18n()
-
   return (
     <>
       <strong className="notification-center__subject">{payload.library_name}</strong>
       <p className="notification-center__job-error">
-        {l('The library data was deleted, but its cache could not be removed after all retries.')}
-      </p>
-      <p className="notification-center__generic-message">
-        <code>{payload.error_message}</code>
+        {localizeApiError(
+          payload.reason_code,
+          payload.reason_params,
+          payload.diagnostic_message ?? undefined,
+        )}
       </p>
     </>
   )

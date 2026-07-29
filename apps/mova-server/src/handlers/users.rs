@@ -155,7 +155,7 @@ mod tests {
     };
     use axum::{
         extract::{Path, State},
-        http::HeaderMap,
+        http::{HeaderMap, StatusCode},
         Json,
     };
     use axum_extra::extract::cookie::CookieJar;
@@ -347,13 +347,20 @@ mod tests {
         .unwrap_err();
 
         match error {
-            ApiError::Conflict(message) => {
+            ApiError::Business {
+                status,
+                error_code,
+                diagnostic_message,
+                ..
+            } => {
+                assert_eq!(status, StatusCode::CONFLICT);
+                assert_eq!(error_code, "self_management_not_allowed");
                 assert_eq!(
-                    message,
+                    diagnostic_message,
                     "current user cannot manage themselves through user management"
                 );
             }
-            other => panic!("expected conflict error, got {other:?}"),
+            other => panic!("expected structured conflict error, got {other:?}"),
         }
     }
 
@@ -386,13 +393,20 @@ mod tests {
         .unwrap_err();
 
         match error {
-            ApiError::Conflict(message) => {
+            ApiError::Business {
+                status,
+                error_code,
+                diagnostic_message,
+                ..
+            } => {
+                assert_eq!(status, StatusCode::CONFLICT);
+                assert_eq!(error_code, "self_management_not_allowed");
                 assert_eq!(
-                    message,
+                    diagnostic_message,
                     "current user cannot manage themselves through user management"
                 );
             }
-            other => panic!("expected conflict error, got {other:?}"),
+            other => panic!("expected structured conflict error, got {other:?}"),
         }
     }
 
@@ -485,13 +499,20 @@ mod tests {
         .unwrap_err();
 
         match error {
-            ApiError::Forbidden(message) => {
+            ApiError::Business {
+                status,
+                error_code,
+                diagnostic_message,
+                ..
+            } => {
+                assert_eq!(status, StatusCode::FORBIDDEN);
+                assert_eq!(error_code, "insufficient_privilege");
                 assert_eq!(
-                    message,
+                    diagnostic_message,
                     "users can only manage accounts with a lower privilege level"
                 );
             }
-            other => panic!("expected forbidden error, got {other:?}"),
+            other => panic!("expected structured forbidden error, got {other:?}"),
         }
     }
 
@@ -513,10 +534,17 @@ mod tests {
             .unwrap_err();
 
         match error {
-            ApiError::Conflict(message) => {
-                assert_eq!(message, "current user cannot delete themselves");
+            ApiError::Business {
+                status,
+                error_code,
+                diagnostic_message,
+                ..
+            } => {
+                assert_eq!(status, StatusCode::CONFLICT);
+                assert_eq!(error_code, "self_management_not_allowed");
+                assert_eq!(diagnostic_message, "current user cannot delete themselves");
             }
-            other => panic!("expected conflict error, got {other:?}"),
+            other => panic!("expected structured conflict error, got {other:?}"),
         }
     }
 

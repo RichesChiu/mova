@@ -448,6 +448,7 @@ async fn upsert_scan_job_notification(
     } else {
         ("scan.completed", "success")
     };
+    let reason_code = (scan_job.status == "failed").then_some("scan_execution_failed");
     let payload = json!({
         "scan_job_id": scan_job.id,
         "library_id": scan_job.library_id,
@@ -461,7 +462,9 @@ async fn upsert_scan_job_notification(
         "skipped_files": summary.skipped_files,
         "probe_warning_count": summary.probe_warning_count,
         "issue_count": summary.issue_count,
-        "error_message": scan_job.error_message,
+        "reason_code": reason_code,
+        "reason_params": {},
+        "diagnostic_message": scan_job.error_message,
         "issues": summary.issues,
     });
 

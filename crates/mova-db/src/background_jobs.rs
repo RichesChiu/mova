@@ -232,7 +232,9 @@ pub async fn persist_cache_cleanup_failure_notification(
     payload_object.insert("job_type".to_string(), json!(job.job_type));
     payload_object.insert("attempt_count".to_string(), json!(job.attempt_count));
     payload_object.insert("max_attempts".to_string(), json!(job.max_attempts));
-    payload_object.insert("error_message".to_string(), json!(error_message));
+    payload_object.insert("reason_code".to_string(), json!("cache_cleanup_failed"));
+    payload_object.insert("reason_params".to_string(), json!({}));
+    payload_object.insert("diagnostic_message".to_string(), json!(error_message));
 
     let mut tx = pool
         .begin()
