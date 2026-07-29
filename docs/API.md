@@ -7,6 +7,7 @@
 - Base URL：默认 `http://127.0.0.1:36080`
 - 响应格式：
   - 普通业务接口默认返回 JSON，并统一包裹成 `code / message / data`
+  - 错误响应额外返回稳定的 `error_code / params`，客户端必须优先使用这两个字段生成本地化文案
   - 媒体流和图片资源接口返回文件流，不返回 JSON
 - 鉴权：
   - `GET /api/health`、`GET /api/auth/bootstrap-status`、`POST /api/auth/bootstrap-admin`、`POST /api/auth/login`、`POST /api/auth/token-login`、`POST /api/auth/refresh` 可匿名访问
@@ -32,20 +33,46 @@
 ```json
 {
   "code": 404,
-  "message": "resource not found",
+  "error_code": "resource_not_found",
+  "params": {},
+  "message": "media item not found: 42",
   "data": null
 }
 ```
 
-认证相关错误会使用字符串 `code`，例如：
+其中：
 
-```json
-{
-  "code": "TOKEN_EXPIRED",
-  "message": "Access token expired",
-  "data": null
-}
-```
+- `code` 始终是数字 HTTP 状态码，不再混用字符串业务码。
+- `error_code` 是跨 Web、macOS 和 iOS 稳定的机器可读原因码。
+- `params` 是本地化模板参数；没有参数时仍返回空对象。
+- `message` 是英文诊断信息，只用于日志、排障和未知 `error_code` 的兜底，不应直接作为客户端主文案。
+
+通用错误码包括 `invalid_request`、`resource_conflict`、`unauthorized`、`forbidden`、`resource_not_found`、`rate_limited`、`service_unavailable`、`range_not_satisfiable` 和 `internal_error`。Token 相关错误码包括 `token_expired`、`invalid_token`、`invalid_refresh_token`、`refresh_token_expired` 和 `session_revoked`。`rate_limited.params.retry_after_seconds` 与响应头 `Retry-After` 保持一致；`range_not_satisfiable.params.file_size` 表示文件总字节数。
+
+账户与用户管理接口还会返回以下稳定业务错误码：
+
+| `error_code` | `params` | 含义 |
+| --- | --- | --- |
+| `bootstrap_unavailable` | `{}` | 首个管理员初始化已经完成 |
+| `authentication_required` | `{}` | 当前请求需要登录 |
+| `invalid_credentials` | `{}` | 账户或密码错误 |
+| `account_disabled` | `{ "account": string }` | 账户已停用 |
+| `account_already_exists` | `{}` | 账户名称已存在 |
+| `user_not_found` | `{ "user_id": number }` | 用户不存在 |
+| `field_required` | `{ "field": string }` | 必填字段为空 |
+| `field_too_long` | `{ "field": string, "max": number }` | 字段超过长度上限 |
+| `field_too_short` | `{ "field": string, "min": number }` | 字段未达到长度下限 |
+| `invalid_role` | `{ "allowed": string[] }` | 用户角色不受支持 |
+| `password_unchanged` | `{}` | 新旧密码相同 |
+| `invalid_current_password` | `{}` | 当前密码错误 |
+| `self_management_not_allowed` | `{ "operation": string }` | 用户管理接口不允许对自己的账户执行该操作 |
+| `insufficient_privilege` | `{ "actor_role": string, "target_role": string }` | 不能管理同级或更高权限账户 |
+| `admin_required` | `{}` | 操作需要管理员权限 |
+| `owner_required` | `{ "operation": string }` | 操作需要系统管理员权限 |
+| `owner_role_not_assignable` | `{}` | 系统管理员角色不能通过用户管理接口分配 |
+| `last_admin_required` | `{}` | 必须保留至少一个已启用的管理员 |
+
+客户端必须允许服务端增加新的 `error_code`。已知错误码使用本地文案；未知错误码可以临时显示 `message`，并应将其记录为诊断信息。
 
 - 文档中的字段示例多数只展示 `data` 内部结构，实际响应会额外包一层统一 envelope。
 
@@ -61,10 +88,9 @@
   - `429 Too Many Requests`：认证失败次数达到限制，按 `Retry-After` 响应头等待后重试
   - `416 Range Not Satisfiable`：媒体流的 `Range` 请求越界
   - `500 Internal Server Error`：服务内部错误
-- TMDB provider 从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取，值必须是 TMDB 账户 API 设置页中的 **API Read Access Token**，不是较短的 `API Key (v3 auth)`。变量为空或只含空白时服务仍正常启动，本地扫描、NFO/sidecar、入库和播放保持可用；扫描不会发起 TMDB 请求，条目以 `skipped / metadata_provider_disabled` 完成。后续配置 Token、重启并重扫后，这些条目会进入远端补全。每个媒体库可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。TMDB endpoint、严格候选规则和字段覆盖见 [`TMDB.md`](TMDB.md)。
+- TMDB provider 从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取，值必须是 TMDB 账户 API 设置页中的 **API Read Access Token**，不是较短的 `API Key (v3 auth)`。变量为空或只含空白时服务仍正常启动，本地扫描、NFO/sidecar、入库和播放保持可用；扫描不会发起 TMDB 请求，条目以 `skipped / metadata_provider_disabled` 完成。后续配置 Token、重启并重扫后，这些条目会进入远端补全。每个媒体库可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。TMDB 接入、严格候选规则和字段覆盖见 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md)，完整 v3 接口目录见 [`TMDB.md`](TMDB.md)。
 - TMDB 详情响应中的 `vote_average` 和 `vote_count` 会写入通用 `ratings` 集合，评分来源明确标记为 `tmdb`。TMDB details 附带的 IMDb、TVDB、Wikidata 和社交平台 ID 只作为外部身份保存，不代表对应平台的评分或数据已经接入；当前不请求 IMDb、OMDb 或其他评分来源。
 - 本地海报和背景图的 URL 带版本参数（例如 `/api/media-items/42/poster?v=1704164645`）。浏览器可以长期缓存；媒体元数据更新时版本参数随之变化。
-- pre-1.0 数据库 schema 只维护 `migrations/0001_init.sql`。数据模型保存扫描本地分析版本、原生客户端 access/refresh token 设备会话、逐文件播放进度、有上限的继续观看队列、外部媒体身份、通用评分、PostgreSQL 后台任务和资源 revisions。TMDB/provider 返回的标题、国家、题材、制作公司和演员角色等自由文本字段使用 `text`。schema 发生变化时需要重建数据库、重置数据目录并重新扫描媒体库。
 
 ## 接口总览
 
@@ -294,7 +320,7 @@ Web session、原生 access token 和 refresh token 在数据库中都只保存 
 - refresh 成功后旧 `refresh_token` 会立即失效
 - 旧 `refresh_token` 被重复使用时，服务端会视为异常重放并撤销对应原生客户端设备会话
 - 用户被禁用、删除或改密后，旧 `access_token` 和 `refresh_token` 都不能继续使用
-- 失败时常见错误码包括 `INVALID_REFRESH_TOKEN`、`REFRESH_TOKEN_EXPIRED`、`SESSION_REVOKED`
+- 失败时常见 `error_code` 包括 `invalid_refresh_token`、`refresh_token_expired`、`session_revoked`
 
 ### `POST /api/auth/logout`
 
@@ -407,85 +433,13 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 需要登录态，支持 cookie 和 Bearer access token。
 - 返回类型为 `text/event-stream`，服务端每 15 秒发送 keep-alive。
 - 服务端只推送连接建立之后的新事件，不回放历史；客户端重连后必须先调用 `GET /api/realtime/state` 做 revision 差异同步。
-- 资源变更由数据库事务同步增加 `realtime_revisions`，即使 SSE 丢失或服务重启，revision 仍可恢复。
-- 普通资源最多每 500ms 合并一批；继续观看默认最多每 1 秒合并一批，标记已看完会立即通知。
-- 扫描进度按 `(scan_job_id, item_key)` latest-wins 合并，最多每 200ms 发送一批；普通进度在 Dispatcher 饱和时允许丢弃，本地检查点和 `scan.finished` 使用独立的稀疏可靠 FIFO 立即发送，并通过共享单调序号避免终态前的晚到普通事件覆盖终态。
-- SSE 最后一跳按 server/admin/library/user scope 使用独立有界队列。连接只订阅与自己有关的 scope，无关用户或媒体库的高频事件不会唤醒该连接。客户端在相关队列中明显落后时，服务端发送一次 `resync.required` 后关闭连接，客户端应重新获取 state 并重连。
-- 权限变化或会话撤销会发送 `session.invalidated` 并关闭当前连接。
+- 事件类型为 `resources.changed`、`scan.progress`、`scan.finished`、`resync.required` 和 `session.invalidated`。
+- 可见资源键包括 `admin:libraries`、`admin:users`、`admin:notifications`、`library:{id}:settings`、`library:{id}:catalog`、`library:{id}:scan`、`library:{id}:notifications`、`user:{id}:libraries`、`user:{id}:profile`、`user:{id}:continue-watching` 和 `user:{id}:notifications`。
+- `resources.changed` 只表示指定读模型需要重新读取；`scan.progress` 只承载可丢失的临时展示状态。
+- `scan_job.progress_percent` 是服务端持久化的权威进度，客户端不得自行估算。
+- `resync.required` 与 `session.invalidated` 发送后会关闭连接。
 
-#### `resources.changed`
-
-```text
-event: resources.changed
-data: {"protocol_version":1,"changes":[{"resource":"library:7:catalog","revision":128}]}
-```
-
-客户端只在服务端 revision 大于本地已应用 revision 时刷新对应资源；重复事件和乱序的较低 revision 事件应忽略。资源键包括：
-- `admin:libraries`
-- `library:{id}:settings`
-- `library:{id}:catalog`
-- `library:{id}:scan`
-- `user:{id}:libraries`
-- `user:{id}:profile`
-- `user:{id}:continue-watching`
-- `admin:users`
-
-#### `scan.progress` / `scan.finished`
-
-```text
-event: scan.progress
-data: {
-  "protocol_version": 1,
-  "scan_job": {
-    "id": 41,
-    "library_id": 7,
-    "status": "running",
-    "phase": "processing",
-    "total_files": 240,
-    "scanned_files": 240,
-    "local_analyzed_files": 52,
-    "local_committed_files": 48,
-    "remote_completed_files": 20,
-    "progress_percent": 22
-  },
-  "items": [
-    {
-      "scan_job_id": 41,
-      "library_id": 7,
-      "item_key": "series-title:arcane",
-      "media_type": "series",
-      "title": "Arcane",
-      "item_index": 52,
-      "total_items": 240,
-      "stage": "artwork",
-      "progress_percent": 85
-    }
-  ]
-}
-```
-
-- 普通 `scan.progress` 是可丢失的临时 UI 状态，同一 `item_key` 只保留最新值；待处理组全部完成本地提交时，服务端立即发送带 `changes` 的可靠检查点，不等待 200ms 合并窗口，也不受普通 Dispatcher 队列饱和影响。
-- `scan_job.progress_percent` 是服务端持久化并单调推进的任务级权威进度；客户端直接显示该字段，不得根据 phase、文件数或条目阶段重新计算。
-- 扫描期间普通 `library:{id}:catalog` revision 只记录最高版本，不应触发每组一次的正式目录刷新；本地检查点强制刷新一次 pending 目录，`scan.finished` 再按最终 revision 刷新一次。
-- `scan.finished` 在相同任务和条目字段之外增加 `changes`，其中包含可读取的 `library:{id}:catalog` 与 `library:{id}:scan` revision。客户端把这些 change 交给统一 Revision Coordinator，刷新成功后再移除临时扫描卡片。
-- 后台执行失败但仍有重试额度时，任务恢复为 `pending`、保留权威进度和本次 `error_message`，不发送 `scan.finished`；只有成功、取消或重试耗尽后的最终失败才发送终态事件。
-- 扫描 phase 使用 `discovering` / `processing` / `finalizing` / `finished`；尚未被 worker 领取的 `pending` 任务 phase 为 `null`。`processing` 表示 local 与 remote worker 正在有界重叠运行。
-- 条目 stage 使用 `analyzed` / `pending_committed` / `metadata` / `artwork` / `completed`，展示百分比分别为 30 / 40 / 60 / 85 / 100；它们只用于单组动画。
-
-#### 恢复与会话事件
-
-```text
-event: resync.required
-data: {"protocol_version":1,"reason":"client_lagged"}
-
-event: session.invalidated
-data: {"protocol_version":1,"reason":"authorization_changed"}
-```
-
-- 收到 `resync.required` 后重新获取 realtime state，只刷新 revision 不一致的资源。
-- 收到 `session.invalidated` 后停止实时连接并重新建立登录态。
-
-完整事件规则和客户端验收清单见 [`SSE.md`](SSE.md)。
+事件 payload、资源键触发条件、合并窗口、终态屏障、权限 scope 和客户端恢复算法统一见 [`SSE.md`](SSE.md)。
 
 ### `PUT /api/auth/password`
 
@@ -658,7 +612,9 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
         "skipped_files": 0,
         "probe_warning_count": 1,
         "issue_count": 1,
-        "error_message": null,
+        "reason_code": null,
+        "reason_params": {},
+        "diagnostic_message": null,
         "issues": [
           {
             "item_key": "movie:a-minecraft-movie:2025",
@@ -667,11 +623,16 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
             "year": 2025,
             "file_count": 1,
             "metadata_status": "failed",
-            "metadata_failure_reason": "metadata_provider_error",
-            "failure_detail": "operation timed out",
+            "reason_code": "metadata_provider_error",
+            "reason_params": {},
+            "diagnostic_message": "operation timed out",
             "probe_warning_count": 1,
             "probe_warning_file_path": "/media/movies/A Minecraft Movie/A.Minecraft.Movie.2025.mkv",
-            "probe_warning_detail": "ffprobe failed: EBML header parsing failed"
+            "probe_warning_code": "media_probe_warning",
+            "probe_warning_params": {
+              "count": 1
+            },
+            "probe_warning_diagnostic": "ffprobe failed: EBML header parsing failed"
           }
         ]
       },
@@ -694,8 +655,10 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - `total_unread` 和 `unread_by_category` 始终统计当前用户可见的全部未读通知，不受本次 `category` 筛选影响，因此客户端只需一次响应即可渲染总红点和分类角标。
 - `is_read` / `read_at` 是当前登录用户自己的状态；同一条 server、admin 或 library 通知可以被不同用户独立阅读。
 - `payload` 是按 `notification_type` 区分的扩展对象。扫描通知包含任务级计数，并最多内嵌 20 个未匹配、provider 失败或本地探测警告的问题摘要；`issue_count` 可能大于 `issues.length`。
+- 扫描任务和单项问题使用 `reason_code / reason_params` 生成本地化主文案。常见原因码包括 `scan_execution_failed`、`metadata_provider_error`、`no_remote_match`、`metadata_provider_disabled`、`metadata_processing_failed` 和 `media_probe_warning`。
+- `diagnostic_message` 与 `probe_warning_diagnostic` 仅供日志和排障使用。客户端不得把这些英文诊断信息直接作为通知主文案；未知原因码才允许将其作为次级兜底。
 - 扫描摘要由 worker 在远端组成功提交后累计，并在任务终态直接写入通知；服务端不提供第二套扫描报告接口。更底层的网络、provider 与 `ffprobe` 排障信息由运维侧查看服务日志。
-- `cache.cleanup.failed` 是仅管理员可见的 `system / error` 通知。它表示媒体库权威数据已经删除，但 `MOVA_CACHE_DIR/libraries/{library_id}` 在 10 次尝试后仍无法移除；payload 包含 `background_job_id`、`library_id`、删除前的 `library_name`、`attempt_count`、`max_attempts` 和 `error_message`。
+- `cache.cleanup.failed` 是仅管理员可见的 `system / error` 通知。它表示媒体库权威数据已经删除，但 `MOVA_CACHE_DIR/libraries/{library_id}` 在 10 次尝试后仍无法移除；payload 包含 `background_job_id`、`library_id`、删除前的 `library_name`、`attempt_count`、`max_attempts`、`reason_code=cache_cleanup_failed`、`reason_params` 和可选 `diagnostic_message`。
 
 ### `PUT /api/notifications/{id}/read`
 
@@ -906,18 +869,9 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 说明：
 - 创建媒体库后自动触发一次后台扫描，也可显式调用 `POST /api/libraries/{id}/scan`
 - 媒体库不提供启用/禁用状态；已创建的库始终可以被手动扫描
-- 自动扫描使用 `no_remote_match` 表示严格候选不存在，使用 `metadata_provider_error` 表示 provider 请求失败
 - 允许重叠或完全相同的 `root_path`。同一个物理文件如果被多个库路径覆盖，会在各自库里独立建模和展示。
-- 媒体库自动识别电影和剧集，不要求用户选择库类型。扫描时按单个视频文件判断：
-  - 文件名里命中 `剧名.S01E02.mkv`、`剧名 S01E02 - 第 2 集.mkv`、`剧名 - S01E02.mkv`、`剧名_S01E02.mkv`、`剧名-S01E02.mkv`、`剧名.1x02.mkv`、`剧名S01E02.mkv` 这类显式剧名和季集信号时，优先按文件名里的剧名归组
-  - 剧集身份字段优先读取最近的 `tvshow.nfo`，没有时再读取文件名；显式剧集文件位于明确季目录树下时，会以共同容器路径作为不透明分组边界统一写库，但目录文字不会成为标题、别名或年份候选
-  - S01 文件中的明确年份表示系列首播年；S02 及以后文件中的年份只表示对应季播出年，不能覆盖系列年份。同组存在 S01 时完全忽略后续季年份；只导入后续季时，可使用最早已导入季的季号和年份执行 TMDB 季验证
-  - `第 1 集`、`Episode 1` 这类跟在季集号后的通用集数文案不会当作远端集标题，远端集标题仍可在刮削成功后覆盖
-  - 文件名只有 `S01E02.mkv`、`01.mkv`、`EP02.mkv`、`第03集.mkv` 这类季集或集号时，不结合目录信号归组
-  - 完整季集坐标只调用 TMDB TV search；其它文件只调用 movie search。对应类型没有严格候选时直接完成为未匹配，不查询另一类型兜底
-  - 自动匹配不计算标题/年份分数：同类型、同年份候选按“完整原始标题、完整本地化标题、编号原始标题兼容、编号本地化标题兼容”顺序取首个非空阶段；编号副标题兼容只有在完整标题无候选时启用，经 alternative titles 验证的别名也先完整相等、再尝试编号兼容；电影发行年和剧集首播年必须完全相同且不执行无年份重试；只有季播出年提示时使用 TV search `year` 参数，并读取对应 season details 验证季号与播出年，验证后候选不唯一即保持未匹配；没有任何年份时在结果不超过 20 页时遍历全部页并选择完整日期唯一最新者
-  - 本地分析完成、远端确认尚未完成时使用 `metadata_status = pending`，前端按本地结构展示；远端没有严格命中时在 `stage = completed` 后以 `metadata_failure_reason = no_remote_match` 进入 `Other`
-  - 如果没有启用 TMDB，文件完成时会以 `metadata_status = skipped` 入库；这种情况不视为刮削失败，但由于没有远端类型确认，完成后进入 `Other`
+- 媒体库不要求客户端选择电影或剧集类型。名称拆分、季集识别、分组、增量扫描和任务进度见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md)。
+- TMDB 类型路由、严格候选选择、字段覆盖和失败分类见 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md)。
 
 ### `GET /api/libraries/{id}`
 
@@ -972,6 +926,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - 每个媒体库的 TMDB 图片、WebVTT 字幕和音轨 remux 缓存都位于自己的库命名空间；媒体目录及其中的 NFO、sidecar 图片和字幕不会被修改
 - 缓存清理最多尝试 10 次。服务重启或 worker 租约过期后任务会继续执行；重试耗尽时管理员通知中心会出现 `cache.cleanup.failed`
 - 如果同一时间重复删除同一个库，或扫描仍在停止过程中，会返回 `409 Conflict`
+- 删除事务、worker 协调、缓存目录边界和失败恢复的完整约束见 [`LIBRARY_CACHE_LIFECYCLE.md`](LIBRARY_CACHE_LIFECYCLE.md)。
 
 ### `PATCH /api/libraries/{id}`
 
@@ -1082,14 +1037,14 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 - 返回 `ScanJobResponse`
 
 关键字段：
-- `status`：`pending` / `running` / `success` / `failed`
+- `status`：`pending` / `running` / `success` / `failed` / `cancelled`
 - `phase`：持久化扫描阶段，使用 `discovering` / `processing` / `finalizing` / `finished`；尚未被 worker 领取或正在等待后台重试的 `pending` 任务为 `null`
 - `scanned_files`：已发现文件数
 - `total_files`：已知总文件数
 - `local_analyzed_files`：已完成完整本地分析并通过扫描组检查点持久化的物理文件数；此时 pending 媒体事务可能尚未提交
 - `local_committed_files`：已通过组级短事务写入 pending 数据的物理文件数
 - `remote_completed_files`：已完成 TMDB/图片处理并写入远端业务终态的物理文件数
-- `progress_percent`：服务端持久化的任务级权威进度，使用 `floor(10 + 20×analyzed/total + 20×committed/total + 49×remote/total)`，范围为 0～100 且不会回退；运行中最大 99，只有任务成功写入终态时为 100。local 与 remote 有界重叠，因此不保证单独显示 50
+- `progress_percent`：服务端持久化的任务级权威进度，范围为 0～100 且不会回退；运行中最大 99，只有任务成功写入终态时为 100。计数权重和并行推进规则见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md)
 - `error_message`：带阶段上下文的失败原因，例如：
   - `Directory scan failed: Failed to scan media directory /media/movies: ...`
   - `Media processing failed: Failed to process scan pipeline: ...`
@@ -1119,13 +1074,8 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 说明：
 - 媒体库存在 `pending` 或 `running` 任务时复用该任务，不启动第二个扫描
 - 扫描请求和 PostgreSQL `background_jobs` 后台任务在同一事务内持久化；服务重启后 worker 重新领取未完成任务。客户端可以通过 `/api/libraries/{id}/scan-jobs/{scan_job_id}`、realtime state 和临时扫描事件读取进度
-- 扫描按 `(library_id, file_path)` 增量同步：同路径文件原地更新，缺失路径删除，改名或移动表现为路径删除和新增
-- `discovering` 会依次完成文件树、增量计划和浅层分组，三者都成功后才进入 `processing` 并建立 10% 的任务进度基线
-- 成功匹配的路径按文件大小和修改时间生成稳定指纹；同路径指纹一致、本地分析版本一致且具有 TMDB binding 时，跳过拆名、sidecar、`ffprobe`、TMDB、图片缓存和数据库 upsert。新增、变化或本地分析版本过期的路径先做浅层分组，再按扫描组完整探测和写入。`unmatched`、`failed`、缺少 provider binding、provider 启用后的 `skipped`、需要复核或保存远端图片 URL 的条目进入远端重试；文件指纹未变化时，通过一次媒体摘要、一次批量音轨和一次批量字幕查询恢复本地分析。具有相同 TMDB `provider_item_id` 的电影资源合并为同一个 `media_item`。严格匹配规则见 [`TMDB.md`](TMDB.md)
-- 同一扫描组的本地 pending 写入和远端最终写入各使用一个短事务；组内任一媒体文件写入失败时整组回滚，每个事务只执行一次孤儿季集结构清理
-- local worker 与 remote worker 通过容量为 2 的有界通道形成流水线：组 A 的 pending 事务提交后进入 TMDB/图片处理，同时 local worker 分析组 B
-- 每个本地或远端组事务通过事务内会话标记关闭逐行 catalog trigger，并在组末显式增加一次 `library:{id}:catalog` revision；不会因为同一组更新 media item、file、season、episode 多张表而重复发送逐行 revision
 - 创建媒体库触发首次扫描；之后的新增、删除、改名和移动通过手动扫描收敛
+- 扫描是按库串行、可恢复的后台任务。增量复用、worker 流水线、组级事务、进度算法和 finalize 规则统一见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md)。
 
 ### `GET /api/search`
 
@@ -1476,7 +1426,7 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 
 说明：
 - 这个动作会重新读取该媒体条目关联的源文件、本地 sidecar 和本地图片文件
-- 如果内置 TMDB token 可用，会继续按“本地优先，远程补空字段”的规则补齐缺失 metadata
+- 如果 TMDB provider 可用，会保留本地文件结构与 `source_title`，并按自动补全策略应用远端字段；自动扫描与人工替换的不同覆盖强度见 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md)
 - 刷新后会同步更新 `metadata_status`、`metadata_failure_reason` 和 `remote_media_type`
 - 命中远程图片后，服务端先缓存到本地，再写回 `poster_path` / `backdrop_path` / `logo_path`；远端缺失的图片字段保持为空，禁止使用同条目的其他图片字段或其他层级图片补齐
 - 媒体条目通过 `POST /api/media-items/{id}/metadata-match` 绑定精确 TMDB 条目时，演员数据和剧集 outline 使用该 binding

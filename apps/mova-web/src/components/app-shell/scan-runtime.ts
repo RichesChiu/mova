@@ -76,7 +76,7 @@ export const formatScanJobStatusCopy = (
   }
 
   if (effectiveScanJob.status === 'failed') {
-    return effectiveScanJob.error_message ?? translateCurrent('Scan failed')
+    return translateCurrent('Scan failed')
   }
 
   if (effectiveScanJob.status === 'success') {
@@ -168,7 +168,7 @@ export const formatFailedScanCopy = (
     return null
   }
 
-  return effectiveScanJob.error_message ?? translateCurrent('The most recent scan failed')
+  return translateCurrent('The most recent scan failed')
 }
 
 export const shouldShowScanPlaceholder = (

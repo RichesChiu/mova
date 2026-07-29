@@ -206,6 +206,7 @@ const zhCN: Record<string, string> = {
   'Reading the in-container `/media` tree…': '正在读取容器内 `/media` 目录树…',
   'Failed to read directories. Check the Docker volume mapping.':
     '读取目录失败，请检查 Docker 卷挂载。',
+  'Failed to read directories: {{message}}': '读取目录失败：{{message}}',
   'No in-container `/media` directory was detected yet. Make sure Docker Compose mounts the host media directory at `/media`, then restart the service.':
     '暂未检测到容器内 `/media` 目录。请确认 Docker Compose 已将宿主机媒体目录挂载到 `/media`，然后重启服务。',
   Security: '安全',
@@ -478,6 +479,48 @@ const zhCN: Record<string, string> = {
   'Current: {{name}}': '当前：{{name}}',
   "Use the source file's default audio": '使用源文件默认音轨',
   'Selected audio: {{name}}': '当前音轨：{{name}}',
+  'The request is invalid.': '请求参数无效。',
+  'Initial setup has already been completed.': '初始化已完成。',
+  'Sign in to continue.': '请先登录。',
+  'This account is disabled.': '此账户已被停用。',
+  'An account with this name already exists.': '此账户名称已存在。',
+  'The requested user was not found.': '未找到该用户。',
+  'You cannot perform this action on your own account here.':
+    '不能在用户管理中对自己的账户执行此操作。',
+  'The new password must be different from the current password.': '新密码不能与当前密码相同。',
+  'The current password is incorrect.': '当前密码不正确。',
+  'The account or password is incorrect.': '账户或密码不正确。',
+  'Select a valid user role.': '请选择有效的用户角色。',
+  'You cannot manage an account with the same or a higher role.':
+    '不能管理与自己同级或权限更高的账户。',
+  'Administrator permission is required.': '需要管理员权限。',
+  'System administrator permission is required.': '需要系统管理员权限。',
+  'The system administrator role cannot be assigned.': '不能分配系统管理员角色。',
+  'At least one enabled administrator account is required.': '必须至少保留一个已启用的管理员账户。',
+  Field: '字段',
+  '{{field}} is required.': '请输入{{field}}。',
+  '{{field}} must be at most {{max}} characters.': '{{field}}不能超过 {{max}} 个字符。',
+  '{{field}} must be at least {{min}} characters.': '{{field}}至少需要 {{min}} 个字符。',
+  'The request conflicts with the current resource state.': '当前资源状态不允许执行此操作。',
+  'Authentication failed.': '身份验证失败。',
+  'Your session has expired. Sign in again.': '登录状态已过期，请重新登录。',
+  'Your session is invalid. Sign in again.': '登录状态无效，请重新登录。',
+  'Your refresh token is invalid. Sign in again.': '刷新凭证无效，请重新登录。',
+  'Your refresh token has expired. Sign in again.': '刷新凭证已过期，请重新登录。',
+  'This session has been revoked. Sign in again.': '当前会话已被撤销，请重新登录。',
+  'You do not have permission to perform this action.': '你没有执行此操作的权限。',
+  'The requested resource was not found.': '未找到请求的资源。',
+  'Too many requests. Try again in {{retry_after_seconds}} seconds.':
+    '请求过于频繁，请在 {{retry_after_seconds}} 秒后重试。',
+  'Too many requests. Try again later.': '请求过于频繁，请稍后重试。',
+  'The service is temporarily unavailable.': '服务暂时不可用。',
+  'The requested media range is not available.': '请求的媒体范围不可用。',
+  'The server encountered an unexpected error.': '服务器发生了意外错误。',
+  'Unable to reach the server. Check your connection and try again.':
+    '无法连接服务器，请检查网络后重试。',
+  'The server returned an invalid response.': '服务器返回了无效响应。',
+  'The request could not be completed.': '请求未能完成。',
+  'The library scan could not be completed.': '媒体库扫描未能完成。',
 }
 
 const interpolate = (template: string, params?: TranslationParams) => {

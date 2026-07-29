@@ -1,5 +1,8 @@
 # MOVA macOS App Store Metadata (English, U.S.)
 
+Validate every implementation-dependent statement against the submitted native client before
+copying this metadata into App Store Connect.
+
 ## General
 
 - App name: `MOVA`
@@ -12,9 +15,9 @@
 - Marketing URL: `https://mova.hk/`
 - Copyright: `2026 Riches Chiu`
 
-> The macOS project must still set an `LSApplicationCategoryType` that matches
-> the primary category in App Store Connect. For the recommendation above, use
-> `public.app-category.video`.
+The macOS project must set an `LSApplicationCategoryType` that matches the selected primary
+category in App Store Connect. For the recommendation above, use
+`public.app-category.video`.
 
 ## Promotional text
 
@@ -59,8 +62,8 @@ Current size: 74 bytes, below App Store Connect's 100-byte limit.
 
 ## App Privacy recommendation
 
-For the current 1.0 implementation, select:
+For the current implementation, select:
 
 `No, we do not collect data from this app.`
 
-This remains accurate only while the submitted app has no developer-operated analytics, crash reporting, advertising, telemetry, or proxy service. Data received by a user-selected self-hosted server is not collected by Riches Chiu. Reassess the disclosure before submission if the implementation changes.
+This remains accurate only while the submitted app has no developer-operated analytics, crash reporting, advertising, telemetry, or proxy service. Data received by a user-selected self-hosted server is not collected by Riches Chiu. Reassess the disclosure before every submission.

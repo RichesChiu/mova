@@ -9,29 +9,32 @@ use mova_domain::{
     SubtitleFile, UserProfile,
 };
 use serde::Serialize;
+use serde_json::Value;
 use std::collections::BTreeMap;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
 
-/// 所有 JSON 业务接口统一包裹成 code/message/data，便于前端和第三方客户端稳定消费。
+/// 所有 JSON 业务接口统一包裹成稳定 envelope。
+///
+/// `code` 始终是 HTTP 状态码；错误响应额外提供可供客户端本地化的
+/// `error_code + params`，`message` 只保留为诊断和未知错误兜底。
 #[derive(Debug, Serialize)]
 pub struct ApiEnvelope<T> {
-    pub code: ApiCode,
+    pub code: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<BTreeMap<String, Value>>,
     pub message: String,
     pub data: T,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-pub enum ApiCode {
-    Http(u16),
-    Error(&'static str),
 }
 
 pub type ApiJson<T> = Json<ApiEnvelope<T>>;
 
 pub fn ok<T>(data: T) -> ApiJson<T> {
     Json(ApiEnvelope {
-        code: ApiCode::Http(StatusCode::OK.as_u16()),
+        code: StatusCode::OK.as_u16(),
+        error_code: None,
+        params: None,
         message: "ok".to_string(),
         data,
     })
@@ -39,7 +42,9 @@ pub fn ok<T>(data: T) -> ApiJson<T> {
 
 pub fn ok_message<T>(message: impl Into<String>, data: T) -> ApiJson<T> {
     Json(ApiEnvelope {
-        code: ApiCode::Http(StatusCode::OK.as_u16()),
+        code: StatusCode::OK.as_u16(),
+        error_code: None,
+        params: None,
         message: message.into(),
         data,
     })
@@ -53,7 +58,9 @@ pub fn with_status<T>(
     (
         status,
         Json(ApiEnvelope {
-            code: ApiCode::Http(status.as_u16()),
+            code: status.as_u16(),
+            error_code: None,
+            params: None,
             message: message.into(),
             data,
         }),

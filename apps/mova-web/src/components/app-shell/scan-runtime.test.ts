@@ -294,9 +294,7 @@ describe('scan runtime helpers', () => {
     }
 
     expect(hasFailedLibraryScan(null, runtime)).toBe(true)
-    expect(formatFailedScanCopy(null, runtime)).toBe(
-      'Metadata enrichment failed: TMDB request timed out',
-    )
+    expect(formatFailedScanCopy(null, runtime)).toBe('The most recent scan failed')
     expect(isLibraryScanActive(null, runtime)).toBe(false)
   })
 })

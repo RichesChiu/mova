@@ -1,29 +1,25 @@
 # Mova Docker Base Images
 
-These Dockerfiles define the build and runtime base images used by `apps/mova-server/Dockerfile`.
+These Dockerfiles provide the reusable layers consumed by
+`apps/mova-server/Dockerfile`:
 
-The normal release entrypoint is the repository-level publish script. It targets `linux/amd64` and `linux/arm64` by default, checks whether these base image tags already contain the required platforms, publishes missing base images, and then publishes `richeschiu/mova:latest`:
+- `web-build.Dockerfile`: Node.js and pnpm Web build environment
+- `rust-build.Dockerfile`: Rust build environment
+- `runtime.Dockerfile`: runtime system, FFmpeg, and Python
+
+Publish application images through the repository script. It verifies the
+required `linux/amd64` and `linux/arm64` base-image platforms and publishes
+missing base images automatically:
 
 ```sh
+MOVA_DOCKER_IMAGE_TAG=richeschiu/mova:<immutable-tag> ./scripts/publish-docker-images.sh
+```
+
+Force rebuilding all base images only after intentionally changing their
+toolchain or runtime contents:
+
+```sh
+MOVA_PUBLISH_BASE_IMAGES=1 \
+MOVA_DOCKER_IMAGE_TAG=richeschiu/mova:<immutable-tag> \
 ./scripts/publish-docker-images.sh
-```
-
-Force rebuilding and publishing all base images before the main image:
-
-```sh
-MOVA_PUBLISH_BASE_IMAGES=1 ./scripts/publish-docker-images.sh
-```
-
-Build and publish only the base images manually from the repository root when needed:
-
-```sh
-docker buildx build --platform linux/amd64,linux/arm64 -f docker/base/web-build.Dockerfile -t richeschiu/mova-web-build-base:node24-pnpm11 --push .
-docker buildx build --platform linux/amd64,linux/arm64 -f docker/base/rust-build.Dockerfile -t richeschiu/mova-rust-build-base:1-bookworm --push .
-docker buildx build --platform linux/amd64,linux/arm64 -f docker/base/runtime.Dockerfile -t richeschiu/mova-runtime-base:bookworm-ffmpeg-python3 --push .
-```
-
-The main release image can also be published manually:
-
-```sh
-docker buildx build --platform linux/amd64,linux/arm64 -f apps/mova-server/Dockerfile -t richeschiu/mova:latest --push .
 ```

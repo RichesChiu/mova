@@ -31,6 +31,7 @@ export const navItems: NavItem[] = [
   { id: 'home', label: '首页' },
   { id: 'deploy', label: '部署' },
   { id: 'api', label: 'API 文档' },
+  { id: 'support', label: '支持' },
 ]
 
 export const githubUrl = 'https://github.com/RichesChiu/mova'

@@ -34,11 +34,14 @@ pub struct ScanNotificationIssue {
     pub year: Option<i32>,
     pub file_count: i32,
     pub metadata_status: String,
-    pub metadata_failure_reason: Option<String>,
-    pub failure_detail: Option<String>,
+    pub reason_code: String,
+    pub reason_params: BTreeMap<String, Value>,
+    pub diagnostic_message: Option<String>,
     pub probe_warning_count: i32,
     pub probe_warning_file_path: Option<String>,
-    pub probe_warning_detail: Option<String>,
+    pub probe_warning_code: Option<String>,
+    pub probe_warning_params: BTreeMap<String, Value>,
+    pub probe_warning_diagnostic: Option<String>,
 }
 
 /// 扫描 worker 在内存中累计、并随任务终态一次性写入通知 payload 的摘要。

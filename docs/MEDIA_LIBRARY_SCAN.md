@@ -2,7 +2,7 @@
 
 本文档定义 Mova 媒体库扫描、文件分析、电影与剧集归组、TMDB 匹配、图片缓存、数据库写入、任务进度和 SSE 通知的服务端方案。
 
-HTTP 接口见 [`API.md`](API.md)，SSE 事件见 [`SSE.md`](SSE.md)，TMDB 字段和 endpoint 见 [`TMDB.md`](TMDB.md)。
+HTTP 接口见 [`API.md`](API.md)，SSE 事件见 [`SSE.md`](SSE.md)，TMDB 接入规则见 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md)，完整 v3 endpoint 目录见 [`TMDB.md`](TMDB.md)。
 
 ## 1. 设计原则
 
@@ -105,6 +105,7 @@ pending
 running
 success
 failed
+cancelled
 ```
 
 任务 phase：
@@ -165,14 +166,17 @@ title
 year
 file_count
 metadata_status
-metadata_failure_reason
-failure_detail
+reason_code
+reason_params
+diagnostic_message
 probe_warning_count
 probe_warning_file_path
-probe_warning_detail
+probe_warning_code
+probe_warning_params
+probe_warning_diagnostic
 ```
 
-`failure_detail` 和 probe warning detail 会压缩空白并限制长度。`ffprobe` 失败不改变 metadata 状态，也不阻断远端匹配。摘要不建立独立数据库表；成功任务在 finalize 事务中直接把它写入 `notifications.payload`。执行尝试异常退出时，后台任务按原 scan job 重试并重新计算摘要；重试耗尽时通知保存任务级 `error_message`，原始诊断保留在 `tracing` 日志。
+`reason_code / reason_params` 是客户端本地化的稳定输入。`diagnostic_message` 和 `probe_warning_diagnostic` 会压缩空白并限制长度，只用于排障和未知原因码兜底。`ffprobe` 失败不改变 metadata 状态，也不阻断远端匹配。摘要不建立独立数据库表；成功任务在 finalize 事务中直接把它写入 `notifications.payload`。执行尝试异常退出时，后台任务按原 scan job 重试并重新计算摘要；重试耗尽时通知使用任务级 `reason_code = scan_execution_failed`，底层错误放入 `diagnostic_message` 并同时保留在 `tracing` 日志。
 
 ### 4.4 `background_jobs`
 
@@ -421,34 +425,14 @@ Remote worker 从有界队列领取已经完成 pending 事务的扫描组：
 
 ## 13. TMDB 严格匹配
 
-### 13.1 唯一查询类型
+扫描只向 metadata provider 提交已经确定的本地结构，不在扫描层实现第二套候选算法：
 
-```text
-完整 season_number + episode_number -> TV
-其他文件                              -> movie
-```
+- 完整 `season_number + episode_number` 只查询 TV，其它文件只查询 movie。
+- 指定类型没有严格命中时结果为未匹配，不跨类型兜底。
+- 已有可信 provider binding 时按 ID 获取详情；没有 binding 时只执行一次严格搜索。
+- provider 返回的规范字段只在匹配成功的最终事务中写入，本地文件结构和 `source_title` 不被覆盖。
 
-指定类型没有严格命中时，结果为未匹配，不查询另一类型。
-
-### 13.2 名称与年份
-
-- 名称与 localized title、original title 或 alternative title 的标准化主标题完全相等。别名中的 `$` 只有位于两个 ASCII 英文字母之间时才按风格化字母 `s` 处理；例如 `Cashero` 与 `Ca$hero` 可以严格对齐，`$100` 不会匹配 `S100`，普通标题也不会全局忽略空白。只有完整标题阶段没有候选时，数字结尾的续集名才允许远端在同一主标题后用 `:`、`：`、`|`、`｜`、`–`、`—` 追加副标题，不做普通前缀匹配。
-- 同类型、同年份候选按“完整原始标题、完整本地化标题、编号原始标题兼容、编号本地化标题兼容”顺序取首个非空阶段；该阶段仍不唯一时保持未匹配，不根据 UI 语言硬编码猜测制作国家。
-- 名称标准化只消除大小写、空白、常见标点和全角半角差异；`·`、`・`、`•` 等装饰性间隔号视为纯排版差异。
-- 不使用前缀、包含、编辑距离、popularity 或评分模型。
-- 电影发行年与 TMDB `release_date`、剧集首播年与 TMDB `first_air_date` 必须完全相同，且不执行无年份重试。
-- 只有后续季播出年时，TV search 使用 `year` 参数，随后读取候选对应 `season_number` 的 season details；季或其集的播出年份必须相同，验证后的候选必须唯一。
-- 没有作品年份或季播出年时，从严格主标题候选中选择完整日期最新者；最新日期并列时保持未匹配。
-- 全部缺少日期时，结果为未匹配。
-
-### 13.3 Provider binding
-
-- 可信 provider ID 与本地 media type 一致时直接按 ID 获取详情。
-- NFO provider ID 必须经过类型、名称和年份校验。
-- 搜索选出的 ID 直接用于详情请求。
-- 详情请求不得再次按标题搜索。
-
-完整 endpoint 和字段覆盖规则见 [`TMDB.md`](TMDB.md)。
+标题、年份、别名、后续季验证、字段所有权、请求缓存和 provider 失败分类统一由 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md) 定义。TMDB v3 完整接口目录见 [`TMDB.md`](TMDB.md)。
 
 ## 14. Metadata 终态
 
@@ -577,16 +561,12 @@ library:{id}:notifications
 ```
 
 - scan job 创建和状态变化增加 scan revision。
-- pending 组事务增加一次 catalog revision。
-- 最终组事务增加一次 catalog revision。
-- 扫描终态事务生成扫描通知并增加一次 notifications revision。
+- pending 组事务和最终组事务分别增加一次 catalog revision。
+- 扫描终态事务生成通知并增加 notifications revision。
 - 普通任务计数不逐次增加 scan revision。
 - 业务数据与 revision 在同一事务提交。
-- 普通进度最多每 200ms 合并一批。
-- 全部 pending 组提交后发送带 revisions 的本地检查点。
-- 终态立即发送最终 revisions。
 
-客户端规则见 [`SSE.md`](SSE.md)。
+事件合并频率、检查点、终态屏障、payload 和客户端恢复算法统一由 [`SSE.md`](SSE.md) 定义。
 
 ## 21. 数据库与连接池约束
 
@@ -643,9 +623,3 @@ library:{id}:notifications
 - 本地检查点刷新一次 pending 目录。
 - `scan.finished` 刷新最终目录后再删除临时卡片。
 - 断线后通过 realtime state 恢复任务状态。
-
-## 24. Schema 与开发期数据
-
-扫描状态字段、`scan_job_groups`、后台任务和通用通知表定义在 `migrations/0001_init.sql`。项目处于 pre-1.0 阶段，schema 变更直接修改该初始化迁移，不提供增量兼容 migration。
-
-修改扫描 schema 后需要停止服务、清理 `data/postgres`、重新初始化数据库、创建管理员和媒体库，并重新扫描媒体文件。

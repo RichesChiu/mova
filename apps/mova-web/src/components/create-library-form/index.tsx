@@ -137,7 +137,9 @@ export const CreateLibraryForm = ({ error, isSubmitting, onSubmit }: CreateLibra
         {mediaTreeQuery.isError ? (
           <p className="root-path-picker__hint">
             {mediaTreeQuery.error instanceof Error
-              ? `Failed to read directories: ${mediaTreeQuery.error.message}`
+              ? l('Failed to read directories: {{message}}', {
+                  message: mediaTreeQuery.error.message,
+                })
               : l('Failed to read directories. Check the Docker volume mapping.')}
           </p>
         ) : null}

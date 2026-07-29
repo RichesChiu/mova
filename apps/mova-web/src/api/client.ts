@@ -1,3 +1,4 @@
+import { type ApiErrorParams, errorCodeForHttpStatus, localizeApiError } from '../lib/api-error'
 import type {
   AudioTrack,
   BootstrapAdminInput,
@@ -44,7 +45,9 @@ const API_PREFIX = '/api'
 interface ApiEnvelope<T> {
   code: number
   data: T
+  error_code?: string | null
   message: string
+  params?: ApiErrorParams | null
 }
 
 type MockJsonRequester = <T>(path: string, init?: RequestInit) => Promise<{ data: T } | null>
@@ -58,22 +61,62 @@ type PlaybackProgressUpdateInput = {
 
 const withApiPrefix = (path: string) => `${API_PREFIX}${path}`
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
 class ApiError extends Error {
+  diagnosticMessage: string
+  errorCode: string
+  params: ApiErrorParams
   status: number
 
-  constructor(status: number, message: string) {
-    super(message)
+  constructor(
+    status: number,
+    errorCode: string,
+    params: ApiErrorParams,
+    diagnosticMessage: string,
+  ) {
+    super(localizeApiError(errorCode, params, diagnosticMessage))
     this.name = 'ApiError'
     this.status = status
+    this.errorCode = errorCode
+    this.params = params
+    this.diagnosticMessage = diagnosticMessage
   }
 }
 
-const isApiEnvelope = <T>(value: unknown): value is ApiEnvelope<T> =>
-  typeof value === 'object' &&
-  value !== null &&
-  'code' in value &&
-  'message' in value &&
-  'data' in value
+const isApiEnvelope = <T>(value: unknown): value is ApiEnvelope<T> => {
+  if (
+    !isRecord(value) ||
+    !Object.hasOwn(value, 'data') ||
+    !Number.isInteger(value.code) ||
+    typeof value.message !== 'string'
+  ) {
+    return false
+  }
+
+  if (
+    value.error_code !== undefined &&
+    value.error_code !== null &&
+    typeof value.error_code !== 'string'
+  ) {
+    return false
+  }
+
+  return value.params === undefined || value.params === null || isRecord(value.params)
+}
+
+const diagnosticMessageForFetchError = (error: unknown) => {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+
+  if (typeof error === 'string' && error.trim()) {
+    return error
+  }
+
+  return 'fetch failed'
+}
 
 const requestDevMockJson: MockJsonRequester = import.meta.env.DEV
   ? async <T>(path: string, init?: RequestInit) => {
@@ -98,11 +141,16 @@ const requestJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
     headers.set('Content-Type', 'application/json')
   }
 
-  const response = await fetch(path, {
-    credentials: 'same-origin',
-    ...init,
-    headers,
-  })
+  let response: Response
+  try {
+    response = await fetch(path, {
+      credentials: 'same-origin',
+      ...init,
+      headers,
+    })
+  } catch (error) {
+    throw new ApiError(0, 'network_error', {}, diagnosticMessageForFetchError(error))
+  }
 
   let payload: unknown = null
 
@@ -115,32 +163,28 @@ const requestJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   }
 
   if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`
+    let diagnosticMessage = `${response.status} ${response.statusText}`
+    let errorCode = errorCodeForHttpStatus(response.status)
+    let params: ApiErrorParams = {}
 
-    if (isApiEnvelope(payload)) {
-      message = payload.message
-    } else if (
-      typeof payload === 'object' &&
-      payload !== null &&
-      'error' in payload &&
-      typeof payload.error === 'string'
-    ) {
-      // Keep the old parser during the transition so stale backend processes still surface errors.
-      message = payload.error
+    if (isApiEnvelope(payload) && payload.code === response.status) {
+      diagnosticMessage = payload.message
+      errorCode = payload.error_code || errorCode
+      params = payload.params ?? {}
     }
 
-    throw new ApiError(response.status, message)
+    throw new ApiError(response.status, errorCode, params, diagnosticMessage)
   }
 
   if (response.status === 204) {
     return undefined as T
   }
 
-  if (isApiEnvelope<T>(payload)) {
+  if (isApiEnvelope<T>(payload) && payload.code === response.status) {
     return payload.data as T
   }
 
-  return payload as T
+  throw new ApiError(response.status, 'invalid_response', {}, `invalid API response for ${path}`)
 }
 
 export const getBootstrapStatus = () =>

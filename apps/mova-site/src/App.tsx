@@ -137,6 +137,11 @@ function App() {
       return
     }
 
+    if (targetId === 'support') {
+      openPage('support')
+      return
+    }
+
     scrollToSection(targetId)
   }
 
@@ -154,7 +159,17 @@ function App() {
   return (
     <div className="app-shell">
       <Header
-        activeSection={page === 'home' ? 'home' : page === 'deploy' ? 'deploy' : page === 'api' ? 'api' : ''}
+        activeSection={
+          page === 'home'
+            ? 'home'
+            : page === 'deploy'
+              ? 'deploy'
+              : page === 'api'
+                ? 'api'
+                : page === 'support'
+                  ? 'support'
+                  : ''
+        }
         isHidden={isHeaderHidden}
         onNavigate={handleHeaderNavigate}
       />
@@ -176,7 +191,6 @@ function App() {
       <SiteFooter
         onOpenHome={() => scrollToSection('home')}
         onOpenPrivacy={() => openPage('privacy')}
-        onOpenSupport={() => openPage('support')}
       />
     </div>
   )
