@@ -6,7 +6,7 @@ on:
     branches:
       - master
     paths:
-      - docs/DOCKER_HUB.md
+      - .github/DOCKER_HUB_OVERVIEW.md
       - .github/workflows/sync-dockerhub-overview.yml
 
 permissions:
@@ -31,4 +31,4 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: richeschiu/mova
           short-description: 用 Rust 构建的轻量自托管媒体服务器，整理并播放本地电影与剧集。
-          readme-filepath: ./docs/DOCKER_HUB.md
+          readme-filepath: ./.github/DOCKER_HUB_OVERVIEW.md

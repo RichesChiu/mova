@@ -1,6 +1,8 @@
-# Mova 缓存存储与清理
+# 媒体库缓存生命周期
 
-本文档定义 Mova 服务端生成缓存的目录归属、生命周期、后台清理和失败恢复规则。缓存不是业务权威数据；PostgreSQL 中的媒体、用户、播放和任务数据始终是权威状态。
+本文档定义媒体库删除时，Mova 服务端生成缓存的目录归属、清理事务、worker 协调和失败恢复规则。缓存不是业务权威数据；PostgreSQL 中的媒体、用户、播放和任务数据始终是权威状态。
+
+对外 HTTP 行为见 [`API.md`](API.md) 中的 `DELETE /api/libraries/{id}`。
 
 ## 1. 目标
 
@@ -72,7 +74,20 @@ severity: error
 resource revision: admin:notifications
 ```
 
-通知 payload 包含 `background_job_id`、`library_id`、删除前的 `library_name`、尝试次数和最后错误。管理员客户端收到 `admin:notifications` revision 后重新读取 `GET /api/notifications`。
+通知 payload 包含：
+
+```text
+background_job_id
+library_id
+library_name
+attempt_count
+max_attempts
+reason_code: cache_cleanup_failed
+reason_params: {}
+diagnostic_message
+```
+
+客户端必须使用 `reason_code / reason_params` 生成本地化主文案。`diagnostic_message` 只用于排障和未知原因码兜底，不得直接作为通知主文案。管理员客户端收到 `admin:notifications` revision 后重新读取 `GET /api/notifications`。
 
 ## 6. 不属于缓存清理的内容
 
@@ -83,9 +98,3 @@ resource revision: admin:notifications
 - 媒体目录内的海报、背景、Logo 或剧照。
 - 外挂字幕和其它 sidecar 文件。
 - PostgreSQL 数据目录。
-
-## 7. 数据库与开发环境
-
-`background_jobs` 的 scope、取消状态和扫描任务外键属于当前单一初始化 schema。现有开发数据库不能平滑升级，必须删除并重新初始化数据库数据，再重新扫描媒体库。
-
-缓存布局同时改为按库隔离。重建开发环境时应删除旧缓存目录，避免保留不再受新任务管理的旧版共享缓存。

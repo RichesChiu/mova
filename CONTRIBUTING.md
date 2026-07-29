@@ -16,7 +16,7 @@ Open an Issue before implementation when a change:
 
 Small documentation fixes, tests, and narrowly scoped maintenance may go directly to a Pull Request. If you are unsure, open an Issue first.
 
-Do not disclose security vulnerabilities in a public Issue. Contact the maintainer privately instead.
+Do not disclose security vulnerabilities in a public Issue. Use GitHub private vulnerability reporting when available, or contact the maintainer at `riches.chiu@gmail.com`.
 
 ## Branches
 

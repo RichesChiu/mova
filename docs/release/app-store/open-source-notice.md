@@ -1,5 +1,9 @@
 # Open-source notice for MOVA macOS
 
+> Release-sensitive document: verify the FFmpeg version, configuration, bundle layout, source
+> archive, checksum, and included license files against the exact submitted binary before use.
+> This repository does not contain the native client build and cannot validate those facts.
+
 MOVA includes dynamically linked libraries from FFmpeg 8.1.2.
 
 FFmpeg is licensed under the GNU Lesser General Public License version 2.1 or later. The MOVA distribution uses an LGPL-only configuration and does not include FFmpeg command-line programs, GPL components, external codec libraries, encoders, muxers, or filters.

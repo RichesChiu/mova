@@ -1,5 +1,7 @@
 # MOVA macOS App Store 元数据（简体中文）
 
+复制到 App Store Connect 前，必须以实际提交的原生客户端核对所有依赖实现的陈述。
+
 ## 基础信息
 
 - App 名称：`MOVA`
@@ -12,9 +14,9 @@
 - 营销 URL：`https://mova.hk/`
 - 版权：`2026 Riches Chiu`
 
-> macOS 工程仍需设置与 App Store Connect 主要类别匹配的
-> `LSApplicationCategoryType`。若采用上述分类，建议使用
-> `public.app-category.video`。
+macOS 工程必须设置与 App Store Connect 主要类别匹配的
+`LSApplicationCategoryType`。若采用上述分类，建议使用
+`public.app-category.video`。
 
 ## 推广文本
 
@@ -59,8 +61,8 @@ MOVA 不包含广告、跨 App 跟踪或第三方分析。服务器配置保存�
 
 ## App 隐私建议
 
-按当前 1.0 客户端实现，App Store Connect 的数据收集问题建议选择：
+按当前客户端实现，App Store Connect 的数据收集问题建议选择：
 
 `否，我们不从此 App 收集数据。`
 
-适用前提：提交版本中仍然没有开发者运营的分析、崩溃上报、广告、遥测或代理服务器。用户选择的自托管服务器收到的数据不应描述成由 Riches Chiu 收集；如果未来增加任何开发者可访问的数据服务，必须重新评估并更新披露。
+适用前提：提交版本中仍然没有开发者运营的分析、崩溃上报、广告、遥测或代理服务器。用户选择的自托管服务器收到的数据不应描述成由 Riches Chiu 收集；每次提交前都必须重新核对隐私披露。
