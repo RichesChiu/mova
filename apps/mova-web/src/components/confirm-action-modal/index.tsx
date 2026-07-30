@@ -36,10 +36,10 @@ export const ConfirmActionModal = ({
       surfaceClassName="confirm-action-modal__surface"
     >
       <div className="confirm-action-modal__header">
-        <div>
+        <div className="confirm-action-modal__copy">
           <p className="eyebrow">{l('Confirm Action')}</p>
           <h3>{title}</h3>
-          <p className="muted">{description}</p>
+          <p className="confirm-action-modal__description muted">{description}</p>
         </div>
       </div>
 

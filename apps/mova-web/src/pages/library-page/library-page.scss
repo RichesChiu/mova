@@ -25,11 +25,6 @@
   background: var(--scan-panel-background);
 }
 
-.library-detail-scan--failed {
-  border-color: var(--scan-panel-failed-border);
-  background: var(--scan-panel-failed-background);
-}
-
 .library-detail-scan__row {
   display: flex;
   align-items: center;
@@ -56,11 +51,6 @@
   line-height: 1.28;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.library-detail-scan--failed p,
-.library-detail-scan--failed .library-detail-scan__row {
-  color: var(--scan-panel-failed-text);
 }
 
 .library-detail-scan__track {

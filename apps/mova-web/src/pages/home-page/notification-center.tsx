@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { listNotifications, markAllNotificationsRead, markNotificationRead } from '../../api/client'
 import type {
   CacheCleanupFailureNotificationPayload,
@@ -9,6 +9,11 @@ import type {
 } from '../../api/types'
 import { type Translate, useI18n } from '../../i18n'
 import { localizeApiError } from '../../lib/api-error'
+import {
+  isScanSummaryAvailable,
+  type NotificationResult,
+  resolveNotificationResult,
+} from '../../lib/notification-presentation'
 import { HomeIcon } from './home-icons'
 
 const MAX_VISIBLE_ISSUES = 5
@@ -22,6 +27,8 @@ const isScanPayload = (value: unknown): value is ScanNotificationPayload =>
   isRecord(value) &&
   typeof value.scan_job_id === 'number' &&
   typeof value.library_name === 'string' &&
+  typeof value.status === 'string' &&
+  (value.summary_available === undefined || typeof value.summary_available === 'boolean') &&
   typeof value.total_files === 'number' &&
   typeof value.issue_count === 'number' &&
   Array.isArray(value.issues)
@@ -71,6 +78,61 @@ const getNotificationTitle = (notification: NotificationItem, l: Translate) => {
   }
 }
 
+const getNotificationTypeLabel = (category: string, l: Translate) => {
+  switch (category) {
+    case 'scan':
+      return l('Scan')
+    case 'system':
+      return l('System')
+    case 'library':
+      return l('Library')
+    case 'account':
+      return l('Account')
+    default:
+      return category
+  }
+}
+
+const getNotificationResultLabel = (result: NotificationResult, l: Translate) => {
+  switch (result) {
+    case 'completed':
+      return l('Completed')
+    case 'completed_with_issues':
+      return l('Completed with issues')
+    case 'failed':
+      return l('Failed')
+    case 'cancelled':
+      return l('Cancelled')
+    case 'warning':
+      return l('Warning')
+    case 'information':
+      return l('Information')
+  }
+}
+
+interface NotificationLogRow {
+  label: string
+  value: ReactNode
+  tone?: 'error' | 'warning'
+  mono?: boolean
+}
+
+const NotificationLog = ({ rows }: { rows: NotificationLogRow[] }) => (
+  <dl className="notification-center__log">
+    {rows.map((row) => (
+      <div className="notification-center__log-row" key={row.label}>
+        <dt>{row.label}</dt>
+        <dd
+          className={row.mono ? 'notification-center__log-value--mono' : undefined}
+          data-tone={row.tone}
+        >
+          {row.value}
+        </dd>
+      </div>
+    ))}
+  </dl>
+)
+
 const NotificationIssue = ({ item }: { item: ScanNotificationIssue }) => {
   const displayTitle = item.year ? `${item.title} (${item.year})` : item.title
   const hasMetadataIssue = item.metadata_status === 'failed' || item.metadata_status === 'unmatched'
@@ -79,23 +141,18 @@ const NotificationIssue = ({ item }: { item: ScanNotificationIssue }) => {
     <li className="notification-center__issue">
       <strong title={displayTitle}>{displayTitle}</strong>
       {hasMetadataIssue ? (
-        <span>
-          {localizeApiError(
-            item.reason_code,
-            item.reason_params,
-            item.diagnostic_message ?? undefined,
-          )}
-        </span>
+        <span>{localizeApiError(item.reason_code, item.reason_params)}</span>
       ) : null}
+      {hasMetadataIssue && item.diagnostic_message ? <code>{item.diagnostic_message}</code> : null}
       {item.probe_warning_count > 0 ? (
         <span>
           {localizeApiError(
             item.probe_warning_code ?? 'media_probe_warning',
             item.probe_warning_params,
-            item.probe_warning_diagnostic ?? undefined,
           )}
         </span>
       ) : null}
+      {item.probe_warning_diagnostic ? <code>{item.probe_warning_diagnostic}</code> : null}
       {item.probe_warning_file_path ? (
         <code title={item.probe_warning_file_path}>{item.probe_warning_file_path}</code>
       ) : null}
@@ -103,82 +160,155 @@ const NotificationIssue = ({ item }: { item: ScanNotificationIssue }) => {
   )
 }
 
-const ScanNotificationContent = ({ payload }: { payload: ScanNotificationPayload }) => {
-  const { formatNumber, l } = useI18n()
+const ScanNotificationContent = ({
+  createdAt,
+  notificationType,
+  payload,
+}: {
+  createdAt: string
+  notificationType: string
+  payload: ScanNotificationPayload
+}) => {
+  const { formatDateTime, formatNumber, l } = useI18n()
+  const result = resolveNotificationResult(notificationType, 'info')
+  const canShowSummary =
+    (result === 'completed' || result === 'completed_with_issues') &&
+    isScanSummaryAvailable(payload)
   const visibleIssues = payload.issues.slice(0, MAX_VISIBLE_ISSUES)
   const hiddenIssueCount = Math.max(0, payload.issue_count - visibleIssues.length)
-
-  return (
-    <>
-      <strong className="notification-center__subject">{payload.library_name}</strong>
-      <div className="notification-center__summary">
-        <span>{l('{{count}} files', { count: formatNumber(payload.total_files) })}</span>
-        <span>{l('{{count}} matched', { count: formatNumber(payload.matched_files) })}</span>
-        {payload.reused_files > 0 ? (
-          <span>{l('{{count}} unchanged', { count: formatNumber(payload.reused_files) })}</span>
-        ) : null}
-        {payload.unmatched_files > 0 ? (
-          <span className="notification-center__summary--warning">
-            {l('{{count}} unmatched', { count: formatNumber(payload.unmatched_files) })}
-          </span>
-        ) : null}
-        {payload.failed_files > 0 ? (
-          <span className="notification-center__summary--error">
-            {l('{{count}} failed', { count: formatNumber(payload.failed_files) })}
-          </span>
-        ) : null}
-        {payload.probe_warning_count > 0 ? (
-          <span className="notification-center__summary--warning">
-            {l('{{count}} local warnings', { count: formatNumber(payload.probe_warning_count) })}
-          </span>
-        ) : null}
-      </div>
-      {payload.reason_code ? (
-        <p className="notification-center__job-error">
-          {localizeApiError(
-            payload.reason_code,
-            payload.reason_params,
-            payload.diagnostic_message ?? undefined,
-          )}
-        </p>
+  const summary = canShowSummary ? (
+    <span className="notification-center__summary">
+      <span>{l('{{count}} files', { count: formatNumber(payload.total_files) })}</span>
+      <span>{l('{{count}} matched', { count: formatNumber(payload.matched_files) })}</span>
+      {payload.reused_files > 0 ? (
+        <span>{l('{{count}} unchanged', { count: formatNumber(payload.reused_files) })}</span>
       ) : null}
-      {visibleIssues.length > 0 ? (
+      {payload.unmatched_files > 0 ? (
+        <span data-tone="warning">
+          {l('{{count}} unmatched', { count: formatNumber(payload.unmatched_files) })}
+        </span>
+      ) : null}
+      {payload.failed_files > 0 ? (
+        <span data-tone="error">
+          {l('{{count}} failed', { count: formatNumber(payload.failed_files) })}
+        </span>
+      ) : null}
+      {payload.skipped_files > 0 ? (
+        <span>{l('{{count}} skipped', { count: formatNumber(payload.skipped_files) })}</span>
+      ) : null}
+      {payload.probe_warning_count > 0 ? (
+        <span data-tone="warning">
+          {l('{{count}} local warnings', { count: formatNumber(payload.probe_warning_count) })}
+        </span>
+      ) : null}
+    </span>
+  ) : null
+  const issues =
+    result === 'completed_with_issues' && visibleIssues.length > 0 ? (
+      <>
         <ul className="notification-center__issues">
           {visibleIssues.map((item) => (
             <NotificationIssue item={item} key={item.item_key} />
           ))}
         </ul>
-      ) : payload.status === 'cancelled' ? (
-        <p className="notification-center__generic-message">{l('Scan was cancelled.')}</p>
-      ) : (
-        <p className="notification-center__success">{l('Scan completed without issues.')}</p>
-      )}
-      {hiddenIssueCount > 0 ? (
-        <p className="notification-center__more">
-          {l('{{count}} more issues', { count: formatNumber(hiddenIssueCount) })}
-        </p>
-      ) : null}
-    </>
-  )
+        {hiddenIssueCount > 0 ? (
+          <p className="notification-center__more">
+            {l('{{count}} more issues', { count: formatNumber(hiddenIssueCount) })}
+          </p>
+        ) : null}
+      </>
+    ) : null
+  const reason = payload.reason_code
+    ? localizeApiError(payload.reason_code, payload.reason_params)
+    : result === 'failed'
+      ? l('The library scan could not be completed.')
+      : result === 'cancelled'
+        ? l('Scan was cancelled.')
+        : null
+  const rows: NotificationLogRow[] = [
+    { label: l('Type'), value: l('Scan') },
+    {
+      label: l('Result'),
+      value: getNotificationResultLabel(result, l),
+      tone:
+        result === 'failed'
+          ? 'error'
+          : result === 'completed_with_issues' || result === 'warning'
+            ? 'warning'
+            : undefined,
+    },
+    {
+      label: l('Time'),
+      value: <time dateTime={createdAt}>{formatDateTime(createdAt)}</time>,
+    },
+    { label: l('Library'), value: payload.library_name },
+  ]
+
+  if (summary) {
+    rows.push({ label: l('Summary'), value: summary })
+  }
+  if (reason) {
+    rows.push({
+      label: l('Reason'),
+      value: reason,
+      tone: result === 'failed' ? 'error' : undefined,
+    })
+  }
+  if (payload.diagnostic_message && (result === 'failed' || result === 'cancelled')) {
+    rows.push({
+      label: l('Info'),
+      value: payload.diagnostic_message,
+      tone: result === 'failed' ? 'error' : undefined,
+      mono: true,
+    })
+  }
+  if (issues) {
+    rows.push({ label: l('Issues'), value: issues })
+  }
+
+  return <NotificationLog rows={rows} />
 }
 
 const CacheCleanupFailureContent = ({
+  createdAt,
   payload,
 }: {
+  createdAt: string
   payload: CacheCleanupFailureNotificationPayload
 }) => {
-  return (
-    <>
-      <strong className="notification-center__subject">{payload.library_name}</strong>
-      <p className="notification-center__job-error">
-        {localizeApiError(
-          payload.reason_code,
-          payload.reason_params,
-          payload.diagnostic_message ?? undefined,
-        )}
-      </p>
-    </>
-  )
+  const { formatDateTime, l } = useI18n()
+  const rows: NotificationLogRow[] = [
+    { label: l('Type'), value: l('System') },
+    { label: l('Result'), value: l('Failed'), tone: 'error' },
+    {
+      label: l('Time'),
+      value: <time dateTime={createdAt}>{formatDateTime(createdAt)}</time>,
+    },
+    { label: l('Library'), value: payload.library_name },
+    {
+      label: l('Attempts'),
+      value: l('{{current}} / {{maximum}}', {
+        current: payload.attempt_count,
+        maximum: payload.max_attempts,
+      }),
+    },
+    {
+      label: l('Reason'),
+      value: localizeApiError(payload.reason_code, payload.reason_params),
+      tone: 'error',
+    },
+  ]
+
+  if (payload.diagnostic_message) {
+    rows.push({
+      label: l('Info'),
+      value: payload.diagnostic_message,
+      tone: 'error',
+      mono: true,
+    })
+  }
+
+  return <NotificationLog rows={rows} />
 }
 
 const NotificationCard = ({
@@ -193,6 +323,7 @@ const NotificationCard = ({
   const cacheCleanupFailurePayload = isCacheCleanupFailurePayload(notification.payload)
     ? notification.payload
     : null
+  const result = resolveNotificationResult(notification.notification_type, notification.severity)
 
   return (
     <article
@@ -203,11 +334,9 @@ const NotificationCard = ({
       <div className="notification-center__report-heading">
         <span className="notification-center__title-row">
           {!notification.is_read ? <i className="notification-center__unread-dot" /> : null}
-          <small>{getCategoryLabel(notification.category, l)}</small>
           <strong>{getNotificationTitle(notification, l)}</strong>
         </span>
         <span className="notification-center__meta">
-          <time dateTime={notification.created_at}>{formatDateTime(notification.created_at)}</time>
           {!notification.is_read ? (
             <button onClick={() => onRead(notification.id)} type="button">
               {l('Mark as read')}
@@ -216,12 +345,43 @@ const NotificationCard = ({
         </span>
       </div>
       {notification.category === 'scan' && scanPayload ? (
-        <ScanNotificationContent payload={scanPayload} />
+        <ScanNotificationContent
+          createdAt={notification.created_at}
+          notificationType={notification.notification_type}
+          payload={scanPayload}
+        />
       ) : notification.notification_type === 'cache.cleanup.failed' &&
         cacheCleanupFailurePayload ? (
-        <CacheCleanupFailureContent payload={cacheCleanupFailurePayload} />
+        <CacheCleanupFailureContent
+          createdAt={notification.created_at}
+          payload={cacheCleanupFailurePayload}
+        />
       ) : (
-        <p className="notification-center__generic-message">{l('Open for details.')}</p>
+        <NotificationLog
+          rows={[
+            { label: l('Type'), value: getNotificationTypeLabel(notification.category, l) },
+            {
+              label: l('Result'),
+              value: getNotificationResultLabel(result, l),
+              tone:
+                result === 'failed'
+                  ? 'error'
+                  : result === 'warning' || result === 'completed_with_issues'
+                    ? 'warning'
+                    : undefined,
+            },
+            {
+              label: l('Time'),
+              value: (
+                <time dateTime={notification.created_at}>
+                  {formatDateTime(notification.created_at)}
+                </time>
+              ),
+            },
+            { label: l('Target'), value: l('Mova server') },
+            { label: l('Info'), value: l('Open for details.') },
+          ]}
+        />
       )}
     </article>
   )

@@ -52,6 +52,7 @@ export interface ScanNotificationPayload {
   library_id: number
   library_name: string
   status: string
+  summary_available?: boolean
   total_files: number
   reused_files: number
   matched_files: number

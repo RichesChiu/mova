@@ -164,9 +164,12 @@ pub(super) async fn patch_episode_remote_entry(
         );
     }
 
+    // A remote match may add or replace the series year and title, so its
+    // local identity lookup can legitimately miss. Keep provider-ID matches
+    // authoritative for merging, then fall back to the persisted parent.
     let series_id = find_existing_series_item(tx, entry)
         .await?
-        .context("remote episode patch requires a locally committed series")?;
+        .unwrap_or(stored_series_id);
     let preserve_series_parent = preserve_existing_parent
         && existing_media_item_has_accepted_remote_binding(tx, series_id).await?;
     // `replace_remote_data` is deliberately true for only one entry in a

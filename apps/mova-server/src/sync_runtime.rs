@@ -123,6 +123,9 @@ async fn run_background_worker(state: AppState, worker_id: String) {
                             tracing::warn!(
                                 job_id = job.id,
                                 attempt = job.attempt_count,
+                                scope_type = %job.scope_type,
+                                scope_id = job.scope_id,
+                                related_scan_job_id = ?job.related_scan_job_id,
                                 %status,
                                 error = ?error,
                                 "background job execution failed"

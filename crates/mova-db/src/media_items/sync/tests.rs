@@ -11,9 +11,9 @@ use crate::{
     CreateScanJobParams, CreateSubtitleTrackParams, BACKGROUND_JOB_FENCE_LOST_MESSAGE,
 };
 use mova_domain::{
-    METADATA_FAILURE_PROVIDER_DISABLED, METADATA_FAILURE_PROVIDER_ERROR, METADATA_STATUS_FAILED,
-    METADATA_STATUS_MATCHED, METADATA_STATUS_PENDING, METADATA_STATUS_UNMATCHED,
-    REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
+    ScanNotificationSummary, METADATA_FAILURE_PROVIDER_DISABLED, METADATA_FAILURE_PROVIDER_ERROR,
+    METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED, METADATA_STATUS_PENDING,
+    METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
 };
 
 fn build_movie_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams {
@@ -549,6 +549,10 @@ async fn terminal_scan_rejects_late_group_and_media_write(pool: sqlx::postgres::
 async fn scan_and_background_terminal_states_commit_atomically(pool: sqlx::postgres::PgPool) {
     let (success_library_id, success_scan_job_id, success_fence) =
         seed_running_scan(&pool, "Success", "/media/success", "success-worker").await;
+    let success_summary = ScanNotificationSummary {
+        matched_files: 1,
+        ..Default::default()
+    };
     let success_scan = finalize_scan_job(
         &pool,
         success_library_id,
@@ -557,7 +561,7 @@ async fn scan_and_background_terminal_states_commit_atomically(pool: sqlx::postg
         1,
         1,
         None,
-        None,
+        Some(&success_summary),
         &success_fence,
     )
     .await
@@ -578,8 +582,20 @@ async fn scan_and_background_terminal_states_commit_atomically(pool: sqlx::postg
     .fetch_one(&pool)
     .await
     .unwrap();
+    let success_summary_available = sqlx::query_scalar::<_, bool>(
+        r#"
+        select (payload ->> 'summary_available')::boolean
+        from notifications
+        where source_key = $1
+        "#,
+    )
+    .bind(format!("scan-job:{success_scan_job_id}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
 
     assert_eq!(success_scan.status, "success");
+    assert!(success_summary_available);
     assert_eq!(
         success_background,
         ("succeeded".to_string(), true, true, true)
@@ -612,9 +628,21 @@ async fn scan_and_background_terminal_states_commit_atomically(pool: sqlx::postg
             .fetch_one(&pool)
             .await
             .unwrap();
+    let cancelled_summary_available = sqlx::query_scalar::<_, bool>(
+        r#"
+        select (payload ->> 'summary_available')::boolean
+        from notifications
+        where source_key = $1
+        "#,
+    )
+    .bind(format!("scan-job:{cancel_scan_job_id}"))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
 
     assert_eq!(cancelled_scan.status, "cancelled");
     assert_eq!(cancelled_background, "cancelled");
+    assert!(!cancelled_summary_available);
 }
 
 #[sqlx::test(migrations = "../../migrations")]
@@ -795,7 +823,9 @@ async fn remote_patch_preserves_local_file_and_track_state(pool: sqlx::postgres:
 
 #[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-async fn remote_patch_cannot_reinterpret_local_episode_coordinates(pool: sqlx::postgres::PgPool) {
+async fn remote_patch_uses_committed_parent_without_reinterpreting_episode_coordinates(
+    pool: sqlx::postgres::PgPool,
+) {
     let (library_id, scan_job_id, fence) =
         seed_running_scan(&pool, "Episodes", "/media/episodes", "episode-worker").await;
     initialize_scan_job_work(&pool, scan_job_id, 1, 1, &fence)
@@ -813,6 +843,7 @@ async fn remote_patch_cannot_reinterpret_local_episode_coordinates(pool: sqlx::p
     local.metadata_provider_item_id = None;
     local.metadata_status = METADATA_STATUS_PENDING.to_string();
     local.replace_remote_data = false;
+    local.year = None;
     local.audio_tracks = vec![CreateAudioTrackParams {
         stream_index: 1,
         language: Some("ja".to_string()),
@@ -836,12 +867,29 @@ async fn remote_patch_cannot_reinterpret_local_episode_coordinates(pool: sqlx::p
     .await
     .unwrap();
 
+    let stored_series_id = sqlx::query_scalar::<_, i64>(
+        r#"
+        select s.series_id
+        from media_files mf
+        join episodes e on e.media_item_id = mf.media_item_id
+        join seasons s on s.id = e.season_id
+        where mf.library_id = $1
+          and mf.file_path = $2
+        "#,
+    )
+    .bind(library_id)
+    .bind(file_path)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
     let mut invalid_remote = local.clone();
     invalid_remote.metadata_provider = Some("tmdb".to_string());
     invalid_remote.metadata_provider_item_id = Some("202".to_string());
     invalid_remote.metadata_status = METADATA_STATUS_MATCHED.to_string();
     invalid_remote.remote_media_type = Some(REMOTE_MEDIA_TYPE_SERIES.to_string());
     invalid_remote.replace_remote_data = true;
+    invalid_remote.year = Some(2025);
     invalid_remote.season_number = Some(2);
     invalid_remote.episode_number = Some(8);
     let error = patch_library_media_entries_remote_by_file_path(
@@ -873,16 +921,33 @@ async fn remote_patch_cannot_reinterpret_local_episode_coordinates(pool: sqlx::p
     .await
     .unwrap();
 
-    let state = sqlx::query_as::<_, (i32, i32, i64, bool)>(
+    let state = sqlx::query_as::<
+        _,
+        (
+            i64,
+            i32,
+            i32,
+            Option<i32>,
+            Option<String>,
+            Option<String>,
+            i64,
+            bool,
+        ),
+    >(
         r#"
         select
+            s.series_id,
             s.season_number,
             e.episode_number,
+            series.year,
+            series.metadata_provider,
+            series.metadata_provider_item_id,
             (select count(*) from audio_tracks where media_file_id = mf.id),
             sjg.remote_completed
         from media_files mf
         join episodes e on e.media_item_id = mf.media_item_id
         join seasons s on s.id = e.season_id
+        join media_items series on series.id = s.series_id
         join scan_job_groups sjg
           on sjg.scan_job_id = $2
          and sjg.group_key = 'series'
@@ -896,7 +961,19 @@ async fn remote_patch_cannot_reinterpret_local_episode_coordinates(pool: sqlx::p
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(state, (1, 1, 1, true));
+    assert_eq!(
+        state,
+        (
+            stored_series_id,
+            1,
+            1,
+            Some(2025),
+            Some("tmdb".to_string()),
+            Some("202".to_string()),
+            1,
+            true,
+        )
+    );
 }
 
 #[sqlx::test(migrations = "../../migrations")]

@@ -6,21 +6,58 @@
   display: grid;
   gap: 18px;
   width: min(100%, 420px);
+  max-width: calc(100vw - 48px);
   padding: 24px;
+  overflow-x: hidden;
   border-radius: var(--radius-surface);
 }
 
-.confirm-action-modal__header {
+.confirm-action-modal__header,
+.confirm-action-modal__copy {
   display: grid;
+  min-width: 0;
   gap: 8px;
 }
 
 .confirm-action-modal__header h3 {
+  min-width: 0;
   margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.confirm-action-modal__description {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .confirm-action-modal__footer {
   display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.confirm-action-modal__footer .button {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .confirm-action-modal__surface {
+    max-width: calc(100vw - 32px);
+    padding: 20px;
+  }
+}
+
+@media (max-width: 360px) {
+  .confirm-action-modal__footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .confirm-action-modal__footer .button {
+    width: 100%;
+  }
 }

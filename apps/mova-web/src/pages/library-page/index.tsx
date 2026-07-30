@@ -5,7 +5,6 @@ import type { MediaItem } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import type { ScanRuntimeItem } from '../../components/app-shell/scan-runtime'
 import {
-  formatFailedScanCopy,
   formatScanItemCardProgressLabel,
   formatScanItemCardSummary,
   formatScanItemMeta,
@@ -15,7 +14,6 @@ import {
   getScanItemCardProgressPercent,
   getScanJobProgressPercent,
   getScanRuntimeItems,
-  hasFailedLibraryScan,
   isLibraryScanActive,
   shouldShowScanPlaceholder,
 } from '../../components/app-shell/scan-runtime'
@@ -227,7 +225,6 @@ export const LibraryPage = () => {
     : null
   const mediaItems = mediaItemsQuery.data?.items ?? []
   const currentScan = getEffectiveScanJob(currentLibrary?.last_scan, currentScanRuntime)
-  const hasFailedScan = hasFailedLibraryScan(currentLibrary?.last_scan, currentScanRuntime)
   const scanItems = shouldShowScanPlaceholder(currentLibrary?.last_scan, currentScanRuntime)
     ? getScanRuntimeItems(currentScanRuntime)
     : []
@@ -247,15 +244,12 @@ export const LibraryPage = () => {
   const shouldShowMediaSkeleton =
     mediaItemsQuery.isLoading && mediaItems.length === 0 && visibleScanItems.length === 0
   const isScanning = isLibraryScanActive(currentScan, currentScanRuntime)
-  const scanStatusCopy = hasFailedScan
-    ? formatFailedScanCopy(currentLibrary?.last_scan, currentScanRuntime)
-    : isScanning
-      ? formatScanJobStatusCopy(currentLibrary?.last_scan, currentScanRuntime)
-      : null
-  const scanProgressPercent =
-    isScanning || hasFailedScan
-      ? getScanJobProgressPercent(currentLibrary?.last_scan, currentScanRuntime)
-      : 0
+  const scanStatusCopy = isScanning
+    ? formatScanJobStatusCopy(currentLibrary?.last_scan, currentScanRuntime)
+    : null
+  const scanProgressPercent = isScanning
+    ? getScanJobProgressPercent(currentLibrary?.last_scan, currentScanRuntime)
+    : 0
   const headerItemCount = mediaItemsQuery.data
     ? visibleMediaItems.length + visibleScanItems.length
     : (currentLibrary?.media_count ?? null)
@@ -308,27 +302,18 @@ export const LibraryPage = () => {
         </DashboardPageHeader>
 
         {scanStatusCopy ? (
-          <section
-            className={
-              hasFailedScan
-                ? 'library-detail-scan library-detail-scan--failed'
-                : 'library-detail-scan'
-            }
-            role="status"
-          >
+          <section className="library-detail-scan" role="status">
             <div className="library-detail-scan__row">
-              <span>{hasFailedScan ? l('Recent scan failed') : l('Scanning library')}</span>
-              <strong>{hasFailedScan ? l('failed') : `${scanProgressPercent}%`}</strong>
+              <span>{l('Scanning library')}</span>
+              <strong>{scanProgressPercent}%</strong>
             </div>
             <p>{scanStatusCopy}</p>
-            {!hasFailedScan ? (
-              <div aria-hidden="true" className="library-detail-scan__track">
-                <span
-                  className="library-detail-scan__fill"
-                  style={{ width: `${scanProgressPercent}%` }}
-                />
-              </div>
-            ) : null}
+            <div aria-hidden="true" className="library-detail-scan__track">
+              <span
+                className="library-detail-scan__fill"
+                style={{ width: `${scanProgressPercent}%` }}
+              />
+            </div>
           </section>
         ) : null}
 
@@ -337,14 +322,6 @@ export const LibraryPage = () => {
             {libraryQuery.error instanceof Error
               ? libraryQuery.error.message
               : l('Failed to load library')}
-          </p>
-        ) : null}
-
-        {hasFailedScan ? (
-          <p className="callout callout--danger">
-            {l('The most recent scan failed.')}{' '}
-            {formatFailedScanCopy(currentLibrary?.last_scan, currentScanRuntime)}.{' '}
-            {l('Existing items are still available, and an admin can trigger another scan later.')}
           </p>
         ) : null}
 

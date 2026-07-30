@@ -554,6 +554,7 @@ async fn upsert_scan_job_notification(
         return Ok(());
     };
 
+    let summary_available = notification_summary.is_some();
     let empty_summary = ScanNotificationSummary::default();
     let summary = notification_summary.unwrap_or(&empty_summary);
     let has_issues = scan_notification_summary_has_issues(summary);
@@ -564,6 +565,7 @@ async fn upsert_scan_job_notification(
         "library_id": scan_job.library_id,
         "library_name": context.get::<String, _>("library_name"),
         "status": scan_job.status,
+        "summary_available": summary_available,
         "total_files": scan_job.total_files,
         "reused_files": context.get::<i32, _>("reused_files"),
         "matched_files": summary.matched_files,

@@ -588,7 +588,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 ## 3. 通知中心
 
-通知中心使用稳定外壳承载不同业务来源的消息。通知对象不等同于 SSE 事件：通知和已读状态持久化在 PostgreSQL，SSE 只通过 `*:notifications` revision 提醒客户端重新读取本节接口。
+通知中心使用稳定外壳承载不同业务来源的消息。通知对象不等同于 SSE 事件：通知和已读状态持久化在 PostgreSQL，SSE 只通过 `*:notifications` revision 提醒客户端重新读取本节接口，不携带通知正文，也不作为通知结果的权威来源。
 
 标准类别：
 
@@ -599,9 +599,19 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 | `library` | 不属于具体扫描任务的媒体库变更 |
 | `account` | 当前用户账户、安全和权限相关消息 |
 
-类别允许继续扩展。客户端遇到未知类别时应放入“全部”列表并使用通用样式，不得丢弃。`notification_type` 使用 `<category>.<action>` 命名；扫描任务终态对应 `scan.completed`、`scan.completed_with_issues`、`scan.failed` 和 `scan.cancelled`。客户端根据事件类型解释 `payload`，未知类型至少应展示通用通知占位和创建时间。
+类别允许继续扩展。客户端遇到未知类别时应放入“全部”列表并使用通用样式，不得丢弃。`notification_type` 使用 `<category>.<action>` 命名；扫描任务终态对应 `scan.completed`、`scan.completed_with_issues`、`scan.failed` 和 `scan.cancelled`，这四种类型是扫描结果的权威状态。客户端不得根据 `severity`、`payload.status`、问题数量或统计字段反推扫描结果。未知类型至少应展示通用通知占位和创建时间。
 
 通知级别固定为 `info`、`success`、`warning`、`error`。可见范围由服务端在写入时确定为 server、admin、library 或 user，客户端不传 audience，也不能读取自己权限外的通知。
+
+各类通知共用以下信息骨架，具体业务类型可以在骨架下增加自己的详情：
+
+| 信息 | 权威来源 | 展示规则 |
+| --- | --- | --- |
+| 类型 | `category` / `notification_type` | 标识扫描、系统、媒体库或账户等消息来源 |
+| 结果 | `notification_type` | 表达成功、有问题地完成、失败、取消或其他业务结果 |
+| 对象 | `library_id`、`payload.library_name` 等类型相关字段 | 标识本次通知涉及的媒体库、账户或系统对象 |
+| 原因 | `reason_code` / `reason_params` | 由客户端本地化为用户可理解的主说明 |
+| 诊断 | `diagnostic_message` 等诊断字段 | 作为次级排障信息展示，不代替本地化主说明 |
 
 ### `GET /api/notifications`
 
@@ -626,6 +636,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
         "library_id": 7,
         "library_name": "Movies",
         "status": "success",
+        "summary_available": true,
         "total_files": 50,
         "reused_files": 0,
         "matched_files": 49,
@@ -676,7 +687,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `items` 按 `created_at desc, id desc` 排序，并应用 `category` 与 `limit`。
 - `total_unread` 和 `unread_by_category` 始终统计当前用户可见的全部未读通知，不受本次 `category` 筛选影响，因此客户端只需一次响应即可渲染总红点和分类角标。
 - `is_read` / `read_at` 是当前登录用户自己的状态；同一条 server、admin 或 library 通知可以被不同用户独立阅读。
-- `payload` 是按 `notification_type` 区分的扩展对象。扫描通知包含任务级计数，并最多内嵌 20 个未匹配、provider 失败或本地探测警告的问题摘要；`issue_count` 可能大于 `issues.length`。
+- `payload` 是按 `notification_type` 区分的扩展对象。扫描通知包含 `summary_available` 布尔值、任务级计数字段，并最多内嵌 20 个未匹配、provider 失败或本地探测警告的问题摘要；`issue_count` 可能大于 `issues.length`。
+- 只有 `summary_available = true` 时，`total_files`、`reused_files`、`matched_files`、`unmatched_files`、`failed_files`、`skipped_files`、`probe_warning_count` 和 `issue_count` 才是可用于展示的任务终态摘要。`scan.failed` 和 `scan.cancelled` 通常返回 `false`；此时计数字段只用于保持 payload 结构稳定，客户端不得把默认值 `0` 当作真实统计，也不应渲染成功摘要。
+- `scan.completed`、`scan.completed_with_issues`、`scan.failed` 和 `scan.cancelled` 分别表示完整成功、有问题地完成、执行失败和主动取消。客户端以 `notification_type` 决定结果文案与视觉状态。
 - `scan.cancelled` 使用 `info` 级别，payload 的 `status` 为 `cancelled`，表示任务被主动终止；它不等同于扫描成功或执行失败。
 - 已有远端 binding 的条目在 provider 临时故障时仍可保持 `metadata_status=matched`；此时问题摘要使用 `reason_code=metadata_provider_error` 表示本次刷新失败，客户端不得把它解释为身份匹配失效。
 - 扫描任务和单项问题使用 `reason_code / reason_params` 生成本地化主文案。常见原因码包括 `scan_execution_failed`、`metadata_provider_error`、`no_remote_match`、`metadata_provider_disabled`、`metadata_processing_failed` 和 `media_probe_warning`。

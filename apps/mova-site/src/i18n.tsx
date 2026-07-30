@@ -200,12 +200,16 @@ const translations: Record<string, string> = {
     'Returns persistent notifications visible to the current user, total and category unread counts, and supports marking one or many as read.',
   '标准类别包括 scan、system、library 和 account，未知类别也必须保留展示。':
     'Standard categories include scan, system, library, and account; unknown categories must remain visible.',
-  '通知和已读状态持久化在 PostgreSQL，SSE 只通知客户端重新读取。':
-    'Notifications and read states are persisted in PostgreSQL; SSE only tells clients to fetch again.',
-  '扫描终态分别使用 completed、completed_with_issues、failed 和 cancelled，取消不等同于成功或失败。':
-    'Scan terminal states use completed, completed_with_issues, failed, and cancelled; cancellation is neither success nor failure.',
-  '扫描通知使用 reason_code 和 reason_params 生成本地化主文案，diagnostic_message 仅用于排障。':
-    'Scan notifications use reason_code and reason_params for localized primary copy; diagnostic_message is only for troubleshooting.',
+  '通知和已读状态持久化在 PostgreSQL；SSE 只推进通知 revision，客户端随后重新读取通知接口。':
+    'Notifications and read states are persisted in PostgreSQL; SSE only advances the notification revision, after which clients fetch the notification API again.',
+  '统一通知骨架表达类型、结果、对象、原因和诊断，各业务类型可以追加自己的详情。':
+    'A shared notification structure describes the type, result, target, reason, and diagnostics, while each business type may add its own details.',
+  'scan.completed、scan.completed_with_issues、scan.failed 和 scan.cancelled 是扫描终态的权威结果，客户端不得从级别或计数反推结果。':
+    'scan.completed, scan.completed_with_issues, scan.failed, and scan.cancelled are the authoritative scan outcomes; clients must not infer the outcome from severity or counts.',
+  '扫描统计只有在 summary_available 为 true 时才可展示；失败或取消时不得把默认 0 当作真实统计。':
+    'Scan statistics may be displayed only when summary_available is true; failures and cancellations must not present default zero values as real statistics.',
+  '扫描通知使用 reason_code 和 reason_params 生成本地化主文案，diagnostic_message 只作为次级排障信息。':
+    'Scan notifications use reason_code and reason_params for localized primary copy; diagnostic_message is secondary troubleshooting information.',
   '已有远端身份在 provider 临时故障时保持 matched，并以 metadata_provider_error 表示刷新失败。':
     'Existing remote identities remain matched during transient provider failures, with metadata_provider_error indicating the refresh failure.',
   'GET 响应的未读统计不受 category 筛选影响。':
