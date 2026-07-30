@@ -270,6 +270,8 @@ const translations: Record<string, string> = {
     'metadata_status uses matched, unmatched, failed, and skipped to represent metadata processing state.',
   '剧集可通过 seasons、episodes、episode-outline 获取本地可用集和远端大纲合并结果。':
     'Series use seasons, episodes, and episode-outline to merge locally available episodes with remote outlines.',
+  'episode-outline 的播放快照包含 last_media_file_id；同一集有多个文件版本时，客户端应恢复最近播放的具体版本。':
+    'episode-outline playback snapshots include last_media_file_id so clients can restore the exact last-used file when an episode has multiple variants.',
   'poster/backdrop 返回图片流；若详情字段是远程 URL，前端可直接使用远程地址。':
     'poster/backdrop return image streams; when a detail field is a remote URL, clients may use it directly.',
   'poster/backdrop/logo 返回经过媒体库边界、大小和图片内容校验的本地图片流；详情只透出可信的 TMDB 官方远程图片地址。':
@@ -296,6 +298,8 @@ const translations: Record<string, string> = {
     'Progress updates include media_file_id, position_seconds, and duration_seconds.',
   '进度按用户与媒体条目唯一；多个文件版本共享进度，last_media_file_id 只记录最近选择的版本。':
     'Progress is unique per user and media item; file variants share progress, while last_media_file_id records the latest selected variant.',
+  '最近选择的文件被删除时，继续观看记录会保留，服务端统一回退到同一条目的首个现存版本。':
+    'When the last selected file is removed, continue watching is preserved and the server falls back to the first remaining variant for that item.',
   '重复媒体条目合并时，文件、进度和继续观看状态在同一事务迁移，并保留较新的观看状态。':
     'When duplicate media items merge, files, progress, and continue-watching state move in one transaction and the newest viewing state is retained.',
   'continue-watching 只返回未看完内容，剧集会按 series 聚合到最近观看的一集。':

@@ -19,6 +19,13 @@ export interface PlaybackActionLinks {
   secondaryPath: string | null
 }
 
+interface ContinueWatchingPlaybackTarget {
+  playback_progress: {
+    media_item_id: number
+    last_media_file_id: number | null
+  }
+}
+
 interface PlaybackCompletionInput {
   durationSeconds: number | null | undefined
   positionSeconds: number
@@ -106,6 +113,13 @@ export const buildPlaybackActionLinks = (
       : null,
   }
 }
+
+export const continueWatchingPlaybackPath = ({
+  playback_progress: progress,
+}: ContinueWatchingPlaybackTarget) =>
+  mediaItemPlayPath(progress.media_item_id, {
+    fileId: progress.last_media_file_id,
+  })
 
 export const pickPreferredPlaybackEpisode = <TEpisode extends PlayableEpisode>(
   episodes: TEpisode[] | null | undefined,

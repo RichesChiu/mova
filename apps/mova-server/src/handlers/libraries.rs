@@ -685,16 +685,14 @@ mod tests {
             insert into continue_watching (
                 user_id,
                 media_item_id,
-                last_played_media_item_id,
-                last_media_file_id
+                last_played_media_item_id
             )
-            values ($1, $2, $3, $4)
+            values ($1, $2, $3)
             "#,
         )
         .bind(user_id)
         .bind(series_id)
         .bind(episode_media_item_id)
-        .bind(media_file_id)
         .execute(pool)
         .await
         .unwrap();

@@ -2148,6 +2148,313 @@ async fn sync_library_media_merges_episode_versions_with_the_same_remote_series_
 
 #[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn staged_scan_merges_local_series_after_remote_match_and_keeps_selected_version(
+    pool: sqlx::postgres::PgPool,
+) {
+    let (library_id, scan_job_id, fence) = seed_running_scan(
+        &pool,
+        "Overseas TV",
+        "/media/overseas_tv",
+        "series-merge-worker",
+    )
+    .await;
+    initialize_scan_job_work(&pool, scan_job_id, 2, 2, &fence)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let localized_group = "series-folder://media/overseas_tv/金斯敦市长";
+    let original_group = "series-folder://media/overseas_tv/金斯敦市长 (2021)";
+    mark_scan_group_analyzed(&pool, scan_job_id, localized_group, 1, &fence)
+        .await
+        .unwrap()
+        .unwrap();
+    mark_scan_group_analyzed(&pool, scan_job_id, original_group, 1, &fence)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let localized_path = "/media/overseas_tv/金斯敦市长/S01/金斯敦市长.S01E01.1080p.mkv";
+    let original_path =
+        "/media/overseas_tv/金斯敦市长 (2021)/Season 01/Mayor of Kingstown.S01E01.2160p.mkv";
+
+    let mut localized_local = build_episode_entry(library_id, localized_path);
+    localized_local.metadata_provider = None;
+    localized_local.metadata_provider_item_id = None;
+    localized_local.metadata_status = METADATA_STATUS_PENDING.to_string();
+    localized_local.replace_remote_data = false;
+    localized_local.title = "金斯敦市长".to_string();
+    localized_local.source_title = "金斯敦市长".to_string();
+    localized_local.original_title = None;
+    localized_local.year = None;
+    localized_local.episode_title = Some("本地第 1 集".to_string());
+
+    let mut original_local = build_episode_entry(library_id, original_path);
+    original_local.metadata_provider = None;
+    original_local.metadata_provider_item_id = None;
+    original_local.metadata_status = METADATA_STATUS_PENDING.to_string();
+    original_local.replace_remote_data = false;
+    original_local.title = "Mayor of Kingstown".to_string();
+    original_local.source_title = "Mayor of Kingstown".to_string();
+    original_local.original_title = None;
+    original_local.year = Some(2021);
+    original_local.episode_title = Some("Local Episode 1".to_string());
+
+    upsert_library_media_entries_by_file_path(
+        &pool,
+        scan_job_id,
+        library_id,
+        localized_group,
+        ScanGroupCommitStage::Local,
+        std::slice::from_ref(&localized_local),
+        &fence,
+    )
+    .await
+    .unwrap();
+    upsert_library_media_entries_by_file_path(
+        &pool,
+        scan_job_id,
+        library_id,
+        original_group,
+        ScanGroupCommitStage::Local,
+        std::slice::from_ref(&original_local),
+        &fence,
+    )
+    .await
+    .unwrap();
+
+    let local_counts = sqlx::query_as::<_, (i64, i64, i64)>(
+        r#"
+        select
+            (select count(*) from media_items where library_id = $1 and media_type = 'series'),
+            (select count(*) from media_items where library_id = $1 and media_type = 'episode'),
+            (select count(*) from media_files where library_id = $1)
+        "#,
+    )
+    .bind(library_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(local_counts, (2, 2, 2));
+
+    let (original_series_id, original_episode_id, original_media_file_id) =
+        sqlx::query_as::<_, (i64, i64, i64)>(
+            r#"
+            select series.id, episode.id, mf.id
+            from media_files mf
+            join media_items episode on episode.id = mf.media_item_id
+            join episodes e on e.media_item_id = episode.id
+            join seasons s on s.id = e.season_id
+            join media_items series on series.id = s.series_id
+            where mf.library_id = $1
+              and mf.file_path = $2
+            "#,
+        )
+        .bind(library_id)
+        .bind(original_path)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let user_id = sqlx::query_scalar::<_, i64>(
+        r#"
+        insert into users (
+            username,
+            username_normalized,
+            nickname,
+            password_hash,
+            role
+        )
+        values ('viewer', 'viewer', 'Viewer', 'hash', 'viewer')
+        returning id
+        "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        insert into playback_progress (
+            user_id,
+            media_item_id,
+            last_media_file_id,
+            position_seconds,
+            duration_seconds,
+            last_watched_at
+        )
+        values ($1, $2, $3, 480, 1800, '2026-07-30T00:00:00Z')
+        "#,
+    )
+    .bind(user_id)
+    .bind(original_episode_id)
+    .bind(original_media_file_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        insert into continue_watching (
+            user_id,
+            media_item_id,
+            last_played_media_item_id,
+            last_watched_at
+        )
+        values ($1, $2, $3, '2026-07-30T00:00:00Z')
+        "#,
+    )
+    .bind(user_id)
+    .bind(original_series_id)
+    .bind(original_episode_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut localized_remote = localized_local;
+    localized_remote.metadata_provider = Some("tmdb".to_string());
+    localized_remote.metadata_provider_item_id = Some("97951".to_string());
+    localized_remote.metadata_status = METADATA_STATUS_MATCHED.to_string();
+    localized_remote.remote_media_type = Some(REMOTE_MEDIA_TYPE_SERIES.to_string());
+    localized_remote.replace_remote_data = true;
+    localized_remote.title = "金斯敦市长".to_string();
+    localized_remote.original_title = Some("Mayor of Kingstown".to_string());
+    localized_remote.year = Some(2021);
+    localized_remote.episode_title = Some("第 1 集".to_string());
+
+    let mut original_remote = original_local;
+    original_remote.metadata_provider = Some("tmdb".to_string());
+    original_remote.metadata_provider_item_id = Some("97951".to_string());
+    original_remote.metadata_status = METADATA_STATUS_MATCHED.to_string();
+    original_remote.remote_media_type = Some(REMOTE_MEDIA_TYPE_SERIES.to_string());
+    original_remote.replace_remote_data = true;
+    original_remote.title = "金斯敦市长".to_string();
+    original_remote.original_title = Some("Mayor of Kingstown".to_string());
+    original_remote.year = Some(2021);
+    original_remote.episode_title = Some("第 1 集".to_string());
+
+    patch_library_media_entries_remote_by_file_path(
+        &pool,
+        scan_job_id,
+        library_id,
+        localized_group,
+        std::slice::from_ref(&localized_remote),
+        &fence,
+    )
+    .await
+    .unwrap();
+    patch_library_media_entries_remote_by_file_path(
+        &pool,
+        scan_job_id,
+        library_id,
+        original_group,
+        std::slice::from_ref(&original_remote),
+        &fence,
+    )
+    .await
+    .unwrap();
+
+    let final_counts = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+        r#"
+        select
+            (select count(*) from media_items where library_id = $1 and media_type = 'series'),
+            (select count(*) from media_items where library_id = $1 and media_type = 'episode'),
+            (select count(*) from seasons where library_id = $1),
+            (select count(*) from episodes where library_id = $1),
+            (select count(*) from media_files where library_id = $1),
+            (
+                select count(*)
+                from media_files mf
+                join episodes e on e.media_item_id = mf.media_item_id
+                join seasons s on s.id = e.season_id
+                where mf.library_id = $1
+                  and s.season_number = 1
+                  and e.episode_number = 1
+            )
+        "#,
+    )
+    .bind(library_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(final_counts, (1, 1, 1, 1, 2, 2));
+
+    let orphan_counts = sqlx::query_as::<_, (i64, i64, i64)>(
+        r#"
+        select
+            (
+                select count(*)
+                from media_items mi
+                left join episodes e on e.media_item_id = mi.id
+                where mi.library_id = $1
+                  and mi.media_type = 'episode'
+                  and e.media_item_id is null
+            ),
+            (
+                select count(*)
+                from media_items mi
+                left join seasons s on s.series_id = mi.id
+                where mi.library_id = $1
+                  and mi.media_type = 'series'
+                  and s.id is null
+            ),
+            (
+                select count(*)
+                from seasons s
+                left join episodes e on e.season_id = s.id
+                where s.library_id = $1
+                  and e.media_item_id is null
+            )
+        "#,
+    )
+    .bind(library_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(orphan_counts, (0, 0, 0));
+
+    let (final_series_id, final_episode_id) = sqlx::query_as::<_, (i64, i64)>(
+        r#"
+        select s.series_id, e.media_item_id
+        from episodes e
+        join seasons s on s.id = e.season_id
+        where e.library_id = $1
+          and s.season_number = 1
+          and e.episode_number = 1
+        "#,
+    )
+    .bind(library_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let progress_state = sqlx::query_as::<_, (i64, Option<i64>, i32)>(
+        r#"
+        select media_item_id, last_media_file_id, position_seconds
+        from playback_progress
+        where user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        progress_state,
+        (final_episode_id, Some(original_media_file_id), 480)
+    );
+    let continue_state = sqlx::query_as::<_, (i64, i64)>(
+        r#"
+        select media_item_id, last_played_media_item_id
+        from continue_watching
+        where user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(continue_state, (final_series_id, final_episode_id));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
 async fn sync_library_media_best_effort_keeps_healthy_entries_when_one_entry_is_invalid(
     pool: sqlx::postgres::PgPool,
 ) {

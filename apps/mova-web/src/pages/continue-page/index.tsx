@@ -9,8 +9,8 @@ import {
 } from '../../components/continue-watching-card'
 import { EmptyState } from '../../components/empty-state'
 import { useI18n } from '../../i18n'
-import { mediaItemDetailPath, mediaItemPrimaryPath } from '../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
+import { continueWatchingPlaybackPath } from '../../lib/playback'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 
@@ -46,10 +46,6 @@ const ContinuePageCard = ({ item }: { item: ContinueWatchingItem }) => {
     : mediaItem.year
       ? `${mediaTypeLabel} · ${mediaItem.year}`
       : mediaTypeLabel
-  const href = hasEpisodeContext
-    ? `${mediaItemDetailPath(mediaItem.id)}?season=${seasonNumber}`
-    : mediaItemPrimaryPath(mediaItem)
-
   return (
     <ContinueWatchingCard
       item={{
@@ -57,7 +53,7 @@ const ContinuePageCard = ({ item }: { item: ContinueWatchingItem }) => {
         artworkSrc: hasEpisodeContext
           ? (item.episode_poster_path ?? mediaItem.poster_path)
           : mediaItem.poster_path,
-        href,
+        href: continueWatchingPlaybackPath(item),
         id: progress.id,
         metaLabel,
         placeholderLabel: hasEpisodeContext ? `${seasonNumber}-${episodeNumber}` : mediaTypeLabel,

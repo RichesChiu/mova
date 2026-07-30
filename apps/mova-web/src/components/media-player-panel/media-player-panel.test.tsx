@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { PlaybackProgress } from '../../api/types'
 import { buildPlaybackSourceErrorMessage, MediaPlayerPanel } from './index'
 
 const clientMocks = vi.hoisted(() => ({
@@ -43,6 +44,15 @@ const createTestQueryClient = () =>
       },
     },
   })
+
+const createDeferred = <T,>() => {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve
+  })
+
+  return { promise, resolve }
+}
 
 const installVideoTestState = (video: HTMLVideoElement) => {
   let currentTime = 0
@@ -234,22 +244,104 @@ describe('MediaPlayerPanel', () => {
     fireEvent.loadedMetadata(video)
 
     expect(videoState.getCurrentTime()).toBe(0)
+    await waitFor(() => {
+      expect(clientMocks.updateMediaItemPlaybackProgress).toHaveBeenCalledWith(31, {
+        media_file_id: 401,
+        position_seconds: 0,
+        duration_seconds: 7200,
+        is_finished: false,
+      })
+    })
+    expect(clientMocks.updateMediaItemPlaybackProgress).not.toHaveBeenCalledWith(
+      31,
+      expect.objectContaining({ position_seconds: 320 }),
+    )
   })
 
-  it('does not block playback while saved progress is still loading', async () => {
-    clientMocks.getMediaItemPlaybackProgress.mockImplementation(() => new Promise(() => {}))
+  it('waits for saved progress before opening an explicitly requested file version', async () => {
+    const playbackProgress = createDeferred<PlaybackProgress>()
+    clientMocks.getMediaItemPlaybackProgress.mockReturnValue(playbackProgress.promise)
+    clientMocks.listMediaItemFiles.mockResolvedValue([
+      {
+        id: 401,
+        media_item_id: 31,
+        file_path: '/media/movies/interstellar-1080p.mkv',
+        container: 'mkv',
+        file_size: 1,
+        duration_seconds: 7200,
+        video_codec: 'h264',
+        audio_codec: 'aac',
+        width: 1920,
+        height: 1080,
+        bitrate: 1_000_000,
+        technical_tags: [],
+        scan_hash: null,
+        created_at: '2026-04-07T00:00:00Z',
+        updated_at: '2026-04-07T00:00:00Z',
+      },
+      {
+        id: 402,
+        media_item_id: 31,
+        file_path: '/media/movies/interstellar-2160p.mkv',
+        container: 'mkv',
+        file_size: 2,
+        duration_seconds: 7200,
+        video_codec: 'hevc',
+        audio_codec: 'aac',
+        width: 3840,
+        height: 2160,
+        bitrate: 2_000_000,
+        technical_tags: [],
+        scan_hash: null,
+        created_at: '2026-04-07T00:00:00Z',
+        updated_at: '2026-04-07T00:00:00Z',
+      },
+    ])
 
     const { container } = render(
       <QueryClientProvider client={createTestQueryClient()}>
-        <MediaPlayerPanel mediaItemId={31} title="Interstellar" />
+        <MediaPlayerPanel mediaItemId={31} preferredMediaFileId={402} title="Interstellar" />
       </QueryClientProvider>,
     )
 
     await waitFor(() => {
-      expect(container.querySelector('video')).not.toBeNull()
+      expect(clientMocks.listMediaItemFiles).toHaveBeenCalledWith(31)
     })
 
-    expect(screen.queryByText('Loading player…')).toBeNull()
+    expect(container.querySelector('video')).toBeNull()
+    expect(screen.getByText('Loading player…')).toBeInTheDocument()
+    expect(clientMocks.updateMediaItemPlaybackProgress).not.toHaveBeenCalled()
+
+    playbackProgress.resolve({
+      id: 71,
+      media_item_id: 31,
+      last_media_file_id: 402,
+      position_seconds: 320,
+      duration_seconds: 7200,
+      last_watched_at: '2026-04-07T00:00:00Z',
+      is_finished: false,
+    })
+
+    await waitFor(() => {
+      expect(container.querySelector('video')?.getAttribute('src')).toContain(
+        '/api/media-files/402/stream',
+      )
+    })
+    await waitFor(() => {
+      expect(clientMocks.updateMediaItemPlaybackProgress).toHaveBeenCalledWith(31, {
+        media_file_id: 402,
+        position_seconds: 320,
+        duration_seconds: 7200,
+        is_finished: false,
+      })
+    })
+    expect(clientMocks.updateMediaItemPlaybackProgress).not.toHaveBeenCalledWith(
+      31,
+      expect.objectContaining({
+        media_file_id: 401,
+        position_seconds: 0,
+      }),
+    )
   })
 
   it('starts playback automatically after the player metadata loads', async () => {

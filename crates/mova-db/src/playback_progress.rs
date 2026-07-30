@@ -55,7 +55,16 @@ pub async fn list_continue_watching(
             mi.updated_at,
             pp.id as progress_id,
             pp.media_item_id as progress_media_item_id,
-            pp.last_media_file_id,
+            coalesce(
+                pp.last_media_file_id,
+                (
+                    select fallback_file.id
+                    from media_files fallback_file
+                    where fallback_file.media_item_id = pp.media_item_id
+                    order by fallback_file.created_at asc, fallback_file.id asc
+                    limit 1
+                )
+            ) as last_media_file_id,
             pp.position_seconds,
             pp.duration_seconds,
             pp.last_watched_at,
@@ -123,7 +132,16 @@ pub async fn get_playback_progress_for_media_item(
         select
             id,
             media_item_id,
-            last_media_file_id,
+            coalesce(
+                last_media_file_id,
+                (
+                    select fallback_file.id
+                    from media_files fallback_file
+                    where fallback_file.media_item_id = playback_progress.media_item_id
+                    order by fallback_file.created_at asc, fallback_file.id asc
+                    limit 1
+                )
+            ) as last_media_file_id,
             position_seconds,
             duration_seconds,
             last_watched_at,
@@ -159,7 +177,16 @@ pub async fn list_playback_progress_for_media_items(
         select distinct on (media_item_id)
             id,
             media_item_id,
-            last_media_file_id,
+            coalesce(
+                last_media_file_id,
+                (
+                    select fallback_file.id
+                    from media_files fallback_file
+                    where fallback_file.media_item_id = playback_progress.media_item_id
+                    order by fallback_file.created_at asc, fallback_file.id asc
+                    limit 1
+                )
+            ) as last_media_file_id,
             position_seconds,
             duration_seconds,
             last_watched_at,
@@ -256,14 +283,12 @@ pub async fn upsert_playback_progress(
                 user_id,
                 media_item_id,
                 last_played_media_item_id,
-                last_media_file_id,
                 last_watched_at
             )
             select
                 $1,
                 coalesce(s.series_id, mi.id),
                 mi.id,
-                $3,
                 now()
             from media_items mi
             left join episodes e on e.media_item_id = mi.id
@@ -271,13 +296,11 @@ pub async fn upsert_playback_progress(
             where mi.id = $2
             on conflict (user_id, media_item_id) do update
             set last_played_media_item_id = excluded.last_played_media_item_id,
-                last_media_file_id = excluded.last_media_file_id,
                 last_watched_at = excluded.last_watched_at
             "#,
         )
         .bind(params.user_id)
         .bind(params.media_item_id)
-        .bind(params.media_file_id)
         .execute(&mut *transaction)
         .await
         .context("failed to upsert continue watching item")?;
@@ -388,7 +411,6 @@ pub async fn merge_media_item_user_state(
             user_id,
             media_item_id,
             last_played_media_item_id,
-            last_media_file_id,
             last_watched_at
         )
         select
@@ -398,7 +420,6 @@ pub async fn merge_media_item_user_state(
                 when last_played_media_item_id = $1 then $2
                 else last_played_media_item_id
             end,
-            last_media_file_id,
             last_watched_at
         from continue_watching
         where media_item_id = $1
@@ -407,11 +428,6 @@ pub async fn merge_media_item_user_state(
                 when excluded.last_watched_at >= current_item.last_watched_at
                     then excluded.last_played_media_item_id
                 else current_item.last_played_media_item_id
-            end,
-            last_media_file_id = case
-                when excluded.last_watched_at >= current_item.last_watched_at
-                    then excluded.last_media_file_id
-                else current_item.last_media_file_id
             end,
             last_watched_at = greatest(excluded.last_watched_at, current_item.last_watched_at)
         "#,
@@ -504,7 +520,11 @@ fn map_continue_watching_row(row: PgRow) -> ContinueWatchingItem {
 
 #[cfg(test)]
 mod tests {
-    use super::{list_continue_watching, merge_media_item_user_state};
+    use super::{
+        get_playback_progress_for_media_item, list_continue_watching,
+        list_playback_progress_for_media_items, merge_media_item_user_state,
+        upsert_playback_progress, UpsertPlaybackProgressParams,
+    };
     use sqlx::Row;
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -612,19 +632,16 @@ mod tests {
                 user_id,
                 media_item_id,
                 last_played_media_item_id,
-                last_media_file_id,
                 last_watched_at
             )
             values
-                ($1, $2, $2, $3, '2026-01-02T00:00:00Z'),
-                ($1, $4, $4, $5, '2026-01-01T00:00:00Z')
+                ($1, $2, $2, '2026-01-02T00:00:00Z'),
+                ($1, $3, $3, '2026-01-01T00:00:00Z')
             "#,
         )
         .bind(user_id)
         .bind(source_media_item_id)
-        .bind(source_media_file_id)
         .bind(target_media_item_id)
-        .bind(target_media_file_id)
         .execute(&pool)
         .await
         .unwrap();
@@ -664,7 +681,7 @@ mod tests {
 
         let continue_item = sqlx::query(
             r#"
-            select media_item_id, last_played_media_item_id, last_media_file_id
+            select media_item_id, last_played_media_item_id
             from continue_watching
             where user_id = $1
             "#,
@@ -680,10 +697,6 @@ mod tests {
         assert_eq!(
             continue_item.get::<i64, _>("last_played_media_item_id"),
             target_media_item_id
-        );
-        assert_eq!(
-            continue_item.get::<i64, _>("last_media_file_id"),
-            source_media_file_id
         );
     }
 
@@ -773,15 +786,13 @@ mod tests {
                     user_id,
                     media_item_id,
                     last_played_media_item_id,
-                    last_media_file_id,
                     last_watched_at
                 )
-                values ($1, $2, $2, $3, $4::timestamptz)
+                values ($1, $2, $2, $3::timestamptz)
                 "#,
             )
             .bind(user_id)
             .bind(item_id)
-            .bind(file_id)
             .bind(watched_at)
             .execute(&pool)
             .await
@@ -794,5 +805,177 @@ mod tests {
 
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].media_item.library_id, allowed_library_id);
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn deleting_the_last_played_version_keeps_continue_watching(pool: sqlx::PgPool) {
+        let user_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into users (
+                username,
+                username_normalized,
+                nickname,
+                password_hash,
+                role
+            )
+            values ('version-viewer', 'version-viewer', 'Viewer', 'hash', 'viewer')
+            returning id
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let library_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into libraries (name, root_path)
+            values ('Versions', '/media/versions')
+            returning id
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let media_item_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_items (library_id, media_type, title, source_title)
+            values ($1, 'movie', 'Movie', 'Movie')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let first_file_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_files (library_id, media_item_id, file_path, file_size)
+            values ($1, $2, '/media/versions/movie-1080p.mkv', 1)
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(media_item_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let second_file_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_files (library_id, media_item_id, file_path, file_size)
+            values ($1, $2, '/media/versions/movie-2160p.mkv', 1)
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(media_item_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        upsert_playback_progress(
+            &pool,
+            UpsertPlaybackProgressParams {
+                user_id,
+                media_item_id,
+                media_file_id: first_file_id,
+                position_seconds: 30,
+                duration_seconds: Some(600),
+                is_finished: false,
+            },
+        )
+        .await
+        .unwrap();
+        let newest_progress = upsert_playback_progress(
+            &pool,
+            UpsertPlaybackProgressParams {
+                user_id,
+                media_item_id,
+                media_file_id: second_file_id,
+                position_seconds: 90,
+                duration_seconds: Some(600),
+                is_finished: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(newest_progress.last_media_file_id, Some(second_file_id));
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from playback_progress where user_id = $1 and media_item_id = $2",
+            )
+            .bind(user_id)
+            .bind(media_item_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            1
+        );
+
+        sqlx::query("delete from media_files where id = $1")
+            .bind(second_file_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let progress = sqlx::query_as::<_, (Option<i64>, i32)>(
+            r#"
+            select last_media_file_id, position_seconds
+            from playback_progress
+            where user_id = $1 and media_item_id = $2
+            "#,
+        )
+        .bind(user_id)
+        .bind(media_item_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(progress, (None, 90));
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from continue_watching where user_id = $1 and media_item_id = $2",
+            )
+            .bind(user_id)
+            .bind(media_item_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            1
+        );
+
+        let items = list_continue_watching(&pool, user_id, None, 20)
+            .await
+            .unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].media_item.id, media_item_id);
+        assert_eq!(
+            items[0].playback_progress.last_media_file_id,
+            Some(first_file_id)
+        );
+        let single_progress = get_playback_progress_for_media_item(&pool, user_id, media_item_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(single_progress.last_media_file_id, Some(first_file_id));
+        let batch_progress =
+            list_playback_progress_for_media_items(&pool, user_id, &[media_item_id])
+                .await
+                .unwrap();
+        assert_eq!(
+            batch_progress
+                .get(&media_item_id)
+                .and_then(|progress| progress.last_media_file_id),
+            Some(first_file_id)
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from media_files where media_item_id = $1",
+            )
+            .bind(media_item_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            1
+        );
     }
 }

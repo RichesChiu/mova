@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildPlaybackActionLinks,
+  continueWatchingPlaybackPath,
   isResumablePlayback,
   pickPreferredPlaybackEpisode,
   pickSeriesPlaybackTargetEpisode,
@@ -30,6 +31,28 @@ describe('playback helpers', () => {
       primaryPath: '/media-items/31/play',
       secondaryPath: null,
     })
+  })
+
+  it('builds continue playback links from the exact episode and file version', () => {
+    expect(
+      continueWatchingPlaybackPath({
+        playback_progress: {
+          media_item_id: 402,
+          last_media_file_id: 902,
+        },
+      }),
+    ).toBe('/media-items/402/play?file=902')
+  })
+
+  it('keeps continue playback usable when the recorded file was removed', () => {
+    expect(
+      continueWatchingPlaybackPath({
+        playback_progress: {
+          media_item_id: 402,
+          last_media_file_id: null,
+        },
+      }),
+    ).toBe('/media-items/402/play')
   })
 
   it('prefers resumable episodes over the first available episode', () => {

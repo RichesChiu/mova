@@ -12,7 +12,7 @@ HTTP 接口见 [`API.md`](API.md)，SSE 事件见 [`SSE.md`](SSE.md)，TMDB 接�
 - 文件系统、`ffprobe`、TMDB 和图片下载不得放在数据库事务中。
 - 本地分析负责确定可播放结构和唯一远端查询类型。
 - 完整季集坐标使用 TMDB TV；其他文件使用 TMDB movie。
-- 自动匹配采用严格名称和年份规则，不计算相似度分数，不跨类型兜底。
+- 本地有年份时采用严格名称与年份规则；无年份时先采用 TMDB 首屏精准标题命中，没有命中再回退首个结果。两者都不计算相似度分数，也不跨类型兜底。
 - 同一扫描组的本地写入和远端写入分别使用短事务。
 - local worker 与 remote worker 通过有界队列形成流水线。
 - 服务端持久化任务级权威进度，客户端不得自行估算。
@@ -345,7 +345,7 @@ Season 1 Episode 2
 - 整部剧只选择一个 TMDB series ID。
 - TMDB series metadata 在组内复用。
 - 只为本地存在的季和集创建可播放结构。
-- 本地标题、原始标题或目录边界不同，但严格匹配到同一 provider series ID 的组，持久化时归并为一个 series；相同季集坐标的物理文件作为同一 episode 的多个播放版本。
+- 本地标题、原始标题或目录边界不同，但匹配到同一 provider series ID 的组，持久化时归并为一个 series；相同季集坐标的物理文件作为同一 episode 的多个播放版本。
 - episode 或 series 归并时，播放进度与继续观看聚合键随媒体结构在同一事务内迁移，避免重新识别后丢失续播状态。
 
 series group key 在存在明确季目录树时使用规范化容器路径，否则使用文件名解析出的规范化剧名。容器路径只是不透明分组边界，不从目录文字提取标题、别名或年份。
@@ -397,7 +397,7 @@ Local worker 按扫描组串行执行：
 - 海报不得作为背景图兜底。
 - 单集剧照不得提升为剧集海报或背景。
 
-pending 事务不得清空已有远端图片。只有严格匹配成功的最终事务可以根据远端详情清理确认缺失的字段。
+pending 事务不得清空已有远端图片。只有远端身份匹配成功的最终事务可以根据远端详情清理确认缺失的字段。
 
 ### 10.3 字幕
 
@@ -447,7 +447,7 @@ Remote worker 从有界队列领取已经完成 pending 事务的扫描组：
 
 1. 根据本地结构确定唯一 TMDB media type。
 2. 读取可信 provider binding。
-3. 没有 binding 时执行一次严格搜索。
+3. 没有 binding 时按当前年份策略执行一次搜索。
 4. 选中 provider ID 后按 ID 获取详情。
 5. 获取需要的季和集 metadata。
 6. 从同一 TMDB 详情响应读取 `vote_average / vote_count`，不增加评分请求。
@@ -460,17 +460,18 @@ Remote worker 从有界队列领取已经完成 pending 事务的扫描组：
 同一次扫描执行使用规范化请求键去重 TMDB 请求：
 
 - 已有 provider ID 时，请求键只由媒体类型、语言和 provider ID 组成，本地标题、年份或季提示差异不会重复请求同一远端条目。
-- 尚无 provider ID 时，请求键由规范化标题、严格年份、季验证提示、媒体类型和语言组成。
+- 尚无 provider ID 时，请求键由规范化标题、作品年份、季验证提示、媒体类型和语言组成。
 - 元数据详情、剧集季集大纲和图片结果分别使用有界缓存。
 - 成功和明确的未命中结果可以复用；临时 provider 错误不缓存，允许后续扫描组重试。
 
-## 13. TMDB 严格匹配
+## 13. TMDB 身份匹配
 
 扫描只向 metadata provider 提交已经确定的本地结构，不在扫描层实现第二套候选算法：
 
 - 完整 `season_number + episode_number` 只查询 TV，其它文件只查询 movie。
-- 指定类型没有严格命中时结果为未匹配，不跨类型兜底。
-- 已有可信 provider binding 时按 ID 获取详情；没有 binding 时只执行一次严格搜索。
+- 本地有作品年份或后续季年份提示时执行严格标题与年份验证；本地无年份时先选 TMDB 第一页中的精准标题候选，没有精准命中时再接受搜索响应顺序中的首个结果。
+- 指定类型没有符合当前年份策略的候选时结果为未匹配，不跨类型兜底。
+- 已有可信 provider binding 时按 ID 获取详情；没有 binding 时只按当前年份策略执行一次搜索。
 - provider 返回的规范字段只在匹配成功的最终事务中写入，本地文件结构和 `source_title` 不被覆盖。
 
 标题、年份、别名、后续季验证、字段所有权、请求缓存和 provider 失败分类统一由 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md) 定义。TMDB v3 完整接口目录见 [`TMDB.md`](TMDB.md)。
@@ -479,16 +480,16 @@ Remote worker 从有界队列领取已经完成 pending 事务的扫描组：
 
 | `metadata_status` | `metadata_failure_reason` | 含义 |
 | --- | --- | --- |
-| `matched` | `null` | 严格匹配并完成远端写入 |
+| `matched` | `null` | 按当前年份策略匹配并完成远端写入 |
 | `matched` | `metadata_provider_error` | 已接受的远端身份仍然有效，但本次刷新发生临时 provider 故障；后续扫描重试 |
-| `unmatched` | `no_remote_match` | 唯一类型中没有严格候选 |
+| `unmatched` | `no_remote_match` | 唯一类型中没有符合当前年份策略的候选 |
 | `failed` | `metadata_provider_error` | provider 请求或处理失败 |
 | `skipped` | `metadata_provider_disabled` | metadata provider 未启用 |
 | `pending` | `null` | 本地事务已经提交，等待远端处理 |
 
 `unmatched`、`failed` 和 `skipped` 是扫描组的远端处理终态，会计入任务完成度，但不表示匹配成功。
 
-`remote_media_type` 只在严格绑定远端条目时写入。客户端不得通过启发式规则伪造远端类型。
+`remote_media_type` 只在确认 provider binding 后写入。客户端不得通过启发式规则伪造远端类型。
 
 ## 15. 最终组事务
 
@@ -644,13 +645,13 @@ library:{id}:notifications
 - 重复扫描不生成重复媒体项或物理文件。
 - 同一剧集跨季归入一个 series。
 - 无完整季集坐标的文件不自动查询 TV。
-- 严格匹配失败时不跨类型兜底。
+- 身份匹配失败时不跨类型兜底。
 - pending 写入不清空已有 artwork。
 - 组事务失败时不留下半完成组。
 - 任务进度不回退。
 - 中间重试失败不发送终态。
 - 最终媒体写入与 `remote_completed` 检查点必须原子提交，通知摘要只在该事务成功后累计。
-- provider 超时必须归类为 `metadata_provider_error`，不得伪装成严格匹配失败。
+- provider 超时必须归类为 `metadata_provider_error`，不得伪装成身份匹配失败。
 - `ffprobe` 失败必须作为非阻断警告进入扫描通知摘要。
 
 ### 23.2 性能

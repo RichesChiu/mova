@@ -192,7 +192,9 @@ export const MediaItemPage = () => {
   })
   const mediaFiles = mediaFilesQuery.data ?? []
   const selectedMediaFile =
-    mediaFiles.find((file) => file.id === selectedMediaVersionId) ?? mediaFiles[0] ?? null
+    selectedMediaVersionId === null
+      ? null
+      : (mediaFiles.find((file) => file.id === selectedMediaVersionId) ?? null)
   const selectedTechnicalBadges = selectedMediaFile
     ? buildMediaFileTechnicalBadges(selectedMediaFile)
     : []
@@ -235,13 +237,18 @@ export const MediaItemPage = () => {
       return
     }
 
-    const moviePlaybackProgress = moviePlaybackProgressQuery.data
+    if (mediaItemQuery.data?.media_type === 'movie' && moviePlaybackProgressQuery.isLoading) {
+      return
+    }
+
+    const playbackProgress =
+      mediaItemQuery.data?.media_type === 'series'
+        ? seriesPlaybackTargetEpisode?.playback_progress
+        : moviePlaybackProgressQuery.data
     const preferredMediaFile =
-      mediaItemQuery.data?.media_type === 'movie'
-        ? ((moviePlaybackProgress &&
-            mediaFiles.find((file) => file.id === moviePlaybackProgress.last_media_file_id)) ??
-          mediaFiles[0])
-        : mediaFiles[0]
+      (playbackProgress &&
+        mediaFiles.find((file) => file.id === playbackProgress.last_media_file_id)) ??
+      mediaFiles[0]
 
     setSelectedMediaVersionId((current) =>
       current && mediaFiles.some((file) => file.id === current) ? current : preferredMediaFile.id,
@@ -250,6 +257,8 @@ export const MediaItemPage = () => {
     mediaFiles,
     mediaItemQuery.data?.media_type,
     moviePlaybackProgressQuery.data,
+    moviePlaybackProgressQuery.isLoading,
+    seriesPlaybackTargetEpisode?.playback_progress,
     shouldShowMediaFilesSection,
   ])
 

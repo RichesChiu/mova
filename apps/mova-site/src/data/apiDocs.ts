@@ -206,6 +206,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       'metadata_provider_item_id、provider_item_id 和 person_id 都是字符串，客户端不得假设远端 ID 一定是数字。',
       'metadata_status 使用 matched / unmatched / failed / skipped 表达元数据处理状态。',
       '剧集可通过 seasons、episodes、episode-outline 获取本地可用集和远端大纲合并结果。',
+      'episode-outline 的播放快照包含 last_media_file_id；同一集有多个文件版本时，客户端应恢复最近播放的具体版本。',
       'poster/backdrop/logo 返回经过媒体库边界、大小和图片内容校验的本地图片流；详情只透出可信的 TMDB 官方远程图片地址。',
     ],
     endpoints: [
@@ -232,6 +233,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '查询进度返回 null 是正常语义，表示当前用户尚未观看该内容。',
       '写入进度时同时提交 media_file_id、position_seconds 和 duration_seconds。',
       '进度按用户与媒体条目唯一；多个文件版本共享进度，last_media_file_id 只记录最近选择的版本。',
+      '最近选择的文件被删除时，继续观看记录会保留，服务端统一回退到同一条目的首个现存版本。',
       '重复媒体条目合并时，文件、进度和继续观看状态在同一事务迁移，并保留较新的观看状态。',
       'continue-watching 只返回未看完内容，剧集会按 series 聚合到最近观看的一集。',
       '已看完内容不会出现在继续观看列表中。',

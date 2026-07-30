@@ -10,7 +10,7 @@ import type { ContinueWatchingCardData } from '../../components/continue-watchin
 import { LibraryEditorModal } from '../../components/library-editor-modal'
 import { useI18n } from '../../i18n'
 import { getVisibleHomeLibraries, shouldRenderHomeRecentlyAdded } from '../../lib/home-sections'
-import { mediaItemDetailPath, mediaItemPrimaryPath } from '../../lib/media-routes'
+import { continueWatchingPlaybackPath } from '../../lib/playback'
 import {
   buildDeletedLibraryCacheState,
   buildDeleteLibraryConfirmationCopy,
@@ -157,9 +157,6 @@ export const HomePage = () => {
     const episodeLabel = hasEpisodeContext
       ? `S${String(seasonNumber).padStart(2, '0')} · E${String(episodeNumber).padStart(2, '0')}`
       : null
-    const continuePath = hasEpisodeContext
-      ? `${mediaItemDetailPath(entry.media_item.id)}?season=${seasonNumber}`
-      : mediaItemPrimaryPath(entry.media_item)
     const artwork = hasEpisodeContext ? entry.episode_poster_path : entry.media_item.poster_path
     const title = entry.media_item.title.trim() || l('Untitled')
     const placeholderLabel = hasEpisodeContext ? `${seasonNumber}-${episodeNumber}` : l('Movies')
@@ -167,7 +164,7 @@ export const HomePage = () => {
     return {
       artworkAlt: l('{{title}} artwork', { title: entry.media_item.title }),
       artworkSrc: artwork,
-      href: continuePath,
+      href: continueWatchingPlaybackPath(entry),
       id: entry.playback_progress.id,
       metaLabel: episodeLabel,
       placeholderLabel,
