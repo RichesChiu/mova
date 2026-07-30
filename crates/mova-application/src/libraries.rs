@@ -24,6 +24,14 @@ pub struct UpdateLibraryInput {
     pub metadata_language: Option<String>,
 }
 
+#[derive(Debug)]
+pub struct UpdateLibraryOutput {
+    pub library: Library,
+    pub metadata_language_changed: bool,
+    pub media_items_marked_pending: u64,
+    pub scan_job_created: bool,
+}
+
 /// 从持久层读取当前用户可见的媒体库配置。
 pub async fn list_libraries(
     pool: &PgPool,
@@ -107,9 +115,7 @@ pub async fn update_library(
     pool: &PgPool,
     library_id: i64,
     input: UpdateLibraryInput,
-) -> ApplicationResult<Library> {
-    let existing = get_library(pool, library_id).await?;
-
+) -> ApplicationResult<UpdateLibraryOutput> {
     if input.name.is_none() && input.description.is_none() && input.metadata_language.is_none() {
         return Err(ApplicationError::Validation(
             "at least one library field must be provided".to_string(),
@@ -120,29 +126,18 @@ pub async fn update_library(
         Some(value) => {
             let value = value.trim().to_string();
             validate_required("library name", &value)?;
-            value
+            Some(value)
         }
-        None => existing.name.clone(),
+        None => None,
     };
 
-    let description = match input.description {
-        Some(value) => normalize_optional_text(value),
-        None => existing.description.clone(),
-    };
+    let description = input.description.map(normalize_optional_text);
+    let metadata_language = input
+        .metadata_language
+        .map(|value| normalize_metadata_language(Some(value), DEFAULT_TMDB_LANGUAGE))
+        .transpose()?;
 
-    let metadata_language = match input.metadata_language {
-        Some(value) => normalize_metadata_language(Some(value), DEFAULT_TMDB_LANGUAGE)?,
-        None => existing.metadata_language.clone(),
-    };
-
-    if name == existing.name
-        && description == existing.description
-        && metadata_language == existing.metadata_language
-    {
-        return Ok(existing);
-    }
-
-    mova_db::update_library(
+    let outcome = mova_db::update_library(
         pool,
         mova_db::UpdateLibraryParams {
             library_id,
@@ -153,19 +148,37 @@ pub async fn update_library(
     )
     .await
     .map_err(ApplicationError::from)?
-    .ok_or_else(|| ApplicationError::NotFound(format!("library not found: {}", library_id)))
+    .ok_or_else(|| ApplicationError::NotFound(format!("library not found: {}", library_id)))?;
+    let result = match outcome {
+        mova_db::UpdateLibraryOutcome::Updated(result) => result,
+        mova_db::UpdateLibraryOutcome::ActiveScan(scan_job) => {
+            return Err(ApplicationError::Conflict(format!(
+                "library {} still has active scan job {}; retry after it finishes",
+                library_id, scan_job.id
+            )));
+        }
+    };
+
+    Ok(UpdateLibraryOutput {
+        library: result.library,
+        metadata_language_changed: result.metadata_language_changed,
+        media_items_marked_pending: result.media_items_marked_pending,
+        scan_job_created: result.scan_job_created,
+    })
 }
 
-/// 元数据语言变化后，把库内所有条目放回远端补全队列。
-/// 文件指纹未变化时，扫描仍可复用本地分析结果，但会重新请求每个条目的远端元数据。
-pub async fn prepare_library_metadata_rescan(
+/// 在触碰运行中的扫描任务前判断请求是否真的会改变元数据语言。
+///
+/// 最终写入仍会在事务内重新比较锁定后的权威记录；这里仅用于避免同语言请求无谓停止扫描。
+pub async fn library_metadata_language_will_change(
     pool: &PgPool,
     library_id: i64,
-) -> ApplicationResult<u64> {
-    get_library(pool, library_id).await?;
-    mova_db::mark_library_media_for_metadata_rescan(pool, library_id)
-        .await
-        .map_err(ApplicationError::from)
+    requested_language: &str,
+) -> ApplicationResult<bool> {
+    let requested_language =
+        normalize_metadata_language(Some(requested_language.to_string()), DEFAULT_TMDB_LANGUAGE)?;
+    let library = get_library(pool, library_id).await?;
+    Ok(requested_language != library.metadata_language)
 }
 
 /// 删除媒体库的数据库记录，并原子入队持久化缓存清理任务。

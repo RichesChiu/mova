@@ -1,0 +1,64 @@
+.glass-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.glass-dialog__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+}
+
+.glass-dialog__surface {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  max-height: min(82vh, 920px);
+  overflow: auto;
+  border-radius: var(--radius-surface);
+}
+
+.glass-dialog__close {
+  display: inline-flex;
+  flex: 0 0 38px;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  appearance: none;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard);
+}
+
+.glass-dialog__close:hover:not(:disabled) {
+  background: var(--surface-soft-hover);
+  color: var(--text);
+}
+
+.glass-dialog__close:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.glass-dialog__close svg {
+  width: 16px;
+  height: 16px;
+}
+
+@media (max-width: 640px) {
+  .glass-dialog {
+    padding: 16px;
+  }
+}

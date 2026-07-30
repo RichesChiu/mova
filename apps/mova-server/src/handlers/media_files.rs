@@ -1,5 +1,13 @@
-use crate::auth::{require_media_file_access, require_user};
+use crate::audio_track_cache::{
+    audio_track_remux_output_limit, cache_artifact_is_usable, generated_artifact_size_is_complete,
+    reserve_audio_track_cache, try_admit_audio_track_remux,
+};
+use crate::auth::{
+    require_media_file_access, require_media_file_with_library_access, require_user,
+};
+use crate::bounded_process::{run_with_bounded_stderr, BoundedCommandError};
 use crate::error::ApiError;
+use crate::media_path::{resolve_regular_file_within_library, LibraryMediaPathError};
 use crate::response::{ok, ApiJson, AudioTrackResponse};
 use crate::state::AppState;
 use axum::{
@@ -15,6 +23,7 @@ use serde::Deserialize;
 use std::{
     io::ErrorKind,
     path::{Path as StdPath, PathBuf},
+    time::Duration,
 };
 use tokio::{
     fs::{self, File},
@@ -22,6 +31,11 @@ use tokio::{
     process::Command,
 };
 use tokio_util::io::ReaderStream;
+
+const AUDIO_TRACK_REMUX_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const AUDIO_TRACK_CACHE_KEY_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+const AUDIO_TRACK_CACHE_VERSION: u8 = 2;
+const FFMPEG_DIAGNOSTIC_LIMIT: usize = 64 * 1024;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct MediaFileStreamQuery {
@@ -95,7 +109,10 @@ async fn build_media_file_stream_response(
     headers: HeaderMap,
     head_only: bool,
 ) -> Result<Response<Body>, ApiError> {
-    let media_file = require_media_file_access(&state, user, media_file_id).await?;
+    let (media_file, library) =
+        require_media_file_with_library_access(&state, user, media_file_id).await?;
+    let source_path = resolve_trusted_media_source(&media_file, &library.root_path).await?;
+    let content_type = content_type_for_media_file(&media_file);
     let stream_path = match audio_track_id {
         Some(audio_track_id) => {
             let audio_track = mova_application::get_audio_track(&state.db, audio_track_id)
@@ -109,11 +126,30 @@ async fn build_media_file_stream_response(
                 )));
             }
 
-            materialize_audio_track_variant(&state, &media_file, &audio_track).await?
+            if head_only {
+                let cached_path = audio_track_variant_cache_path(&state, &media_file, &audio_track);
+                if cache_artifact_is_usable(&cached_path)
+                    .await
+                    .map_err(|error| {
+                        tracing::error!(
+                            error = ?error,
+                            cache_path = %cached_path.display(),
+                            "failed to inspect audio-track cache artifact for HEAD request"
+                        );
+                        ApiError::Internal
+                    })?
+                {
+                    cached_path
+                } else {
+                    return Ok(build_unmaterialized_audio_track_head_response(content_type));
+                }
+            } else {
+                materialize_audio_track_variant(&state, &media_file, &audio_track, &source_path)
+                    .await?
+            }
         }
-        None => PathBuf::from(&media_file.file_path),
+        None => source_path,
     };
-    let content_type = content_type_for_media_file(&media_file);
 
     build_file_stream_response(
         &stream_path,
@@ -134,6 +170,52 @@ async fn build_media_file_stream_response(
         },
     )
     .await
+}
+
+fn build_unmaterialized_audio_track_head_response(content_type: &'static str) -> Response<Body> {
+    let mut response = Response::new(Body::empty());
+    *response.status_mut() = StatusCode::OK;
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("none"));
+    response
+}
+
+async fn resolve_trusted_media_source(
+    media_file: &mova_domain::MediaFile,
+    library_root: &str,
+) -> Result<PathBuf, ApiError> {
+    let not_found_message = format!("media file not found on disk for id {}", media_file.id);
+    let source_path = StdPath::new(&media_file.file_path);
+    match resolve_regular_file_within_library(source_path, StdPath::new(library_root)).await {
+        Ok(canonical_source) => Ok(canonical_source),
+        Err(LibraryMediaPathError::LibraryRoot(error)) => {
+            tracing::error!(
+                media_file_id = media_file.id,
+                library_id = media_file.library_id,
+                library_root,
+                error = ?error,
+                "failed to validate media library root before streaming"
+            );
+            Err(ApiError::Internal)
+        }
+        Err(LibraryMediaPathError::MediaSource(error)) => Err(map_stream_file_io_error(
+            source_path,
+            error,
+            &not_found_message,
+        )),
+        Err(LibraryMediaPathError::OutsideLibraryRoot | LibraryMediaPathError::NotRegularFile) => {
+            tracing::warn!(
+                media_file_id = media_file.id,
+                library_id = media_file.library_id,
+                file_path = %source_path.display(),
+                library_root,
+                "refused to stream an invalid media file path"
+            );
+            Err(ApiError::NotFound(not_found_message))
+        }
+    }
 }
 
 async fn build_file_stream_response(
@@ -212,61 +294,170 @@ async fn materialize_audio_track_variant(
     state: &AppState,
     media_file: &mova_domain::MediaFile,
     audio_track: &mova_domain::AudioTrack,
+    source_path: &StdPath,
 ) -> Result<PathBuf, ApiError> {
-    let cache_dir =
-        mova_application::library_audio_track_cache_dir(&state.cache_dir, media_file.library_id);
-    fs::create_dir_all(&cache_dir)
+    let cached_path = audio_track_variant_cache_path(state, media_file, audio_track);
+    if cache_artifact_is_usable(&cached_path)
         .await
-        .map_err(|_| ApiError::Internal)?;
-
-    let extension = media_file
-        .container
-        .as_deref()
-        .filter(|value| !value.is_empty())
-        .unwrap_or("mp4");
-    let cache_key = media_file.updated_at.unix_timestamp_nanos();
-    let cached_path = cache_dir.join(format!(
-        "media-file-{}-audio-track-{}-{}.{}",
-        media_file.id, audio_track.id, cache_key, extension
-    ));
-
-    if fs::metadata(&cached_path).await.is_ok() {
+        .map_err(|error| {
+            tracing::error!(
+                error = ?error,
+                cache_path = %cached_path.display(),
+                "failed to inspect audio-track cache artifact"
+            );
+            ApiError::Internal
+        })?
+    {
         return Ok(cached_path);
     }
 
+    let admission = try_admit_audio_track_remux().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::WouldBlock {
+            tracing::debug!(
+                audio_track_id = audio_track.id,
+                "rejected audio-track remux because process capacity is busy"
+            );
+        } else {
+            tracing::error!(
+                error = ?error,
+                audio_track_id = audio_track.id,
+                "failed to acquire audio-track remux admission"
+            );
+        }
+        ApiError::ServiceUnavailable("audio track preparation is busy".to_string())
+    })?;
+    let _cache_guard = tokio::time::timeout(
+        AUDIO_TRACK_CACHE_KEY_WAIT_TIMEOUT,
+        mova_application::lock_cache_path(&cached_path),
+    )
+    .await
+    .map_err(|_| {
+        tracing::debug!(
+            audio_track_id = audio_track.id,
+            wait_seconds = AUDIO_TRACK_CACHE_KEY_WAIT_TIMEOUT.as_secs(),
+            "timed out waiting for the same audio-track cache key"
+        );
+        ApiError::ServiceUnavailable("audio track preparation is already in progress".to_string())
+    })?;
+
+    // A request that owned this key may have published while we waited.
+    if cache_artifact_is_usable(&cached_path)
+        .await
+        .map_err(|error| {
+            tracing::error!(
+                error = ?error,
+                cache_path = %cached_path.display(),
+                "failed to recheck audio-track cache artifact"
+            );
+            ApiError::Internal
+        })?
+    {
+        return Ok(cached_path);
+    }
+
+    let cache_dir = cached_path.parent().ok_or(ApiError::Internal)?;
+    fs::create_dir_all(cache_dir)
+        .await
+        .map_err(|_| ApiError::Internal)?;
+    if fs::metadata(&cached_path).await.is_ok() {
+        let _ = fs::remove_file(&cached_path).await;
+    }
+
+    let source_size = fs::metadata(source_path)
+        .await
+        .map_err(|error| {
+            tracing::error!(
+                error = ?error,
+                media_file_id = media_file.id,
+                "failed to inspect media before audio-track remux"
+            );
+            ApiError::Internal
+        })?
+        .len();
+    let output_limit = audio_track_remux_output_limit(source_size).ok_or_else(|| {
+        tracing::warn!(
+            audio_track_id = audio_track.id,
+            source_bytes = source_size,
+            "refused audio-track remux whose safety bound exceeds the artifact limit"
+        );
+        ApiError::BadRequest(
+            "the selected media file exceeds the server audio-track cache limit".to_string(),
+        )
+    })?;
+    let mut temporary_file = mova_application::CacheTempFileGuard::new(&cached_path);
+    let temporary_path = temporary_file.path().to_path_buf();
+    let _cache_reservation =
+        reserve_audio_track_cache(&state.cache_dir, &temporary_path, output_limit, admission)
+            .await
+            .map_err(|error| {
+                tracing::error!(
+                    error = ?error,
+                    audio_track_id = audio_track.id,
+                    reserved_bytes = output_limit,
+                    "failed to reserve audio-track cache capacity"
+                );
+                ApiError::ServiceUnavailable(
+                    "audio track cache capacity is unavailable".to_string(),
+                )
+            })?;
+
     let mut command = Command::new("ffmpeg");
     command
+        .kill_on_drop(true)
         .arg("-nostdin")
         .arg("-y")
         .arg("-loglevel")
         .arg("error")
         .arg("-i")
-        .arg(&media_file.file_path)
+        .arg(source_path)
         .arg("-map")
         .arg("0:v:0")
         .arg("-map")
         .arg(format!("0:{}", audio_track.stream_index))
         .arg("-dn")
         .arg("-c")
-        .arg("copy");
+        .arg("copy")
+        .arg("-fs")
+        .arg(output_limit.to_string());
 
     if matches!(media_file.container.as_deref(), Some("mp4" | "m4v" | "mov")) {
         command.arg("-movflags").arg("+faststart");
     }
 
-    let output = command.arg(&cached_path).output().await.map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            ApiError::Internal
-        } else {
-            tracing::error!(error = ?error, "failed to spawn ffmpeg audio track remux");
-            ApiError::Internal
+    let output = match run_with_bounded_stderr(
+        command.arg(&temporary_path),
+        AUDIO_TRACK_REMUX_TIMEOUT,
+        FFMPEG_DIAGNOSTIC_LIMIT,
+    )
+    .await
+    {
+        Ok(output) => output,
+        Err(BoundedCommandError::Spawn(error) | BoundedCommandError::Io(error)) => {
+            let _ = fs::remove_file(&temporary_path).await;
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::error!(error = ?error, "failed to spawn ffmpeg audio track remux");
+            }
+            return Err(ApiError::Internal);
         }
-    })?;
+        Err(BoundedCommandError::TimedOut) => {
+            let _ = fs::remove_file(&temporary_path).await;
+            tracing::error!(
+                timeout_seconds = AUDIO_TRACK_REMUX_TIMEOUT.as_secs(),
+                audio_track_id = audio_track.id,
+                "ffmpeg audio track remux timed out"
+            );
+            return Err(ApiError::ServiceUnavailable(
+                "audio track preparation timed out".to_string(),
+            ));
+        }
+    };
 
     if !output.status.success() {
+        let _ = fs::remove_file(&temporary_path).await;
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         tracing::error!(
             stderr,
+            stderr_truncated = output.stderr_truncated,
             audio_track_id = audio_track.id,
             "ffmpeg audio track remux failed"
         );
@@ -280,7 +471,68 @@ async fn materialize_audio_track_variant(
         )));
     }
 
+    let generated_metadata = fs::metadata(&temporary_path).await.map_err(|error| {
+        tracing::error!(
+            error = ?error,
+            audio_track_id = audio_track.id,
+            "failed to inspect generated audio-track cache artifact"
+        );
+        ApiError::Internal
+    })?;
+    if !generated_metadata.is_file() || generated_metadata.len() == 0 {
+        let _ = fs::remove_file(&temporary_path).await;
+        tracing::error!(
+            audio_track_id = audio_track.id,
+            "ffmpeg produced an invalid audio-track cache artifact"
+        );
+        return Err(ApiError::Internal);
+    }
+    // FFmpeg may exit successfully after `-fs` stops a mux. Reaching the
+    // boundary therefore cannot prove completeness and must not be published.
+    if !generated_artifact_size_is_complete(generated_metadata.len(), output_limit) {
+        let _ = fs::remove_file(&temporary_path).await;
+        tracing::warn!(
+            audio_track_id = audio_track.id,
+            generated_bytes = generated_metadata.len(),
+            max_bytes = output_limit,
+            "rejected oversized audio-track cache artifact"
+        );
+        return Err(ApiError::BadRequest(
+            "the selected audio-track variant exceeds the server cache limit".to_string(),
+        ));
+    }
+
+    if let Err(error) = mova_application::commit_cache_file(&temporary_path, &cached_path).await {
+        let _ = fs::remove_file(&temporary_path).await;
+        tracing::error!(
+            error = ?error,
+            audio_track_id = audio_track.id,
+            "failed to publish remuxed audio track cache"
+        );
+        return Err(ApiError::Internal);
+    }
+    temporary_file.disarm();
+
     Ok(cached_path)
+}
+
+fn audio_track_variant_cache_path(
+    state: &AppState,
+    media_file: &mova_domain::MediaFile,
+    audio_track: &mova_domain::AudioTrack,
+) -> PathBuf {
+    let cache_dir =
+        mova_application::library_audio_track_cache_dir(&state.cache_dir, media_file.library_id);
+    let extension = media_file
+        .container
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .unwrap_or("mp4");
+    let cache_key = media_file.updated_at.unix_timestamp_nanos();
+    cache_dir.join(format!(
+        "v{}-media-file-{}-audio-track-{}-{}.{}",
+        AUDIO_TRACK_CACHE_VERSION, media_file.id, audio_track.id, cache_key, extension
+    ))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -393,9 +645,16 @@ fn map_stream_file_io_error(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_requested_range, RequestedRange};
+    use super::{
+        build_file_stream_response, build_unmaterialized_audio_track_head_response,
+        parse_requested_range, RequestedRange,
+    };
     use crate::error::ApiError;
-    use axum::http::HeaderValue;
+    use axum::http::{
+        header::{self, HeaderMap},
+        HeaderValue, StatusCode,
+    };
+    use uuid::Uuid;
 
     #[test]
     fn parse_requested_range_supports_explicit_start_end() {
@@ -434,5 +693,57 @@ mod tests {
             error,
             ApiError::RangeNotSatisfiable { file_size: 100, .. }
         ));
+    }
+
+    #[test]
+    fn unmaterialized_audio_track_head_does_not_claim_a_resource_length() {
+        let response = build_unmaterialized_audio_track_head_response("video/mp4");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "video/mp4"
+        );
+        assert_eq!(
+            response.headers().get(header::CACHE_CONTROL).unwrap(),
+            "no-store"
+        );
+        assert_eq!(
+            response.headers().get(header::ACCEPT_RANGES).unwrap(),
+            "none"
+        );
+        assert!(!response.headers().contains_key(header::CONTENT_LENGTH));
+        assert!(!response.headers().contains_key(header::CONTENT_RANGE));
+    }
+
+    #[tokio::test]
+    async fn materialized_audio_track_head_reports_the_cached_resource_length() {
+        let root = std::env::temp_dir().join(format!("mova-audio-head-test-{}", Uuid::new_v4()));
+        let cached_path = root.join("variant.mp4");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        tokio::fs::write(&cached_path, vec![b'x'; 37])
+            .await
+            .unwrap();
+
+        let response = build_file_stream_response(
+            &cached_path,
+            "video/mp4",
+            HeaderMap::new(),
+            true,
+            "missing audio cache".to_string(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_LENGTH).unwrap(),
+            "37"
+        );
+        assert_eq!(
+            response.headers().get(header::ACCEPT_RANGES).unwrap(),
+            "bytes"
+        );
+        let _ = tokio::fs::remove_dir_all(root).await;
     }
 }

@@ -25,6 +25,7 @@ pub struct UpsertPlaybackProgressParams {
 pub async fn list_continue_watching(
     pool: &PgPool,
     user_id: i64,
+    visible_library_ids: Option<&[i64]>,
     limit: i64,
 ) -> Result<Vec<ContinueWatchingItem>> {
     let rows = sqlx::query(
@@ -81,12 +82,14 @@ pub async fn list_continue_watching(
         left join seasons s on s.id = e.season_id
         where cw.user_id = $1
           and pp.is_finished = false
+          and ($3::bigint[] is null or mi.library_id = any($3))
         order by cw.last_watched_at desc, cw.id desc
         limit $2
         "#,
     )
     .bind(user_id)
     .bind(limit)
+    .bind(visible_library_ids)
     .fetch_all(pool)
     .await
     .context("failed to list continue watching items")?;
@@ -501,7 +504,7 @@ fn map_continue_watching_row(row: PgRow) -> ContinueWatchingItem {
 
 #[cfg(test)]
 mod tests {
-    use super::merge_media_item_user_state;
+    use super::{list_continue_watching, merge_media_item_user_state};
     use sqlx::Row;
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -525,8 +528,8 @@ mod tests {
         .unwrap();
         let library_id = sqlx::query_scalar::<_, i64>(
             r#"
-            insert into libraries (name, library_type, root_path)
-            values ('Movies', 'movie', '/media/movies')
+            insert into libraries (name, root_path)
+            values ('Movies', '/media/movies')
             returning id
             "#,
         )
@@ -627,6 +630,12 @@ mod tests {
         .unwrap();
 
         let mut transaction = pool.begin().await.unwrap();
+        sqlx::query("update media_files set media_item_id = $2 where id = $1")
+            .bind(source_media_file_id)
+            .bind(target_media_item_id)
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
         merge_media_item_user_state(&mut transaction, source_media_item_id, target_media_item_id)
             .await
             .unwrap();
@@ -676,5 +685,114 @@ mod tests {
             continue_item.get::<i64, _>("last_media_file_id"),
             source_media_file_id
         );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn continue_watching_filters_in_sql_before_applying_the_limit(pool: sqlx::PgPool) {
+        let user_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into users (
+                username,
+                username_normalized,
+                nickname,
+                password_hash,
+                role
+            )
+            values ('viewer', 'viewer', 'Viewer', 'hash', 'viewer')
+            returning id
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let allowed_library_id = sqlx::query_scalar::<_, i64>(
+            "insert into libraries (name, root_path) values ('Allowed', '/allowed') returning id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let denied_library_id = sqlx::query_scalar::<_, i64>(
+            "insert into libraries (name, root_path) values ('Denied', '/denied') returning id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        for (library_id, title, watched_at) in [
+            (allowed_library_id, "Allowed movie", "2026-01-01T00:00:00Z"),
+            (denied_library_id, "Denied movie", "2026-01-02T00:00:00Z"),
+        ] {
+            let item_id = sqlx::query_scalar::<_, i64>(
+                r#"
+                insert into media_items (library_id, media_type, title, source_title)
+                values ($1, 'movie', $2, $2)
+                returning id
+                "#,
+            )
+            .bind(library_id)
+            .bind(title)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let file_id = sqlx::query_scalar::<_, i64>(
+                r#"
+                insert into media_files (library_id, media_item_id, file_path, file_size)
+                values ($1, $2, $3, 1)
+                returning id
+                "#,
+            )
+            .bind(library_id)
+            .bind(item_id)
+            .bind(format!("/{library_id}/{item_id}.mkv"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                r#"
+                insert into playback_progress (
+                    user_id,
+                    media_item_id,
+                    last_media_file_id,
+                    position_seconds,
+                    last_watched_at
+                )
+                values ($1, $2, $3, 60, $4::timestamptz)
+                "#,
+            )
+            .bind(user_id)
+            .bind(item_id)
+            .bind(file_id)
+            .bind(watched_at)
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                r#"
+                insert into continue_watching (
+                    user_id,
+                    media_item_id,
+                    last_played_media_item_id,
+                    last_media_file_id,
+                    last_watched_at
+                )
+                values ($1, $2, $2, $3, $4::timestamptz)
+                "#,
+            )
+            .bind(user_id)
+            .bind(item_id)
+            .bind(file_id)
+            .bind(watched_at)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let items = list_continue_watching(&pool, user_id, Some(&[allowed_library_id]), 1)
+            .await
+            .unwrap();
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].media_item.library_id, allowed_library_id);
     }
 }

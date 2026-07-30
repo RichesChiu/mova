@@ -59,25 +59,3 @@ export const buildFullscreenWarningMessage = (error?: unknown) => {
       )
   }
 }
-
-export const shouldShowImmersiveOverlay = ({
-  hasInteractionWarning,
-  hasMultipleSources,
-  hasPlaybackSyncError,
-  hasPlayerError,
-  hasSubtitleWarning,
-  isBuffering,
-}: {
-  hasInteractionWarning: boolean
-  hasMultipleSources: boolean
-  hasPlaybackSyncError: boolean
-  hasPlayerError: boolean
-  hasSubtitleWarning: boolean
-  isBuffering: boolean
-}) =>
-  hasMultipleSources ||
-  isBuffering ||
-  hasPlayerError ||
-  hasInteractionWarning ||
-  hasPlaybackSyncError ||
-  hasSubtitleWarning

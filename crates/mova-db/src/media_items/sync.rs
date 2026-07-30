@@ -1,9 +1,17 @@
 use super::{ratings::replace_media_item_remote_data, series, CreateMediaEntryParams};
 use anyhow::{Context, Result};
+use mova_domain::{
+    METADATA_FAILURE_PROVIDER_DISABLED, METADATA_FAILURE_PROVIDER_ERROR, METADATA_STATUS_MATCHED,
+};
 use sqlx::{postgres::PgPool, Postgres, Row, Transaction};
 use std::collections::{HashMap, HashSet};
 
-use crate::playback_progress::merge_media_item_user_state;
+use crate::{
+    background_jobs::{
+        lock_library_scan_background_job_fence, BackgroundJobFence, LibraryScanFenceMode,
+    },
+    playback_progress::merge_media_item_user_state,
+};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SyncLibraryMediaBestEffortOutcome {
@@ -126,59 +134,103 @@ pub async fn sync_library_media_best_effort(
 pub async fn sync_library_media_changes(
     pool: &PgPool,
     library_id: i64,
+    scan_job_id: i64,
     discovered_paths: &[String],
     entries: &[CreateMediaEntryParams],
+    fence: &BackgroundJobFence,
 ) -> Result<SyncLibraryMediaBestEffortOutcome> {
-    let existing_paths = super::list_library_media_file_paths(pool, library_id)
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start authoritative media reconciliation transaction")?;
+    lock_library_scan_background_job_fence(
+        &mut tx,
+        fence,
+        scan_job_id,
+        Some(library_id),
+        LibraryScanFenceMode::Running,
+    )
+    .await?;
+    sqlx::query("select set_config('mova.defer_catalog_revision', 'on', true)")
+        .fetch_one(&mut *tx)
+        .await
+        .context("failed to defer catalog revisions for media reconciliation")?;
+
+    let existing_records = list_library_media_files_for_sync(&mut tx, library_id)
         .await
         .context("failed to list existing library media paths for incremental sync")?;
+    validate_authoritative_discovery(library_id, existing_records.len(), discovered_paths.len())?;
+    let mut existing_by_path = existing_records
+        .into_iter()
+        .map(|record| (record.file_path.clone(), record))
+        .collect::<HashMap<_, _>>();
     let discovered_paths = discovered_paths
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();
     let mut outcome = SyncLibraryMediaBestEffortOutcome::default();
 
-    for existing_path in existing_paths {
-        if discovered_paths.contains(existing_path.as_str()) {
-            continue;
-        }
-
-        match delete_library_media_by_file_path(pool, library_id, &existing_path).await {
-            Ok(_) => {
-                outcome.removed_count += 1;
-            }
-            Err(error) => {
-                outcome.failed_count += 1;
-                tracing::warn!(
-                    library_id,
-                    file_path = %existing_path,
-                    error = ?error,
-                    "incremental library sync failed to delete missing media path"
-                );
-            }
-        }
+    let missing_paths = existing_by_path
+        .keys()
+        .filter(|path| !discovered_paths.contains(path.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    for missing_path in missing_paths {
+        let record = existing_by_path
+            .remove(&missing_path)
+            .context("missing media path disappeared from the reconciliation snapshot")?;
+        delete_media_file_and_cleanup_item(&mut tx, record.media_item_id, record.media_file_id)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to delete missing media path during authoritative reconciliation: {}",
+                    record.file_path
+                )
+            })?;
+        outcome.removed_count += 1;
     }
 
     for entry in entries {
-        match upsert_library_media_entry_by_file_path(pool, library_id, entry).await {
-            Ok(_) => {
-                outcome.upserted_count += 1;
-            }
-            Err(error) => {
-                outcome.failed_count += 1;
-                tracing::warn!(
-                    library_id,
-                    file_path = %entry.file_path,
-                    media_type = %entry.media_type,
-                    title = %entry.title,
-                    error = ?error,
-                    "incremental library sync failed to upsert media entry"
-                );
-            }
-        }
+        let existing = existing_by_path.remove(entry.file_path.as_str());
+        upsert_media_entry(&mut tx, entry, existing)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to upsert media path during authoritative reconciliation: {}",
+                    entry.file_path
+                )
+            })?;
+        outcome.upserted_count += 1;
     }
 
+    if outcome.removed_count > 0 || outcome.upserted_count > 0 {
+        series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
+        sqlx::query("select mova_bump_realtime_revision($1)")
+            .bind(format!("library:{library_id}:catalog"))
+            .fetch_one(&mut *tx)
+            .await
+            .context("failed to bump reconciled catalog revision")?;
+    }
+
+    tx.commit()
+        .await
+        .context("failed to commit authoritative media reconciliation")?;
+
     Ok(outcome)
+}
+
+fn validate_authoritative_discovery(
+    library_id: i64,
+    existing_file_count: usize,
+    discovered_file_count: usize,
+) -> Result<()> {
+    if existing_file_count > 0 && discovered_file_count == 0 {
+        anyhow::bail!(
+            "refusing authoritative media reconciliation for non-empty library {library_id}: discovery returned zero media files"
+        );
+    }
+
+    Ok(())
 }
 
 /// 按文件路径增量 upsert 单条媒体记录。
@@ -213,6 +265,7 @@ pub async fn upsert_library_media_entries_by_file_path(
     group_key: &str,
     stage: ScanGroupCommitStage,
     entries: &[CreateMediaEntryParams],
+    fence: &BackgroundJobFence,
 ) -> Result<usize> {
     if entries.is_empty() {
         return Ok(0);
@@ -222,16 +275,25 @@ pub async fn upsert_library_media_entries_by_file_path(
         .begin()
         .await
         .context("failed to start scan group media upsert transaction")?;
+    lock_library_scan_background_job_fence(
+        &mut tx,
+        fence,
+        scan_job_id,
+        Some(library_id),
+        LibraryScanFenceMode::Running,
+    )
+    .await?;
 
     sqlx::query("select set_config('mova.defer_catalog_revision', 'on', true)")
         .fetch_one(&mut *tx)
         .await
         .context("failed to defer row-level catalog revisions for scan group")?;
 
+    let preserve_existing_parent = should_preserve_existing_parent(stage, entries);
     for entry in entries {
         let existing =
             get_existing_library_media_file_by_path(&mut tx, library_id, &entry.file_path).await?;
-        upsert_media_entry(&mut tx, entry, existing).await?;
+        upsert_media_entry_with_policy(&mut tx, entry, existing, preserve_existing_parent).await?;
     }
 
     series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
@@ -255,6 +317,234 @@ pub async fn upsert_library_media_entries_by_file_path(
     Ok(entries.len())
 }
 
+/// Applies the remote-owned half of one already committed scan group.
+///
+/// The local stage is authoritative for hierarchy, file probe data, audio
+/// tracks and subtitles. This transaction therefore requires every file path
+/// to exist and only patches metadata-owned records (plus provider-id based
+/// parent reassignment when two local groups are proven to be the same work).
+pub async fn patch_library_media_entries_remote_by_file_path(
+    pool: &PgPool,
+    scan_job_id: i64,
+    library_id: i64,
+    group_key: &str,
+    entries: &[CreateMediaEntryParams],
+    fence: &BackgroundJobFence,
+) -> Result<usize> {
+    if entries.is_empty() {
+        return Ok(0);
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start scan group remote patch transaction")?;
+    lock_library_scan_background_job_fence(
+        &mut tx,
+        fence,
+        scan_job_id,
+        Some(library_id),
+        LibraryScanFenceMode::Running,
+    )
+    .await?;
+    sqlx::query("select set_config('mova.defer_catalog_revision', 'on', true)")
+        .fetch_one(&mut *tx)
+        .await
+        .context("failed to defer row-level catalog revisions for remote scan patch")?;
+
+    let preserve_existing_parent =
+        should_preserve_existing_parent(ScanGroupCommitStage::Remote, entries);
+    for entry in entries {
+        if entry.library_id != library_id {
+            anyhow::bail!(
+                "remote scan patch entry library {} does not match fenced library {library_id}",
+                entry.library_id
+            );
+        }
+        let existing =
+            get_existing_library_media_file_by_path(&mut tx, library_id, &entry.file_path)
+                .await?
+                .with_context(|| {
+                    format!(
+                        "remote scan patch requires a locally committed media path: {}",
+                        entry.file_path
+                    )
+                })?;
+        if entry.media_type.eq_ignore_ascii_case("episode") {
+            series::patch_episode_remote_entry(&mut tx, entry, existing, preserve_existing_parent)
+                .await?;
+        } else if entry.media_type.eq_ignore_ascii_case("movie") {
+            patch_movie_remote_entry(&mut tx, entry, existing, preserve_existing_parent).await?;
+        } else {
+            anyhow::bail!(
+                "remote scan patch does not accept local media type {}",
+                entry.media_type
+            );
+        }
+    }
+
+    series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
+    advance_scan_group_progress(
+        &mut tx,
+        scan_job_id,
+        group_key,
+        i32::try_from(entries.len()).unwrap_or(i32::MAX),
+        ScanGroupCommitStage::Remote,
+    )
+    .await?;
+    sqlx::query("select mova_bump_realtime_revision($1)")
+        .bind(format!("library:{library_id}:catalog"))
+        .fetch_one(&mut *tx)
+        .await
+        .context("failed to bump remote scan patch catalog revision")?;
+    tx.commit()
+        .await
+        .context("failed to commit scan group remote patch transaction")?;
+
+    Ok(entries.len())
+}
+
+async fn patch_movie_remote_entry(
+    tx: &mut Transaction<'_, Postgres>,
+    entry: &CreateMediaEntryParams,
+    existing: ExistingLibraryMediaFileRecord,
+    preserve_existing_parent: bool,
+) -> Result<()> {
+    if !existing.media_type.eq_ignore_ascii_case("movie") {
+        anyhow::bail!(
+            "remote metadata cannot change locally committed media type {} for {}",
+            existing.media_type,
+            entry.file_path
+        );
+    }
+
+    let target_media_item_id = if preserve_existing_parent {
+        existing.media_item_id
+    } else {
+        let source_title = movie_group_title_for_entry(entry);
+        find_existing_movie_media_item(tx, entry, &source_title)
+            .await?
+            .unwrap_or(existing.media_item_id)
+    };
+    patch_media_item_remote_fields(
+        tx,
+        target_media_item_id,
+        entry,
+        preserve_existing_parent,
+        entry.poster_path.as_deref(),
+        entry.backdrop_path.as_deref(),
+        entry.logo_path.as_deref(),
+    )
+    .await?;
+
+    if target_media_item_id != existing.media_item_id {
+        reassign_media_file_parent_only(tx, existing.media_file_id, target_media_item_id).await?;
+        merge_media_item_user_state(tx, existing.media_item_id, target_media_item_id).await?;
+        cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
+    }
+
+    Ok(())
+}
+
+pub(super) async fn patch_media_item_remote_fields(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+    entry: &CreateMediaEntryParams,
+    preserve_existing_parent: bool,
+    poster_path: Option<&str>,
+    backdrop_path: Option<&str>,
+    logo_path: Option<&str>,
+) -> Result<()> {
+    if preserve_existing_parent
+        && existing_media_item_has_accepted_remote_binding(tx, media_item_id).await?
+    {
+        record_transient_metadata_refresh_failure(tx, media_item_id, entry).await?;
+        return promote_cached_artwork_paths(
+            tx,
+            media_item_id,
+            entry,
+            poster_path,
+            backdrop_path,
+            logo_path,
+        )
+        .await;
+    }
+
+    if !entry.replace_remote_data {
+        sqlx::query(
+            r#"
+            update media_items
+            set metadata_status = $2,
+                metadata_failure_reason = $3,
+                remote_media_type = coalesce($4, remote_media_type),
+                updated_at = now()
+            where id = $1
+            "#,
+        )
+        .bind(media_item_id)
+        .bind(&entry.metadata_status)
+        .bind(&entry.metadata_failure_reason)
+        .bind(&entry.remote_media_type)
+        .execute(&mut **tx)
+        .await
+        .context("failed to patch remote metadata review state")?;
+        return Ok(());
+    }
+
+    let title = display_title_for_entry(entry);
+    sqlx::query(
+        r#"
+        update media_items
+        set title = $2,
+            original_title = $3,
+            metadata_provider = $4,
+            metadata_provider_item_id = $5,
+            metadata_status = $6,
+            metadata_failure_reason = $7,
+            remote_media_type = $8,
+            year = $9,
+            country = $10,
+            genres = $11,
+            studio = $12,
+            overview = $13,
+            poster_path = case when $17 then $14 else coalesce($14, poster_path) end,
+            backdrop_path = case when $17 then $15 else coalesce($15, backdrop_path) end,
+            logo_path = case when $17 then $16 else coalesce($16, logo_path) end,
+            updated_at = now()
+        where id = $1
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(title)
+    .bind(&entry.original_title)
+    .bind(&entry.metadata_provider)
+    .bind(entry.metadata_provider_item_id.as_deref())
+    .bind(&entry.metadata_status)
+    .bind(&entry.metadata_failure_reason)
+    .bind(&entry.remote_media_type)
+    .bind(entry.year)
+    .bind(&entry.country)
+    .bind(&entry.genres)
+    .bind(&entry.studio)
+    .bind(&entry.overview)
+    .bind(poster_path)
+    .bind(backdrop_path)
+    .bind(logo_path)
+    .bind(entry.allow_artwork_clear)
+    .execute(&mut **tx)
+    .await
+    .context("failed to patch remote-owned media item fields")?;
+
+    replace_media_item_remote_data(
+        tx,
+        media_item_id,
+        entry.metadata_provider.as_deref(),
+        &entry.external_ids,
+        &entry.ratings,
+    )
+    .await
+}
+
 async fn advance_scan_group_progress(
     tx: &mut Transaction<'_, Postgres>,
     scan_job_id: i64,
@@ -262,8 +552,41 @@ async fn advance_scan_group_progress(
     file_count: i32,
     stage: ScanGroupCommitStage,
 ) -> Result<()> {
-    let transitioned_file_count = match stage {
-        ScanGroupCommitStage::Local => sqlx::query_scalar::<_, i32>(
+    let previous = sqlx::query_as::<_, (i32, bool, bool, bool)>(
+        r#"
+        select file_count, local_analyzed, local_committed, remote_completed
+        from scan_job_groups
+        where scan_job_id = $1
+          and group_key = $2
+        for update
+        "#,
+    )
+    .bind(scan_job_id)
+    .bind(group_key)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to lock scan group checkpoint")?;
+    if let Some((stored_file_count, ..)) = previous.as_ref() {
+        if *stored_file_count != file_count {
+            anyhow::bail!(
+                "scan group {group_key} file count changed from {stored_file_count} to {file_count}"
+            );
+        }
+    }
+
+    let (was_analyzed, was_committed, was_remote_completed) = previous
+        .map(|(_, analyzed, committed, remote)| (analyzed, committed, remote))
+        .unwrap_or((false, false, false));
+    let analyzed_delta = if was_analyzed { 0 } else { file_count };
+    let committed_delta = if was_committed { 0 } else { file_count };
+    let remote_delta = if stage == ScanGroupCommitStage::Remote && !was_remote_completed {
+        file_count
+    } else {
+        0
+    };
+
+    match stage {
+        ScanGroupCommitStage::Local => sqlx::query(
             r#"
                 insert into scan_job_groups (
                     scan_job_id,
@@ -275,20 +598,19 @@ async fn advance_scan_group_progress(
                 )
                 values ($1, $2, $3, true, true, false)
                 on conflict (scan_job_id, group_key) do update
-                    set file_count = excluded.file_count,
-                        local_committed = true,
-                        updated_at = now()
+                    set local_analyzed = true,
+                        local_committed = true
                 where not scan_job_groups.local_committed
-                returning file_count
+                  and scan_job_groups.file_count = excluded.file_count
                 "#,
         )
         .bind(scan_job_id)
         .bind(group_key)
         .bind(file_count)
-        .fetch_optional(&mut **tx)
+        .execute(&mut **tx)
         .await
         .context("failed to checkpoint local scan group commit")?,
-        ScanGroupCommitStage::Remote => sqlx::query_scalar::<_, i32>(
+        ScanGroupCommitStage::Remote => sqlx::query(
             r#"
                 insert into scan_job_groups (
                     scan_job_id,
@@ -300,62 +622,55 @@ async fn advance_scan_group_progress(
                 )
                 values ($1, $2, $3, true, true, true)
                 on conflict (scan_job_id, group_key) do update
-                    set file_count = excluded.file_count,
-                        remote_completed = true,
-                        updated_at = now()
+                    set local_analyzed = true,
+                        local_committed = true,
+                        remote_completed = true
                 where not scan_job_groups.remote_completed
-                returning file_count
+                  and scan_job_groups.file_count = excluded.file_count
                 "#,
         )
         .bind(scan_job_id)
         .bind(group_key)
         .bind(file_count)
-        .fetch_optional(&mut **tx)
+        .execute(&mut **tx)
         .await
         .context("failed to checkpoint remote scan group completion")?,
-    }
-    .unwrap_or(0);
+    };
 
-    match stage {
-        ScanGroupCommitStage::Local => {
-            sqlx::query(
-                r#"
-                update scan_jobs
-                set phase = 'processing',
-                    local_committed_files = least(
-                        total_files,
-                        local_committed_files + $2
-                    )
-                where id = $1
-                "#,
+    let result = sqlx::query(
+        r#"
+        update scan_jobs
+        set phase = 'processing',
+            local_analyzed_files = least(
+                total_files,
+                local_analyzed_files + $2
+            ),
+            local_committed_files = least(
+                total_files,
+                local_committed_files + $3
+            ),
+            remote_completed_files = least(
+                total_files,
+                remote_completed_files + $4
             )
-            .bind(scan_job_id)
-            .bind(transitioned_file_count)
-            .execute(&mut **tx)
-            .await
-            .context("failed to advance local scan work counters")?;
-        }
-        ScanGroupCommitStage::Remote => {
-            sqlx::query(
-                r#"
-                update scan_jobs
-                set phase = 'processing',
-                    remote_completed_files = least(
-                        total_files,
-                        remote_completed_files + $2
-                    )
-                where id = $1
-                "#,
-            )
-            .bind(scan_job_id)
-            .bind(transitioned_file_count)
-            .execute(&mut **tx)
-            .await
-            .context("failed to advance remote scan work counters")?;
-        }
+        where id = $1
+          and status = 'running'
+        "#,
+    )
+    .bind(scan_job_id)
+    .bind(analyzed_delta)
+    .bind(committed_delta)
+    .bind(remote_delta)
+    .execute(&mut **tx)
+    .await
+    .context("failed to advance scan group work counters")?;
+    if result.rows_affected() != 1 {
+        anyhow::bail!(
+            "scan job {scan_job_id} is no longer running while committing group {group_key}"
+        );
     }
 
-    sqlx::query(
+    let result = sqlx::query(
         r#"
         update scan_jobs
         set progress_percent = greatest(
@@ -371,12 +686,18 @@ async fn advance_scan_group_progress(
             end
         )
         where id = $1
+          and status = 'running'
         "#,
     )
     .bind(scan_job_id)
     .execute(&mut **tx)
     .await
     .context("failed to calculate authoritative scan pipeline progress")?;
+    if result.rows_affected() != 1 {
+        anyhow::bail!(
+            "scan job {scan_job_id} is no longer running while calculating group progress"
+        );
+    }
 
     Ok(())
 }
@@ -468,11 +789,34 @@ pub(super) async fn upsert_media_entry(
     entry: &CreateMediaEntryParams,
     existing: Option<ExistingLibraryMediaFileRecord>,
 ) -> Result<()> {
+    upsert_media_entry_with_policy(tx, entry, existing, false).await
+}
+
+async fn upsert_media_entry_with_policy(
+    tx: &mut Transaction<'_, Postgres>,
+    entry: &CreateMediaEntryParams,
+    existing: Option<ExistingLibraryMediaFileRecord>,
+    preserve_existing_parent: bool,
+) -> Result<()> {
     if entry.media_type.eq_ignore_ascii_case("episode") {
-        series::upsert_episode_media_entry(tx, entry, existing).await
+        series::upsert_episode_media_entry(tx, entry, existing, preserve_existing_parent).await
     } else {
-        upsert_movie_media_entry(tx, entry, existing).await
+        upsert_movie_media_entry(tx, entry, existing, preserve_existing_parent).await
     }
+}
+
+fn should_preserve_existing_parent(
+    stage: ScanGroupCommitStage,
+    entries: &[CreateMediaEntryParams],
+) -> bool {
+    stage == ScanGroupCommitStage::Local
+        || !entries.iter().any(|entry| entry.replace_remote_data)
+        || entries.iter().any(|entry| {
+            matches!(
+                entry.metadata_failure_reason.as_deref(),
+                Some(METADATA_FAILURE_PROVIDER_ERROR | METADATA_FAILURE_PROVIDER_DISABLED)
+            )
+        })
 }
 
 pub(super) fn display_title_for_entry(entry: &CreateMediaEntryParams) -> String {
@@ -494,6 +838,7 @@ async fn upsert_movie_media_entry(
     tx: &mut Transaction<'_, Postgres>,
     entry: &CreateMediaEntryParams,
     existing: Option<ExistingLibraryMediaFileRecord>,
+    preserve_existing_parent: bool,
 ) -> Result<()> {
     let movie_group_title = movie_group_title_for_entry(entry);
     let existing_movie_media_item_id =
@@ -503,7 +848,13 @@ async fn upsert_movie_media_entry(
         if !existing.media_type.eq_ignore_ascii_case("movie") {
             let target_media_item_id =
                 if let Some(existing_movie_media_item_id) = existing_movie_media_item_id {
-                    update_media_item_from_entry(tx, existing_movie_media_item_id, entry).await?;
+                    update_existing_media_item_from_entry(
+                        tx,
+                        existing_movie_media_item_id,
+                        entry,
+                        preserve_existing_parent,
+                    )
+                    .await?;
                     existing_movie_media_item_id
                 } else {
                     insert_media_item(tx, entry).await?
@@ -527,7 +878,13 @@ async fn upsert_movie_media_entry(
 
         if let Some(existing_movie_media_item_id) = existing_movie_media_item_id {
             if existing_movie_media_item_id != existing.media_item_id {
-                update_media_item_from_entry(tx, existing_movie_media_item_id, entry).await?;
+                update_existing_media_item_from_entry(
+                    tx,
+                    existing_movie_media_item_id,
+                    entry,
+                    preserve_existing_parent,
+                )
+                .await?;
                 reassign_media_file_to_media_item(
                     tx,
                     existing.media_file_id,
@@ -546,13 +903,25 @@ async fn upsert_movie_media_entry(
             }
         }
 
-        update_media_item_from_entry(tx, existing.media_item_id, entry).await?;
+        update_existing_media_item_from_entry(
+            tx,
+            existing.media_item_id,
+            entry,
+            preserve_existing_parent,
+        )
+        .await?;
         update_media_file_from_entry(tx, existing.media_file_id, entry).await?;
         return Ok(());
     }
 
     if let Some(existing_movie_media_item_id) = existing_movie_media_item_id {
-        update_media_item_from_entry(tx, existing_movie_media_item_id, entry).await?;
+        update_existing_media_item_from_entry(
+            tx,
+            existing_movie_media_item_id,
+            entry,
+            preserve_existing_parent,
+        )
+        .await?;
         insert_media_file(tx, existing_movie_media_item_id, entry).await?;
         return Ok(());
     }
@@ -560,6 +929,195 @@ async fn upsert_movie_media_entry(
     let media_item_id = insert_media_item(tx, entry).await?;
     insert_media_file(tx, media_item_id, entry).await?;
     Ok(())
+}
+
+pub(super) async fn update_existing_media_item_from_entry(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+    entry: &CreateMediaEntryParams,
+    preserve_existing_parent: bool,
+) -> Result<()> {
+    if !preserve_existing_parent {
+        return update_media_item_from_entry(tx, media_item_id, entry).await;
+    }
+
+    if existing_media_item_has_accepted_remote_binding(tx, media_item_id).await? {
+        record_transient_metadata_refresh_failure(tx, media_item_id, entry).await?;
+        return promote_cached_artwork_paths(
+            tx,
+            media_item_id,
+            entry,
+            entry.poster_path.as_deref(),
+            entry.backdrop_path.as_deref(),
+            entry.logo_path.as_deref(),
+        )
+        .await;
+    }
+
+    update_media_item_from_entry(tx, media_item_id, entry).await
+}
+
+pub(super) async fn existing_media_item_has_accepted_remote_binding(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+) -> Result<bool> {
+    let identity = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
+        r#"
+        select metadata_status, metadata_provider, metadata_provider_item_id
+        from media_items
+        where id = $1
+        "#,
+    )
+    .bind(media_item_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to read existing media item metadata identity")?;
+
+    Ok(
+        identity.is_some_and(|(status, provider, provider_item_id)| {
+            status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED)
+                && provider.is_some_and(|value| !value.trim().is_empty())
+                && provider_item_id.is_some_and(|value| !value.trim().is_empty())
+        }),
+    )
+}
+
+pub(super) async fn existing_media_item_is_matched(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+) -> Result<bool> {
+    let status =
+        sqlx::query_scalar::<_, String>("select metadata_status from media_items where id = $1")
+            .bind(media_item_id)
+            .fetch_optional(&mut **tx)
+            .await
+            .context("failed to read existing media item metadata status")?;
+
+    Ok(status
+        .as_deref()
+        .is_some_and(|value| value.eq_ignore_ascii_case(METADATA_STATUS_MATCHED)))
+}
+
+pub(super) async fn record_transient_metadata_refresh_failure(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+    entry: &CreateMediaEntryParams,
+) -> Result<()> {
+    if entry.metadata_failure_reason.as_deref() != Some(METADATA_FAILURE_PROVIDER_ERROR) {
+        return Ok(());
+    }
+
+    sqlx::query(
+        r#"
+        update media_items
+        set metadata_failure_reason = $2,
+            updated_at = now()
+        where id = $1
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(METADATA_FAILURE_PROVIDER_ERROR)
+    .execute(&mut **tx)
+    .await
+    .context("failed to record transient metadata refresh failure")?;
+
+    Ok(())
+}
+
+pub(super) async fn promote_cached_artwork_paths(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+    entry: &CreateMediaEntryParams,
+    poster_path: Option<&str>,
+    backdrop_path: Option<&str>,
+    logo_path: Option<&str>,
+) -> Result<()> {
+    if !entry
+        .metadata_status
+        .eq_ignore_ascii_case(METADATA_STATUS_MATCHED)
+    {
+        return Ok(());
+    }
+
+    let poster_path = local_artwork_path(poster_path);
+    let backdrop_path = local_artwork_path(backdrop_path);
+    let logo_path = local_artwork_path(logo_path);
+    if poster_path.is_none() && backdrop_path.is_none() && logo_path.is_none() {
+        return Ok(());
+    }
+
+    sqlx::query(
+        r#"
+        update media_items
+        set poster_path = case
+                when $2::text is not null
+                     and (
+                         lower(coalesce(poster_path, '')) like 'http://%'
+                         or lower(coalesce(poster_path, '')) like 'https://%'
+                     )
+                    then $2
+                else poster_path
+            end,
+            backdrop_path = case
+                when $3::text is not null
+                     and (
+                         lower(coalesce(backdrop_path, '')) like 'http://%'
+                         or lower(coalesce(backdrop_path, '')) like 'https://%'
+                     )
+                    then $3
+                else backdrop_path
+            end,
+            logo_path = case
+                when $4::text is not null
+                     and (
+                         lower(coalesce(logo_path, '')) like 'http://%'
+                         or lower(coalesce(logo_path, '')) like 'https://%'
+                     )
+                    then $4
+                else logo_path
+            end,
+            updated_at = now()
+        where id = $1
+          and (
+                (
+                    $2::text is not null
+                    and (
+                        lower(coalesce(poster_path, '')) like 'http://%'
+                        or lower(coalesce(poster_path, '')) like 'https://%'
+                    )
+                )
+             or (
+                    $3::text is not null
+                    and (
+                        lower(coalesce(backdrop_path, '')) like 'http://%'
+                        or lower(coalesce(backdrop_path, '')) like 'https://%'
+                    )
+                )
+             or (
+                    $4::text is not null
+                    and (
+                        lower(coalesce(logo_path, '')) like 'http://%'
+                        or lower(coalesce(logo_path, '')) like 'https://%'
+                    )
+                )
+          )
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(poster_path)
+    .bind(backdrop_path)
+    .bind(logo_path)
+    .execute(&mut **tx)
+    .await
+    .context("failed to promote cached media artwork")?;
+
+    Ok(())
+}
+
+pub(super) fn local_artwork_path(path: Option<&str>) -> Option<&str> {
+    path.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter(|value| std::path::Path::new(value).is_absolute())
 }
 
 fn movie_group_title_for_entry(entry: &CreateMediaEntryParams) -> String {
@@ -1184,6 +1742,31 @@ pub(super) async fn reassign_media_file_to_media_item(
     Ok(())
 }
 
+pub(super) async fn reassign_media_file_parent_only(
+    tx: &mut Transaction<'_, Postgres>,
+    media_file_id: i64,
+    target_media_item_id: i64,
+) -> Result<()> {
+    let result = sqlx::query(
+        r#"
+        update media_files
+        set media_item_id = $2,
+            updated_at = now()
+        where id = $1
+        "#,
+    )
+    .bind(media_file_id)
+    .bind(target_media_item_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to reassign media file during remote metadata patch")?;
+    if result.rows_affected() != 1 {
+        anyhow::bail!("media file {media_file_id} disappeared during remote metadata patch");
+    }
+
+    Ok(())
+}
+
 pub(super) async fn delete_media_file_and_cleanup_item(
     tx: &mut Transaction<'_, Postgres>,
     media_item_id: i64,
@@ -1247,470 +1830,5 @@ pub(super) async fn delete_media_item(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::sync_library_media;
-    use crate::{create_library, CreateLibraryParams, CreateMediaEntryParams};
-    use mova_domain::{METADATA_STATUS_MATCHED, REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES};
-
-    fn build_movie_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams {
-        CreateMediaEntryParams {
-            library_id,
-            media_type: "movie".to_string(),
-            metadata_provider: Some("tmdb".to_string()),
-            metadata_provider_item_id: Some("101".to_string()),
-            metadata_status: METADATA_STATUS_MATCHED.to_string(),
-            metadata_failure_reason: None,
-            allow_artwork_clear: true,
-            replace_remote_data: true,
-            remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE.to_string()),
-            title: "A Writer's Odyssey".to_string(),
-            source_title: "A Writer's Odyssey".to_string(),
-            original_title: Some("刺杀小说家".to_string()),
-            sort_title: None,
-            year: Some(2025),
-            external_ids: Vec::new(),
-            ratings: Vec::new(),
-            country: Some("China".to_string()),
-            genres: Some("Fantasy · Adventure".to_string()),
-            studio: Some("Huayi Brothers".to_string()),
-            season_number: None,
-            season_title: None,
-            season_overview: None,
-            season_poster_path: None,
-            season_backdrop_path: None,
-            episode_number: None,
-            episode_title: None,
-            overview: Some("A fantasy adventure.".to_string()),
-            series_poster_path: None,
-            series_backdrop_path: None,
-            series_logo_path: None,
-            poster_path: None,
-            backdrop_path: None,
-            logo_path: None,
-            file_path: file_path.to_string(),
-            container: Some("mkv".to_string()),
-            file_size: 1,
-            duration_seconds: Some(7800),
-            video_title: None,
-            video_codec: Some("hevc".to_string()),
-            video_profile: Some("Main 10".to_string()),
-            video_level: Some("5.1".to_string()),
-            audio_codec: Some("eac3".to_string()),
-            width: Some(3840),
-            height: Some(2160),
-            bitrate: Some(18_000_000),
-            video_bitrate: Some(17_000_000),
-            video_frame_rate: Some(23.976),
-            video_aspect_ratio: Some("16:9".to_string()),
-            video_scan_type: Some("progressive".to_string()),
-            video_color_primaries: Some("bt2020".to_string()),
-            video_color_space: Some("bt2020nc".to_string()),
-            video_color_transfer: Some("smpte2084".to_string()),
-            video_bit_depth: Some(10),
-            video_pixel_format: Some("yuv420p10le".to_string()),
-            video_reference_frames: Some(4),
-            technical_tags: vec!["HDR10".to_string(), "Atmos".to_string()],
-            audio_tracks: Vec::new(),
-            subtitle_tracks: Vec::new(),
-            local_analysis_version: 1,
-            scan_hash: Some(format!("movie-{file_path}")),
-        }
-    }
-
-    fn build_episode_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams {
-        CreateMediaEntryParams {
-            library_id,
-            media_type: "episode".to_string(),
-            metadata_provider: Some("tmdb".to_string()),
-            metadata_provider_item_id: Some("202".to_string()),
-            metadata_status: METADATA_STATUS_MATCHED.to_string(),
-            metadata_failure_reason: None,
-            allow_artwork_clear: true,
-            replace_remote_data: true,
-            remote_media_type: Some(REMOTE_MEDIA_TYPE_SERIES.to_string()),
-            title: "Interstellar Classroom".to_string(),
-            source_title: "Interstellar Classroom".to_string(),
-            original_title: Some("Interstellar Classroom".to_string()),
-            sort_title: None,
-            year: Some(2024),
-            external_ids: Vec::new(),
-            ratings: Vec::new(),
-            country: Some("Japan".to_string()),
-            genres: Some("Animation · Sci-Fi".to_string()),
-            studio: Some("Studio Trigger".to_string()),
-            season_number: Some(1),
-            season_title: Some("Season 01".to_string()),
-            season_overview: None,
-            season_poster_path: None,
-            season_backdrop_path: None,
-            episode_number: Some(1),
-            episode_title: Some("Pilot".to_string()),
-            overview: Some("Pilot episode".to_string()),
-            series_poster_path: None,
-            series_backdrop_path: None,
-            series_logo_path: None,
-            poster_path: None,
-            backdrop_path: None,
-            logo_path: None,
-            file_path: file_path.to_string(),
-            container: Some("mkv".to_string()),
-            file_size: 1,
-            duration_seconds: Some(1800),
-            video_title: None,
-            video_codec: Some("h264".to_string()),
-            video_profile: None,
-            video_level: None,
-            audio_codec: Some("aac".to_string()),
-            width: Some(1920),
-            height: Some(1080),
-            bitrate: Some(4_000_000),
-            video_bitrate: Some(3_500_000),
-            video_frame_rate: Some(23.976),
-            video_aspect_ratio: Some("16:9".to_string()),
-            video_scan_type: Some("progressive".to_string()),
-            video_color_primaries: None,
-            video_color_space: None,
-            video_color_transfer: None,
-            video_bit_depth: Some(8),
-            video_pixel_format: Some("yuv420p".to_string()),
-            video_reference_frames: None,
-            technical_tags: Vec::new(),
-            audio_tracks: Vec::new(),
-            subtitle_tracks: Vec::new(),
-            local_analysis_version: 1,
-            scan_hash: Some(format!("episode-{file_path}")),
-        }
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn sync_library_media_reuses_one_movie_record_for_multiple_files(
-        pool: sqlx::postgres::PgPool,
-    ) {
-        let library = create_library(
-            &pool,
-            CreateLibraryParams {
-                name: "Movies".to_string(),
-                description: None,
-                metadata_language: "en-US".to_string(),
-                root_path: "/media/movies".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let entries = vec![
-            build_movie_entry(
-                library.id,
-                "/media/movies/A Writer's Odyssey (2025)/A Writer's Odyssey (2025).2160p.mkv",
-            ),
-            build_movie_entry(
-                library.id,
-                "/media/movies/A Writer's Odyssey (2025)/A Writer's Odyssey (2025).remux.mkv",
-            ),
-        ];
-
-        sync_library_media(&pool, library.id, &entries)
-            .await
-            .unwrap();
-
-        let movie_media_item_count = sqlx::query_scalar::<_, i64>(
-            "select count(*) from media_items where media_type = 'movie'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        let media_file_count = sqlx::query_scalar::<_, i64>("select count(*) from media_files")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        let linked_file_count = sqlx::query_scalar::<_, i64>(
-            r#"
-            select count(*)
-            from media_files
-            where media_item_id = (
-                select id
-                from media_items
-                where media_type = 'movie'
-                limit 1
-            )
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-
-        assert_eq!(movie_media_item_count, 1);
-        assert_eq!(media_file_count, 2);
-        assert_eq!(linked_file_count, 2);
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn sync_library_media_reuses_one_movie_record_for_same_remote_id(
-        pool: sqlx::postgres::PgPool,
-    ) {
-        let library = create_library(
-            &pool,
-            CreateLibraryParams {
-                name: "Movies".to_string(),
-                description: None,
-                metadata_language: "zh-CN".to_string(),
-                root_path: "/media/movies".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let mut first_entry = build_movie_entry(
-            library.id,
-            "/media/movies/Avatar: Fire and Ash/Avatar: Fire and Ash.2025.2160p.mkv",
-        );
-        first_entry.metadata_provider_item_id = Some("999_001".to_string());
-        first_entry.title = "阿凡达：火与烬".to_string();
-        first_entry.source_title = "Avatar: Fire and Ash".to_string();
-        first_entry.original_title = Some("Avatar: Fire and Ash".to_string());
-
-        let mut second_entry = build_movie_entry(
-            library.id,
-            "/media/movies/阿凡达.2025/Avatar： Fire and Ash (2025) - 1080p WEB-DL.mkv",
-        );
-        second_entry.metadata_provider_item_id = Some("999_001".to_string());
-        second_entry.title = "阿凡达：火与烬".to_string();
-        second_entry.source_title = "Avatar： Fire and Ash".to_string();
-        second_entry.original_title = Some("Avatar: Fire and Ash".to_string());
-
-        sync_library_media(&pool, library.id, &[first_entry, second_entry])
-            .await
-            .unwrap();
-
-        let movie_media_item_count = sqlx::query_scalar::<_, i64>(
-            "select count(*) from media_items where media_type = 'movie'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        let media_file_count = sqlx::query_scalar::<_, i64>("select count(*) from media_files")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        let linked_file_count = sqlx::query_scalar::<_, i64>(
-            r#"
-            select count(*)
-            from media_files
-            where media_item_id = (
-                select id
-                from media_items
-                where media_type = 'movie'
-                limit 1
-            )
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-
-        assert_eq!(movie_media_item_count, 1);
-        assert_eq!(media_file_count, 2);
-        assert_eq!(linked_file_count, 2);
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn sync_library_media_reuses_one_episode_record_for_multiple_files(
-        pool: sqlx::postgres::PgPool,
-    ) {
-        let library = create_library(
-            &pool,
-            CreateLibraryParams {
-                name: "Shows".to_string(),
-                description: None,
-                metadata_language: "en-US".to_string(),
-                root_path: "/media/shows".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let entries = vec![
-            build_episode_entry(
-                library.id,
-                "/media/shows/Interstellar Classroom/Season 01/S01E01.1080p.mkv",
-            ),
-            build_episode_entry(
-                library.id,
-                "/media/shows/Interstellar Classroom/Season 01/S01E01.4k.mkv",
-            ),
-        ];
-
-        sync_library_media(&pool, library.id, &entries)
-            .await
-            .unwrap();
-
-        let episode_count = sqlx::query_scalar::<_, i64>("select count(*) from episodes")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        let episode_media_item_count = sqlx::query_scalar::<_, i64>(
-            "select count(*) from media_items where media_type = 'episode'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        let series_media_item_count = sqlx::query_scalar::<_, i64>(
-            "select count(*) from media_items where media_type = 'series'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        let media_file_count = sqlx::query_scalar::<_, i64>("select count(*) from media_files")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        let linked_file_count = sqlx::query_scalar::<_, i64>(
-            r#"
-            select count(*)
-            from media_files
-            where media_item_id = (
-                select media_item_id
-                from episodes
-                limit 1
-            )
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-
-        assert_eq!(series_media_item_count, 1);
-        assert_eq!(episode_media_item_count, 1);
-        assert_eq!(episode_count, 1);
-        assert_eq!(media_file_count, 2);
-        assert_eq!(linked_file_count, 2);
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn sync_library_media_merges_episode_versions_with_the_same_remote_series_id(
-        pool: sqlx::postgres::PgPool,
-    ) {
-        let library = create_library(
-            &pool,
-            CreateLibraryParams {
-                name: "Shows".to_string(),
-                description: None,
-                metadata_language: "zh-CN".to_string(),
-                root_path: "/media/shows".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let mut localized_entry = build_episode_entry(
-            library.id,
-            "/media/shows/金斯敦市长/S01/金斯敦市长.S01E01.1080p.mkv",
-        );
-        localized_entry.metadata_provider_item_id = Some("97_951".to_string());
-        localized_entry.title = "金斯敦市长".to_string();
-        localized_entry.source_title = "金斯敦市长".to_string();
-        localized_entry.original_title = Some("Mayor of Kingstown".to_string());
-        localized_entry.year = Some(2021);
-
-        let mut original_title_entry = build_episode_entry(
-            library.id,
-            "/media/shows/Mayor of Kingstown/Season 01/Mayor of Kingstown.S01E01.2160p.mkv",
-        );
-        original_title_entry.metadata_provider_item_id = Some("97_951".to_string());
-        original_title_entry.title = "金斯敦市长".to_string();
-        original_title_entry.source_title = "Mayor of Kingstown".to_string();
-        original_title_entry.original_title = Some("Mayor of Kingstown".to_string());
-        original_title_entry.year = Some(2021);
-
-        sync_library_media(&pool, library.id, &[localized_entry, original_title_entry])
-            .await
-            .unwrap();
-
-        let series_media_item_count = sqlx::query_scalar::<_, i64>(
-            "select count(*) from media_items where media_type = 'series'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        let episode_media_item_count = sqlx::query_scalar::<_, i64>(
-            "select count(*) from media_items where media_type = 'episode'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        let media_file_count = sqlx::query_scalar::<_, i64>("select count(*) from media_files")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        let linked_file_count = sqlx::query_scalar::<_, i64>(
-            r#"
-            select count(*)
-            from media_files
-            where media_item_id = (
-                select media_item_id
-                from episodes
-                limit 1
-            )
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-
-        assert_eq!(series_media_item_count, 1);
-        assert_eq!(episode_media_item_count, 1);
-        assert_eq!(media_file_count, 2);
-        assert_eq!(linked_file_count, 2);
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-    async fn sync_library_media_best_effort_keeps_healthy_entries_when_one_entry_is_invalid(
-        pool: sqlx::postgres::PgPool,
-    ) {
-        let library = create_library(
-            &pool,
-            CreateLibraryParams {
-                name: "Movies".to_string(),
-                description: None,
-                metadata_language: "en-US".to_string(),
-                root_path: "/media/movies".to_string(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let mut invalid_entry =
-            build_movie_entry(library.id, "/media/movies/Broken/Broken.invalid.mkv");
-        invalid_entry.metadata_provider = Some("x".repeat(33));
-
-        let valid_entry = build_movie_entry(library.id, "/media/movies/Healthy/Healthy.mkv");
-
-        let outcome =
-            super::sync_library_media_best_effort(&pool, library.id, &[invalid_entry, valid_entry])
-                .await
-                .unwrap();
-
-        let media_item_count =
-            sqlx::query_scalar::<_, i64>("select count(*) from media_items where library_id = $1")
-                .bind(library.id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        let media_file_count =
-            sqlx::query_scalar::<_, i64>("select count(*) from media_files where library_id = $1")
-                .bind(library.id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-
-        assert_eq!(outcome.failed_count, 1);
-        assert_eq!(outcome.upserted_count, 1);
-        assert_eq!(media_item_count, 1);
-        assert_eq!(media_file_count, 1);
-    }
-}
+#[path = "sync/tests.rs"]
+mod tests;

@@ -100,6 +100,23 @@ pub async fn replace_media_item_cast(
         .await
         .context("failed to start media item cast replacement transaction")?;
 
+    sqlx::query(
+        r#"
+        insert into media_item_cast_cache (media_item_id, fetched_at, expires_at)
+        values ($1, $2, $3)
+        on conflict (media_item_id) do update
+        set fetched_at = excluded.fetched_at,
+            expires_at = excluded.expires_at,
+            updated_at = now()
+        "#,
+    )
+    .bind(params.media_item_id)
+    .bind(params.fetched_at)
+    .bind(params.expires_at)
+    .execute(&mut *tx)
+    .await
+    .context("failed to upsert media item cast cache")?;
+
     sqlx::query("delete from media_item_cast_members where media_item_id = $1")
         .bind(params.media_item_id)
         .execute(&mut *tx)
@@ -134,23 +151,6 @@ pub async fn replace_media_item_cast(
             .context("failed to insert media item cast members")?;
     }
 
-    sqlx::query(
-        r#"
-        insert into media_item_cast_cache (media_item_id, fetched_at, expires_at)
-        values ($1, $2, $3)
-        on conflict (media_item_id) do update
-        set fetched_at = excluded.fetched_at,
-            expires_at = excluded.expires_at,
-            updated_at = now()
-        "#,
-    )
-    .bind(params.media_item_id)
-    .bind(params.fetched_at)
-    .bind(params.expires_at)
-    .execute(&mut *tx)
-    .await
-    .context("failed to upsert media item cast cache")?;
-
     tx.commit()
         .await
         .context("failed to commit media item cast replacement transaction")?;
@@ -159,26 +159,130 @@ pub async fn replace_media_item_cast(
 }
 
 pub async fn delete_media_item_cast_cache(pool: &PgPool, media_item_id: i64) -> Result<()> {
-    let mut tx = pool
-        .begin()
-        .await
-        .context("failed to start media item cast cache deletion transaction")?;
-
-    sqlx::query("delete from media_item_cast_members where media_item_id = $1")
-        .bind(media_item_id)
-        .execute(&mut *tx)
-        .await
-        .context("failed to delete media item cast members")?;
-
     sqlx::query("delete from media_item_cast_cache where media_item_id = $1")
         .bind(media_item_id)
-        .execute(&mut *tx)
+        .execute(pool)
         .await
         .context("failed to delete media item cast cache")?;
 
-    tx.commit()
-        .await
-        .context("failed to commit media item cast cache deletion transaction")?;
-
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        delete_media_item_cast_cache, list_media_item_cast_members, replace_media_item_cast,
+        ReplaceMediaItemCastMember, ReplaceMediaItemCastParams,
+    };
+    use time::{Duration, OffsetDateTime};
+
+    async fn seed_media_item(pool: &sqlx::postgres::PgPool) -> i64 {
+        let library_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into libraries (name, root_path)
+            values ('Cast', '/media/cast')
+            returning id
+            "#,
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+
+        sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_items (library_id, media_type, title, source_title)
+            values ($1, 'movie', 'Movie', 'Movie')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn cast_replacement_creates_the_cache_before_members_and_rolls_back_as_one_aggregate(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let media_item_id = seed_media_item(&pool).await;
+        let now = OffsetDateTime::now_utc();
+        replace_media_item_cast(
+            &pool,
+            ReplaceMediaItemCastParams {
+                media_item_id,
+                members: vec![ReplaceMediaItemCastMember {
+                    person_id: Some("person-1".to_string()),
+                    sort_order: 0,
+                    name: "Original Actor".to_string(),
+                    character_name: None,
+                    profile_path: None,
+                }],
+                fetched_at: now,
+                expires_at: now + Duration::days(1),
+            },
+        )
+        .await
+        .unwrap();
+        let original_fetched_at = sqlx::query_scalar::<_, OffsetDateTime>(
+            "select fetched_at from media_item_cast_cache where media_item_id = $1",
+        )
+        .bind(media_item_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let error = replace_media_item_cast(
+            &pool,
+            ReplaceMediaItemCastParams {
+                media_item_id,
+                members: vec![ReplaceMediaItemCastMember {
+                    person_id: Some("person-2".to_string()),
+                    sort_order: -1,
+                    name: "Invalid Actor".to_string(),
+                    character_name: None,
+                    profile_path: None,
+                }],
+                fetched_at: now + Duration::hours(1),
+                expires_at: now + Duration::days(2),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("failed to insert media item cast members"));
+
+        let members = list_media_item_cast_members(&pool, media_item_id)
+            .await
+            .unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].name, "Original Actor");
+
+        let fetched_at = sqlx::query_scalar::<_, OffsetDateTime>(
+            "select fetched_at from media_item_cast_cache where media_item_id = $1",
+        )
+        .bind(media_item_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(fetched_at, original_fetched_at);
+
+        delete_media_item_cast_cache(&pool, media_item_id)
+            .await
+            .unwrap();
+        assert!(list_media_item_cast_members(&pool, media_item_id)
+            .await
+            .unwrap()
+            .is_empty());
+        let cache_count = sqlx::query_scalar::<_, i64>(
+            "select count(*) from media_item_cast_cache where media_item_id = $1",
+        )
+        .bind(media_item_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(cache_count, 0);
+    }
 }

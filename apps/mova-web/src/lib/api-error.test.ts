@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { localizeApiError } from './api-error'
+import { errorCodeForHttpStatus, localizeApiError } from './api-error'
 
 describe('localizeApiError', () => {
   afterEach(() => {
@@ -48,6 +48,22 @@ describe('localizeApiError', () => {
     expect(localizeApiError('account_already_exists', {}, 'duplicate key value')).toBe(
       '此账户名称已存在。',
     )
+  })
+
+  it('localizes subtitle processing limits without exposing diagnostics', () => {
+    document.documentElement.lang = 'zh-CN'
+
+    expect(
+      localizeApiError(
+        'subtitle_too_large',
+        { max_bytes: 16 * 1024 * 1024 },
+        'subtitle exceeds the processing limit',
+      ),
+    ).toBe('所选字幕过大，服务器无法处理。')
+  })
+
+  it('maps a bare HTTP 413 response to the subtitle size fallback', () => {
+    expect(errorCodeForHttpStatus(413)).toBe('subtitle_too_large')
   })
 
   it('ignores diagnostics for known client-side error codes', () => {

@@ -44,10 +44,10 @@ When instructions conflict, apply them in this order:
 - Preview Git tags are annotated SemVer prereleases. The annotation summarizes user-visible changes, verification, and any breaking or data-reset requirements.
 - Inspect the immutable image and aliases after publishing. Report their digest and platforms, and never describe a partial release as complete.
 
-## Pre-1.0 database policy
+## Database and contract stability
 
-- Breaking feature, API, schema, UI, configuration, and directory changes are acceptable when they produce a clearer current design. Remove superseded paths instead of adding compatibility layers unless the user explicitly requests compatibility.
-- Until the user declares the `1.0` schema stable, modify only `migrations/0001_init.sql`; do not add sequential or compatibility migrations.
-- Design the schema for the current domain model. Update affected Rust queries, response models, TypeScript types, tests, and documentation in the same change.
-- Editing `migrations/0001_init.sql` does not update an initialized database. Before a local rebuild or restart, delete and reinitialize development database data without creating a backup.
-- For every schema change, state whether the database must be rebuilt and whether media must be rescanned.
+- `migrations/0001_init.sql` is the frozen `1.0` schema baseline. Do not rewrite it after the baseline change is merged; every later schema change must use the next sequential migration.
+- Migrations must upgrade an initialized database in place. Do not require a destructive reset, discard user data, or add compatibility-only shadow fields unless the user explicitly authorizes that design.
+- Update affected Rust queries, response models, TypeScript types, tests, and documentation in the same schema change. State whether the migration requires a media rescan or cache rebuild.
+- HTTP API contract version `1` permits additive endpoints, fields, and error codes. Removing or changing existing contract semantics requires an explicit versioning decision and synchronized updates to `docs/API.md`, `apps/mova-site`, and affected clients.
+- SSE evolves independently through `protocol_version`; a breaking event or recovery-semantics change requires a protocol version increase.

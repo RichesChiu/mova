@@ -4,6 +4,7 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { ApiError, getCurrentUser, listLibraries } from '../../api/client'
 import type { Library, UserAccount } from '../../api/types'
 import { useI18n } from '../../i18n'
+import { shouldLoadShellLibraries } from '../../lib/shell-library-policy'
 import type { ScanRuntimeByLibrary } from './scan-runtime'
 import { useServerEvents } from './use-server-events'
 
@@ -26,13 +27,14 @@ export const AppShell = () => {
   const location = useLocation()
   const contentRef = useRef<HTMLElement | null>(null)
   const [isDevMockApiEnabled, setIsDevMockApiEnabled] = useState(import.meta.env.DEV)
+  const shouldLoadLibraries = shouldLoadShellLibraries(location.pathname)
   const currentUserQuery = useQuery({
     queryKey: ['current-user'],
     queryFn: getCurrentUser,
     retry: false,
   })
   const librariesQuery = useQuery({
-    enabled: currentUserQuery.isSuccess,
+    enabled: currentUserQuery.isSuccess && shouldLoadLibraries,
     queryKey: ['libraries'],
     queryFn: listLibraries,
   })
@@ -116,7 +118,7 @@ export const AppShell = () => {
           <div
             className={isDesktopDashboardRoute ? 'content-body content-body--home' : 'content-body'}
           >
-            {librariesQuery.isError ? (
+            {shouldLoadLibraries && librariesQuery.isError ? (
               <p className="callout callout--danger app-shell__global-callout">
                 {librariesQuery.error instanceof Error
                   ? librariesQuery.error.message

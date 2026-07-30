@@ -8,7 +8,6 @@ pub struct Library {
     pub id: i64,
     pub name: String,
     pub description: Option<String>,
-    pub library_type: String,
     pub metadata_language: String,
     pub root_path: String,
     pub created_at: OffsetDateTime,

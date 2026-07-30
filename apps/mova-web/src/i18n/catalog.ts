@@ -49,7 +49,9 @@ const zhCN: Record<string, string> = {
   'Library scan completed': '媒体库扫描完成',
   'Library scan completed with issues': '媒体库扫描完成，但存在问题',
   'Library scan failed': '媒体库扫描失败',
+  'Library scan cancelled': '媒体库扫描已取消',
   'Library cache cleanup failed': '媒体库缓存清理失败',
+  'Scan was cancelled.': '扫描已取消。',
   'The library data was deleted, but its cache could not be removed after all retries.':
     '媒体库数据已删除，但缓存经过全部重试后仍无法清理。',
   'New notification': '新通知',
@@ -109,6 +111,10 @@ const zhCN: Record<string, string> = {
   Role: '角色',
   'Continue Watching': '继续观看',
   'Loading…': '加载中…',
+  'Page unavailable': '页面暂时不可用',
+  'The page files could not be loaded. Reload to use the latest application version.':
+    '页面文件加载失败，请重新加载以使用最新版本。',
+  'Reload page': '重新加载页面',
   'Scroll horizontally.': '横向滚动浏览。',
   Libraries: '媒体库',
   'Your Libraries': '你的库',
@@ -350,6 +356,7 @@ const zhCN: Record<string, string> = {
   'Unknown subtitle': '未知字幕',
   External: '外挂',
   'No subtitles found.': '没有找到字幕。',
+  'The selected subtitle is too large to process.': '所选字幕过大，服务器无法处理。',
   'Adjust volume': '调整音量',
   'Exit fullscreen': '退出全屏',
   'Enter fullscreen': '进入全屏',

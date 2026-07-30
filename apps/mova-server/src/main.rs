@@ -1,13 +1,18 @@
 mod app;
+mod artwork;
+mod audio_track_cache;
 mod auth;
 mod auth_rate_limit;
+mod bounded_process;
 mod config;
 mod error;
 mod handlers;
+mod media_path;
 mod metadata_provider_config;
 mod realtime;
 mod response;
 mod routes;
+mod session_housekeeping;
 mod state;
 mod sync_runtime;
 
@@ -31,6 +36,11 @@ async fn main() -> anyhow::Result<()> {
     info!("database connection established");
     tokio::fs::create_dir_all(&config.cache_dir).await?;
     info!(cache_dir = %config.cache_dir.display(), "artwork cache directory ensured");
+    audio_track_cache::initialize_audio_track_cache(&config.cache_dir).await?;
+    info!(
+        cache_dir = %config.cache_dir.display(),
+        "audio-track cache quota initialized"
+    );
     let metadata_provider =
         mova_application::build_metadata_provider(config.metadata_provider.clone())?;
     if metadata_provider.is_enabled() {
@@ -63,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     sync_runtime::start_background_workers(state.clone(), config.worker_concurrency);
+    session_housekeeping::start_auth_session_housekeeping(state.db.clone());
 
     let app = app::build_router(state, config.web_dist_dir.clone());
     let addr = config.socket_addr()?;

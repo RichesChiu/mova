@@ -1,9 +1,12 @@
 use super::{
     ratings::replace_media_item_remote_data,
     sync::{
-        cleanup_media_item_if_no_files, display_title_for_entry, insert_media_file,
-        reassign_media_file_to_media_item, update_media_file_from_entry,
-        ExistingLibraryMediaFileRecord,
+        cleanup_media_item_if_no_files, display_title_for_entry,
+        existing_media_item_has_accepted_remote_binding, existing_media_item_is_matched,
+        insert_media_file, local_artwork_path, patch_media_item_remote_fields,
+        promote_cached_artwork_paths, reassign_media_file_parent_only,
+        reassign_media_file_to_media_item, record_transient_metadata_refresh_failure,
+        update_media_file_from_entry, ExistingLibraryMediaFileRecord,
     },
     CreateMediaEntryParams,
 };
@@ -17,6 +20,7 @@ pub(super) async fn upsert_episode_media_entry(
     tx: &mut Transaction<'_, Postgres>,
     entry: &CreateMediaEntryParams,
     existing: Option<ExistingLibraryMediaFileRecord>,
+    preserve_existing_parent: bool,
 ) -> Result<()> {
     let season_number = entry
         .season_number
@@ -24,8 +28,10 @@ pub(super) async fn upsert_episode_media_entry(
     let episode_number = entry
         .episode_number
         .context("episode entry missing episode number")?;
-    let series_id = upsert_series_item_from_entry(tx, entry).await?;
-    let season_id = upsert_season(tx, series_id, season_number, entry).await?;
+    let (series_id, preserve_series_parent) =
+        upsert_series_item_from_entry(tx, entry, preserve_existing_parent).await?;
+    let season_id =
+        upsert_season(tx, series_id, season_number, entry, preserve_series_parent).await?;
     let existing_episode_media_item_id =
         find_existing_episode_media_item(tx, season_id, episode_number).await?;
 
@@ -33,8 +39,13 @@ pub(super) async fn upsert_episode_media_entry(
         if !existing.media_type.eq_ignore_ascii_case("episode") {
             let target_media_item_id =
                 if let Some(existing_episode_media_item_id) = existing_episode_media_item_id {
-                    update_episode_media_item_from_entry(tx, existing_episode_media_item_id, entry)
-                        .await?;
+                    update_existing_episode_media_item(
+                        tx,
+                        existing_episode_media_item_id,
+                        entry,
+                        preserve_series_parent,
+                    )
+                    .await?;
                     existing_episode_media_item_id
                 } else {
                     insert_episode_structure(tx, entry, season_id, episode_number).await?
@@ -58,8 +69,13 @@ pub(super) async fn upsert_episode_media_entry(
 
         if let Some(existing_episode_media_item_id) = existing_episode_media_item_id {
             if existing_episode_media_item_id != existing.media_item_id {
-                update_episode_media_item_from_entry(tx, existing_episode_media_item_id, entry)
-                    .await?;
+                update_existing_episode_media_item(
+                    tx,
+                    existing_episode_media_item_id,
+                    entry,
+                    preserve_series_parent,
+                )
+                .await?;
                 reassign_media_file_to_media_item(
                     tx,
                     existing.media_file_id,
@@ -81,8 +97,21 @@ pub(super) async fn upsert_episode_media_entry(
             }
         }
 
-        update_episode_media_item_from_entry(tx, existing.media_item_id, entry).await?;
-        update_episode_record(tx, existing.media_item_id, season_id, episode_number).await?;
+        update_existing_episode_media_item(
+            tx,
+            existing.media_item_id,
+            entry,
+            preserve_series_parent,
+        )
+        .await?;
+        update_episode_record(
+            tx,
+            existing.media_item_id,
+            entry.library_id,
+            season_id,
+            episode_number,
+        )
+        .await?;
         if let Some(previous_series_id) = previous_series_id {
             merge_media_item_user_state(tx, previous_series_id, series_id).await?;
         }
@@ -91,12 +120,215 @@ pub(super) async fn upsert_episode_media_entry(
     }
 
     if let Some(existing_episode_media_item_id) = existing_episode_media_item_id {
-        update_episode_media_item_from_entry(tx, existing_episode_media_item_id, entry).await?;
+        update_existing_episode_media_item(
+            tx,
+            existing_episode_media_item_id,
+            entry,
+            preserve_series_parent,
+        )
+        .await?;
         insert_media_file(tx, existing_episode_media_item_id, entry).await?;
         return Ok(());
     }
 
     insert_episode_media_tree(tx, entry, season_id, episode_number).await?;
+    Ok(())
+}
+
+pub(super) async fn patch_episode_remote_entry(
+    tx: &mut Transaction<'_, Postgres>,
+    entry: &CreateMediaEntryParams,
+    existing: ExistingLibraryMediaFileRecord,
+    preserve_existing_parent: bool,
+) -> Result<()> {
+    if !existing.media_type.eq_ignore_ascii_case("episode") {
+        anyhow::bail!(
+            "remote metadata cannot change locally committed media type {} for {}",
+            existing.media_type,
+            entry.file_path
+        );
+    }
+    let season_number = entry
+        .season_number
+        .context("remote episode patch missing season number")?;
+    let episode_number = entry
+        .episode_number
+        .context("remote episode patch missing episode number")?;
+    let (stored_series_id, stored_season_number, stored_episode_number) =
+        existing_episode_coordinates(tx, existing.media_item_id)
+            .await?
+            .context("remote episode patch requires a locally committed episode")?;
+    if stored_season_number != season_number || stored_episode_number != episode_number {
+        anyhow::bail!(
+            "remote metadata cannot change local episode coordinates S{stored_season_number:02}E{stored_episode_number:02} to S{season_number:02}E{episode_number:02}"
+        );
+    }
+
+    let series_id = find_existing_series_item(tx, entry)
+        .await?
+        .context("remote episode patch requires a locally committed series")?;
+    let preserve_series_parent = preserve_existing_parent
+        && existing_media_item_has_accepted_remote_binding(tx, series_id).await?;
+    // `replace_remote_data` is deliberately true for only one entry in a
+    // series group so shared series external IDs and ratings are replaced
+    // once. A successful authoritative remote group must still patch every
+    // episode's own title, overview, and artwork.
+    let replace_episode_remote_fields = !preserve_existing_parent;
+    patch_media_item_remote_fields(
+        tx,
+        series_id,
+        entry,
+        preserve_existing_parent,
+        entry.series_poster_path.as_deref(),
+        entry.series_backdrop_path.as_deref(),
+        entry.series_logo_path.as_deref(),
+    )
+    .await?;
+    let season_id = upsert_season(
+        tx,
+        series_id,
+        season_number,
+        entry,
+        preserve_existing_parent,
+    )
+    .await?;
+    let target_episode_id = find_existing_episode_media_item(tx, season_id, episode_number).await?;
+    let previous_series_id = Some(stored_series_id);
+
+    match target_episode_id {
+        Some(target_episode_id) if target_episode_id != existing.media_item_id => {
+            patch_episode_remote_fields(
+                tx,
+                target_episode_id,
+                entry,
+                preserve_series_parent,
+                replace_episode_remote_fields,
+            )
+            .await?;
+            reassign_media_file_parent_only(tx, existing.media_file_id, target_episode_id).await?;
+            merge_media_item_user_state(tx, existing.media_item_id, target_episode_id).await?;
+            cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
+        }
+        _ => {
+            patch_episode_remote_fields(
+                tx,
+                existing.media_item_id,
+                entry,
+                preserve_series_parent,
+                replace_episode_remote_fields,
+            )
+            .await?;
+            update_episode_record(
+                tx,
+                existing.media_item_id,
+                entry.library_id,
+                season_id,
+                episode_number,
+            )
+            .await?;
+        }
+    }
+
+    if let Some(previous_series_id) = previous_series_id {
+        if previous_series_id != series_id {
+            merge_media_item_user_state(tx, previous_series_id, series_id).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn existing_episode_coordinates(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+) -> Result<Option<(i64, i32, i32)>> {
+    sqlx::query_as(
+        r#"
+        select s.series_id, s.season_number, e.episode_number
+        from episodes e
+        join seasons s on s.id = e.season_id
+        where e.media_item_id = $1
+        "#,
+    )
+    .bind(media_item_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to read locally committed episode coordinates")
+}
+
+async fn patch_episode_remote_fields(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+    entry: &CreateMediaEntryParams,
+    preserve_existing_parent: bool,
+    replace_remote_fields: bool,
+) -> Result<()> {
+    if preserve_existing_parent && existing_media_item_is_matched(tx, media_item_id).await? {
+        record_transient_metadata_refresh_failure(tx, media_item_id, entry).await?;
+        return promote_cached_artwork_paths(
+            tx,
+            media_item_id,
+            entry,
+            entry.poster_path.as_deref(),
+            entry.backdrop_path.as_deref(),
+            entry.logo_path.as_deref(),
+        )
+        .await;
+    }
+
+    if !replace_remote_fields {
+        sqlx::query(
+            r#"
+            update media_items
+            set metadata_status = $2,
+                metadata_failure_reason = $3,
+                remote_media_type = coalesce($4, remote_media_type),
+                updated_at = now()
+            where id = $1
+            "#,
+        )
+        .bind(media_item_id)
+        .bind(&entry.metadata_status)
+        .bind(&entry.metadata_failure_reason)
+        .bind(&entry.remote_media_type)
+        .execute(&mut **tx)
+        .await
+        .context("failed to patch remote episode review state")?;
+        return Ok(());
+    }
+
+    let episode_number = entry
+        .episode_number
+        .context("remote episode patch missing episode number")?;
+    sqlx::query(
+        r#"
+        update media_items
+        set title = $2,
+            metadata_status = $3,
+            metadata_failure_reason = $4,
+            remote_media_type = $5,
+            overview = $6,
+            poster_path = case when $10 then $7 else coalesce($7, poster_path) end,
+            backdrop_path = case when $10 then $8 else coalesce($8, backdrop_path) end,
+            logo_path = case when $10 then $9 else coalesce($9, logo_path) end,
+            updated_at = now()
+        where id = $1
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(episode_title_for_entry(entry, episode_number))
+    .bind(&entry.metadata_status)
+    .bind(&entry.metadata_failure_reason)
+    .bind(&entry.remote_media_type)
+    .bind(&entry.overview)
+    .bind(&entry.poster_path)
+    .bind(&entry.backdrop_path)
+    .bind(&entry.logo_path)
+    .bind(entry.allow_artwork_clear)
+    .execute(&mut **tx)
+    .await
+    .context("failed to patch remote-owned episode fields")?;
+
     Ok(())
 }
 
@@ -144,19 +376,42 @@ async fn insert_episode_structure(
     episode_number: i32,
 ) -> Result<i64> {
     let media_item_id = insert_episode_media_item(tx, entry, episode_number).await?;
-    insert_episode_record(tx, media_item_id, season_id, episode_number).await?;
+    insert_episode_record(
+        tx,
+        media_item_id,
+        entry.library_id,
+        season_id,
+        episode_number,
+    )
+    .await?;
     Ok(media_item_id)
 }
 
 async fn upsert_series_item_from_entry(
     tx: &mut Transaction<'_, Postgres>,
     entry: &CreateMediaEntryParams,
-) -> Result<i64> {
+    preserve_existing_parent: bool,
+) -> Result<(i64, bool)> {
     if let Some(series_id) = find_existing_series_item(tx, entry).await? {
-        update_series_item_from_entry(tx, series_id, entry).await?;
-        Ok(series_id)
+        let preserve_series_parent = preserve_existing_parent
+            && existing_media_item_has_accepted_remote_binding(tx, series_id).await?;
+        if preserve_series_parent {
+            record_transient_metadata_refresh_failure(tx, series_id, entry).await?;
+            promote_cached_artwork_paths(
+                tx,
+                series_id,
+                entry,
+                entry.series_poster_path.as_deref(),
+                entry.series_backdrop_path.as_deref(),
+                entry.series_logo_path.as_deref(),
+            )
+            .await?;
+        } else {
+            update_series_item_from_entry(tx, series_id, entry).await?;
+        }
+        Ok((series_id, preserve_series_parent))
     } else {
-        insert_series_item_from_entry(tx, entry).await
+        Ok((insert_series_item_from_entry(tx, entry).await?, false))
     }
 }
 
@@ -378,6 +633,7 @@ async fn upsert_season(
     series_id: i64,
     season_number: i32,
     entry: &CreateMediaEntryParams,
+    preserve_existing_parent: bool,
 ) -> Result<i64> {
     let title = entry
         .season_title
@@ -391,6 +647,7 @@ async fn upsert_season(
     let row = sqlx::query(
         r#"
         insert into seasons (
+            library_id,
             series_id,
             season_number,
             title,
@@ -398,23 +655,32 @@ async fn upsert_season(
             poster_path,
             backdrop_path
         )
-        values ($1, $2, $3, $4, $5, $6)
+        values ($1, $2, $3, $4, $5, $6, $7)
         on conflict (series_id, season_number)
         do update set
-            title = excluded.title,
-            overview = coalesce(excluded.overview, seasons.overview),
+            title = case
+                when $9 then seasons.title
+                else excluded.title
+            end,
+            overview = case
+                when $9 then seasons.overview
+                else coalesce(excluded.overview, seasons.overview)
+            end,
             poster_path = case
-                when $7 then excluded.poster_path
+                when $9 then seasons.poster_path
+                when $8 then excluded.poster_path
                 else coalesce(excluded.poster_path, seasons.poster_path)
             end,
             backdrop_path = case
-                when $7 then excluded.backdrop_path
+                when $9 then seasons.backdrop_path
+                when $8 then excluded.backdrop_path
                 else coalesce(excluded.backdrop_path, seasons.backdrop_path)
             end,
             updated_at = now()
         returning id
         "#,
     )
+    .bind(entry.library_id)
     .bind(series_id)
     .bind(season_number)
     .bind(title)
@@ -422,11 +688,108 @@ async fn upsert_season(
     .bind(poster_path)
     .bind(backdrop_path)
     .bind(allow_artwork_clear)
+    .bind(preserve_existing_parent)
     .fetch_one(&mut **tx)
     .await
     .context("failed to upsert season")?;
 
-    Ok(row.get("id"))
+    let season_id = row.get("id");
+    if preserve_existing_parent {
+        promote_season_cached_artwork_paths(tx, season_id, entry).await?;
+    }
+
+    Ok(season_id)
+}
+
+async fn update_existing_episode_media_item(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+    entry: &CreateMediaEntryParams,
+    preserve_series_parent: bool,
+) -> Result<()> {
+    if preserve_series_parent && existing_media_item_is_matched(tx, media_item_id).await? {
+        record_transient_metadata_refresh_failure(tx, media_item_id, entry).await?;
+        promote_cached_artwork_paths(
+            tx,
+            media_item_id,
+            entry,
+            entry.poster_path.as_deref(),
+            entry.backdrop_path.as_deref(),
+            entry.logo_path.as_deref(),
+        )
+        .await
+    } else {
+        update_episode_media_item_from_entry(tx, media_item_id, entry).await
+    }
+}
+
+async fn promote_season_cached_artwork_paths(
+    tx: &mut Transaction<'_, Postgres>,
+    season_id: i64,
+    entry: &CreateMediaEntryParams,
+) -> Result<()> {
+    if !entry
+        .metadata_status
+        .eq_ignore_ascii_case(METADATA_STATUS_MATCHED)
+    {
+        return Ok(());
+    }
+
+    let poster_path = local_artwork_path(entry.season_poster_path.as_deref());
+    let backdrop_path = local_artwork_path(entry.season_backdrop_path.as_deref());
+    if poster_path.is_none() && backdrop_path.is_none() {
+        return Ok(());
+    }
+
+    sqlx::query(
+        r#"
+        update seasons
+        set poster_path = case
+                when $2::text is not null
+                     and (
+                         lower(coalesce(poster_path, '')) like 'http://%'
+                         or lower(coalesce(poster_path, '')) like 'https://%'
+                     )
+                    then $2
+                else poster_path
+            end,
+            backdrop_path = case
+                when $3::text is not null
+                     and (
+                         lower(coalesce(backdrop_path, '')) like 'http://%'
+                         or lower(coalesce(backdrop_path, '')) like 'https://%'
+                     )
+                    then $3
+                else backdrop_path
+            end,
+            updated_at = now()
+        where id = $1
+          and (
+                (
+                    $2::text is not null
+                    and (
+                        lower(coalesce(poster_path, '')) like 'http://%'
+                        or lower(coalesce(poster_path, '')) like 'https://%'
+                    )
+                )
+             or (
+                    $3::text is not null
+                    and (
+                        lower(coalesce(backdrop_path, '')) like 'http://%'
+                        or lower(coalesce(backdrop_path, '')) like 'https://%'
+                    )
+                )
+          )
+        "#,
+    )
+    .bind(season_id)
+    .bind(poster_path)
+    .bind(backdrop_path)
+    .execute(&mut **tx)
+    .await
+    .context("failed to promote cached season artwork")?;
+
+    Ok(())
 }
 
 async fn insert_episode_media_item(
@@ -562,16 +925,18 @@ fn metadata_status_allows_artwork_clear(metadata_status: &str) -> bool {
 async fn insert_episode_record(
     tx: &mut Transaction<'_, Postgres>,
     media_item_id: i64,
+    library_id: i64,
     season_id: i64,
     episode_number: i32,
 ) -> Result<()> {
     sqlx::query(
         r#"
-        insert into episodes (media_item_id, season_id, episode_number)
-        values ($1, $2, $3)
+        insert into episodes (media_item_id, library_id, season_id, episode_number)
+        values ($1, $2, $3, $4)
         "#,
     )
     .bind(media_item_id)
+    .bind(library_id)
     .bind(season_id)
     .bind(episode_number)
     .execute(&mut **tx)
@@ -607,6 +972,7 @@ async fn find_existing_episode_media_item(
 async fn update_episode_record(
     tx: &mut Transaction<'_, Postgres>,
     media_item_id: i64,
+    library_id: i64,
     season_id: i64,
     episode_number: i32,
 ) -> Result<()> {
@@ -614,12 +980,14 @@ async fn update_episode_record(
         r#"
         update episodes
         set
-            season_id = $2,
-            episode_number = $3
+            library_id = $2,
+            season_id = $3,
+            episode_number = $4
         where media_item_id = $1
         "#,
     )
     .bind(media_item_id)
+    .bind(library_id)
     .bind(season_id)
     .bind(episode_number)
     .execute(&mut **tx)
@@ -627,7 +995,7 @@ async fn update_episode_record(
     .context("failed to update episode record")?;
 
     if updated.rows_affected() == 0 {
-        insert_episode_record(tx, media_item_id, season_id, episode_number).await?;
+        insert_episode_record(tx, media_item_id, library_id, season_id, episode_number).await?;
     }
 
     Ok(())

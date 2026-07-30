@@ -1,0 +1,99 @@
+.glass-menu__more-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--library-spotlight-menu-background);
+  color: var(--library-spotlight-menu-color);
+  cursor: pointer;
+  transition:
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard),
+    color var(--motion-duration-standard) var(--motion-ease-standard);
+}
+
+.glass-menu__more-trigger:hover,
+.glass-menu__more-trigger[aria-expanded='true'] {
+  background: var(--library-spotlight-menu-hover-background);
+  box-shadow: var(--library-spotlight-menu-hover-shadow);
+  color: var(--text);
+}
+
+.glass-menu__more-trigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, transparent);
+  outline-offset: 3px;
+}
+
+.glass-menu__more-trigger span {
+  display: block;
+  width: 3px;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+  box-shadow: var(--library-spotlight-menu-dot-shadow);
+}
+
+.glass-menu__action-popover {
+  --floating-transition-origin: top right;
+
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  display: grid;
+  gap: 6px;
+  width: max-content;
+  padding: 8px;
+  border-radius: var(--radius-control);
+}
+
+.glass-menu__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 760;
+  text-align: left;
+  white-space: nowrap;
+  transition:
+    border-color var(--motion-duration-standard) var(--motion-ease-standard),
+    background var(--motion-duration-standard) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard),
+    color var(--motion-duration-standard) var(--motion-ease-standard);
+}
+
+.glass-menu__action svg {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+}
+
+.glass-menu__action:hover:not(:disabled),
+.glass-menu__action:focus-visible {
+  border-color: var(--menu-option-hover-border);
+  outline: none;
+  background: var(--menu-option-hover-background);
+  box-shadow: var(--menu-option-hover-shadow);
+}
+
+.glass-menu__action:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
+.glass-menu__action--danger {
+  color: var(--danger);
+}

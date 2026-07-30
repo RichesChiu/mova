@@ -1,5 +1,20 @@
 use serde::Deserialize;
-use std::{io, path::Path, process::Command};
+use std::{
+    io::{self, Read},
+    path::Path,
+    process::{Command, Output, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+    time::{Duration, Instant},
+};
+
+const FFPROBE_TIMEOUT: Duration = Duration::from_secs(90);
+const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(25);
+const FFPROBE_STDOUT_LIMIT: usize = 8 * 1024 * 1024;
+const FFPROBE_STDERR_LIMIT: usize = 256 * 1024;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct MediaProbe {
@@ -63,6 +78,9 @@ pub(crate) enum ProbeAvailability {
 pub(crate) enum ProbeError {
     Unavailable(std::io::Error),
     Io(std::io::Error),
+    TimedOut(Duration),
+    OutputTooLarge,
+    Cancelled,
     CommandFailed(String),
     ParseOutput(String),
 }
@@ -71,6 +89,13 @@ impl std::fmt::Display for ProbeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Unavailable(error) | Self::Io(error) => write!(f, "{error}"),
+            Self::TimedOut(timeout) => write!(
+                f,
+                "ffprobe exceeded the {} second timeout",
+                timeout.as_secs()
+            ),
+            Self::OutputTooLarge => write!(f, "ffprobe output exceeded the safety limit"),
+            Self::Cancelled => write!(f, "scan cancelled"),
             Self::CommandFailed(message) | Self::ParseOutput(message) => write!(f, "{message}"),
         }
     }
@@ -142,18 +167,23 @@ struct FfprobeStreamTags {
     title: Option<String>,
 }
 
-pub(crate) fn probe_media_file(
+pub(crate) fn probe_media_file_with_cancel(
     path: &Path,
     probe_availability: &mut ProbeAvailability,
-) -> MediaProbe {
-    if matches!(probe_availability, ProbeAvailability::Unavailable) {
-        return MediaProbe::default();
+    should_cancel: &mut impl FnMut() -> bool,
+) -> io::Result<MediaProbe> {
+    if should_cancel() {
+        return Err(scan_cancelled_error());
     }
 
-    match run_ffprobe(path) {
+    if matches!(probe_availability, ProbeAvailability::Unavailable) {
+        return Ok(MediaProbe::default());
+    }
+
+    match run_ffprobe(path, should_cancel) {
         Ok(probe) => {
             *probe_availability = ProbeAvailability::Available;
-            probe
+            Ok(probe)
         }
         Err(ProbeError::Unavailable(error)) => {
             let detail = error.to_string();
@@ -162,11 +192,12 @@ pub(crate) fn probe_media_file(
                 "ffprobe is not available; media probe fields will remain empty"
             );
             *probe_availability = ProbeAvailability::Unavailable;
-            MediaProbe {
+            Ok(MediaProbe {
                 error: Some(detail),
                 ..MediaProbe::default()
-            }
+            })
         }
+        Err(ProbeError::Cancelled) => Err(scan_cancelled_error()),
         Err(error) => {
             let detail = error.to_string();
             tracing::warn!(
@@ -174,31 +205,43 @@ pub(crate) fn probe_media_file(
                 error = %error,
                 "failed to probe media file with ffprobe"
             );
-            MediaProbe {
+            Ok(MediaProbe {
                 error: Some(detail),
                 ..MediaProbe::default()
-            }
+            })
         }
     }
 }
 
-fn run_ffprobe(path: &Path) -> Result<MediaProbe, ProbeError> {
-    let output = Command::new("ffprobe")
+fn scan_cancelled_error() -> io::Error {
+    io::Error::new(io::ErrorKind::Interrupted, "scan cancelled")
+}
+
+fn run_ffprobe(
+    path: &Path,
+    should_cancel: &mut impl FnMut() -> bool,
+) -> Result<MediaProbe, ProbeError> {
+    let mut command = Command::new("ffprobe");
+    command
         .arg("-v")
         .arg("error")
         .arg("-show_format")
         .arg("-show_streams")
         .arg("-of")
         .arg("json")
-        .arg(path)
-        .output()
-        .map_err(|error| {
-            if error.kind() == io::ErrorKind::NotFound {
+        .arg(path);
+
+    let output = run_command_with_timeout(&mut command, FFPROBE_TIMEOUT, should_cancel).map_err(
+        |error| match error {
+            TimedCommandError::Spawn(error) if error.kind() == io::ErrorKind::NotFound => {
                 ProbeError::Unavailable(error)
-            } else {
-                ProbeError::Io(error)
             }
-        })?;
+            TimedCommandError::Spawn(error) | TimedCommandError::Io(error) => ProbeError::Io(error),
+            TimedCommandError::TimedOut => ProbeError::TimedOut(FFPROBE_TIMEOUT),
+            TimedCommandError::OutputTooLarge => ProbeError::OutputTooLarge,
+            TimedCommandError::Cancelled => ProbeError::Cancelled,
+        },
+    )?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
@@ -212,6 +255,124 @@ fn run_ffprobe(path: &Path) -> Result<MediaProbe, ProbeError> {
     }
 
     parse_ffprobe_output(&output.stdout)
+}
+
+#[derive(Debug)]
+enum TimedCommandError {
+    Spawn(io::Error),
+    Io(io::Error),
+    TimedOut,
+    OutputTooLarge,
+    Cancelled,
+}
+
+fn run_command_with_timeout(
+    command: &mut Command,
+    timeout: Duration,
+    should_cancel: &mut impl FnMut() -> bool,
+) -> Result<Output, TimedCommandError> {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let mut child = command.spawn().map_err(TimedCommandError::Spawn)?;
+    let stdout = child.stdout.take().ok_or_else(|| {
+        TimedCommandError::Io(io::Error::other("child process stdout was not piped"))
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        TimedCommandError::Io(io::Error::other("child process stderr was not piped"))
+    })?;
+
+    // Drain both pipes while the process runs. Waiting first can deadlock when ffprobe emits
+    // enough JSON or diagnostics to fill an OS pipe buffer.
+    let output_limit_exceeded = Arc::new(AtomicBool::new(false));
+    let stdout_limit_exceeded = output_limit_exceeded.clone();
+    let stderr_limit_exceeded = output_limit_exceeded.clone();
+    let stdout_reader = thread::spawn(move || {
+        read_process_pipe_bounded(stdout, FFPROBE_STDOUT_LIMIT, stdout_limit_exceeded)
+    });
+    let stderr_reader = thread::spawn(move || {
+        read_process_pipe_bounded(stderr, FFPROBE_STDERR_LIMIT, stderr_limit_exceeded)
+    });
+    let started_at = Instant::now();
+
+    let status = loop {
+        if should_cancel() {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = join_process_pipe(stdout_reader);
+            let _ = join_process_pipe(stderr_reader);
+            return Err(TimedCommandError::Cancelled);
+        }
+        if output_limit_exceeded.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = join_process_pipe(stdout_reader);
+            let _ = join_process_pipe(stderr_reader);
+            return Err(TimedCommandError::OutputTooLarge);
+        }
+
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started_at.elapsed() < timeout => {
+                let remaining = timeout.saturating_sub(started_at.elapsed());
+                thread::sleep(PROCESS_POLL_INTERVAL.min(remaining));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = join_process_pipe(stdout_reader);
+                let _ = join_process_pipe(stderr_reader);
+                return Err(TimedCommandError::TimedOut);
+            }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = join_process_pipe(stdout_reader);
+                let _ = join_process_pipe(stderr_reader);
+                return Err(TimedCommandError::Io(error));
+            }
+        }
+    };
+
+    let stdout = join_process_pipe(stdout_reader).map_err(TimedCommandError::Io)?;
+    let stderr = join_process_pipe(stderr_reader).map_err(TimedCommandError::Io)?;
+    if output_limit_exceeded.load(Ordering::SeqCst) {
+        return Err(TimedCommandError::OutputTooLarge);
+    }
+
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+fn read_process_pipe_bounded(
+    mut pipe: impl Read,
+    limit: usize,
+    limit_exceeded: Arc<AtomicBool>,
+) -> io::Result<Vec<u8>> {
+    let mut output = Vec::with_capacity(limit.min(8192));
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = pipe.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+
+        let remaining = limit.saturating_sub(output.len());
+        let retained = remaining.min(read);
+        output.extend_from_slice(&buffer[..retained]);
+        if retained < read {
+            limit_exceeded.store(true, Ordering::SeqCst);
+        }
+    }
+    Ok(output)
+}
+
+fn join_process_pipe(reader: thread::JoinHandle<io::Result<Vec<u8>>>) -> io::Result<Vec<u8>> {
+    reader
+        .join()
+        .map_err(|_| io::Error::other("child process output reader panicked"))?
 }
 
 pub(crate) fn parse_ffprobe_output(output: &[u8]) -> Result<MediaProbe, ProbeError> {
@@ -664,4 +825,60 @@ fn parse_bit_depth_from_pixel_format(value: &str) -> Option<i32> {
     }
 
     digits.parse::<i32>().ok()
+}
+
+#[cfg(test)]
+mod timeout_tests {
+    use super::{read_process_pipe_bounded, run_command_with_timeout, TimedCommandError};
+    use std::{
+        io::Cursor,
+        process::Command,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+        time::{Duration, Instant},
+    };
+
+    #[test]
+    fn process_pipe_reader_drains_but_does_not_retain_output_over_the_limit() {
+        let limit_exceeded = Arc::new(AtomicBool::new(false));
+        let retained =
+            read_process_pipe_bounded(Cursor::new(vec![b'x'; 1024]), 64, limit_exceeded.clone())
+                .unwrap();
+
+        assert_eq!(retained.len(), 64);
+        assert!(limit_exceeded.load(Ordering::SeqCst));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_timeout_terminates_the_child_process() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "exec sleep 30"]);
+        let started_at = Instant::now();
+
+        let result =
+            run_command_with_timeout(&mut command, Duration::from_millis(50), &mut || false);
+
+        assert!(matches!(result, Err(TimedCommandError::TimedOut)));
+        assert!(started_at.elapsed() < Duration::from_secs(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_cancellation_terminates_the_child_process() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "exec sleep 30"]);
+        let started_at = Instant::now();
+        let mut poll_count = 0;
+
+        let result = run_command_with_timeout(&mut command, Duration::from_secs(30), &mut || {
+            poll_count += 1;
+            poll_count >= 2
+        });
+
+        assert!(matches!(result, Err(TimedCommandError::Cancelled)));
+        assert!(started_at.elapsed() < Duration::from_secs(2));
+    }
 }

@@ -27,13 +27,7 @@ export const getRealtimeResourceQueryKeys = (resource: string): QueryKey[] => {
   }
 
   if (library?.kind === 'settings') {
-    return [
-      ['libraries'],
-      ['library', library.id],
-      ['libraries-page-detail', library.id],
-      ['home-library-detail', library.id],
-      ['home'],
-    ]
+    return [['libraries'], ['library', library.id], ['libraries-page-detail', library.id], ['home']]
   }
 
   if (library?.kind === 'catalog') {
@@ -42,8 +36,6 @@ export const getRealtimeResourceQueryKeys = (resource: string): QueryKey[] => {
       ['library-media', library.id],
       ['libraries-page-detail', library.id],
       ['libraries-page-recently-added'],
-      ['recently-added-by-library'],
-      ['home-library-detail', library.id],
       ['global-search-page'],
       ['media-item'],
       ['media-item-cast'],
@@ -57,12 +49,7 @@ export const getRealtimeResourceQueryKeys = (resource: string): QueryKey[] => {
   }
 
   if (library?.kind === 'scan') {
-    return [
-      ['library', library.id],
-      ['libraries-page-detail', library.id],
-      ['home-library-detail', library.id],
-      ['home'],
-    ]
+    return [['library', library.id], ['libraries-page-detail', library.id], ['home']]
   }
 
   if (library?.kind === 'notifications' || resource.endsWith(':notifications')) {

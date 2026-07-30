@@ -61,16 +61,13 @@ pub async fn get_home_snapshot(
         },
     )
     .await?;
-    let continue_watching =
-        list_continue_watching(pool, user_id, Some(HOME_CONTINUE_WATCHING_LIMIT))
-            .await?
-            .into_iter()
-            .filter(|item| {
-                visible_library_ids
-                    .as_ref()
-                    .is_none_or(|ids| ids.contains(&item.media_item.library_id))
-            })
-            .collect();
+    let continue_watching = list_continue_watching(
+        pool,
+        user_id,
+        visible_library_ids,
+        Some(HOME_CONTINUE_WATCHING_LIMIT),
+    )
+    .await?;
 
     Ok(HomeSnapshot {
         libraries: library_snapshots,

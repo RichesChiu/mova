@@ -12,3 +12,6 @@ anyhow.workspace = true
 mova-domain = { path = "../mova-domain" }
 serde_json.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

@@ -7,6 +7,7 @@ use super::{
     UpdateSeriesEpisodeMetadataParams, UpdateSeriesSeasonMetadataParams,
     UpsertSeriesEpisodeOutlineCacheParams,
 };
+use crate::VisibilityResult;
 use anyhow::{Context, Result};
 use mova_domain::{AudioTrack, Episode, Library, MediaFile, MediaItem, Season, SubtitleFile};
 use sqlx::{
@@ -215,7 +216,6 @@ pub async fn list_recently_added_media_items_by_library(
                 id,
                 name,
                 description,
-                library_type,
                 metadata_language,
                 root_path,
                 created_at,
@@ -270,7 +270,6 @@ pub async fn list_recently_added_media_items_by_library(
             vl.id as library_id,
             vl.name as library_name,
             vl.description as library_description,
-            vl.library_type as library_type,
             vl.metadata_language as library_metadata_language,
             vl.root_path as library_root_path,
             vl.created_at as library_created_at,
@@ -518,6 +517,70 @@ pub async fn get_media_item(pool: &PgPool, media_item_id: i64) -> Result<Option<
     Ok(media_item)
 }
 
+/// 一次查询读取媒体条目及所属媒体库，并在 SQL 中应用可见范围。
+pub async fn get_media_item_with_library_visibility(
+    pool: &PgPool,
+    media_item_id: i64,
+    visible_library_ids: Option<&[i64]>,
+) -> Result<VisibilityResult<(MediaItem, Library)>> {
+    let row = sqlx::query(
+        r#"
+        select
+            mi.id,
+            mi.library_id,
+            mi.media_type,
+            mi.title,
+            mi.source_title,
+            mi.original_title,
+            mi.sort_title,
+            mi.metadata_provider,
+            mi.metadata_provider_item_id,
+            mi.metadata_status,
+            mi.metadata_failure_reason,
+            mi.remote_media_type,
+            mi.year,
+            mi.country,
+            mi.genres,
+            mi.studio,
+            mi.overview,
+            mi.poster_path,
+            mi.backdrop_path,
+            mi.logo_path,
+            mi.created_at,
+            mi.updated_at,
+            l.name as access_library_name,
+            l.description as access_library_description,
+            l.metadata_language as access_library_metadata_language,
+            l.root_path as access_library_root_path,
+            l.created_at as access_library_created_at,
+            l.updated_at as access_library_updated_at,
+            ($2::bigint[] is null or mi.library_id = any($2)) as is_visible
+        from media_items mi
+        join libraries l on l.id = mi.library_id
+        where mi.id = $1
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(visible_library_ids)
+    .fetch_optional(pool)
+    .await
+    .context("failed to get visible media item and library")?;
+
+    let Some(row) = row else {
+        return Ok(VisibilityResult::Missing);
+    };
+    if !row.get::<bool, _>("is_visible") {
+        return Ok(VisibilityResult::Forbidden {
+            library_id: row.get("library_id"),
+        });
+    }
+
+    let library = map_access_library_row(&row);
+    let mut media_item = map_media_item_row(row);
+    attach_media_item_ratings(pool, std::slice::from_mut(&mut media_item)).await?;
+    Ok(VisibilityResult::Visible((media_item, library)))
+}
+
 pub async fn get_media_item_playback_header(
     pool: &PgPool,
     media_item_id: i64,
@@ -734,6 +797,74 @@ pub async fn get_media_file(pool: &PgPool, media_file_id: i64) -> Result<Option<
     .context("failed to get media file")?;
 
     Ok(row.map(map_media_file_row))
+}
+
+/// 一次查询读取媒体文件及所属媒体库，并在 SQL 中应用可见范围。
+pub async fn get_media_file_with_library_visibility(
+    pool: &PgPool,
+    media_file_id: i64,
+    visible_library_ids: Option<&[i64]>,
+) -> Result<VisibilityResult<(MediaFile, Library)>> {
+    let row = sqlx::query(
+        r#"
+        select
+            mf.id,
+            mf.media_item_id,
+            mf.library_id,
+            mf.file_path,
+            mf.container,
+            mf.file_size,
+            mf.duration_seconds,
+            mf.video_title,
+            mf.video_codec,
+            mf.video_profile,
+            mf.video_level,
+            mf.audio_codec,
+            mf.width,
+            mf.height,
+            mf.bitrate,
+            mf.video_bitrate,
+            mf.video_frame_rate,
+            mf.video_aspect_ratio,
+            mf.video_scan_type,
+            mf.video_color_primaries,
+            mf.video_color_space,
+            mf.video_color_transfer,
+            mf.video_bit_depth,
+            mf.video_pixel_format,
+            mf.video_reference_frames,
+            mf.technical_tags,
+            mf.scan_hash,
+            mf.created_at,
+            mf.updated_at,
+            l.name as access_library_name,
+            l.description as access_library_description,
+            l.metadata_language as access_library_metadata_language,
+            l.root_path as access_library_root_path,
+            l.created_at as access_library_created_at,
+            l.updated_at as access_library_updated_at,
+            ($2::bigint[] is null or mf.library_id = any($2)) as is_visible
+        from media_files mf
+        join libraries l on l.id = mf.library_id
+        where mf.id = $1
+        "#,
+    )
+    .bind(media_file_id)
+    .bind(visible_library_ids)
+    .fetch_optional(pool)
+    .await
+    .context("failed to get visible media file and library")?;
+
+    Ok(match row {
+        None => VisibilityResult::Missing,
+        Some(row) if !row.get::<bool, _>("is_visible") => VisibilityResult::Forbidden {
+            library_id: row.get("library_id"),
+        },
+        Some(row) => {
+            let library = map_access_library_row(&row);
+            VisibilityResult::Visible((map_media_file_row(row), library))
+        }
+    })
 }
 
 /// 更新单个媒体文件的路径和探测字段。
@@ -1477,6 +1608,62 @@ pub async fn get_season(pool: &PgPool, season_id: i64) -> Result<Option<Season>>
     Ok(row.map(map_season_row))
 }
 
+/// 一次查询读取季信息及所属媒体库，并在 SQL 中应用可见范围。
+pub async fn get_season_with_library_visibility(
+    pool: &PgPool,
+    season_id: i64,
+    visible_library_ids: Option<&[i64]>,
+) -> Result<VisibilityResult<(Season, Library)>> {
+    let row = sqlx::query(
+        r#"
+        select
+            s.id,
+            s.series_id,
+            s.season_number,
+            s.title,
+            s.overview,
+            s.poster_path,
+            s.backdrop_path,
+            s.intro_start_seconds,
+            s.intro_end_seconds,
+            (
+                select count(*)
+                from episodes e
+                where e.season_id = s.id
+            ) as episode_count,
+            s.created_at,
+            s.updated_at,
+            l.id as library_id,
+            l.name as access_library_name,
+            l.description as access_library_description,
+            l.metadata_language as access_library_metadata_language,
+            l.root_path as access_library_root_path,
+            l.created_at as access_library_created_at,
+            l.updated_at as access_library_updated_at,
+            ($2::bigint[] is null or s.library_id = any($2)) as is_visible
+        from seasons s
+        join libraries l on l.id = s.library_id
+        where s.id = $1
+        "#,
+    )
+    .bind(season_id)
+    .bind(visible_library_ids)
+    .fetch_optional(pool)
+    .await
+    .context("failed to get visible season and library")?;
+
+    Ok(match row {
+        None => VisibilityResult::Missing,
+        Some(row) if !row.get::<bool, _>("is_visible") => VisibilityResult::Forbidden {
+            library_id: row.get("library_id"),
+        },
+        Some(row) => {
+            let library = map_access_library_row(&row);
+            VisibilityResult::Visible((map_season_row(row), library))
+        }
+    })
+}
+
 pub async fn get_series_episode_outline_cache(
     pool: &PgPool,
     series_media_item_id: i64,
@@ -1509,12 +1696,23 @@ pub async fn upsert_series_episode_outline_cache(
         r#"
         insert into series_episode_outline_cache (
             series_media_item_id,
+            library_id,
             outline_json,
             fetched_at,
             expires_at
-        ) values ($1, $2, $3, $4)
+        )
+        select
+            media_item.id,
+            media_item.library_id,
+            $2,
+            $3,
+            $4
+        from media_items media_item
+        where media_item.id = $1
+          and media_item.media_type = 'series'
         on conflict (series_media_item_id)
         do update set
+            library_id = excluded.library_id,
             outline_json = excluded.outline_json,
             fetched_at = excluded.fetched_at,
             expires_at = excluded.expires_at,
@@ -1752,11 +1950,22 @@ fn map_recently_added_library_row(row: &PgRow) -> Library {
         id: row.get("library_id"),
         name: row.get("library_name"),
         description: row.get("library_description"),
-        library_type: row.get("library_type"),
         metadata_language: row.get("library_metadata_language"),
         root_path: row.get("library_root_path"),
         created_at: row.get("library_created_at"),
         updated_at: row.get("library_updated_at"),
+    }
+}
+
+fn map_access_library_row(row: &PgRow) -> Library {
+    Library {
+        id: row.get("library_id"),
+        name: row.get("access_library_name"),
+        description: row.get("access_library_description"),
+        metadata_language: row.get("access_library_metadata_language"),
+        root_path: row.get("access_library_root_path"),
+        created_at: row.get("access_library_created_at"),
+        updated_at: row.get("access_library_updated_at"),
     }
 }
 

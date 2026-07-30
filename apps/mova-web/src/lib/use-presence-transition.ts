@@ -4,6 +4,7 @@ export type PresenceTransitionState = 'closed' | 'open'
 
 export const usePresenceTransition = (isPresent: boolean, exitDurationMs = 180) => {
   const [shouldRender, setShouldRender] = useState(isPresent)
+  const transitionState: PresenceTransitionState = isPresent ? 'open' : 'closed'
 
   useEffect(() => {
     if (isPresent) {
@@ -21,6 +22,6 @@ export const usePresenceTransition = (isPresent: boolean, exitDurationMs = 180) 
 
   return {
     shouldRender,
-    transitionState: isPresent ? 'open' : 'closed',
+    transitionState,
   }
 }

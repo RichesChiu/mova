@@ -5,12 +5,13 @@
 ## 通用说明
 
 - Base URL：默认 `http://127.0.0.1:36080`
+- HTTP API 契约版本：`1`
 - 响应格式：
   - 普通业务接口默认返回 JSON，并统一包裹成 `code / message / data`
   - 错误响应额外返回稳定的 `error_code / params`，客户端必须优先使用这两个字段生成本地化文案
   - 媒体流和图片资源接口返回文件流，不返回 JSON
 - 鉴权：
-  - `GET /api/health`、`GET /api/auth/bootstrap-status`、`POST /api/auth/bootstrap-admin`、`POST /api/auth/login`、`POST /api/auth/token-login`、`POST /api/auth/refresh` 可匿名访问
+  - `GET /api/health`、`GET /api/auth/bootstrap-status`、`POST /api/auth/bootstrap-admin`、`POST /api/auth/login`、`POST /api/auth/token-login`、`POST /api/auth/refresh`、`POST /api/auth/logout` 可匿名访问
   - 其他接口都要求登录态
   - Web 端继续使用 session cookie
   - 原生客户端使用 `Authorization: Bearer <access_token>` 访问业务接口，`access_token` 和 `refresh_token` 通过 `POST /api/auth/token-login` 获取；`refresh_token` 只能调用 `POST /api/auth/refresh`，不能访问普通业务接口
@@ -72,6 +73,12 @@
 | `owner_role_not_assignable` | `{}` | 系统管理员角色不能通过用户管理接口分配 |
 | `last_admin_required` | `{}` | 必须保留至少一个已启用的管理员 |
 
+媒体处理接口还会返回以下稳定业务错误码：
+
+| `error_code` | `params` | 含义 |
+| --- | --- | --- |
+| `subtitle_too_large` | `{ "max_bytes": number }` | 字幕源文件或转换后的 WebVTT 超过服务端单次处理上限 |
+
 客户端必须允许服务端增加新的 `error_code`。已知错误码使用本地文案；未知错误码可以临时显示 `message`，并应将其记录为诊断信息。
 
 - 文档中的字段示例多数只展示 `data` 内部结构，实际响应会额外包一层统一 envelope。
@@ -84,10 +91,12 @@
   - `401 Unauthorized`：未登录、access token 无效/过期，或 refresh token 无效/过期/已撤销
   - `403 Forbidden`：已登录但没有权限访问
   - `409 Conflict`：资源当前状态不允许执行该操作
+  - `413 Payload Too Large`：请求关联的媒体处理输入或生成结果超过服务端上限
   - `404 Not Found`：资源不存在
   - `429 Too Many Requests`：认证失败次数达到限制，按 `Retry-After` 响应头等待后重试
   - `416 Range Not Satisfiable`：媒体流的 `Range` 请求越界
   - `500 Internal Server Error`：服务内部错误
+  - `503 Service Unavailable`：媒体处理资源暂时繁忙、磁盘安全余量不足或依赖服务暂不可用，客户端可以稍后重试
 - TMDB provider 从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取，值必须是 TMDB 账户 API 设置页中的 **API Read Access Token**，不是较短的 `API Key (v3 auth)`。变量为空或只含空白时服务仍正常启动，本地扫描、NFO/sidecar、入库和播放保持可用；扫描不会发起 TMDB 请求，条目以 `skipped / metadata_provider_disabled` 完成。后续配置 Token、重启并重扫后，这些条目会进入远端补全。每个媒体库可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。TMDB 接入、严格候选规则和字段覆盖见 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md)，完整 v3 接口目录见 [`TMDB.md`](TMDB.md)。
 - TMDB 详情响应中的 `vote_average` 和 `vote_count` 会写入通用 `ratings` 集合，评分来源明确标记为 `tmdb`。TMDB details 附带的 IMDb、TVDB、Wikidata 和社交平台 ID 只作为外部身份保存，不代表对应平台的评分或数据已经接入；当前不请求 IMDb、OMDb 或其他评分来源。
 - 本地海报和背景图的 URL 带版本参数（例如 `/api/media-items/42/poster?v=1704164645`）。浏览器可以长期缓存；媒体元数据更新时版本参数随之变化。
@@ -150,6 +159,7 @@
 | `GET` | `/api/media-files/{id}/stream` | 播放媒体文件 |
 | `HEAD` | `/api/media-files/{id}/stream` | 查询媒体文件播放头信息 |
 | `GET` | `/api/subtitle-files/{id}/stream` | 输出单条字幕轨道的 WebVTT 内容 |
+| `HEAD` | `/api/subtitle-files/{id}/stream` | 只读查询字幕 WebVTT 头信息 |
 
 ## 1. 健康检查
 
@@ -169,11 +179,14 @@
 ```json
 {
   "status": "ok",
-  "version": "development"
+  "version": "development",
+  "api_version": 1
 }
 ```
 
 `version` 是当前运行构建的权威版本标识。官方镜像在构建阶段使用不可变镜像 tag 注入该值；源码构建默认回退到 Cargo package version。自定义镜像可以通过 Docker build argument `MOVA_BUILD_VERSION` 注入版本，运行容器时不能改写已经编译进二进制的值。
+
+`api_version` 是 HTTP 契约版本。版本 `1` 内允许新增可选字段、endpoint 和 `error_code`；删除或改变既有字段语义、鉴权规则、状态码或 endpoint 属于破坏性变更，必须提升契约版本。SSE 使用独立的 `protocol_version`，规则见 [`SSE.md`](SSE.md)。
 
 ## 2. 认证与用户
 
@@ -318,7 +331,9 @@ Web session、原生 access token 和 refresh token 在数据库中都只保存 
 
 说明：
 - refresh 成功后旧 `refresh_token` 会立即失效
-- 旧 `refresh_token` 被重复使用时，服务端会视为异常重放并撤销对应原生客户端设备会话
+- 旧 `refresh_token` 在其原始有效期内被重复使用时，服务端会视为异常重放，并在同一数据库事务内撤销对应原生客户端设备会话
+- 并发提交同一个 `refresh_token` 时只允许一次轮换成功；其余请求会按重放处理并撤销该设备会话。原生客户端必须对同一设备会话串行执行 refresh，不能并发重试
+- 已超过原始有效期的历史 `refresh_token` 不会撤销当前设备会话；历史记录仍保留时返回 `refresh_token_expired`，清理后返回 `invalid_refresh_token`
 - 用户被禁用、删除或改密后，旧 `access_token` 和 `refresh_token` 都不能继续使用
 - 失败时常见 `error_code` 包括 `invalid_refresh_token`、`refresh_token_expired`、`session_revoked`
 
@@ -342,8 +357,10 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 说明：
 - 支持 cookie、Bearer access token 和请求体里的 `refresh_token`
+- 接口保持幂等并允许匿名调用；没有有效登录凭据时仍会清除 Web session cookie 并返回成功
 - 如果同时带了 cookie 和 `Authorization`，服务端会优先使用 Bearer token
 - 原生客户端应尽量在登出时同时提交当前 `refresh_token`；如果 access token 已过期但 refresh token 仍有效，服务端仍会撤销对应设备会话
+- 会话撤销在事务提交后会向使用该凭据建立的 SSE 连接发送 `session.invalidated`，`reason = session_revoked`，随后关闭连接；同一用户的其他设备会话不受影响
 
 ### `GET /api/auth/me`
 
@@ -438,6 +455,10 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `resources.changed` 只表示指定读模型需要重新读取；`scan.progress` 只承载可丢失的临时展示状态。
 - `scan_job.progress_percent` 是服务端持久化的权威进度，客户端不得自行估算。
 - `resync.required` 与 `session.invalidated` 发送后会关闭连接。
+- SSE 连接与建立连接时使用的 session cookie 或 Bearer access token 有效期绑定。凭据到期时服务端发送 `session.invalidated`，payload 的 `reason` 为 `credential_expired`，随后关闭连接。
+- 当前 Web session 被删除，或当前原生设备会话被登出、refresh token 重放保护或改密流程撤销时，服务端发送 `session.invalidated`，payload 的 `reason` 为 `session_revoked`，随后关闭连接。该信号只发送给对应凭据。
+- 收到 `credential_expired` 后不能使用同一凭据直接重连：Web 端需要重新建立登录态；原生客户端需要先轮换 access token。获得有效凭据后，客户端先调用 `GET /api/realtime/state` 对账，再重新建立 SSE 连接。
+- 收到 `session_revoked` 后必须清除当前凭据并重新登录，不能继续使用同一 session cookie、access token 或 refresh token 重连。
 
 事件 payload、资源键触发条件、合并窗口、终态屏障、权限 scope 和客户端恢复算法统一见 [`SSE.md`](SSE.md)。
 
@@ -460,8 +481,8 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `current_password` 必须正确
 - `new_password` 最少 8 位
 - `new_password` 不能和当前密码相同
-- 修改成功后会轮换 session，旧会话失效，响应会写回新的 session cookie
-- 修改成功后，该用户现有原生客户端 access/refresh token 也会全部撤销；原生客户端应使用新密码重新调用 `POST /api/auth/token-login`
+- 密码更新、旧 Web session 删除、现有原生客户端 access/refresh token 撤销和新 Web session 创建在同一个数据库事务中提交；任一步失败都会整体回滚
+- 修改成功后响应会写回新的 session cookie；原生客户端应使用新密码重新调用 `POST /api/auth/token-login`
 
 ### `GET /api/users`
 
@@ -525,7 +546,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 权限层级固定为 `owner > admin > viewer`，调用者只能管理权限层级严格低于自己的用户
 - 当前用户不能通过该接口修改自己
 - 不能降级、禁用最后一个启用中的管理员
-- 禁用用户后，服务端会清理该用户现有 Web session 和原生客户端 access/refresh token 会话
+- 禁用状态、媒体库权限和会话撤销在同一个数据库事务中提交；禁用用户后会清理其现有 Web session，并撤销原生客户端 access/refresh token 会话
 - 只有 `owner` 可以编辑、启用或禁用普通管理员
 - 普通管理员不能修改或降级其他管理员，也不能修改 `owner`
 
@@ -561,6 +582,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 说明：
 - `new_password` 最少 8 位
 - 当前用户不能通过该接口重置自己的密码；应使用 `PUT /api/auth/password`
+- 密码更新、现有 Web session 删除和原生客户端 access/refresh token 撤销在同一个数据库事务中提交；任一步失败都会整体回滚
 - 重置成功后，该用户现有 Web session 和原生客户端 access/refresh token 会话会全部失效
 - 只有 `owner` 可以重置普通管理员密码
 
@@ -577,7 +599,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 | `library` | 不属于具体扫描任务的媒体库变更 |
 | `account` | 当前用户账户、安全和权限相关消息 |
 
-类别允许继续扩展。客户端遇到未知类别时应放入“全部”列表并使用通用样式，不得丢弃。`notification_type` 使用 `<category>.<action>` 命名，例如 `scan.completed_with_issues`；客户端根据事件类型解释 `payload`，未知类型至少应展示通用通知占位和创建时间。
+类别允许继续扩展。客户端遇到未知类别时应放入“全部”列表并使用通用样式，不得丢弃。`notification_type` 使用 `<category>.<action>` 命名；扫描任务终态对应 `scan.completed`、`scan.completed_with_issues`、`scan.failed` 和 `scan.cancelled`。客户端根据事件类型解释 `payload`，未知类型至少应展示通用通知占位和创建时间。
 
 通知级别固定为 `info`、`success`、`warning`、`error`。可见范围由服务端在写入时确定为 server、admin、library 或 user，客户端不传 audience，也不能读取自己权限外的通知。
 
@@ -655,6 +677,8 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `total_unread` 和 `unread_by_category` 始终统计当前用户可见的全部未读通知，不受本次 `category` 筛选影响，因此客户端只需一次响应即可渲染总红点和分类角标。
 - `is_read` / `read_at` 是当前登录用户自己的状态；同一条 server、admin 或 library 通知可以被不同用户独立阅读。
 - `payload` 是按 `notification_type` 区分的扩展对象。扫描通知包含任务级计数，并最多内嵌 20 个未匹配、provider 失败或本地探测警告的问题摘要；`issue_count` 可能大于 `issues.length`。
+- `scan.cancelled` 使用 `info` 级别，payload 的 `status` 为 `cancelled`，表示任务被主动终止；它不等同于扫描成功或执行失败。
+- 已有远端 binding 的条目在 provider 临时故障时仍可保持 `metadata_status=matched`；此时问题摘要使用 `reason_code=metadata_provider_error` 表示本次刷新失败，客户端不得把它解释为身份匹配失效。
 - 扫描任务和单项问题使用 `reason_code / reason_params` 生成本地化主文案。常见原因码包括 `scan_execution_failed`、`metadata_provider_error`、`no_remote_match`、`metadata_provider_disabled`、`metadata_processing_failed` 和 `media_probe_warning`。
 - `diagnostic_message` 与 `probe_warning_diagnostic` 仅供日志和排障使用。客户端不得把这些英文诊断信息直接作为通知主文案；未知原因码才允许将其作为次级兜底。
 - 扫描摘要由 worker 在远端组成功提交后累计，并在任务终态直接写入通知；服务端不提供第二套扫描报告接口。更底层的网络、provider 与 `ffprobe` 排障信息由运维侧查看服务日志。
@@ -962,6 +986,8 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 至少要传一个字段，否则返回 `400 Bad Request`
 - 只更新名称或描述不会触发扫描
 - 当 `metadata_language` 发生变化时，服务端会先停止该库当前正在执行的扫描，把库内所有媒体条目标记为 `metadata_status = pending`，然后自动创建一次覆盖全库的元数据扫描；文件未变化时会复用既有本地分析、音轨和字幕结果，但会按新语言重新请求全部远端元数据
+- 语言配置、条目待处理状态、语言相关缓存失效、catalog revision 和新扫描任务在同一数据库事务中提交；任一步失败都会整体回滚
+- 如果已有扫描无法在安全窗口内停止，或数据库中仍存在其它 worker 持有的活跃扫描，返回 `409 Conflict`，且不提交配置变更
 - 媒体库不提供启用/禁用状态，更新接口不接受该字段
 
 ### `GET /api/libraries/{id}/media-items`
@@ -1148,6 +1174,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `poster_path`：海报可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/poster`
 - `backdrop_path`：背景图可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/backdrop`
 - `logo_path`：透明标题 Logo 可访问 URL；没有合适素材时为 `null`。TMDB 素材会优先缓存到本地，因此通常是 `/api/media-items/{id}/logo`
+- 图片字段只会返回 Mova 内部图片路由或不带 query/fragment 的 TMDB 官方 HTTPS 图片地址；历史数据库中的任意第三方、localhost、私网或其他不可信远程地址会被隐藏为 `null`
 
 返回示例：
 
@@ -1452,6 +1479,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 说明：
 - 服务本地 sidecar 图片以及已缓存到本地的 TMDB 图片
 - 如果极少数情况下缓存失败，详情接口里的 `poster_path` 仍可能是远程 TMDB 图片地址；这时前端应直接使用那个 URL，不需要再请求本接口
+- 本地文件必须位于该条目所属媒体库根目录或该库独立的图片缓存目录内，并通过 20 MiB 大小上限和图片文件头校验；历史越界路径、符号链接逃逸和伪装文件返回 `404 Not Found`
 - 如果该媒体条目没有海报，返回 `404 Not Found`
 
 ### `GET /api/media-items/{id}/backdrop`
@@ -1472,6 +1500,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 说明：
 - 服务本地 sidecar 图片以及已缓存到本地的 TMDB 图片
 - 如果极少数情况下缓存失败，详情接口里的 `backdrop_path` 仍可能是远程 TMDB 图片地址；这时前端应直接使用那个 URL，不需要再请求本接口
+- 本地文件必须位于该条目所属媒体库根目录或该库独立的图片缓存目录内，并通过 20 MiB 大小上限和图片文件头校验；历史越界路径、符号链接逃逸和伪装文件返回 `404 Not Found`
 - 如果该媒体条目没有背景图，返回 `404 Not Found`
 
 ### `GET /api/media-items/{id}/logo`
@@ -1492,6 +1521,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 说明：
 - 服务已缓存到本地的 TMDB Logo
 - 缓存失败时 `logo_path` 可能保留远程 TMDB 图片地址，客户端直接使用该 URL
+- 本地 Logo 使用与海报、背景图相同的媒体库边界、大小和图片内容校验
 - 没有合适 Logo 时返回 `404 Not Found`，客户端必须回退文字标题
 
 ### `GET /api/seasons/{id}/poster`
@@ -1509,6 +1539,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 说明：
 - 服务本地缓存图片或 sidecar 图片
 - 如果 `poster_path` 是远程 URL，前端应直接使用 URL，不需要再请求本接口
+- 本地季海报使用所属媒体库边界、20 MiB 大小上限和图片文件头校验
 - 如果该季没有海报，返回 `404 Not Found`
 
 ### `GET /api/seasons/{id}/backdrop`
@@ -1526,6 +1557,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 说明：
 - 服务本地缓存图片或 sidecar 图片
 - 如果 `backdrop_path` 是远程 URL，前端应直接使用 URL，不需要再请求本接口
+- 本地季背景图使用所属媒体库边界、20 MiB 大小上限和图片文件头校验
 - 如果该季没有背景图，返回 `404 Not Found`
 
 ## 7. 播放进度
@@ -1745,13 +1777,35 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `200 OK`
 - `Content-Type: text/vtt; charset=utf-8`
 - 响应体为字幕文本，不是 JSON
+- 字幕源文件或转换结果超过处理上限时返回 `413 Payload Too Large` JSON 错误 envelope，`error_code = subtitle_too_large`，`params.max_bytes` 表示本次适用的字节上限
 
 说明：
 - `srt` 会在服务端直接转换成 `WebVTT`
 - `ass/ssa` 会借助 `ffmpeg` 转成 `WebVTT`
 - 内嵌字幕会按流索引抽取后再转成 `WebVTT`
+- 外部字幕源最大 16 MiB，转换后的 WebVTT 最大 24 MiB；服务端最多同时执行 4 个字幕生成任务
+- 外部字幕和其所属媒体文件在读取前都会解析真实路径，并且必须仍位于关联媒体库根目录内
 - 前端播放器切换字幕时，应只激活一条字幕轨道，避免外挂和内嵌字幕同时显示造成重影
 - 如果单条字幕流转换或加载失败，客户端应提示该字幕不可用并继续播放主视频，而不是把整个播放器判成失败
+
+### `HEAD /api/subtitle-files/{id}/stream`
+
+作用：
+- 只读探测单条字幕轨道的 WebVTT 缓存状态，不生成或转换字幕
+
+路径参数：
+- `id`：`subtitle_file_id`
+
+返回：
+- 始终为 `200 OK`，没有响应体
+- 始终包含 `Content-Type: text/vtt; charset=utf-8`
+- 已有有效 WebVTT 缓存时，返回准确的 `Content-Length` 和 `Cache-Control: private, max-age=3600`
+- 缓存未命中时，返回 `Cache-Control: no-store`，不返回 `Content-Length`
+
+说明：
+- 服务端仍会完成登录鉴权、字幕与媒体文件关联检查，以及媒体文件和外挂字幕的媒体库路径边界校验
+- 缓存未命中时不创建缓存目录、不读取字幕内容、不占用字幕生成名额，也不启动 FFmpeg
+- 客户端不能把没有 `Content-Length` 解释为长度为零；真正的 WebVTT 会在后续 `GET` 时按需生成
 
 ### `GET /api/media-files/{id}/stream`
 
@@ -1787,6 +1841,8 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 播放器直接使用这个 URL
 - 不建议前端先 `fetch` 完整文件再转 `blob`
 - 当带上 `audio_track_id` 时，服务端会先验证这条音轨确实属于当前媒体文件，再按 `ffmpeg -c copy` 生成缓存变体；这里是 remux，不是转码
+- 已有有效缓存时直接返回，不进入 remux 排队。缓存未命中且进程内 2 个 remux 名额已经占满时立即返回 `503 service_unavailable`；同一缓存键最多等待 5 秒，超时同样返回 `503`，客户端可以稍后重试
+- 生成前同时检查缓存总配额和缓存卷实际可用空间；任何新任务都必须为在途任务预留空间，并在生成后至少保留 5 GiB 可用空间
 - remux 变体只服务于源码直放，不提供多码率或自适应码流
 
 ### `HEAD /api/media-files/{id}/stream`
@@ -1807,13 +1863,17 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 浏览器或播放器探测资源头信息
 
 返回：
-- `200 OK` 或 `206 Partial Content`
+- 原媒体或已有音轨缓存变体返回 `200 OK` 或 `206 Partial Content`
+- 指定 `audio_track_id` 但缓存未命中时返回 `200 OK`
 - 没有响应体
 
 说明：
 - 前端通常不需要手动调用
 - 浏览器播放器可能会自己使用
-- 请求音轨变体时，服务端先确保对应缓存变体已经准备好
+- 请求 `audio_track_id` 时仍会校验音轨归属，但 `HEAD` 不启动 FFmpeg，也不等待生成任务
+- 已有有效音轨缓存时返回该变体准确的 `Accept-Ranges`、`Content-Length` 和可选 `Content-Range`
+- 音轨缓存未命中时只返回确定的 `Content-Type`、`Cache-Control: no-store` 和 `Accept-Ranges: none`；不返回原媒体文件的 `Content-Length` 或 `Content-Range`，避免把源文件长度误报为音轨变体长度
+- 客户端不能把没有 `Content-Length` 解释为长度为零；真正的音轨变体在后续 `GET` 时按需生成
 
 ## 9. ID 关系说明
 

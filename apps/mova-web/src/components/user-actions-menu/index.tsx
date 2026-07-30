@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { UserAccount } from '../../api/types'
 import { useI18n } from '../../i18n'
+import { GlassMenu } from '../glass-menu'
 import './user-actions-menu.scss'
 
 type UserActionIconName = 'edit' | 'trash'
@@ -51,67 +52,32 @@ export const UserActionsMenu = ({
   const { l } = useI18n()
   const [isOpen, setIsOpen] = useState(false)
 
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (
-        event.target instanceof Element &&
-        event.target.closest(`[data-user-actions-menu="${user.id}"]`)
-      ) {
-        return
-      }
-
-      setIsOpen(false)
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen, user.id])
-
   return (
-    <div
-      className="user-actions-menu"
-      data-state={isOpen ? 'open' : 'closed'}
-      data-user-actions-menu={user.id}
-    >
-      <button
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
-        aria-label={l('Open user actions menu')}
-        className="user-actions-menu__trigger"
-        onClick={() => setIsOpen((current) => !current)}
-        type="button"
-      >
-        <span />
-        <span />
-        <span />
-      </button>
-
-      {isOpen ? (
-        <div
-          aria-label={l('User actions')}
-          className="user-actions-menu__popover glass-popover-surface floating-transition"
-          data-state="open"
-          role="menu"
+    <GlassMenu
+      ariaLabel={l('User actions')}
+      isOpen={isOpen}
+      onOpenChange={setIsOpen}
+      popoverClassName="glass-menu__action-popover user-actions-menu__popover"
+      rootClassName="user-actions-menu"
+      trigger={(triggerProps) => (
+        <button
+          {...triggerProps}
+          aria-label={l('Open user actions menu')}
+          className="glass-menu__more-trigger user-actions-menu__trigger"
+          type="button"
         >
+          <span />
+          <span />
+          <span />
+        </button>
+      )}
+    >
+      {(closeMenu) => (
+        <>
           <button
-            className="user-actions-menu__item"
+            className="glass-menu__action user-actions-menu__item"
             onClick={() => {
-              setIsOpen(false)
+              closeMenu()
               onEditUser(user)
             }}
             role="menuitem"
@@ -121,10 +87,10 @@ export const UserActionsMenu = ({
             <span>{l('Edit User')}</span>
           </button>
           <button
-            className="user-actions-menu__item user-actions-menu__item--danger"
+            className="glass-menu__action glass-menu__action--danger user-actions-menu__item"
             disabled={isDeleteDisabled}
             onClick={() => {
-              setIsOpen(false)
+              closeMenu()
               onDeleteUser(user)
             }}
             role="menuitem"
@@ -133,8 +99,8 @@ export const UserActionsMenu = ({
             <UserActionIcon name="trash" />
             <span>{isDeletePending ? l('Deleting…') : l('Delete User')}</span>
           </button>
-        </div>
-      ) : null}
-    </div>
+        </>
+      )}
+    </GlassMenu>
   )
 }

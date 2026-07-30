@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { Library } from '../../api/types'
 import { useI18n } from '../../i18n'
+import { GlassMenu } from '../glass-menu'
 import './library-actions-menu.scss'
 
 type LibraryActionIconName = 'edit' | 'scan' | 'trash'
@@ -67,67 +68,30 @@ export const LibraryActionsMenu = ({
   const { l } = useI18n()
   const [isOpen, setIsOpen] = useState(false)
 
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (
-        event.target instanceof Element &&
-        event.target.closest(`[data-library-actions-menu="${library.id}"]`)
-      ) {
-        return
-      }
-
-      setIsOpen(false)
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen, library.id])
-
-  const closeMenu = () => setIsOpen(false)
-
   return (
-    <div
-      className={['library-actions-menu', className].filter(Boolean).join(' ')}
-      data-library-actions-menu={library.id}
-      data-state={isOpen ? 'open' : 'closed'}
-    >
-      <button
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
-        aria-label={l('Open library actions menu')}
-        className="library-actions-menu__trigger"
-        onClick={() => setIsOpen((current) => !current)}
-        type="button"
-      >
-        <span />
-        <span />
-        <span />
-      </button>
-
-      {isOpen ? (
-        <div
-          aria-label={l('Library actions')}
-          className="library-actions-menu__popover glass-popover-surface floating-transition"
-          data-state="open"
-          role="menu"
+    <GlassMenu
+      ariaLabel={l('Library actions')}
+      isOpen={isOpen}
+      onOpenChange={setIsOpen}
+      popoverClassName="glass-menu__action-popover library-actions-menu__popover"
+      rootClassName={['library-actions-menu', className].filter(Boolean).join(' ')}
+      trigger={(triggerProps) => (
+        <button
+          {...triggerProps}
+          aria-label={l('Open library actions menu')}
+          className="glass-menu__more-trigger library-actions-menu__trigger"
+          type="button"
         >
+          <span />
+          <span />
+          <span />
+        </button>
+      )}
+    >
+      {(closeMenu) => (
+        <>
           <button
-            className="library-actions-menu__item"
+            className="glass-menu__action library-actions-menu__item"
             onClick={() => {
               closeMenu()
               onEditLibrary(library)
@@ -139,7 +103,7 @@ export const LibraryActionsMenu = ({
             <span>{l('Edit Library')}</span>
           </button>
           <button
-            className="library-actions-menu__item"
+            className="glass-menu__action library-actions-menu__item"
             disabled={isScanDisabled}
             onClick={() => {
               closeMenu()
@@ -152,7 +116,7 @@ export const LibraryActionsMenu = ({
             <span>{isScanPending ? l('Triggering…') : l('Scan Library')}</span>
           </button>
           <button
-            className="library-actions-menu__item library-actions-menu__item--danger"
+            className="glass-menu__action glass-menu__action--danger library-actions-menu__item"
             disabled={isDeleteDisabled}
             onClick={() => {
               closeMenu()
@@ -164,8 +128,8 @@ export const LibraryActionsMenu = ({
             <LibraryActionIcon name="trash" />
             <span>{isDeletePending ? l('Deleting…') : l('Delete Library')}</span>
           </button>
-        </div>
-      ) : null}
-    </div>
+        </>
+      )}
+    </GlassMenu>
   )
 }

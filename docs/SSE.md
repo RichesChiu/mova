@@ -133,13 +133,12 @@ SSE 同步由两类信息组成：
 
 通知不是独立 SSE 事件。服务端把通知正文和每个用户的已读状态持久化后只推进对应 `notifications` revision；库通知使用 `library:{id}:notifications`，管理员系统通知使用 `admin:notifications`，用户自己的通知及已读状态使用 `user:{id}:notifications`。客户端收到失效信号后调用 `GET /api/notifications`。因此断线期间产生的通知不会丢失，重复或乱序的 revision 也不会重复创建通知。
 
-内部资源键 `session:user:{id}` 不出现在 state 和 `resources.changed` 中。以下操作触发该键，并转换为 `session.invalidated`：
+内部会话信号不出现在 state 和 `resources.changed` 中，也不要求客户端保存 revision：
 
-- 用户被删除。
-- 用户角色改变。
-- 用户启用状态改变。
-- 密码哈希改变。
-- 用户媒体库权限改变。
+- `session:user:{id}` 用于授权快照整体失效，并转换为该用户所有连接可见的 `session.invalidated`。用户被删除、角色改变、启用状态改变或媒体库权限改变时触发。
+- `session:web:{token_hash}` 和 `session:native:{session_id}` 用于单个凭据失效，并只向使用该凭据建立的连接发送 `session.invalidated`。Web session 删除、原生设备会话撤销或 refresh token 重放保护触发。
+
+密码变更会在一个数据库事务内更新密码、删除旧 Web session 并撤销原生设备会话；当前用户自行改密时，同一事务还会创建新的 Web session。事务提交后，每条旧连接通过凭据级信号收到 `session_revoked`，新 session 不会被旧凭据的信号关闭。
 
 ## 5. 事件总览
 
@@ -149,7 +148,7 @@ SSE 同步由两类信息组成：
 | `scan.progress` | 临时扫描任务和条目状态 | 普通批次允许丢失；检查点走可靠进程内 FIFO | 展示扫描进度和临时卡片 |
 | `scan.finished` | 扫描终态和最终 revisions | 立即发送；仍以 revision 恢复为兜底 | 刷新正式目录后移除临时卡片 |
 | `resync.required` | 重同步原因 | 发送后关闭连接 | 读取 state 并重新连接 |
-| `session.invalidated` | 权限失效原因 | 发送后关闭连接 | 重新建立登录态 |
+| `session.invalidated` | 权限或凭据失效原因 | 发送后关闭连接 | 重新建立登录态 |
 
 ## 6. `resources.changed`
 
@@ -304,7 +303,9 @@ data: {
 
 任务成功、取消或重试额度耗尽时发送。仍有重试额度的失败尝试只恢复为 `pending`，不发送终态事件。
 
-扫描终态会在同一数据库事务中写入扫描任务、worker 累计的扫描摘要和一条 `scan` 类通知，并推进 `library:{id}:scan` 与 `library:{id}:notifications`。客户端收到 `scan.finished` 后刷新正式目录和通知中心。`scan.finished` 不直接携带通知正文或完整错误列表，断线重连也不需要回放扫描日志；客户端始终通过 `GET /api/notifications` 读取持久化摘要。
+扫描终态会在同一数据库事务中写入扫描任务、对应后台任务终态、worker 累计的扫描摘要和一条 `scan` 类通知，并推进 `library:{id}:scan` 与 `library:{id}:notifications`。客户端收到 `scan.finished` 后刷新正式目录和通知中心。`scan.finished` 不直接携带通知正文或完整错误列表，断线重连也不需要回放扫描日志；客户端始终通过 `GET /api/notifications` 读取持久化摘要。
+
+终态通知类型必须与 `scan_job.status` 对齐：`success` 根据摘要写为 `scan.completed` 或 `scan.completed_with_issues`，`failed` 写为 `scan.failed`，`cancelled` 写为 `scan.cancelled`。取消是独立终态，不能映射成成功或执行失败。
 
 ```text
 event: scan.finished
@@ -369,9 +370,19 @@ data: {"protocol_version":1,"reason":"authorization_changed"}
 
 服务端发送事件后关闭连接。客户端必须停止使用连接建立时的权限快照，并重新验证登录态。
 
-- Web：重新验证 session cookie。
-- 原生客户端：使用 access token 获取用户资料；收到 `401` 时调用 refresh 接口轮换 token。
-- 验证失败：清除登录态并进入登录页面。
+`reason` 取值：
+
+- `authorization_changed`：用户角色、媒体库权限或账号状态发生变化。
+- `session_revoked`：建立连接的 Web session 或原生设备会话已被删除或撤销。
+- `credential_expired`：建立当前 SSE 连接的 session cookie 或 access token 已到期。
+
+恢复规则：
+
+- `authorization_changed`：Web 重新验证 session cookie；原生客户端使用 access token 获取用户资料，收到 `401` 时串行调用 refresh 接口轮换 token。
+- `session_revoked`：当前凭据不能重用；Web 清除旧 session cookie 并重新登录，原生客户端清除该设备会话的 access/refresh token 并重新登录。
+- `credential_expired`：Web session cookie 不可续期，清除旧登录态并重新登录；原生客户端串行轮换 access/refresh token。
+- 获得有效凭据后先读取 `/api/realtime/state` 完成差异同步，再建立新的 SSE 连接。
+- 重新验证或 token 轮换失败时，清除登录态并进入登录页面。
 
 ## 11. 连接生命周期
 

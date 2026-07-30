@@ -95,6 +95,13 @@ pub struct NativeAuthSession {
     pub refresh_token_expires_at: OffsetDateTime,
 }
 
+#[derive(Debug, Clone)]
+pub struct AuthenticatedSession {
+    pub user: UserProfile,
+    pub expires_at: OffsetDateTime,
+    pub realtime_session_key: String,
+}
+
 pub async fn bootstrap_required(pool: &PgPool) -> ApplicationResult<bool> {
     let count = mova_db::count_admin_users(pool)
         .await
@@ -172,6 +179,13 @@ pub async fn get_user_by_native_access_token(
     pool: &PgPool,
     token: &str,
 ) -> ApplicationResult<UserProfile> {
+    Ok(get_native_access_session(pool, token).await?.user)
+}
+
+pub async fn get_native_access_session(
+    pool: &PgPool,
+    token: &str,
+) -> ApplicationResult<AuthenticatedSession> {
     let token_hash = hash_token(token);
     let Some(session) = mova_db::get_user_by_native_access_token_hash(pool, &token_hash)
         .await
@@ -207,7 +221,11 @@ pub async fn get_user_by_native_access_token(
         .await
         .map_err(ApplicationError::from)?;
 
-    Ok(session.user)
+    Ok(AuthenticatedSession {
+        user: session.user,
+        expires_at: session.access_token_expires_at,
+        realtime_session_key: format!("session:native:{}", session.session_id),
+    })
 }
 
 pub async fn refresh_native_client_session(
@@ -224,6 +242,7 @@ pub async fn refresh_native_client_session(
     }
 
     let refresh_token_hash = hash_token(refresh_token);
+    let now = OffsetDateTime::now_utc();
     let Some(session) =
         mova_db::get_native_client_session_by_refresh_token_hash(pool, &refresh_token_hash)
             .await
@@ -233,6 +252,12 @@ pub async fn refresh_native_client_session(
             .await
             .map_err(ApplicationError::from)?
         {
+            if !used_refresh_token_can_revoke_session(used_token.expires_at, now) {
+                return Err(ApplicationError::auth_token(
+                    AuthTokenErrorCode::RefreshTokenExpired,
+                ));
+            }
+
             mova_db::revoke_native_client_session(pool, used_token.session_id)
                 .await
                 .map_err(ApplicationError::from)?;
@@ -252,7 +277,7 @@ pub async fn refresh_native_client_session(
         ));
     }
 
-    if session.refresh_token_expires_at <= OffsetDateTime::now_utc() {
+    if session.refresh_token_expires_at <= now {
         return Err(ApplicationError::auth_token(
             AuthTokenErrorCode::RefreshTokenExpired,
         ));
@@ -269,24 +294,43 @@ pub async fn refresh_native_client_session(
 
     let access_token = generate_native_token();
     let refresh_token = generate_native_token();
-    let access_token_expires_at = OffsetDateTime::now_utc() + access_token_ttl;
-    let refresh_token_expires_at = OffsetDateTime::now_utc() + refresh_token_ttl;
-    let rotated = mova_db::rotate_native_client_session_tokens(
+    let issued_at = OffsetDateTime::now_utc();
+    let access_token_expires_at = issued_at + access_token_ttl;
+    let refresh_token_expires_at = issued_at + refresh_token_ttl;
+    let access_token_hash = hash_token(&access_token);
+    let new_refresh_token_hash = hash_token(&refresh_token);
+    let rotation = mova_db::rotate_native_client_session_tokens(
         pool,
-        session.session_id,
-        &refresh_token_hash,
-        &hash_token(&access_token),
-        &hash_token(&refresh_token),
-        access_token_expires_at,
-        refresh_token_expires_at,
+        mova_db::RotateNativeClientSessionTokensParams {
+            session_id: session.session_id,
+            old_refresh_token_hash: &refresh_token_hash,
+            old_refresh_token_expires_at: session.refresh_token_expires_at,
+            new_access_token_hash: &access_token_hash,
+            new_refresh_token_hash: &new_refresh_token_hash,
+            access_token_expires_at,
+            refresh_token_expires_at,
+        },
     )
     .await
     .map_err(ApplicationError::from)?;
 
-    if !rotated {
-        return Err(ApplicationError::auth_token(
-            AuthTokenErrorCode::SessionRevoked,
-        ));
+    match rotation {
+        mova_db::NativeClientTokenRotationOutcome::Rotated => {}
+        mova_db::NativeClientTokenRotationOutcome::Expired => {
+            return Err(ApplicationError::auth_token(
+                AuthTokenErrorCode::RefreshTokenExpired,
+            ));
+        }
+        mova_db::NativeClientTokenRotationOutcome::Replayed => {
+            return Err(ApplicationError::auth_token(
+                AuthTokenErrorCode::SessionRevoked,
+            ));
+        }
+        mova_db::NativeClientTokenRotationOutcome::Missing => {
+            return Err(ApplicationError::auth_token(
+                AuthTokenErrorCode::InvalidRefreshToken,
+            ));
+        }
     }
 
     Ok(NativeAuthSession {
@@ -333,9 +377,11 @@ pub async fn logout_native_client_refresh_token(
         .await
         .map_err(ApplicationError::from)?
     {
-        mova_db::revoke_native_client_session(pool, used_token.session_id)
-            .await
-            .map_err(ApplicationError::from)?;
+        if used_refresh_token_can_revoke_session(used_token.expires_at, OffsetDateTime::now_utc()) {
+            mova_db::revoke_native_client_session(pool, used_token.session_id)
+                .await
+                .map_err(ApplicationError::from)?;
+        }
     }
 
     Ok(())
@@ -345,8 +391,15 @@ pub async fn get_user_by_session_token(
     pool: &PgPool,
     token: &str,
 ) -> ApplicationResult<UserProfile> {
+    Ok(get_user_session(pool, token).await?.user)
+}
+
+pub async fn get_user_session(
+    pool: &PgPool,
+    token: &str,
+) -> ApplicationResult<AuthenticatedSession> {
     let token_hash = hash_token(token);
-    let Some(user) = mova_db::get_user_by_session_token_hash(pool, &token_hash)
+    let Some(session) = mova_db::get_user_by_session_token_hash(pool, &token_hash)
         .await
         .map_err(ApplicationError::from)?
     else {
@@ -357,15 +410,19 @@ pub async fn get_user_by_session_token(
         ));
     };
 
-    if !user.user.is_enabled {
+    if !session.user.user.is_enabled {
         return Err(ApplicationError::forbidden(
             "account_disabled",
-            BTreeMap::from([("account".to_string(), json!(user.user.username))]),
-            format!("user {} is disabled", user.user.username),
+            BTreeMap::from([("account".to_string(), json!(&session.user.user.username))]),
+            format!("user {} is disabled", session.user.user.username),
         ));
     }
 
-    Ok(user)
+    Ok(AuthenticatedSession {
+        user: session.user,
+        expires_at: session.expires_at,
+        realtime_session_key: format!("session:web:{token_hash}"),
+    })
 }
 
 pub async fn logout(pool: &PgPool, token: &str) -> ApplicationResult<()> {
@@ -473,15 +530,6 @@ pub async fn update_user(
     .await
     .map_err(map_user_write_error)?;
 
-    if !updated.user.is_enabled {
-        mova_db::delete_sessions_for_user(pool, updated.user.id)
-            .await
-            .map_err(ApplicationError::from)?;
-        mova_db::revoke_native_client_sessions_for_user(pool, updated.user.id)
-            .await
-            .map_err(ApplicationError::from)?;
-    }
-
     Ok(updated)
 }
 
@@ -535,13 +583,7 @@ pub async fn reset_user_password(
     validate_password("new_password", &input.new_password)?;
     let password_hash = hash_password(&input.new_password)?;
 
-    mova_db::update_user_password(pool, user_id, &password_hash)
-        .await
-        .map_err(ApplicationError::from)?;
-    mova_db::delete_sessions_for_user(pool, user_id)
-        .await
-        .map_err(ApplicationError::from)?;
-    mova_db::revoke_native_client_sessions_for_user(pool, user_id)
+    mova_db::update_user_password_and_revoke_sessions(pool, user_id, &password_hash, None)
         .await
         .map_err(ApplicationError::from)?;
 
@@ -598,18 +640,29 @@ pub async fn change_own_password(
     }
 
     let password_hash = hash_password(&input.new_password)?;
-    mova_db::update_user_password(pool, user_id, &password_hash)
-        .await
-        .map_err(ApplicationError::from)?;
-    mova_db::delete_sessions_for_user(pool, user_id)
-        .await
-        .map_err(ApplicationError::from)?;
-    mova_db::revoke_native_client_sessions_for_user(pool, user_id)
-        .await
-        .map_err(ApplicationError::from)?;
+    let token = Uuid::new_v4().to_string();
+    let expires_at = OffsetDateTime::now_utc() + session_ttl;
+    mova_db::update_user_password_and_revoke_sessions(
+        pool,
+        user_id,
+        &password_hash,
+        Some(mova_db::CreateSessionParams {
+            token_hash: hash_token(&token),
+            user_id,
+            expires_at,
+        }),
+    )
+    .await
+    .map_err(ApplicationError::from)?;
 
-    let user = get_user(pool, user_id).await?;
-    create_session_for_user(pool, user, session_ttl).await
+    Ok(AuthSession {
+        user: UserProfile {
+            user: record.user,
+            library_ids: record.library_ids,
+        },
+        token,
+        expires_at,
+    })
 }
 
 fn normalize_username(value: String) -> ApplicationResult<String> {
@@ -881,13 +934,9 @@ async fn authenticate_login(
         ));
     }
 
-    let library_ids = mova_db::list_library_ids_for_user(pool, record.user.id)
-        .await
-        .map_err(ApplicationError::from)?;
-
     Ok(UserProfile {
         user: record.user,
-        library_ids,
+        library_ids: record.library_ids,
     })
 }
 
@@ -967,6 +1016,10 @@ fn hash_token(token: &str) -> String {
     hex_encode(&digest)
 }
 
+fn used_refresh_token_can_revoke_session(expires_at: OffsetDateTime, now: OffsetDateTime) -> bool {
+    expires_at > now
+}
+
 fn hex_encode(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut encoded = String::with_capacity(bytes.len() * 2);
@@ -1019,8 +1072,8 @@ fn is_unique_violation(error: &SqlxError) -> bool {
 mod tests {
     use super::{
         enabled_admin_is_removed, normalize_library_ids, normalize_nickname, normalize_user_role,
-        normalize_username, user_management_level, validate_role_assignment,
-        validate_user_management_scope, MAX_USERNAME_LENGTH,
+        normalize_username, used_refresh_token_can_revoke_session, user_management_level,
+        validate_role_assignment, validate_user_management_scope, MAX_USERNAME_LENGTH,
     };
     use crate::error::ApplicationError;
     use mova_domain::{User, UserProfile, UserRole};
@@ -1084,6 +1137,21 @@ mod tests {
         assert_eq!(error.code(), "field_too_long");
         assert_eq!(error.params()["field"], "account");
         assert_eq!(error.params()["max"], MAX_USERNAME_LENGTH);
+    }
+
+    #[test]
+    fn expired_used_refresh_token_cannot_revoke_the_current_session() {
+        let now = OffsetDateTime::now_utc();
+
+        assert!(!used_refresh_token_can_revoke_session(now, now));
+        assert!(!used_refresh_token_can_revoke_session(
+            now - time::Duration::seconds(1),
+            now
+        ));
+        assert!(used_refresh_token_can_revoke_session(
+            now + time::Duration::seconds(1),
+            now
+        ));
     }
 
     #[test]

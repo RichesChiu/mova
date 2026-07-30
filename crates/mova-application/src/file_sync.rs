@@ -70,7 +70,7 @@ pub async fn sync_library_filesystem_changes(
             continue;
         }
 
-        let media_type = classify_media_type(&library.library_type, &path);
+        let media_type = classify_media_type(&path);
         let lookup_type = metadata_lookup_type_for_media_type(media_type);
         let mut discovered_file = inspect_media_file(&path).await?;
         enrichment

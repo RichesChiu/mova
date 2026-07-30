@@ -33,13 +33,21 @@ pub async fn list_continue_watching(
     Query(query): Query<ContinueWatchingQuery>,
 ) -> Result<ApiJson<Vec<ContinueWatchingItemResponse>>, ApiError> {
     let user = require_user(&state, &headers, &jar).await?;
-    let items = mova_application::list_continue_watching(&state.db, user.user.id, query.limit)
-        .await
-        .map_err(ApiError::from)?;
+    let visible_library_ids = user
+        .library_visibility()
+        .restricted_library_ids()
+        .map(<[i64]>::to_vec);
+    let items = mova_application::list_continue_watching(
+        &state.db,
+        user.user.id,
+        visible_library_ids,
+        query.limit,
+    )
+    .await
+    .map_err(ApiError::from)?;
 
     Ok(ok(items
         .into_iter()
-        .filter(|item| user.can_access_library(item.media_item.library_id))
         .map(|item| ContinueWatchingItemResponse::from_domain(item, state.api_time_offset))
         .collect()))
 }
@@ -423,7 +431,7 @@ mod tests {
             .unwrap();
         }
 
-        let continue_watching = mova_db::list_continue_watching(&pool, user_id, 20)
+        let continue_watching = mova_db::list_continue_watching(&pool, user_id, None, 20)
             .await
             .unwrap();
 
@@ -459,11 +467,12 @@ mod tests {
         .unwrap();
         let season_id = sqlx::query_scalar::<_, i64>(
             r#"
-            insert into seasons (series_id, season_number, title)
-            values ($1, 1, 'Season 1')
+            insert into seasons (library_id, series_id, season_number, title)
+            values ($1, $2, 1, 'Season 1')
             returning id
             "#,
         )
+        .bind(library_id)
         .bind(series_id)
         .fetch_one(&pool)
         .await
@@ -488,13 +497,15 @@ mod tests {
                 r#"
                 insert into episodes (
                     media_item_id,
+                    library_id,
                     season_id,
                     episode_number
                 )
-                values ($1, $2, $3)
+                values ($1, $2, $3, $4)
                 "#,
             )
             .bind(episode_id)
+            .bind(library_id)
             .bind(season_id)
             .bind(episode_number)
             .execute(&pool)
@@ -536,7 +547,7 @@ mod tests {
             .unwrap();
         }
 
-        let continue_watching = mova_db::list_continue_watching(&pool, user_id, 10)
+        let continue_watching = mova_db::list_continue_watching(&pool, user_id, None, 10)
             .await
             .unwrap();
 

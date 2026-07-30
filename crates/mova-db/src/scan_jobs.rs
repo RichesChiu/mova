@@ -1,3 +1,7 @@
+use crate::background_jobs::{
+    complete_library_scan_background_job_tx, lock_library_scan_background_job_fence,
+    BackgroundJobFence, LibraryScanFenceMode,
+};
 use anyhow::{Context, Result};
 use mova_domain::{ScanJob, ScanNotificationSummary};
 use serde_json::json;
@@ -20,37 +24,6 @@ pub struct EnqueueScanJobResult {
     pub created: bool,
 }
 
-/// 新建一条 pending 状态的扫描任务记录。
-pub async fn create_scan_job(pool: &PgPool, params: CreateScanJobParams) -> Result<ScanJob> {
-    let row = sqlx::query(
-        r#"
-        insert into scan_jobs (library_id, status, total_files, scanned_files, progress_percent)
-        values ($1, 'pending', 0, 0, 0)
-        returning
-            id,
-            library_id,
-            status,
-            phase,
-            total_files,
-            scanned_files,
-            local_analyzed_files,
-            local_committed_files,
-            remote_completed_files,
-            progress_percent,
-            created_at,
-            started_at,
-            finished_at,
-            error_message
-        "#,
-    )
-    .bind(params.library_id)
-    .fetch_one(pool)
-    .await
-    .context("failed to create scan job")?;
-
-    Ok(map_scan_job_row(row))
-}
-
 /// 为媒体库创建扫描任务前，先检查是否已有活跃任务。
 /// 这里使用 PostgreSQL advisory lock，避免并发请求为同一个库重复创建扫描任务。
 pub async fn enqueue_scan_job(
@@ -62,17 +35,26 @@ pub async fn enqueue_scan_job(
         .await
         .context("failed to start scan job enqueue transaction")?;
 
+    let result = enqueue_scan_job_tx(&mut tx, params.library_id).await?;
+
+    tx.commit()
+        .await
+        .context("failed to commit scan job enqueue transaction")?;
+
+    Ok(result)
+}
+
+pub(crate) async fn enqueue_scan_job_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    library_id: i64,
+) -> Result<EnqueueScanJobResult> {
     sqlx::query("select pg_advisory_xact_lock($1)")
-        .bind(params.library_id)
-        .fetch_one(&mut *tx)
+        .bind(library_id)
+        .fetch_one(&mut **tx)
         .await
         .context("failed to acquire scan job enqueue lock")?;
 
-    if let Some(scan_job) = get_active_scan_job_for_library_tx(&mut tx, params.library_id).await? {
-        tx.commit()
-            .await
-            .context("failed to commit scan job enqueue transaction")?;
-
+    if let Some(scan_job) = get_active_scan_job_for_library_tx(tx, library_id).await? {
         return Ok(EnqueueScanJobResult {
             scan_job,
             created: false,
@@ -100,8 +82,8 @@ pub async fn enqueue_scan_job(
             error_message
         "#,
     )
-    .bind(params.library_id)
-    .fetch_one(&mut *tx)
+    .bind(library_id)
+    .fetch_one(&mut **tx)
     .await
     .context("failed to create scan job")?;
 
@@ -128,15 +110,11 @@ pub async fn enqueue_scan_job(
         )
         "#,
     )
-    .bind(params.library_id)
+    .bind(library_id)
     .bind(scan_job_id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .context("failed to enqueue library scan background job")?;
-
-    tx.commit()
-        .await
-        .context("failed to commit scan job enqueue transaction")?;
 
     Ok(EnqueueScanJobResult {
         scan_job: map_scan_job_row(row),
@@ -146,7 +124,23 @@ pub async fn enqueue_scan_job(
 
 /// 把任务状态切到 running，并记录开始时间。
 /// 如果任务在启动前已经被删除，则返回 `None`。
-pub async fn mark_scan_job_running(pool: &PgPool, scan_job_id: i64) -> Result<Option<ScanJob>> {
+pub async fn mark_scan_job_running(
+    pool: &PgPool,
+    scan_job_id: i64,
+    fence: &BackgroundJobFence,
+) -> Result<Option<ScanJob>> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start scan job transition transaction")?;
+    lock_library_scan_background_job_fence(
+        &mut tx,
+        fence,
+        scan_job_id,
+        None,
+        LibraryScanFenceMode::Active,
+    )
+    .await?;
     let row = sqlx::query(
         r#"
         update scan_jobs
@@ -157,6 +151,7 @@ pub async fn mark_scan_job_running(pool: &PgPool, scan_job_id: i64) -> Result<Op
             finished_at = null,
             error_message = null
         where id = $1
+          and status in ('pending', 'running')
         returning
             id,
             library_id,
@@ -175,9 +170,12 @@ pub async fn mark_scan_job_running(pool: &PgPool, scan_job_id: i64) -> Result<Op
         "#,
     )
     .bind(scan_job_id)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await
     .context("failed to mark scan job as running")?;
+    tx.commit()
+        .await
+        .context("failed to commit scan job running transition")?;
 
     Ok(row.map(map_scan_job_row))
 }
@@ -189,13 +187,27 @@ pub async fn update_scan_job_progress(
     scan_job_id: i64,
     total_files: Option<i32>,
     scanned_files: i32,
+    fence: &BackgroundJobFence,
 ) -> Result<Option<ScanJob>> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start scan progress transaction")?;
+    lock_library_scan_background_job_fence(
+        &mut tx,
+        fence,
+        scan_job_id,
+        None,
+        LibraryScanFenceMode::Running,
+    )
+    .await?;
     let row = sqlx::query(
         r#"
         update scan_jobs
         set total_files = coalesce($2, total_files),
             scanned_files = $3
         where id = $1
+          and status in ('pending', 'running')
         returning
             id,
             library_id,
@@ -216,9 +228,12 @@ pub async fn update_scan_job_progress(
     .bind(scan_job_id)
     .bind(total_files)
     .bind(scanned_files)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await
     .context("failed to update scan job progress")?;
+    tx.commit()
+        .await
+        .context("failed to commit scan progress transaction")?;
 
     Ok(row.map(map_scan_job_row))
 }
@@ -229,13 +244,27 @@ pub async fn update_scan_job_phase(
     scan_job_id: i64,
     phase: &str,
     progress_percent: i32,
+    fence: &BackgroundJobFence,
 ) -> Result<Option<ScanJob>> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start scan phase transaction")?;
+    lock_library_scan_background_job_fence(
+        &mut tx,
+        fence,
+        scan_job_id,
+        None,
+        LibraryScanFenceMode::Running,
+    )
+    .await?;
     let row = sqlx::query(
         r#"
         update scan_jobs
         set phase = $2,
             progress_percent = greatest(progress_percent, least(99, greatest(0, $3)))
         where id = $1
+          and status in ('pending', 'running')
         returning
             id,
             library_id,
@@ -256,9 +285,12 @@ pub async fn update_scan_job_phase(
     .bind(scan_job_id)
     .bind(phase)
     .bind(progress_percent)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await
     .context("failed to update scan job phase")?;
+    tx.commit()
+        .await
+        .context("failed to commit scan phase transaction")?;
 
     Ok(row.map(map_scan_job_row))
 }
@@ -270,7 +302,20 @@ pub async fn record_scan_job_attempt_failure(
     total_files: i32,
     scanned_files: i32,
     error_message: &str,
+    fence: &BackgroundJobFence,
 ) -> Result<Option<ScanJob>> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start scan attempt failure transaction")?;
+    lock_library_scan_background_job_fence(
+        &mut tx,
+        fence,
+        scan_job_id,
+        None,
+        LibraryScanFenceMode::Active,
+    )
+    .await?;
     let row = sqlx::query(
         r#"
         update scan_jobs
@@ -300,9 +345,12 @@ pub async fn record_scan_job_attempt_failure(
     .bind(total_files.max(0))
     .bind(scanned_files.max(0))
     .bind(error_message)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *tx)
     .await
     .context("failed to record scan job attempt failure")?;
+    tx.commit()
+        .await
+        .context("failed to commit scan attempt failure transaction")?;
 
     Ok(row.map(map_scan_job_row))
 }
@@ -310,6 +358,31 @@ pub async fn record_scan_job_attempt_failure(
 /// 后台任务仍有重试额度时，把父扫描任务恢复为可见的 pending 状态。
 pub async fn mark_scan_job_retry_pending(
     pool: &PgPool,
+    scan_job_id: i64,
+    error_message: &str,
+    fence: &BackgroundJobFence,
+) -> Result<Option<ScanJob>> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start scan retry transition transaction")?;
+    lock_library_scan_background_job_fence(
+        &mut tx,
+        fence,
+        scan_job_id,
+        None,
+        LibraryScanFenceMode::Active,
+    )
+    .await?;
+    let scan_job = mark_scan_job_retry_pending_tx(&mut tx, scan_job_id, error_message).await?;
+    tx.commit()
+        .await
+        .context("failed to commit scan retry transition")?;
+    Ok(scan_job)
+}
+
+pub(crate) async fn mark_scan_job_retry_pending_tx(
+    tx: &mut Transaction<'_, Postgres>,
     scan_job_id: i64,
     error_message: &str,
 ) -> Result<Option<ScanJob>> {
@@ -341,17 +414,67 @@ pub async fn mark_scan_job_retry_pending(
     )
     .bind(scan_job_id)
     .bind(error_message)
-    .fetch_optional(pool)
+    .fetch_optional(&mut **tx)
     .await
     .context("failed to mark scan job as pending for retry")?;
 
     Ok(row.map(map_scan_job_row))
 }
 
-/// 统一更新任务的终态信息，成功和失败都走这里。
+/// 统一更新任务的终态信息，成功、失败和取消都走这里。
 /// 如果任务在终态写入前已经因为删库被级联删除，则返回 `None`。
+#[allow(clippy::too_many_arguments)]
 pub async fn finalize_scan_job(
     pool: &PgPool,
+    library_id: i64,
+    scan_job_id: i64,
+    status: &str,
+    total_files: i32,
+    scanned_files: i32,
+    error_message: Option<&str>,
+    notification_summary: Option<&ScanNotificationSummary>,
+    fence: &BackgroundJobFence,
+) -> Result<Option<ScanJob>> {
+    if !matches!(status, "success" | "cancelled") {
+        anyhow::bail!("unsupported fenced scan terminal status: {status}");
+    }
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start scan job finalization transaction")?;
+    let background_status = lock_library_scan_background_job_fence(
+        &mut tx,
+        fence,
+        scan_job_id,
+        Some(library_id),
+        LibraryScanFenceMode::Finalize,
+    )
+    .await?;
+    let effective_status = if status == "cancelled" || background_status == "cancel_requested" {
+        "cancelled"
+    } else {
+        "success"
+    };
+    let scan_job = finalize_scan_job_tx(
+        &mut tx,
+        scan_job_id,
+        effective_status,
+        total_files,
+        scanned_files,
+        error_message,
+        notification_summary,
+    )
+    .await?;
+    complete_library_scan_background_job_tx(&mut tx, fence, effective_status).await?;
+    tx.commit()
+        .await
+        .context("failed to commit atomic scan job finalization transaction")?;
+
+    Ok(scan_job)
+}
+
+pub(crate) async fn finalize_scan_job_tx(
+    tx: &mut Transaction<'_, Postgres>,
     scan_job_id: i64,
     status: &str,
     total_files: i32,
@@ -359,10 +482,6 @@ pub async fn finalize_scan_job(
     error_message: Option<&str>,
     notification_summary: Option<&ScanNotificationSummary>,
 ) -> Result<Option<ScanJob>> {
-    let mut tx = pool
-        .begin()
-        .await
-        .context("failed to start scan job finalization transaction")?;
     let row = sqlx::query(
         r#"
         update scan_jobs
@@ -374,6 +493,7 @@ pub async fn finalize_scan_job(
             finished_at = now(),
             error_message = $5
         where id = $1
+          and status in ('pending', 'running')
         returning
             id,
             library_id,
@@ -396,22 +516,19 @@ pub async fn finalize_scan_job(
     .bind(total_files)
     .bind(scanned_files)
     .bind(error_message)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await
     .context("failed to finalize scan job")?;
 
     let scan_job = row.map(map_scan_job_row);
     if let Some(scan_job) = scan_job.as_ref() {
-        upsert_scan_job_notification(&mut tx, scan_job, notification_summary).await?;
+        upsert_scan_job_notification(tx, scan_job, notification_summary).await?;
         sqlx::query("select mova_bump_realtime_revision($1)")
             .bind(format!("library:{}:notifications", scan_job.library_id))
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await
             .context("failed to bump library notification revision")?;
     }
-    tx.commit()
-        .await
-        .context("failed to commit scan job finalization transaction")?;
 
     Ok(scan_job)
 }
@@ -439,16 +556,9 @@ async fn upsert_scan_job_notification(
 
     let empty_summary = ScanNotificationSummary::default();
     let summary = notification_summary.unwrap_or(&empty_summary);
-    let has_issues =
-        summary.failed_files > 0 || summary.unmatched_files > 0 || summary.probe_warning_count > 0;
-    let (notification_type, severity) = if scan_job.status == "failed" {
-        ("scan.failed", "error")
-    } else if has_issues {
-        ("scan.completed_with_issues", "warning")
-    } else {
-        ("scan.completed", "success")
-    };
-    let reason_code = (scan_job.status == "failed").then_some("scan_execution_failed");
+    let has_issues = scan_notification_summary_has_issues(summary);
+    let (notification_type, severity, reason_code) =
+        scan_notification_presentation(&scan_job.status, has_issues);
     let payload = json!({
         "scan_job_id": scan_job.id,
         "library_id": scan_job.library_id,
@@ -497,6 +607,25 @@ async fn upsert_scan_job_notification(
     .context("failed to persist scan job notification")?;
 
     Ok(())
+}
+
+fn scan_notification_summary_has_issues(summary: &ScanNotificationSummary) -> bool {
+    summary.issue_count > 0
+        || summary.failed_files > 0
+        || summary.unmatched_files > 0
+        || summary.probe_warning_count > 0
+}
+
+fn scan_notification_presentation(
+    status: &str,
+    has_issues: bool,
+) -> (&'static str, &'static str, Option<&'static str>) {
+    match status {
+        "failed" => ("scan.failed", "error", Some("scan_execution_failed")),
+        "cancelled" => ("scan.cancelled", "info", None),
+        _ if has_issues => ("scan.completed_with_issues", "warning", None),
+        _ => ("scan.completed", "success", None),
+    }
 }
 
 /// 读取某个媒体库的扫描历史，最新任务排在最前面。
@@ -598,6 +727,39 @@ pub async fn get_scan_job(pool: &PgPool, scan_job_id: i64) -> Result<Option<Scan
     Ok(row.map(map_scan_job_row))
 }
 
+pub(crate) async fn get_scan_job_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    scan_job_id: i64,
+) -> Result<Option<ScanJob>> {
+    let row = sqlx::query(
+        r#"
+        select
+            id,
+            library_id,
+            status,
+            phase,
+            total_files,
+            scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
+            created_at,
+            started_at,
+            finished_at,
+            error_message
+        from scan_jobs
+        where id = $1
+        "#,
+    )
+    .bind(scan_job_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to get scan job in transaction")?;
+
+    Ok(row.map(map_scan_job_row))
+}
+
 async fn get_active_scan_job_for_library_tx(
     tx: &mut Transaction<'_, Postgres>,
     library_id: i64,
@@ -641,6 +803,7 @@ pub async fn initialize_scan_job_work(
     scan_job_id: i64,
     total_files: i32,
     pending_files: i32,
+    fence: &BackgroundJobFence,
 ) -> Result<Option<ScanJob>> {
     let total_files = total_files.max(0);
     let pending_files = pending_files.clamp(0, total_files);
@@ -649,6 +812,14 @@ pub async fn initialize_scan_job_work(
         .begin()
         .await
         .context("failed to start scan work initialization transaction")?;
+    lock_library_scan_background_job_fence(
+        &mut tx,
+        fence,
+        scan_job_id,
+        None,
+        LibraryScanFenceMode::Running,
+    )
+    .await?;
 
     sqlx::query("delete from scan_job_groups where scan_job_id = $1")
         .bind(scan_job_id)
@@ -679,6 +850,7 @@ pub async fn initialize_scan_job_work(
                 end
             )
         where id = $1
+          and status in ('pending', 'running')
         returning
             id,
             library_id,
@@ -717,12 +889,21 @@ pub async fn mark_scan_group_analyzed(
     scan_job_id: i64,
     group_key: &str,
     file_count: i32,
+    fence: &BackgroundJobFence,
 ) -> Result<Option<ScanJob>> {
     let file_count = file_count.max(1);
     let mut tx = pool
         .begin()
         .await
         .context("failed to start analyzed scan group transaction")?;
+    lock_library_scan_background_job_fence(
+        &mut tx,
+        fence,
+        scan_job_id,
+        None,
+        LibraryScanFenceMode::Running,
+    )
+    .await?;
     let transitioned_file_count = sqlx::query_scalar::<_, i32>(
         r#"
         insert into scan_job_groups (
@@ -735,10 +916,9 @@ pub async fn mark_scan_group_analyzed(
         )
         values ($1, $2, $3, true, false, false)
         on conflict (scan_job_id, group_key) do update
-            set file_count = excluded.file_count,
-                local_analyzed = true,
-                updated_at = now()
+            set local_analyzed = true
         where not scan_job_groups.local_analyzed
+          and scan_job_groups.file_count = excluded.file_count
         returning file_count
         "#,
     )
@@ -749,6 +929,7 @@ pub async fn mark_scan_group_analyzed(
     .await
     .context("failed to checkpoint analyzed scan group")?
     .unwrap_or(0);
+    ensure_scan_group_file_count(&mut tx, scan_job_id, group_key, file_count).await?;
 
     let row = sqlx::query(
         r#"
@@ -774,6 +955,7 @@ pub async fn mark_scan_group_analyzed(
                 end
             )
         where id = $1
+          and status in ('pending', 'running')
         returning
             id,
             library_id,
@@ -804,6 +986,37 @@ pub async fn mark_scan_group_analyzed(
     Ok(row.map(map_scan_job_row))
 }
 
+async fn ensure_scan_group_file_count(
+    tx: &mut Transaction<'_, Postgres>,
+    scan_job_id: i64,
+    group_key: &str,
+    expected_file_count: i32,
+) -> Result<()> {
+    let stored_file_count = sqlx::query_scalar::<_, i32>(
+        r#"
+        select file_count
+        from scan_job_groups
+        where scan_job_id = $1
+          and group_key = $2
+        "#,
+    )
+    .bind(scan_job_id)
+    .bind(group_key)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to validate analyzed scan group file count")?;
+
+    match stored_file_count {
+        Some(stored_file_count) if stored_file_count == expected_file_count => Ok(()),
+        Some(stored_file_count) => anyhow::bail!(
+            "scan group {group_key} file count changed from {stored_file_count} to {expected_file_count}"
+        ),
+        None => anyhow::bail!(
+            "scan group {group_key} checkpoint disappeared from scan job {scan_job_id}"
+        ),
+    }
+}
+
 fn map_scan_job_row(row: PgRow) -> ScanJob {
     map_scan_job_row_ref(&row)
 }
@@ -824,5 +1037,52 @@ fn map_scan_job_row_ref(row: &PgRow) -> ScanJob {
         started_at: row.get("started_at"),
         finished_at: row.get("finished_at"),
         error_message: row.get("error_message"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{scan_notification_presentation, scan_notification_summary_has_issues};
+
+    #[test]
+    fn cancelled_scan_uses_a_distinct_non_failure_notification() {
+        assert_eq!(
+            scan_notification_presentation("cancelled", true),
+            ("scan.cancelled", "info", None)
+        );
+    }
+
+    #[test]
+    fn failed_and_successful_scan_notifications_remain_distinct() {
+        assert_eq!(
+            scan_notification_presentation("failed", false),
+            ("scan.failed", "error", Some("scan_execution_failed"))
+        );
+        assert_eq!(
+            scan_notification_presentation("success", true),
+            ("scan.completed_with_issues", "warning", None)
+        );
+        assert_eq!(
+            scan_notification_presentation("success", false),
+            ("scan.completed", "success", None)
+        );
+    }
+
+    #[test]
+    fn matched_provider_refresh_failure_still_completes_with_issues() {
+        let summary = mova_domain::ScanNotificationSummary {
+            matched_files: 1,
+            issue_count: 1,
+            ..Default::default()
+        };
+
+        assert!(scan_notification_summary_has_issues(&summary));
+        assert_eq!(
+            scan_notification_presentation(
+                "success",
+                scan_notification_summary_has_issues(&summary)
+            ),
+            ("scan.completed_with_issues", "warning", None)
+        );
     }
 }
