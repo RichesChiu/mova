@@ -15,7 +15,7 @@ export const LoginPage = () => {
   const { l } = useI18n()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [username, setUsername] = useState('admin')
+  const [usernameInput, setUsernameInput] = useState<string | null>(null)
   const [password, setPassword] = useState('')
 
   const currentUserQuery = useQuery({
@@ -34,9 +34,11 @@ export const LoginPage = () => {
     retry: false,
   })
 
+  const bootstrapRequired = bootstrapStatusQuery.data?.bootstrap_required ?? false
+  const username = usernameInput ?? (bootstrapRequired ? 'admin' : '')
+
   const authMutation = useMutation({
     mutationFn: async () => {
-      const bootstrapRequired = bootstrapStatusQuery.data?.bootstrap_required ?? false
       if (bootstrapRequired) {
         return bootstrapAdmin({ username, password })
       }
@@ -85,7 +87,6 @@ export const LoginPage = () => {
     )
   }
 
-  const bootstrapRequired = bootstrapStatusQuery.data?.bootstrap_required ?? false
   const formErrorMessage = authMutation.isError
     ? authMutation.error instanceof Error
       ? authMutation.error.message
@@ -114,10 +115,9 @@ export const LoginPage = () => {
               autoComplete="username"
               maxLength={USER_ACCOUNT_MAX_LENGTH}
               onChange={(event) => {
-                setUsername(event.target.value)
+                setUsernameInput(event.target.value)
                 authMutation.reset()
               }}
-              placeholder="admin"
               spellCheck={false}
               type="text"
               value={username}
