@@ -275,6 +275,7 @@ export interface EpisodeOutlineEpisode {
 }
 
 export interface EpisodeOutlinePlaybackProgress {
+  last_media_file_id: number | null
   position_seconds: number
   duration_seconds: number | null
   last_watched_at: string

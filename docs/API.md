@@ -97,7 +97,7 @@
   - `416 Range Not Satisfiable`：媒体流的 `Range` 请求越界
   - `500 Internal Server Error`：服务内部错误
   - `503 Service Unavailable`：媒体处理资源暂时繁忙、磁盘安全余量不足或依赖服务暂不可用，客户端可以稍后重试
-- TMDB provider 从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取，值必须是 TMDB 账户 API 设置页中的 **API Read Access Token**，不是较短的 `API Key (v3 auth)`。变量为空或只含空白时服务仍正常启动，本地扫描、NFO/sidecar、入库和播放保持可用；扫描不会发起 TMDB 请求，条目以 `skipped / metadata_provider_disabled` 完成。后续配置 Token、重启并重扫后，这些条目会进入远端补全。每个媒体库可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。TMDB 接入、严格候选规则和字段覆盖见 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md)，完整 v3 接口目录见 [`TMDB.md`](TMDB.md)。
+- TMDB provider 从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取，值必须是 TMDB 账户 API 设置页中的 **API Read Access Token**，不是较短的 `API Key (v3 auth)`。变量为空或只含空白时服务仍正常启动，本地扫描、NFO/sidecar、入库和播放保持可用；扫描不会发起 TMDB 请求，条目以 `skipped / metadata_provider_disabled` 完成。后续配置 Token、重启并重扫后，这些条目会进入远端补全。每个媒体库可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。TMDB 接入、身份匹配规则和字段覆盖见 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md)，完整 v3 接口目录见 [`TMDB.md`](TMDB.md)。
 - TMDB 详情响应中的 `vote_average` 和 `vote_count` 会写入通用 `ratings` 集合，评分来源明确标记为 `tmdb`。TMDB details 附带的 IMDb、TVDB、Wikidata 和社交平台 ID 只作为外部身份保存，不代表对应平台的评分或数据已经接入；当前不请求 IMDb、OMDb 或其他评分来源。
 - 本地海报和背景图的 URL 带版本参数（例如 `/api/media-items/42/poster?v=1704164645`）。浏览器可以长期缓存；媒体元数据更新时版本参数随之变化。
 
@@ -908,7 +908,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 媒体库不提供启用/禁用状态；已创建的库始终可以被手动扫描
 - 允许重叠或完全相同的 `root_path`。同一个物理文件如果被多个库路径覆盖，会在各自库里独立建模和展示。
 - 媒体库不要求客户端选择电影或剧集类型。名称拆分、季集识别、分组、增量扫描和任务进度见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md)。
-- TMDB 类型路由、严格候选选择、字段覆盖和失败分类见 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md)。
+- TMDB 类型路由、身份匹配、字段覆盖和失败分类见 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md)。
 
 ### `GET /api/libraries/{id}`
 
@@ -1035,7 +1035,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 说明：
 - 列表返回顶层媒体条目，即电影和剧；剧集的单集不会直接出现在这个列表里
-- `items[]` 使用 `MediaItemResponse`，会返回 `metadata_status` / `metadata_failure_reason` / `remote_media_type`；`pending` 条目按本地 `media_type` 进入 Movies / Series。严格匹配成功后 `remote_media_type` 与唯一查询类型一致；`skipped` / `unmatched` / `failed` 且没有远端确认的条目进入 `Other`
+- `items[]` 使用 `MediaItemResponse`，会返回 `metadata_status` / `metadata_failure_reason` / `remote_media_type`；`pending` 条目按本地 `media_type` 进入 Movies / Series。身份匹配成功后 `remote_media_type` 与唯一查询类型一致；`skipped` / `unmatched` / `failed` 且没有远端确认的条目进入 `Other`
 - 默认按名称升序返回
 - 查询参数支持名称筛选和发行年筛选
 
@@ -1358,6 +1358,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
   - `seasons[].episodes[].media_item_id`（本地存在时有值）
   - `seasons[].episodes[].is_available`（本地存在时为 `true`）
   - `seasons[].episodes[].playback_progress`
+  - `seasons[].episodes[].playback_progress.last_media_file_id`
   - `seasons[].episodes[].playback_progress.position_seconds`
   - `seasons[].episodes[].playback_progress.duration_seconds`
   - `seasons[].episodes[].playback_progress.last_watched_at`
@@ -1370,7 +1371,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - TMDB 提供季海报（`season poster`）和集剧照（`episode still`）；剧集大纲中的季只返回 `poster_path`，页面背景使用剧集条目自身的 `backdrop_path`，集剧照只写入集级 `poster_path`。
 - 若集级图片缺失，后端保持为空；不会尝试从本地视频抽取第一帧回退，也不会把通用目录海报（如 `poster.jpg` / `folder.jpg`）、季图或剧图误当成单集封面。
 - `seasons[].intro_start_seconds` / `seasons[].intro_end_seconds` 承载播放时按需检测的 season 级片头区间；`episodes[].intro_*` 默认为空。
-- `episodes[].playback_progress` 会带上该集最近一次播放快照，前端可以据此显示集卡进度、已看完状态，以及“最近一集已播完则默认跳下一集”的续播入口。
+- `episodes[].playback_progress` 会带上该集最近一次播放快照；`last_media_file_id` 用于在同一集存在多个物理版本时恢复最近播放的版本。前端可以据此显示集卡进度、已看完状态，以及“最近一集已播完则默认跳下一集”的续播入口。
 - 可直接用于前端“可播放集高亮、缺失集置灰”的展示逻辑。
 - TMDB 剧集大纲缓存在 PostgreSQL `series_episode_outline_cache`，默认 TTL 为 24 小时。
 - 缓存过期且 TMDB 临时不可用时，接口返回最近一次可用缓存。
@@ -1592,7 +1593,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 没有记录时返回 `null`
 
 关键字段：
-- `last_media_file_id`：最近播放的文件 ID；对应文件已被删除时为 `null`
+- `last_media_file_id`：最近播放的有效文件 ID；原版本被删除但同一条目仍有其它文件时，服务端按文件列表顺序返回首个现存版本，只有没有任何可用文件时才为 `null`
 - `position_seconds`：当前记录的播放秒数
 - `duration_seconds`：记录的总时长
 - `last_watched_at`：最近一次上报时间
@@ -1601,6 +1602,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 说明：
 - `null` 是这个接口的正常语义，表示“当前用户还没有这条内容的播放记录”，不应当被当成异常
 - 播放进度以 `(user_id, media_item_id)` 唯一；同一媒体条目的多个文件版本共享一条进度，`last_media_file_id` 仅记录最近选中的版本
+- 删除最近选择的文件版本不会删除播放进度或继续观看记录；服务端统一选择仍存在的首个版本作为回退，Web、macOS 和 iOS 不需要各自实现不同的版本选择规则
 - Web 播放器在播放中按 `5s` 心跳上报，并在暂停、播放结束、切源、切集、页面隐藏和离开页面时强制 flush 一次
 
 ### `PUT /api/media-items/{id}/playback-progress`
@@ -1642,7 +1644,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 说明：
 - 播放进度按当前登录用户隔离；不同用户的观看记录、继续观看列表互不共享
 - `playback_progress` 按用户与媒体条目唯一，只保留“当前最新状态”，不承担完整历史时间线
-- 同一媒体条目的不同 `media_file_id` 是资源版本，不会产生多条独立进度；返回的 `last_media_file_id` 用于恢复最近选择的版本
+- 同一媒体条目的不同 `media_file_id` 是资源版本，不会产生多条独立进度；每次上报覆盖这条唯一记录，返回的 `last_media_file_id` 用于恢复最近选择或服务端回退后的有效版本
 - 扫描或人工匹配合并重复媒体条目时，媒体文件重归属、播放进度和继续观看状态在同一事务内迁移；同一用户存在两份状态时以 `last_watched_at` 较新的记录为准
 - 当 `is_finished = false` 时，服务端会把电影或所属 Series upsert 到 `continue_watching`；同系列切换集数只更新原行
 - 当 `is_finished = true` 时，播放进度和完成状态仍保留，但电影或所属 Series 会从 `continue_watching` 删除

@@ -253,6 +253,12 @@ impl TmdbMetadataProvider {
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Vec<TmdbMovieSearchResult>> {
         let first_page = self.search_movie_response(lookup, 1).await?;
+        if lookup.year.is_none() {
+            return Ok(deduplicate_search_results(first_page.results, |result| {
+                result.id
+            }));
+        }
+
         let total_pages = first_page.total_pages.unwrap_or(1).max(1);
         if total_pages > TMDB_MAX_AUTO_MATCH_PAGES {
             tracing::warn!(
@@ -321,6 +327,12 @@ impl TmdbMetadataProvider {
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Vec<TmdbTvSearchResult>> {
         let first_page = self.search_tv_response(lookup, 1).await?;
+        if lookup.year.is_none() && lookup.season_air_year.is_none() {
+            return Ok(deduplicate_search_results(first_page.results, |result| {
+                result.id
+            }));
+        }
+
         let total_pages = first_page.total_pages.unwrap_or(1).max(1);
         if total_pages > TMDB_MAX_AUTO_MATCH_PAGES {
             tracing::warn!(
@@ -415,6 +427,19 @@ impl TmdbMetadataProvider {
         lookup: &MetadataLookup,
         candidates: &'a [TmdbMovieSearchResult],
     ) -> anyhow::Result<Option<&'a TmdbMovieSearchResult>> {
+        // Without a year, prefer an exact title match from TMDB's first page.
+        // If the response language translates every returned title away from
+        // the filename language, preserve TMDB's relevance order and fall
+        // back to the first result.
+        if lookup.year.is_none() {
+            let direct_candidates =
+                strongest_direct_title_matches(&lookup.title, candidates.iter().collect());
+            return Ok(direct_candidates
+                .into_iter()
+                .next()
+                .or_else(|| candidates.first()));
+        }
+
         let eligible_candidates = candidates
             .iter()
             .filter(|candidate| candidate_matches_year(lookup.year, *candidate))
@@ -477,6 +502,19 @@ impl TmdbMetadataProvider {
         lookup: &MetadataLookup,
         candidates: &'a [TmdbTvSearchResult],
     ) -> anyhow::Result<Option<&'a TmdbTvSearchResult>> {
+        // A later-season air-year hint still needs explicit season
+        // verification. Without either kind of year, prefer an exact title
+        // match from TMDB's first page. If localization prevents a direct
+        // match, preserve TMDB's relevance order and use the first result.
+        if lookup.year.is_none() && lookup.season_air_year.is_none() {
+            let direct_candidates =
+                strongest_direct_title_matches(&lookup.title, candidates.iter().collect());
+            return Ok(direct_candidates
+                .into_iter()
+                .next()
+                .or_else(|| candidates.first()));
+        }
+
         let eligible_candidates = candidates
             .iter()
             .filter(|candidate| candidate_matches_year(lookup.year, *candidate))
@@ -1208,7 +1246,6 @@ trait TmdbSearchCandidate {
     fn candidate_title(&self) -> Option<&str>;
     fn candidate_original_title(&self) -> Option<&str>;
     fn candidate_year(&self) -> Option<i32>;
-    fn candidate_date(&self) -> Option<&str>;
 }
 
 #[derive(Debug, Deserialize)]
@@ -1240,10 +1277,6 @@ impl TmdbSearchCandidate for TmdbMovieSearchResult {
     fn candidate_year(&self) -> Option<i32> {
         parse_year(self.release_date.as_deref())
     }
-
-    fn candidate_date(&self) -> Option<&str> {
-        self.release_date.as_deref()
-    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1268,10 +1301,6 @@ impl TmdbSearchCandidate for TmdbTvSearchResult {
 
     fn candidate_year(&self) -> Option<i32> {
         parse_year(self.first_air_date.as_deref())
-    }
-
-    fn candidate_date(&self) -> Option<&str> {
-        self.first_air_date.as_deref()
     }
 }
 
@@ -1555,16 +1584,7 @@ where
         return (candidates.len() == 1).then(|| candidates[0]);
     }
 
-    let newest_date = candidates
-        .iter()
-        .filter_map(|candidate| normalize_tmdb_date(candidate.candidate_date()))
-        .max()?;
-    let newest_candidates = candidates
-        .into_iter()
-        .filter(|candidate| normalize_tmdb_date(candidate.candidate_date()) == Some(newest_date))
-        .collect::<Vec<_>>();
-
-    (newest_candidates.len() == 1).then(|| newest_candidates[0])
+    candidates.into_iter().next()
 }
 
 fn select_strict_tv_candidate<'a>(
@@ -1576,22 +1596,6 @@ fn select_strict_tv_candidate<'a>(
     }
 
     select_strict_candidate(lookup.year, candidates)
-}
-
-fn normalize_tmdb_date(value: Option<&str>) -> Option<&str> {
-    let value = value?.trim();
-    if value.len() == 10
-        && value.as_bytes()[4] == b'-'
-        && value.as_bytes()[7] == b'-'
-        && value
-            .chars()
-            .enumerate()
-            .all(|(index, ch)| index == 4 || index == 7 || ch.is_ascii_digit())
-    {
-        Some(value)
-    } else {
-        None
-    }
 }
 
 fn normalize_title(value: &str) -> String {
@@ -2392,7 +2396,7 @@ mod tests {
     }
 
     #[test]
-    fn strict_match_without_year_selects_newest_exact_title() {
+    fn strict_match_without_year_preserves_provider_result_order() {
         let candidates = [
             TmdbMovieSearchResult {
                 id: 1,
@@ -2416,17 +2420,17 @@ mod tests {
 
         let best_match = select_strict_candidate(None, candidates.iter().collect()).unwrap();
 
-        assert_eq!(best_match.id, 2);
+        assert_eq!(best_match.id, 1);
     }
 
     #[test]
-    fn strict_match_without_year_rejects_tied_latest_candidates() {
+    fn strict_match_without_year_does_not_require_candidate_dates() {
         let candidates = [
             TmdbMovieSearchResult {
                 id: 1,
                 title: Some("Same".to_string()),
                 original_title: None,
-                release_date: Some("2025-01-01".to_string()),
+                release_date: None,
                 overview: None,
                 poster_path: None,
                 backdrop_path: None,
@@ -2442,7 +2446,149 @@ mod tests {
             },
         ];
 
-        assert!(select_strict_candidate(None, candidates.iter().collect()).is_none());
+        assert_eq!(
+            select_strict_candidate(None, candidates.iter().collect())
+                .map(|candidate| candidate.id),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn yearless_tv_search_prefers_exact_title_over_provider_order() {
+        let provider = TmdbMetadataProvider::new(TmdbMetadataProviderConfig {
+            access_token: "token".to_string(),
+            language: "en-US".to_string(),
+            api_base_url: "https://api.themoviedb.org/3".to_string(),
+            image_base_url: "https://image.tmdb.org/t/p/original".to_string(),
+        })
+        .unwrap();
+        let lookup = MetadataLookup {
+            title: "金斯敦市长".to_string(),
+            year: None,
+            season_air_year: None,
+            library_type: "series".to_string(),
+            language: Some("en-US".to_string()),
+            provider_item_id: None,
+        };
+        let candidates = [
+            TmdbTvSearchResult {
+                id: 97_951,
+                name: Some("Mayor of Kingstown".to_string()),
+                original_name: Some("Mayor of Kingstown".to_string()),
+                first_air_date: Some("2021-11-14".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+            TmdbTvSearchResult {
+                id: 123,
+                name: Some("金斯敦市长".to_string()),
+                original_name: Some("金斯敦市长".to_string()),
+                first_air_date: Some("2025-01-01".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+        ];
+
+        let selected = provider
+            .select_strict_tv_match(&lookup, &candidates)
+            .await
+            .unwrap();
+
+        assert_eq!(selected.map(|candidate| candidate.id), Some(123));
+    }
+
+    #[tokio::test]
+    async fn yearless_movie_search_prefers_exact_title_over_provider_order() {
+        let provider = TmdbMetadataProvider::new(TmdbMetadataProviderConfig {
+            access_token: "token".to_string(),
+            language: "en-US".to_string(),
+            api_base_url: "https://api.themoviedb.org/3".to_string(),
+            image_base_url: "https://image.tmdb.org/t/p/original".to_string(),
+        })
+        .unwrap();
+        let lookup = MetadataLookup {
+            title: "千与千寻".to_string(),
+            year: None,
+            season_air_year: None,
+            library_type: "movie".to_string(),
+            language: Some("en-US".to_string()),
+            provider_item_id: None,
+        };
+        let candidates = [
+            TmdbMovieSearchResult {
+                id: 129,
+                title: Some("Spirited Away".to_string()),
+                original_title: Some("千と千尋の神隠し".to_string()),
+                release_date: Some("2001-07-20".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+            TmdbMovieSearchResult {
+                id: 456,
+                title: Some("千与千寻".to_string()),
+                original_title: Some("千与千寻".to_string()),
+                release_date: Some("2025-01-01".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+        ];
+
+        let selected = provider
+            .select_strict_movie_match(&lookup, &candidates)
+            .await
+            .unwrap();
+
+        assert_eq!(selected.map(|candidate| candidate.id), Some(456));
+    }
+
+    #[tokio::test]
+    async fn yearless_tv_search_falls_back_to_first_result_without_a_title_match() {
+        let provider = TmdbMetadataProvider::new(TmdbMetadataProviderConfig {
+            access_token: "token".to_string(),
+            language: "en-US".to_string(),
+            api_base_url: "https://api.themoviedb.org/3".to_string(),
+            image_base_url: "https://image.tmdb.org/t/p/original".to_string(),
+        })
+        .unwrap();
+        let lookup = MetadataLookup {
+            title: "金斯敦市长".to_string(),
+            year: None,
+            season_air_year: None,
+            library_type: "series".to_string(),
+            language: Some("en-US".to_string()),
+            provider_item_id: None,
+        };
+        let candidates = [
+            TmdbTvSearchResult {
+                id: 97_951,
+                name: Some("Mayor of Kingstown".to_string()),
+                original_name: Some("Mayor of Kingstown".to_string()),
+                first_air_date: Some("2021-11-14".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+            TmdbTvSearchResult {
+                id: 123,
+                name: Some("Another Mayor".to_string()),
+                original_name: Some("Another Mayor".to_string()),
+                first_air_date: Some("2025-01-01".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+        ];
+
+        let selected = provider
+            .select_strict_tv_match(&lookup, &candidates)
+            .await
+            .unwrap();
+
+        assert_eq!(selected.map(|candidate| candidate.id), Some(97_951));
     }
 
     #[test]

@@ -134,11 +134,13 @@ export const MediaPlayerPanel = ({
   const syncEpisodeOutlinePlaybackProgress = ({
     duration_seconds,
     is_finished,
+    last_media_file_id,
     last_watched_at,
     position_seconds,
   }: {
     duration_seconds: number | null
     is_finished: boolean
+    last_media_file_id: number | null
     last_watched_at: string
     position_seconds: number
   }) => {
@@ -162,6 +164,7 @@ export const MediaPlayerPanel = ({
                 ? {
                     ...episode,
                     playback_progress: {
+                      last_media_file_id,
                       position_seconds,
                       duration_seconds,
                       last_watched_at,
@@ -219,7 +222,9 @@ export const MediaPlayerPanel = ({
   const audioTracks = audioTracksQuery.data ?? []
   const subtitleFiles = subtitleFilesQuery.data ?? []
   const selectedMediaFile =
-    mediaFiles.find((file) => file.id === selectedMediaFileId) ?? mediaFiles[0] ?? null
+    selectedMediaFileId === null
+      ? null
+      : (mediaFiles.find((file) => file.id === selectedMediaFileId) ?? null)
   const selectedMediaFileDuration = selectedMediaFile?.duration_seconds ?? null
   const selectedAudioTrack =
     audioTracks.find((audioTrack) => audioTrack.id === selectedAudioTrackId) ?? null
@@ -315,11 +320,16 @@ export const MediaPlayerPanel = ({
       return
     }
 
+    const requestedFile = mediaFiles.find((file) => file.id === preferredMediaFileId)
+    if (startMode !== 'from-start' && playbackProgressQuery.isLoading) {
+      return
+    }
+
     // Prefer the file tied to the saved playback progress so multi-file items reopen on the same
     // source instead of snapping back to the first file after every refresh.
     const playbackProgress = playbackProgressQuery.data
     const preferredFile =
-      mediaFiles.find((file) => file.id === preferredMediaFileId) ??
+      requestedFile ??
       (playbackProgress &&
         mediaFiles.find((file) => file.id === playbackProgress.last_media_file_id)) ??
       mediaFiles[0]
@@ -327,7 +337,13 @@ export const MediaPlayerPanel = ({
     setSelectedMediaFileId((current) =>
       current && mediaFiles.some((file) => file.id === current) ? current : preferredFile.id,
     )
-  }, [mediaFiles, playbackProgressQuery.data, preferredMediaFileId])
+  }, [
+    mediaFiles,
+    playbackProgressQuery.data,
+    playbackProgressQuery.isLoading,
+    preferredMediaFileId,
+    startMode,
+  ])
 
   useEffect(() => {
     restoredForFileRef.current = null
@@ -590,7 +606,9 @@ export const MediaPlayerPanel = ({
     continueRegistrationKeyRef.current = registrationKey
     const savedProgress = playbackProgressQuery.data
     const canResumeSelectedFile =
-      savedProgress?.last_media_file_id === selectedMediaFile.id && !savedProgress.is_finished
+      startMode !== 'from-start' &&
+      savedProgress?.last_media_file_id === selectedMediaFile.id &&
+      !savedProgress.is_finished
 
     // Opening a selected movie or episode must enter Continue immediately without losing its resume point.
     playbackProgressMutation.mutate({
@@ -607,6 +625,7 @@ export const MediaPlayerPanel = ({
     playbackProgressQuery.data,
     playbackProgressQuery.isLoading,
     selectedMediaFile,
+    startMode,
   ])
 
   flushPlaybackProgressRef.current = () => {
@@ -1033,7 +1052,10 @@ export const MediaPlayerPanel = ({
       isMuted={isMuted}
       isPlaying={isPlaying}
       mediaFiles={mediaFiles}
-      mediaFilesLoading={mediaFilesQuery.isLoading}
+      mediaFilesLoading={
+        mediaFilesQuery.isLoading ||
+        (mediaFiles.length > 0 && selectedMediaFile === null && playbackProgressQuery.isLoading)
+      }
       onChangeVolume={changeVolume}
       onEnded={handleEnded}
       onLoadedMetadata={handleLoadedMetadata}

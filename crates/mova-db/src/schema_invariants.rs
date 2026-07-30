@@ -399,14 +399,13 @@ async fn playback_state_enforces_media_file_ownership_and_delete_semantics(pool:
     sqlx::query(
         r#"
         insert into continue_watching (
-            user_id, media_item_id, last_played_media_item_id, last_media_file_id
+            user_id, media_item_id, last_played_media_item_id
         )
-        values ($1, $2, $2, $3)
+        values ($1, $2, $2)
         "#,
     )
     .bind(user_a)
     .bind(item_a)
-    .bind(file_a)
     .execute(&pool)
     .await
     .unwrap();
@@ -417,22 +416,6 @@ async fn playback_state_enforces_media_file_ownership_and_delete_semantics(pool:
             user_id, media_item_id, last_media_file_id, position_seconds
         )
         values ($1, $2, $3, 10)
-        "#,
-    )
-    .bind(user_b)
-    .bind(item_b)
-    .bind(file_a)
-    .execute(&pool)
-    .await
-    .unwrap_err();
-    assert_sqlstate(error, "23503");
-
-    let error = sqlx::query(
-        r#"
-        insert into continue_watching (
-            user_id, media_item_id, last_played_media_item_id, last_media_file_id
-        )
-        values ($1, $2, $2, $3)
         "#,
     )
     .bind(user_b)
@@ -464,7 +447,7 @@ async fn playback_state_enforces_media_file_ownership_and_delete_semantics(pool:
             .fetch_one(&pool)
             .await
             .unwrap();
-    assert_eq!(continue_count, 0);
+    assert_eq!(continue_count, 1);
 }
 
 #[sqlx::test(migrations = "../../migrations")]

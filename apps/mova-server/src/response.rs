@@ -315,6 +315,7 @@ pub struct SeriesEpisodeOutlineEpisodeResponse {
 
 #[derive(Debug, Serialize)]
 pub struct EpisodePlaybackProgressResponse {
+    pub last_media_file_id: Option<i64>,
     pub position_seconds: i32,
     pub duration_seconds: Option<i32>,
     pub last_watched_at: String,
@@ -927,6 +928,7 @@ impl SeriesEpisodeOutlineEpisodeResponse {
 impl EpisodePlaybackProgressResponse {
     fn from_domain(progress: PlaybackProgress) -> Self {
         Self {
+            last_media_file_id: progress.last_media_file_id,
             position_seconds: progress.position_seconds,
             duration_seconds: progress.duration_seconds,
             last_watched_at: format_datetime(progress.last_watched_at, UtcOffset::UTC),
