@@ -1,3 +1,7 @@
+use mova_scan::{
+    has_meaningful_file_title, infer_movie_container_identity, infer_series_container_identity,
+    infer_series_sidecar_metadata_within_root, DiscoveredMediaFile,
+};
 use std::path::Path;
 
 pub const LIBRARY_TYPE_MOVIE: &str = "movie";
@@ -16,6 +20,87 @@ pub fn metadata_lookup_type_for_media_type(media_type: &str) -> &'static str {
         LIBRARY_TYPE_SERIES
     } else {
         LIBRARY_TYPE_MOVIE
+    }
+}
+
+pub(crate) fn apply_root_aware_media_identity(
+    file: &mut DiscoveredMediaFile,
+    root_path: &Path,
+) -> Option<String> {
+    if file.season_number.is_some() && file.episode_number.is_some() {
+        let has_file_title = has_meaningful_file_title(&file.file_path);
+        let container_identity = infer_series_container_identity(&file.file_path, root_path);
+        let sidecar = infer_series_sidecar_metadata_within_root(&file.file_path, root_path);
+
+        if let Some(title) = sidecar
+            .as_ref()
+            .and_then(|metadata| metadata.title.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            file.source_title = title.to_string();
+            file.title = title.to_string();
+        } else if !has_file_title {
+            if let Some(identity) = container_identity.as_ref() {
+                file.source_title = identity.title.clone();
+                file.title = identity.display_title.clone();
+            }
+        }
+
+        if let Some(year) = sidecar.as_ref().and_then(|metadata| metadata.year) {
+            file.year = Some(year);
+        } else if !has_file_title && file.year.is_none() {
+            file.year = container_identity
+                .as_ref()
+                .and_then(|identity| identity.year);
+        }
+
+        return container_identity.and_then(|identity| identity.tmdb_id);
+    }
+
+    let container_identity = infer_movie_container_identity(&file.file_path, root_path);
+    apply_movie_container_identity(file, container_identity.as_ref());
+    container_identity.and_then(|identity| identity.tmdb_id)
+}
+
+pub(crate) fn apply_movie_container_identity_when_title_is_missing(
+    file: &mut DiscoveredMediaFile,
+    root_path: &Path,
+) {
+    if file.season_number.is_some()
+        || file.episode_number.is_some()
+        || file.metadata_provider_item_id.is_some()
+    {
+        return;
+    }
+
+    let identity = infer_movie_container_identity(&file.file_path, root_path);
+    apply_movie_container_identity(file, identity.as_ref());
+}
+
+fn apply_movie_container_identity(
+    file: &mut DiscoveredMediaFile,
+    identity: Option<&mova_scan::MediaContainerIdentity>,
+) {
+    if has_meaningful_file_title(&file.file_path) {
+        return;
+    }
+    let Some(identity) = identity else {
+        return;
+    };
+    let parsed_source_title = file.source_title.clone();
+    let has_sidecar_title = !file.title.trim().is_empty()
+        && !file
+            .title
+            .trim()
+            .eq_ignore_ascii_case(parsed_source_title.trim());
+
+    file.source_title = identity.title.clone();
+    if !has_sidecar_title {
+        file.title = identity.display_title.clone();
+    }
+    if file.year.is_none() {
+        file.year = identity.year;
     }
 }
 

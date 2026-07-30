@@ -5,8 +5,10 @@ use super::{
         discover_media_files_with_progress_item_and_cancel, discover_media_paths,
         inspect_media_file, inspect_media_file_inventory_with_cancel,
     },
-    discovered_media_file_inventory_scan_hash, infer_series_file_metadata,
-    infer_series_sidecar_metadata, is_likely_episode_path,
+    discovered_media_file_inventory_scan_hash, has_meaningful_file_title,
+    infer_movie_container_identity, infer_series_container_identity, infer_series_file_metadata,
+    infer_series_sidecar_metadata, infer_series_sidecar_metadata_within_root,
+    is_likely_episode_path,
     parse::{humanize_file_stem, parse_media_metadata, ParsedMediaMetadata},
     probe::{parse_ffprobe_output, MediaProbe},
     sidecar::{parse_nfo_metadata, ParsedSidecarMetadata},
@@ -382,6 +384,45 @@ fn parse_media_metadata_extracts_episode_numbers_and_title() {
 }
 
 #[test]
+fn parse_media_metadata_extracts_coordinates_from_episode_only_file_names() {
+    for (path, season_number, episode_number) in [
+        ("S01E02.mkv", 1, 2),
+        ("1x03.mp4", 1, 3),
+        ("Season 01/S02E04.mkv", 2, 4),
+    ] {
+        let metadata = parse_media_metadata(Path::new(path));
+
+        assert_eq!(metadata.season_number, Some(season_number), "path: {path}");
+        assert_eq!(
+            metadata.episode_number,
+            Some(episode_number),
+            "path: {path}"
+        );
+        assert_eq!(metadata.episode_title, None, "path: {path}");
+    }
+}
+
+#[test]
+fn parse_media_metadata_does_not_treat_technical_suffixes_as_episode_titles() {
+    for path in [
+        "S01E01.WEB-DL.DV.DDP5.1.Atmos.2Audio.mkv",
+        "1x02.2160p.HDR10.TrueHD.mkv",
+        "Show.S01E03.4K.DoVi.mkv",
+        "S01E05.NF.WEB-DL.AV1.mkv",
+        "S01E06.iT.WEB-DL.HEVC.mkv",
+    ] {
+        let metadata = parse_media_metadata(Path::new(path));
+
+        assert!(metadata.season_number.is_some(), "path: {path}");
+        assert!(metadata.episode_number.is_some(), "path: {path}");
+        assert_eq!(metadata.episode_title, None, "path: {path}");
+    }
+
+    let titled = parse_media_metadata(Path::new("S01E04.Pilot.WEB-DL.mkv"));
+    assert_eq!(titled.episode_title.as_deref(), Some("Pilot"));
+}
+
+#[test]
 fn parse_media_metadata_extracts_embedded_series_token_suffix() {
     let path = Path::new("美丽毒素/S01/The.BeautyS01E01.2026.2160p.WEB-DL.mkv");
 
@@ -696,8 +737,156 @@ fn infer_series_sidecar_metadata_has_priority_fields_without_using_directories()
 }
 
 #[test]
+fn infer_series_sidecar_metadata_within_root_never_reads_parent_library_nfo() {
+    let outer = unique_temp_path("series-sidecar-root-boundary");
+    let library_root = outer.join("library");
+    let series_root = library_root.join("千香 (2026)");
+    let video_path = series_root.join("Season 01").join("S01E01.mkv");
+
+    fs::create_dir_all(video_path.parent().unwrap()).unwrap();
+    fs::write(
+        outer.join("tvshow.nfo"),
+        "<tvshow><title>Outside Root</title><year>1999</year></tvshow>",
+    )
+    .unwrap();
+
+    assert_eq!(
+        infer_series_sidecar_metadata_within_root(&video_path, &library_root),
+        None
+    );
+
+    fs::write(
+        series_root.join("tvshow.nfo"),
+        "<tvshow><title>Inside Root</title><year>2026</year></tvshow>",
+    )
+    .unwrap();
+    let metadata = infer_series_sidecar_metadata_within_root(&video_path, &library_root)
+        .expect("inside-root tvshow.nfo should resolve");
+
+    let _ = fs::remove_dir_all(&outer);
+    assert_eq!(metadata.title.as_deref(), Some("Inside Root"));
+    assert_eq!(metadata.year, Some(2026));
+}
+
+#[test]
 fn infer_series_file_metadata_ignores_episode_only_file_names() {
     assert!(infer_series_file_metadata(Path::new("V世代 (2023)/Season 01/S01E01.mkv")).is_none());
+}
+
+#[test]
+fn meaningful_file_title_distinguishes_titles_from_coordinates_and_release_tokens() {
+    assert!(has_meaningful_file_title(Path::new(
+        "Arcane.S01E01.2160p.mkv"
+    )));
+    assert!(has_meaningful_file_title(Path::new("Dune.2021.2160p.mkv")));
+    assert!(!has_meaningful_file_title(Path::new("S01E01.mkv")));
+    assert!(!has_meaningful_file_title(Path::new("1x02.WEB-DL.mkv")));
+    assert!(!has_meaningful_file_title(Path::new(
+        "2026.2160p.iT.WEB-DL.DV.mkv"
+    )));
+}
+
+#[test]
+fn infer_series_container_identity_skips_only_known_structure_directories() {
+    let root = Path::new("/media/tv");
+    let path = Path::new("/media/tv/国产剧/千香(2026)/Season 01/4K/S01E01.WEB-DL.DV.mkv");
+    let identity =
+        infer_series_container_identity(path, root).expect("series container should resolve");
+
+    assert_eq!(identity.container_path, PathBuf::from("国产剧/千香(2026)"));
+    assert_eq!(identity.display_title, "千香(2026)");
+    assert_eq!(identity.title, "千香");
+    assert_eq!(identity.year, Some(2026));
+    assert_eq!(identity.tmdb_id, None);
+}
+
+#[test]
+fn infer_series_container_identity_parses_supported_tmdb_suffixes() {
+    for (directory, expected_id) in [
+        ("千香 (2026) [tmdbid-123456]", "123456"),
+        ("千香 (2026) {tmdb-654321}", "654321"),
+    ] {
+        let path = PathBuf::from("/media/tv")
+            .join(directory)
+            .join("第 1 季 - 1080p WEB-DL")
+            .join("S01E01.mkv");
+        let identity = infer_series_container_identity(&path, Path::new("/media/tv"))
+            .expect("explicit identity container should resolve");
+
+        assert_eq!(identity.container_path, PathBuf::from(directory));
+        assert_eq!(identity.display_title, "千香 (2026)");
+        assert_eq!(identity.title, "千香");
+        assert_eq!(identity.year, Some(2026));
+        assert_eq!(identity.tmdb_id.as_deref(), Some(expected_id));
+    }
+}
+
+#[test]
+fn infer_series_container_identity_ignores_invalid_tmdb_suffixes() {
+    for directory in [
+        "千香 (2026) [tmdbid-0]",
+        "千香 (2026) {tmdb--1}",
+        "千香 (2026) {tmdb-not-a-number}",
+    ] {
+        let path = PathBuf::from("/media/tv")
+            .join(directory)
+            .join("S01E01.mkv");
+        let identity = infer_series_container_identity(&path, Path::new("/media/tv"))
+            .expect("the container title remains valid");
+
+        assert_eq!(identity.tmdb_id, None);
+    }
+}
+
+#[test]
+fn infer_series_container_identity_stops_at_first_invalid_business_directory() {
+    let path = Path::new("/media/tv/千香/新建文件夹/Season 01/S01E01.mkv");
+
+    assert!(infer_series_container_identity(path, Path::new("/media/tv")).is_none());
+}
+
+#[test]
+fn infer_series_container_identity_never_uses_or_crosses_library_root() {
+    assert!(infer_series_container_identity(
+        Path::new("/media/tv/千香/Season 01/S01E01.mkv"),
+        Path::new("/media/tv/千香"),
+    )
+    .is_none());
+    assert!(infer_series_container_identity(
+        Path::new("/media/other/千香/Season 01/S01E01.mkv"),
+        Path::new("/media/tv"),
+    )
+    .is_none());
+}
+
+#[test]
+fn infer_movie_container_identity_uses_only_the_direct_parent() {
+    let path = Path::new(
+        "/media/movies/星球大战曼达洛人与古古(2026)/2026.2160p.iT.WEB-DL.DV.DDP5.1.Atmos.2Audio.mkv",
+    );
+    let identity = infer_movie_container_identity(path, Path::new("/media/movies"))
+        .expect("titleless movie container should resolve");
+
+    assert_eq!(
+        identity.container_path,
+        PathBuf::from("星球大战曼达洛人与古古(2026)")
+    );
+    assert_eq!(identity.display_title, "星球大战曼达洛人与古古(2026)");
+    assert_eq!(identity.title, "星球大战曼达洛人与古古");
+    assert_eq!(identity.year, Some(2026));
+    assert_eq!(identity.tmdb_id, None);
+    assert!(!has_meaningful_file_title(path));
+
+    assert!(infer_movie_container_identity(
+        Path::new("/media/movies/正确标题/4K/2026.2160p.mkv"),
+        Path::new("/media/movies"),
+    )
+    .is_none());
+    assert!(infer_movie_container_identity(
+        Path::new("/media/movies/2026.2160p.mkv"),
+        Path::new("/media/movies"),
+    )
+    .is_none());
 }
 
 #[test]
@@ -706,6 +895,8 @@ fn is_likely_episode_path_detects_sxxexx_file_names() {
         "Arcane.S01E02.Some.Title.mkv"
     )));
     assert!(is_likely_episode_path(Path::new("Severance.1x03.mp4")));
+    assert!(is_likely_episode_path(Path::new("S01E01.mkv")));
+    assert!(is_likely_episode_path(Path::new("1x02.mp4")));
 }
 
 #[test]
@@ -1185,6 +1376,59 @@ fn inventory_scan_hash_changes_when_directory_sidecars_change() {
     assert_eq!(first.file_modified_at_ms, second.file_modified_at_ms);
     assert_ne!(first.sidecar_fingerprint, second.sidecar_fingerprint);
     assert_ne!(first_hash, second_hash);
+}
+
+#[test]
+fn inventory_sidecar_fingerprint_only_tracks_tvshow_nfo_within_library_root() {
+    let outer = unique_temp_path("root-bound-series-fingerprint");
+    let library_root = outer.join("library");
+    let series_root = library_root.join("Show");
+    let video_path = series_root.join("Season 01").join("S01E01.mkv");
+    fs::create_dir_all(video_path.parent().unwrap()).unwrap();
+    fs::write(&video_path, b"same video").unwrap();
+    fs::write(
+        outer.join("tvshow.nfo"),
+        b"<tvshow><title>Outside A</title></tvshow>",
+    )
+    .unwrap();
+
+    let first =
+        discover_media_file_inventory_with_progress_and_cancel(&library_root, |_| {}, || false)
+            .unwrap()
+            .pop()
+            .unwrap();
+
+    fs::write(
+        outer.join("tvshow.nfo"),
+        b"<tvshow><title>Outside title changed and grew</title></tvshow>",
+    )
+    .unwrap();
+    let outside_changed =
+        discover_media_file_inventory_with_progress_and_cancel(&library_root, |_| {}, || false)
+            .unwrap()
+            .pop()
+            .unwrap();
+
+    fs::write(
+        series_root.join("tvshow.nfo"),
+        b"<tvshow><title>Inside</title></tvshow>",
+    )
+    .unwrap();
+    let inside_added =
+        discover_media_file_inventory_with_progress_and_cancel(&library_root, |_| {}, || false)
+            .unwrap()
+            .pop()
+            .unwrap();
+
+    let _ = fs::remove_dir_all(&outer);
+    assert_eq!(
+        first.sidecar_fingerprint,
+        outside_changed.sidecar_fingerprint
+    );
+    assert_ne!(
+        outside_changed.sidecar_fingerprint,
+        inside_added.sidecar_fingerprint
+    );
 }
 
 #[test]

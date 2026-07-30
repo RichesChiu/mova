@@ -3,7 +3,7 @@ use std::{
     fs,
     io::Read,
     ops::Range,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 const MAX_MEDIA_NFO_BYTES: usize = 2 * 1024 * 1024;
@@ -48,13 +48,43 @@ pub(crate) fn read_sidecar_metadata(path: &Path) -> ParsedSidecarMetadata {
 }
 
 pub(crate) fn read_series_sidecar_metadata(path: &Path) -> ParsedSidecarMetadata {
-    let Some(nfo_path) = path
+    let nfo_path = path
         .parent()
         .into_iter()
         .flat_map(|parent| parent.ancestors().take(5))
         .map(|directory| directory.join("tvshow.nfo"))
-        .find(|candidate| candidate.is_file())
-    else {
+        .find(|candidate| candidate.is_file());
+
+    read_series_sidecar_metadata_from_path(nfo_path)
+}
+
+pub(crate) fn read_series_sidecar_metadata_within_root(
+    path: &Path,
+    root_path: &Path,
+) -> ParsedSidecarMetadata {
+    let Some(relative_path) = path.strip_prefix(root_path).ok().filter(|relative_path| {
+        !relative_path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    }) else {
+        return ParsedSidecarMetadata::default();
+    };
+    let Some(relative_parent) = relative_path.parent() else {
+        return ParsedSidecarMetadata::default();
+    };
+    let nfo_path = relative_parent
+        .ancestors()
+        .map(|directory| root_path.join(directory).join("tvshow.nfo"))
+        .find(|candidate| candidate.is_file());
+
+    read_series_sidecar_metadata_from_path(nfo_path)
+}
+
+fn read_series_sidecar_metadata_from_path(nfo_path: Option<PathBuf>) -> ParsedSidecarMetadata {
+    let Some(nfo_path) = nfo_path else {
         return ParsedSidecarMetadata::default();
     };
 

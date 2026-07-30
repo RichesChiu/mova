@@ -7,7 +7,7 @@ use mova_scan::DiscoveredMediaFile;
 use reqwest::{
     header::CONTENT_TYPE,
     redirect::{Attempt, Policy},
-    Client, Url,
+    Client, StatusCode, Url,
 };
 use std::{
     borrow::Borrow,
@@ -141,20 +141,33 @@ impl MetadataEnrichmentContext {
         }
     }
 
-    pub async fn enrich_file(
-        &mut self,
-        lookup_type: &str,
-        file: &mut DiscoveredMediaFile,
-    ) -> anyhow::Result<()> {
-        self.enrich_file_with_progress(lookup_type, file, |_, _| {})
-            .await
-    }
-
+    #[cfg(test)]
     pub(crate) async fn enrich_group_with_progress<F>(
         &mut self,
         lookup_type: &str,
         files: &mut [DiscoveredMediaFile],
         season_air_year: Option<MetadataSeasonAirYearHint>,
+        on_progress: F,
+    ) -> anyhow::Result<MetadataEnrichmentOutcome>
+    where
+        F: FnMut(MetadataEnrichmentStage, &DiscoveredMediaFile),
+    {
+        self.enrich_group_with_lookup_hint_and_progress(
+            lookup_type,
+            files,
+            season_air_year,
+            None,
+            on_progress,
+        )
+        .await
+    }
+
+    pub(crate) async fn enrich_group_with_lookup_hint_and_progress<F>(
+        &mut self,
+        lookup_type: &str,
+        files: &mut [DiscoveredMediaFile],
+        season_air_year: Option<MetadataSeasonAirYearHint>,
+        provider_item_id_hint: Option<&str>,
         mut on_progress: F,
     ) -> anyhow::Result<MetadataEnrichmentOutcome>
     where
@@ -172,6 +185,7 @@ impl MetadataEnrichmentContext {
             &files[0],
             &self.metadata_language,
             season_air_year,
+            provider_item_id_hint,
         );
         let mut episode_outline_lookup = primary_lookup.clone();
 
@@ -181,7 +195,12 @@ impl MetadataEnrichmentContext {
             self.metadata_provider.is_enabled() && group_needs_remote_metadata(files);
         let resolved_remote_metadata = if remote_lookup_performed {
             let metadata = self
-                .lookup_group_remote_metadata(lookup_type, &files[0], season_air_year)
+                .lookup_group_remote_metadata(
+                    lookup_type,
+                    &files[0],
+                    season_air_year,
+                    provider_item_id_hint,
+                )
                 .await?;
 
             if let Some(remote_metadata) = metadata.as_ref() {
@@ -189,6 +208,9 @@ impl MetadataEnrichmentContext {
 
                 for file in files.iter_mut() {
                     apply_remote_metadata_to_file(lookup_type, remote_metadata, file);
+                    if provider_item_id_hint.is_some() {
+                        replace_remote_binding(file, remote_metadata);
+                    }
                 }
             }
 
@@ -220,79 +242,32 @@ impl MetadataEnrichmentContext {
         })
     }
 
-    pub async fn enrich_file_with_progress<F>(
-        &mut self,
-        lookup_type: &str,
-        file: &mut DiscoveredMediaFile,
-        mut on_progress: F,
-    ) -> anyhow::Result<()>
-    where
-        F: FnMut(MetadataEnrichmentStage, &DiscoveredMediaFile),
-    {
-        let lookups = metadata_lookup_candidates(lookup_type, file, &self.metadata_language, None);
-        let primary_lookup = lookups.first().cloned().unwrap_or_else(|| MetadataLookup {
-            title: file.source_title.clone(),
-            year: file.year,
-            season_air_year: None,
-            library_type: lookup_type.to_string(),
-            language: Some(self.metadata_language.clone()),
-            provider_item_id: None,
-        });
-
-        on_progress(MetadataEnrichmentStage::Metadata, file);
-        let mut resolved_remote_metadata = None;
-        let mut episode_outline_lookup = primary_lookup.clone();
-
-        if self.metadata_provider.is_enabled() && needs_remote_metadata(file) {
-            let mut metadata = None;
-
-            for lookup in &lookups {
-                let candidate = self.lookup_remote_metadata_cached(lookup).await?;
-                if candidate.is_some() {
-                    episode_outline_lookup = lookup.clone();
-                    metadata = candidate;
-                    break;
-                }
-            }
-
-            if let Some(remote_metadata) = metadata.as_ref() {
-                episode_outline_lookup.provider_item_id = remote_metadata.provider_item_id.clone();
-            }
-
-            if let Some(remote_metadata) = metadata.as_ref() {
-                apply_remote_metadata_to_file(lookup_type, remote_metadata, file);
-            }
-            resolved_remote_metadata = metadata;
-        }
-
-        on_progress(MetadataEnrichmentStage::Artwork, file);
-
-        if lookup_type.eq_ignore_ascii_case("series") {
-            self.enrich_episode_like_artwork(
-                &episode_outline_lookup,
-                file,
-                resolved_remote_metadata.is_some(),
-            )
-            .await?;
-        }
-
-        self.cache_file_artwork(file).await;
-
-        on_progress(MetadataEnrichmentStage::Completed, file);
-        Ok(())
-    }
-
     async fn lookup_group_remote_metadata(
         &mut self,
         lookup_type: &str,
         file: &DiscoveredMediaFile,
         season_air_year: Option<MetadataSeasonAirYearHint>,
+        provider_item_id_hint: Option<&str>,
     ) -> anyhow::Result<Option<RemoteMetadata>> {
-        let lookups =
-            metadata_lookup_candidates(lookup_type, file, &self.metadata_language, season_air_year);
+        let lookups = metadata_lookup_candidates_with_provider_item_id_hint(
+            lookup_type,
+            file,
+            &self.metadata_language,
+            season_air_year,
+            provider_item_id_hint,
+        );
 
         for lookup in &lookups {
-            let candidate = self.lookup_remote_metadata_cached(lookup).await?;
+            let candidate = match self.lookup_remote_metadata_cached(lookup).await {
+                Ok(candidate) => candidate,
+                Err(error)
+                    if provider_item_id_hint.is_some()
+                        && metadata_provider_error_is_not_found(&error) =>
+                {
+                    return Ok(None);
+                }
+                Err(error) => return Err(error),
+            };
             if candidate.is_some() {
                 return Ok(candidate);
             }
@@ -695,6 +670,15 @@ impl MetadataEnrichmentContext {
     }
 }
 
+fn metadata_provider_error_is_not_found(error: &anyhow::Error) -> bool {
+    error.chain().any(|source| {
+        source
+            .downcast_ref::<reqwest::Error>()
+            .and_then(reqwest::Error::status)
+            == Some(StatusCode::NOT_FOUND)
+    })
+}
+
 fn canonical_metadata_request_key(lookup: &MetadataLookup) -> MetadataLookup {
     let library_type = lookup.library_type.trim().to_ascii_lowercase();
     let language = lookup
@@ -815,18 +799,39 @@ fn metadata_group_primary_lookup(
     file: &DiscoveredMediaFile,
     metadata_language: &str,
     season_air_year: Option<MetadataSeasonAirYearHint>,
+    provider_item_id_hint: Option<&str>,
 ) -> MetadataLookup {
-    metadata_lookup_candidates(lookup_type, file, metadata_language, season_air_year)
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| MetadataLookup {
-            title: file.source_title.clone(),
-            year: file.year,
-            season_air_year,
-            library_type: lookup_type.to_string(),
-            language: Some(metadata_language.to_string()),
-            provider_item_id: None,
-        })
+    metadata_lookup_candidates_with_provider_item_id_hint(
+        lookup_type,
+        file,
+        metadata_language,
+        season_air_year,
+        provider_item_id_hint,
+    )
+    .into_iter()
+    .next()
+    .unwrap_or_else(|| MetadataLookup {
+        title: file.source_title.clone(),
+        year: file.year,
+        season_air_year,
+        library_type: lookup_type.to_string(),
+        language: Some(metadata_language.to_string()),
+        provider_item_id: None,
+    })
+}
+
+fn replace_remote_binding(file: &mut DiscoveredMediaFile, metadata: &RemoteMetadata) {
+    let Some(provider_item_id) = metadata
+        .provider_item_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+
+    file.metadata_provider = Some(crate::metadata::TMDB_PROVIDER_NAME.to_string());
+    file.metadata_provider_item_id = Some(provider_item_id.to_string());
 }
 
 fn apply_remote_metadata_to_file(
@@ -1213,11 +1218,12 @@ async fn is_valid_artwork_cache_file(path: &Path) -> bool {
     })
 }
 
-fn metadata_lookup_candidates(
+fn metadata_lookup_candidates_with_provider_item_id_hint(
     lookup_type: &str,
     file: &DiscoveredMediaFile,
     metadata_language: &str,
     season_air_year: Option<MetadataSeasonAirYearHint>,
+    provider_item_id_hint: Option<&str>,
 ) -> Vec<MetadataLookup> {
     let primary_year = file.year;
     let season_air_year = lookup_type
@@ -1225,20 +1231,38 @@ fn metadata_lookup_candidates(
         .then_some(season_air_year)
         .flatten();
 
-    // 元数据匹配应优先使用文件名解析出的原始标题，而不是已经被远端覆盖过的展示标题。
-    let mut candidates = Vec::new();
-    if let Some(provider_item_id) = file.metadata_provider_item_id.clone() {
-        push_metadata_lookup_candidate_with_provider_item_id(
-            &mut candidates,
-            lookup_type,
-            metadata_language,
-            file.source_title.clone(),
-            primary_year,
+    if let Some(provider_item_id) = provider_item_id_hint
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return vec![MetadataLookup {
+            title: file.source_title.clone(),
+            year: primary_year,
             season_air_year,
-            provider_item_id,
-        );
+            library_type: lookup_type.to_string(),
+            language: Some(metadata_language.to_string()),
+            provider_item_id: Some(provider_item_id.to_string()),
+        }];
     }
 
+    if let Some(provider_item_id) = file
+        .metadata_provider_item_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return vec![MetadataLookup {
+            title: file.source_title.clone(),
+            year: primary_year,
+            season_air_year,
+            library_type: lookup_type.to_string(),
+            language: Some(metadata_language.to_string()),
+            provider_item_id: Some(provider_item_id.to_string()),
+        }];
+    }
+
+    // 元数据匹配应优先使用文件名解析出的原始标题，而不是已经被远端覆盖过的展示标题。
+    let mut candidates = Vec::new();
     push_metadata_lookup_candidate(
         &mut candidates,
         lookup_type,
@@ -1306,38 +1330,6 @@ fn push_metadata_lookup_candidate(
         library_type: lookup_type.to_string(),
         language: Some(metadata_language.to_string()),
         provider_item_id: None,
-    });
-}
-
-fn push_metadata_lookup_candidate_with_provider_item_id(
-    candidates: &mut Vec<MetadataLookup>,
-    lookup_type: &str,
-    metadata_language: &str,
-    title: String,
-    year: Option<i32>,
-    season_air_year: Option<MetadataSeasonAirYearHint>,
-    provider_item_id: String,
-) {
-    let title = title.trim();
-    if title.is_empty() {
-        return;
-    }
-
-    if candidates.iter().any(|candidate| {
-        candidate.provider_item_id.as_deref() == Some(provider_item_id.as_str())
-            && candidate.library_type == lookup_type
-            && candidate.language.as_deref() == Some(metadata_language)
-    }) {
-        return;
-    }
-
-    candidates.push(MetadataLookup {
-        title: title.to_string(),
-        year,
-        season_air_year,
-        library_type: lookup_type.to_string(),
-        language: Some(metadata_language.to_string()),
-        provider_item_id: Some(provider_item_id),
     });
 }
 
@@ -1550,10 +1542,10 @@ mod tests {
         artwork_bytes_match_content_type, artwork_file_extension, build_artwork_cache_path,
         is_allowed_remote_artwork_url, is_generated_episode_still_path,
         is_generic_backdrop_artwork_path, is_generic_poster_artwork_path,
-        metadata_lookup_candidates, needs_remote_metadata, needs_remote_title_refresh,
-        should_replace_episode_artwork, stable_artwork_cache_key, trusted_artwork_bases,
-        MetadataEnrichmentContext, ARTWORK_RESULT_CACHE_CAPACITY, METADATA_LOOKUP_CACHE_CAPACITY,
-        SERIES_OUTLINE_CACHE_CAPACITY,
+        metadata_lookup_candidates_with_provider_item_id_hint, needs_remote_metadata,
+        needs_remote_title_refresh, should_replace_episode_artwork, stable_artwork_cache_key,
+        trusted_artwork_bases, MetadataEnrichmentContext, ARTWORK_RESULT_CACHE_CAPACITY,
+        METADATA_LOOKUP_CACHE_CAPACITY, SERIES_OUTLINE_CACHE_CAPACITY,
     };
     use crate::metadata::{
         MetadataLookup, MetadataProvider, MetadataSeasonAirYearHint, NullMetadataProvider,
@@ -1565,7 +1557,7 @@ mod tests {
         path::{Path, PathBuf},
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc,
+            Arc, Mutex,
         },
     };
 
@@ -1888,7 +1880,9 @@ mod tests {
         file.file_path = PathBuf::from("/media/模范出租车/S01/Taxi.Driver.S01E01.mkv");
         file.source_title = "Taxi Driver".to_string();
 
-        let lookups = metadata_lookup_candidates("series", &file, "en-US", None);
+        let lookups = metadata_lookup_candidates_with_provider_item_id_hint(
+            "series", &file, "en-US", None, None,
+        );
 
         assert_eq!(lookups.len(), 1);
         assert_eq!(lookups[0].title, "Taxi Driver");
@@ -1903,7 +1897,9 @@ mod tests {
         file.source_title = "All Her Fault".to_string();
         file.year = Some(2025);
 
-        let lookups = metadata_lookup_candidates("series", &file, "zh-CN", None);
+        let lookups = metadata_lookup_candidates_with_provider_item_id_hint(
+            "series", &file, "zh-CN", None, None,
+        );
 
         assert_eq!(lookups.len(), 1);
         assert_eq!(lookups[0].title, "All Her Fault");
@@ -1919,7 +1915,9 @@ mod tests {
         file.source_title = "Study Group".to_string();
         file.year = None;
 
-        let lookups = metadata_lookup_candidates("series", &file, "zh-CN", None);
+        let lookups = metadata_lookup_candidates_with_provider_item_id_hint(
+            "series", &file, "zh-CN", None, None,
+        );
 
         assert_eq!(lookups.len(), 1);
         assert_eq!(lookups[0].title, "Study Group");
@@ -1935,7 +1933,9 @@ mod tests {
         file.source_title = "The Art of Sarah".to_string();
         file.year = Some(2026);
 
-        let lookups = metadata_lookup_candidates("series", &file, "zh-CN", None);
+        let lookups = metadata_lookup_candidates_with_provider_item_id_hint(
+            "series", &file, "zh-CN", None, None,
+        );
 
         assert_eq!(lookups.len(), 1);
         assert_eq!(lookups[0].title, "The Art of Sarah");
@@ -1954,7 +1954,13 @@ mod tests {
             season_number: 2,
             year: 2025,
         };
-        let lookups = metadata_lookup_candidates("series", &file, "zh-CN", Some(hint));
+        let lookups = metadata_lookup_candidates_with_provider_item_id_hint(
+            "series",
+            &file,
+            "zh-CN",
+            Some(hint),
+            None,
+        );
 
         assert_eq!(lookups.len(), 1);
         assert_eq!(lookups[0].title, "Fallout");
@@ -1973,7 +1979,9 @@ mod tests {
         file.season_number = None;
         file.episode_number = None;
 
-        let lookups = metadata_lookup_candidates("movie", &file, "zh-CN", None);
+        let lookups = metadata_lookup_candidates_with_provider_item_id_hint(
+            "movie", &file, "zh-CN", None, None,
+        );
 
         assert_eq!(lookups.len(), 3);
         assert_eq!(lookups[0].title, "Avatar： Fire and Ash");
@@ -1985,7 +1993,7 @@ mod tests {
     }
 
     #[test]
-    fn metadata_lookup_candidates_prefer_existing_provider_item_id() {
+    fn metadata_lookup_candidates_use_only_existing_provider_item_id() {
         let mut file = build_discovered_episode();
         file.file_path = PathBuf::from("/media/movies/狂野时代 (2025)/狂野时代.2025.mp4");
         file.source_title = "狂野时代".to_string();
@@ -1994,15 +2002,14 @@ mod tests {
         file.episode_number = None;
         file.metadata_provider_item_id = Some("123_456".to_string());
 
-        let lookups = metadata_lookup_candidates("movie", &file, "zh-CN", None);
+        let lookups = metadata_lookup_candidates_with_provider_item_id_hint(
+            "movie", &file, "zh-CN", None, None,
+        );
 
         assert_eq!(lookups[0].title, "狂野时代");
         assert_eq!(lookups[0].year, Some(2025));
         assert_eq!(lookups[0].provider_item_id, Some("123_456".to_string()));
-        assert_eq!(lookups[1].title, "狂野时代");
-        assert_eq!(lookups[1].year, Some(2025));
-        assert_eq!(lookups[1].provider_item_id, None);
-        assert_eq!(lookups.len(), 2);
+        assert_eq!(lookups.len(), 1);
     }
 
     #[test]
@@ -2016,7 +2023,9 @@ mod tests {
         file.season_number = None;
         file.episode_number = None;
 
-        let lookups = metadata_lookup_candidates("movie", &file, "zh-CN", None);
+        let lookups = metadata_lookup_candidates_with_provider_item_id_hint(
+            "movie", &file, "zh-CN", None, None,
+        );
 
         assert_eq!(lookups.len(), 2);
         assert_eq!(lookups[0].title, "Unexpected Family");
@@ -2142,6 +2151,96 @@ mod tests {
         );
         assert!(files.iter().all(|file| file.poster_path.is_none()));
         assert!(files.iter().all(|file| file.backdrop_path.is_none()));
+    }
+
+    #[tokio::test]
+    async fn enrich_group_uses_container_tmdb_hint_without_title_search_fallback() {
+        let provider = Arc::new(RecordingMetadataProvider {
+            lookups: Mutex::new(Vec::new()),
+            result: Some(RemoteMetadata {
+                provider_item_id: Some("324552".to_string()),
+                title: Some("疾速追杀2".to_string()),
+                original_title: Some("John Wick: Chapter 2".to_string()),
+                year: Some(2017),
+                ..RemoteMetadata::default()
+            }),
+        });
+        let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
+        let mut context = MetadataEnrichmentContext::new(
+            std::env::temp_dir().join("mova-container-tmdb-hint-test"),
+            1,
+            provider_for_context,
+            "zh-CN".to_string(),
+        );
+        let mut file = build_discovered_episode();
+        file.file_path = PathBuf::from("/media/movies/疾速追杀2 {tmdb-324552}/2017.2160p.mkv");
+        file.title = "疾速追杀2".to_string();
+        file.source_title = "疾速追杀2".to_string();
+        file.year = Some(2017);
+        file.season_number = None;
+        file.episode_number = None;
+        file.episode_title = None;
+        let mut files = vec![file];
+
+        let outcome = context
+            .enrich_group_with_lookup_hint_and_progress(
+                "movie",
+                &mut files,
+                None,
+                Some("324552"),
+                |_, _| {},
+            )
+            .await
+            .expect("direct TMDB lookup should succeed");
+
+        let lookups = provider.lookups.lock().expect("lookup lock");
+        assert_eq!(lookups.len(), 1);
+        assert_eq!(lookups[0].provider_item_id.as_deref(), Some("324552"));
+        assert!(outcome.remote_lookup_performed);
+        assert!(outcome.remote_metadata_applied);
+        assert_eq!(files[0].metadata_provider.as_deref(), Some("tmdb"));
+        assert_eq!(
+            files[0].metadata_provider_item_id.as_deref(),
+            Some("324552")
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_container_tmdb_hint_does_not_fall_back_to_title_search() {
+        let provider = Arc::new(RecordingMetadataProvider {
+            lookups: Mutex::new(Vec::new()),
+            result: None,
+        });
+        let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
+        let mut context = MetadataEnrichmentContext::new(
+            std::env::temp_dir().join("mova-missing-container-tmdb-hint-test"),
+            1,
+            provider_for_context,
+            "zh-CN".to_string(),
+        );
+        let mut file = build_discovered_episode();
+        file.season_number = None;
+        file.episode_number = None;
+        file.episode_title = None;
+        let mut files = vec![file];
+
+        let outcome = context
+            .enrich_group_with_lookup_hint_and_progress(
+                "movie",
+                &mut files,
+                None,
+                Some("999999"),
+                |_, _| {},
+            )
+            .await
+            .expect("missing direct TMDB lookup should be a normal no-match");
+
+        let lookups = provider.lookups.lock().expect("lookup lock");
+        assert_eq!(lookups.len(), 1);
+        assert_eq!(lookups[0].provider_item_id.as_deref(), Some("999999"));
+        assert!(outcome.remote_lookup_performed);
+        assert!(!outcome.remote_metadata_applied);
+        assert_eq!(files[0].metadata_provider_item_id, None);
     }
 
     #[tokio::test]
@@ -2340,6 +2439,23 @@ mod tests {
                 backdrop_path: Some("/cache/series-backdrop.jpg".to_string()),
                 ..RemoteMetadata::default()
             }))
+        }
+    }
+
+    #[derive(Debug)]
+    struct RecordingMetadataProvider {
+        lookups: Mutex<Vec<MetadataLookup>>,
+        result: Option<RemoteMetadata>,
+    }
+
+    #[async_trait]
+    impl MetadataProvider for RecordingMetadataProvider {
+        async fn lookup(&self, lookup: &MetadataLookup) -> anyhow::Result<Option<RemoteMetadata>> {
+            self.lookups
+                .lock()
+                .expect("lookup lock")
+                .push(lookup.clone());
+            Ok(self.result.clone())
         }
     }
 

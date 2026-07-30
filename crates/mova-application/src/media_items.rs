@@ -3,7 +3,7 @@ use crate::{
     error::{ApplicationError, ApplicationResult},
     invalidate_media_item_cast_cache,
     libraries::get_library,
-    media_classification::metadata_lookup_type_for_media_type,
+    media_classification::{apply_root_aware_media_identity, metadata_lookup_type_for_media_type},
     media_enrichment::MetadataEnrichmentContext,
     metadata::{MetadataLookup, MetadataProvider, RemoteSeriesEpisodeOutline},
 };
@@ -889,6 +889,8 @@ pub async fn refresh_media_item_metadata(
 
     let lookup_type = metadata_lookup_type_for_media_type(&media_item.media_type);
     let library = get_library(pool, media_item.library_id).await?;
+    let metadata_lookup_hint =
+        apply_root_aware_media_identity(&mut discovered_file, Path::new(&library.root_path));
     let metadata_provider_for_cast = metadata_provider.clone();
     let metadata_provider_enabled = metadata_provider.is_enabled();
     let mut enrichment = MetadataEnrichmentContext::new(
@@ -898,7 +900,13 @@ pub async fn refresh_media_item_metadata(
         library.metadata_language,
     );
     enrichment
-        .enrich_file(lookup_type, &mut discovered_file)
+        .enrich_group_with_lookup_hint_and_progress(
+            lookup_type,
+            std::slice::from_mut(&mut discovered_file),
+            None,
+            metadata_lookup_hint.as_deref(),
+            |_, _| {},
+        )
         .await
         .map_err(ApplicationError::Unexpected)?;
     finalize_refreshed_file_metadata_status(

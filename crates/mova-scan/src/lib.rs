@@ -13,7 +13,9 @@ pub use discover::{
     inspect_media_file_inventory_with_cancel_and_subtitle_index,
 };
 pub use parse::{
-    infer_series_file_metadata, infer_series_sidecar_metadata, is_likely_episode_path,
+    has_meaningful_file_title, infer_movie_container_identity, infer_series_container_identity,
+    infer_series_file_metadata, infer_series_sidecar_metadata,
+    infer_series_sidecar_metadata_within_root, is_likely_episode_path, MediaContainerIdentity,
     SeriesFileMetadata, SeriesSidecarMetadata,
 };
 pub use subtitle::SubtitleDirectoryIndex;

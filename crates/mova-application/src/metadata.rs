@@ -460,6 +460,7 @@ impl TmdbMetadataProvider {
         }
 
         let mut exact_candidates = Vec::new();
+        let mut separator_compatible_candidates = Vec::new();
         let mut compatible_candidates = Vec::new();
 
         for candidate in eligible_candidates {
@@ -474,23 +475,26 @@ impl TmdbMetadataProvider {
                     continue;
                 }
             };
-            if alternative_titles
-                .iter()
-                .any(|title| titles_match_exactly(&lookup.title, title))
-            {
-                exact_candidates.push(candidate);
-            } else if alternative_titles
-                .iter()
-                .any(|title| titles_match_numbered_subtitle(&lookup.title, title))
-            {
-                compatible_candidates.push(candidate);
+            match strongest_alternative_title_match(&lookup.title, &alternative_titles) {
+                AlternativeTitleMatch::Exact => exact_candidates.push(candidate),
+                AlternativeTitleMatch::ExplicitSeparator => {
+                    separator_compatible_candidates.push(candidate);
+                }
+                AlternativeTitleMatch::NumberedSubtitle => {
+                    compatible_candidates.push(candidate);
+                }
+                AlternativeTitleMatch::None => {}
             }
         }
 
         Ok(select_strict_candidate(
             lookup.year,
             if exact_candidates.is_empty() {
-                compatible_candidates
+                if separator_compatible_candidates.is_empty() {
+                    compatible_candidates
+                } else {
+                    separator_compatible_candidates
+                }
             } else {
                 exact_candidates
             },
@@ -538,6 +542,7 @@ impl TmdbMetadataProvider {
         }
 
         let mut exact_candidates = Vec::new();
+        let mut separator_compatible_candidates = Vec::new();
         let mut compatible_candidates = Vec::new();
 
         for candidate in eligible_candidates {
@@ -552,21 +557,24 @@ impl TmdbMetadataProvider {
                     continue;
                 }
             };
-            if alternative_titles
-                .iter()
-                .any(|title| titles_match_exactly(&lookup.title, title))
-            {
-                exact_candidates.push(candidate);
-            } else if alternative_titles
-                .iter()
-                .any(|title| titles_match_numbered_subtitle(&lookup.title, title))
-            {
-                compatible_candidates.push(candidate);
+            match strongest_alternative_title_match(&lookup.title, &alternative_titles) {
+                AlternativeTitleMatch::Exact => exact_candidates.push(candidate),
+                AlternativeTitleMatch::ExplicitSeparator => {
+                    separator_compatible_candidates.push(candidate);
+                }
+                AlternativeTitleMatch::NumberedSubtitle => {
+                    compatible_candidates.push(candidate);
+                }
+                AlternativeTitleMatch::None => {}
             }
         }
 
         let exact_candidates = if exact_candidates.is_empty() {
-            compatible_candidates
+            if separator_compatible_candidates.is_empty() {
+                compatible_candidates
+            } else {
+                separator_compatible_candidates
+            }
         } else {
             exact_candidates
         };
@@ -1493,6 +1501,32 @@ where
         return exact_localized_title_matches;
     }
 
+    let separator_compatible_original_title_matches = candidates
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            candidate
+                .candidate_original_title()
+                .is_some_and(|title| titles_match_ignoring_explicit_separators(query_title, title))
+        })
+        .collect::<Vec<_>>();
+    if !separator_compatible_original_title_matches.is_empty() {
+        return separator_compatible_original_title_matches;
+    }
+
+    let separator_compatible_localized_title_matches = candidates
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            candidate
+                .candidate_title()
+                .is_some_and(|title| titles_match_ignoring_explicit_separators(query_title, title))
+        })
+        .collect::<Vec<_>>();
+    if !separator_compatible_localized_title_matches.is_empty() {
+        return separator_compatible_localized_title_matches;
+    }
+
     let compatible_original_title_matches = candidates
         .iter()
         .copied()
@@ -1523,6 +1557,81 @@ fn titles_match_exactly(local_title: &str, remote_title: &str) -> bool {
     }
 
     normalized_local_title == normalize_title(remote_title)
+}
+
+fn titles_match_ignoring_explicit_separators(local_title: &str, remote_title: &str) -> bool {
+    if !local_title.chars().any(is_explicit_title_separator)
+        && !remote_title.chars().any(is_explicit_title_separator)
+    {
+        return false;
+    }
+
+    let normalized_local_title = normalize_title_without_explicit_separators(local_title);
+    if normalized_local_title.is_empty() {
+        return false;
+    }
+
+    normalized_local_title == normalize_title_without_explicit_separators(remote_title)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AlternativeTitleMatch {
+    Exact,
+    ExplicitSeparator,
+    NumberedSubtitle,
+    None,
+}
+
+fn strongest_alternative_title_match(
+    query_title: &str,
+    alternative_titles: &[String],
+) -> AlternativeTitleMatch {
+    if alternative_titles
+        .iter()
+        .any(|title| titles_match_exactly(query_title, title))
+    {
+        return AlternativeTitleMatch::Exact;
+    }
+
+    if alternative_titles
+        .iter()
+        .any(|title| titles_match_ignoring_explicit_separators(query_title, title))
+    {
+        return AlternativeTitleMatch::ExplicitSeparator;
+    }
+
+    if alternative_titles
+        .iter()
+        .any(|title| titles_match_numbered_subtitle(query_title, title))
+    {
+        return AlternativeTitleMatch::NumberedSubtitle;
+    }
+
+    AlternativeTitleMatch::None
+}
+
+fn normalize_title_without_explicit_separators(value: &str) -> String {
+    value
+        .chars()
+        .filter_map(|ch| {
+            if ch.is_whitespace()
+                || is_explicit_title_separator(ch)
+                || is_ignorable_title_punctuation(ch)
+            {
+                return None;
+            }
+
+            if ch.is_alphanumeric() {
+                return Some(ch.to_lowercase().collect::<String>());
+            }
+
+            Some(ch.to_string())
+        })
+        .collect()
+}
+
+fn is_explicit_title_separator(ch: char) -> bool {
+    matches!(ch, ':' | '：' | '|' | '｜' | '/' | '／' | '-' | '–' | '—')
 }
 
 fn titles_match_numbered_subtitle(local_title: &str, remote_title: &str) -> bool {
@@ -1878,10 +1987,11 @@ mod tests {
         format_country_codes, normalize_base_url, normalize_metadata_language,
         normalize_optional_value, normalize_title, parse_year, pick_primary_character_name,
         select_strict_candidate, select_strict_tv_candidate, select_tmdb_logo,
-        strongest_direct_title_matches, titles_match_exactly, titles_match_numbered_subtitle,
-        tmdb_external_ids, tmdb_image_languages, tmdb_ratings, tmdb_tv_season_matches_air_year,
-        tv_search_year_filter, MetadataLookup, MetadataProviderConfig, MetadataSeasonAirYearHint,
-        RemoteMetadata, TmdbExternalIds, TmdbImagesResponse, TmdbLogo, TmdbMetadataProvider,
+        strongest_alternative_title_match, strongest_direct_title_matches, titles_match_exactly,
+        titles_match_numbered_subtitle, tmdb_external_ids, tmdb_image_languages, tmdb_ratings,
+        tmdb_tv_season_matches_air_year, tv_search_year_filter, AlternativeTitleMatch,
+        MetadataLookup, MetadataProviderConfig, MetadataSeasonAirYearHint, RemoteMetadata,
+        TmdbExternalIds, TmdbImagesResponse, TmdbLogo, TmdbMetadataProvider,
         TmdbMetadataProviderConfig, TmdbMovieDetails, TmdbMovieSearchResult, TmdbTvAggregateRole,
         TmdbTvEpisodeDetails, TmdbTvSearchResult, TmdbTvSeasonDetails, TMDB_PROVIDER_NAME,
     };
@@ -2291,6 +2401,72 @@ mod tests {
         assert_eq!(
             select_strict_candidate(Some(2017), strongest).map(|candidate| candidate.id),
             Some(324_552)
+        );
+    }
+
+    #[test]
+    fn strict_match_accepts_only_explicit_separator_differences() {
+        let candidates = [
+            TmdbMovieSearchResult {
+                id: 1_228_710,
+                title: Some("星球大战：曼达洛人与古古".to_string()),
+                original_title: Some("The Mandalorian and Grogu".to_string()),
+                release_date: Some("2026-05-20".to_string()),
+                overview: None,
+                poster_path: Some("/mandalorian-and-grogu.jpg".to_string()),
+                backdrop_path: None,
+            },
+            TmdbMovieSearchResult {
+                id: 2,
+                title: Some("星球大战：曼达洛人与古古外传".to_string()),
+                original_title: Some("Different Movie".to_string()),
+                release_date: Some("2026-08-01".to_string()),
+                overview: None,
+                poster_path: None,
+                backdrop_path: None,
+            },
+        ];
+
+        let prioritized =
+            strongest_direct_title_matches("星球大战曼达洛人与古古", candidates.iter().collect());
+
+        assert_eq!(prioritized.len(), 1);
+        assert_eq!(prioritized[0].id, 1_228_710);
+        assert_eq!(
+            select_strict_candidate(Some(2026), prioritized).map(|candidate| candidate.id),
+            Some(1_228_710)
+        );
+    }
+
+    #[test]
+    fn alternative_title_match_accepts_only_explicit_separator_differences() {
+        assert_eq!(
+            strongest_alternative_title_match(
+                "星球大战曼达洛人与古古",
+                &["星球大战：曼达洛人与古古".to_string()],
+            ),
+            AlternativeTitleMatch::ExplicitSeparator
+        );
+        assert_eq!(
+            strongest_alternative_title_match(
+                "星球大战曼达洛人与古古",
+                &["星球大战：曼达洛人与古古外传".to_string()],
+            ),
+            AlternativeTitleMatch::None
+        );
+    }
+
+    #[test]
+    fn alternative_title_match_prefers_exact_over_separator_compatibility() {
+        assert_eq!(
+            strongest_alternative_title_match(
+                "星球大战曼达洛人与古古",
+                &[
+                    "星球大战：曼达洛人与古古".to_string(),
+                    "星球大战曼达洛人与古古".to_string(),
+                ],
+            ),
+            AlternativeTitleMatch::Exact
         );
     }
 
