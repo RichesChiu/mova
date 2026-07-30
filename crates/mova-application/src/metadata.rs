@@ -117,6 +117,13 @@ pub trait MetadataProvider: Send + Sync {
         true
     }
 
+    /// Returns the operator-configured base URL whose image paths may be
+    /// downloaded by metadata enrichment. Arbitrary URLs from NFO files are
+    /// not trusted merely because a provider is enabled.
+    fn trusted_artwork_base_url(&self) -> Option<&str> {
+        None
+    }
+
     async fn lookup(&self, lookup: &MetadataLookup) -> anyhow::Result<Option<RemoteMetadata>>;
 
     async fn lookup_series_episode_outline(
@@ -973,6 +980,10 @@ impl TmdbMetadataProvider {
 
 #[async_trait]
 impl MetadataProvider for TmdbMetadataProvider {
+    fn trusted_artwork_base_url(&self) -> Option<&str> {
+        Some(&self.image_base_url)
+    }
+
     async fn lookup(&self, lookup: &MetadataLookup) -> anyhow::Result<Option<RemoteMetadata>> {
         if lookup.title.trim().is_empty() && lookup.provider_item_id.is_none() {
             return Ok(None);

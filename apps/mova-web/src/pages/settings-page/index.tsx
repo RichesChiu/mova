@@ -142,16 +142,11 @@ export const SettingsPage = () => {
         ['library', createdLibrary.id],
         nextLibraryCache.libraryDetail,
       )
-      queryClient.setQueryData<LibraryDetail>(
-        ['home-library-detail', createdLibrary.id],
-        nextLibraryCache.homeLibraryDetail,
-      )
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['libraries'] }),
         queryClient.invalidateQueries({ queryKey: ['library', createdLibrary.id] }),
-        queryClient.invalidateQueries({ queryKey: ['home-library-detail', createdLibrary.id] }),
-        queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
+        queryClient.invalidateQueries({ queryKey: ['home'] }),
       ])
 
       setIsCreateLibraryOpen(false)
@@ -167,25 +162,16 @@ export const SettingsPage = () => {
         const nextScanCache = buildTriggeredScanCacheState({
           fallbackLibrary,
           currentLibraryDetail: queryClient.getQueryData<LibraryDetail>(['library', libraryId]),
-          currentHomeLibraryDetail: queryClient.getQueryData<LibraryDetail>([
-            'home-library-detail',
-            libraryId,
-          ]),
           scanJob,
         })
 
         queryClient.setQueryData<LibraryDetail>(['library', libraryId], nextScanCache.libraryDetail)
-        queryClient.setQueryData<LibraryDetail>(
-          ['home-library-detail', libraryId],
-          nextScanCache.homeLibraryDetail,
-        )
       }
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
-        queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
-        queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
+        queryClient.invalidateQueries({ queryKey: ['home'] }),
       ])
     },
   })
@@ -201,13 +187,12 @@ export const SettingsPage = () => {
       queryClient.setQueryData<Library[]>(['libraries'], nextLibraryCache.libraries)
       queryClient.removeQueries({ queryKey: ['library', libraryId] })
       queryClient.removeQueries({ queryKey: ['library-media', libraryId] })
-      queryClient.removeQueries({ queryKey: ['home-library-detail', libraryId] })
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['libraries'] }),
         queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
-        queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
+        queryClient.invalidateQueries({ queryKey: ['home'] }),
       ])
     },
   })
@@ -226,10 +211,6 @@ export const SettingsPage = () => {
         currentLibraries,
         updatedLibrary,
         currentLibraryDetail: queryClient.getQueryData<LibraryDetail>(['library', libraryId]),
-        currentHomeLibraryDetail: queryClient.getQueryData<LibraryDetail>([
-          'home-library-detail',
-          libraryId,
-        ]),
       })
 
       // Keep the settings list and detail caches in sync immediately so the modal edits feel
@@ -239,17 +220,11 @@ export const SettingsPage = () => {
         ['library', libraryId],
         nextLibraryCache.libraryDetail,
       )
-      queryClient.setQueryData<LibraryDetail>(
-        ['home-library-detail', libraryId],
-        nextLibraryCache.homeLibraryDetail,
-      )
-
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['libraries'] }),
         queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
-        queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
-        queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
+        queryClient.invalidateQueries({ queryKey: ['home'] }),
       ])
     },
   })

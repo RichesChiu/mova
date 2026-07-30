@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useI18n } from '../../i18n'
-import { usePresenceTransition } from '../../lib/use-presence-transition'
+import { OverlayPortal } from '../overlay-portal'
 
 export type FeedbackDialogTone = 'success' | 'err' | 'warn'
 
@@ -43,7 +42,7 @@ export const FeedbackDialog = ({
     title?: string
     tone: FeedbackDialogTone
   } | null>(() => (message ? { message, title, tone } : null))
-  const dialogPresence = usePresenceTransition(isOpen && message !== null, 150)
+  const isFeedbackOpen = isOpen && message !== null
 
   useEffect(() => {
     onCloseRef.current = onClose
@@ -79,7 +78,7 @@ export const FeedbackDialog = ({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen])
 
-  if (!dialogPresence.shouldRender || !visibleFeedback) {
+  if (!visibleFeedback) {
     return null
   }
 
@@ -88,43 +87,49 @@ export const FeedbackDialog = ({
   const role = visibleTone === 'err' ? 'alert' : 'status'
   const ariaLive = visibleTone === 'err' ? 'assertive' : 'polite'
 
-  return createPortal(
-    <div
-      className={`feedback-dialog feedback-dialog--${visibleTone}`}
-      data-state={dialogPresence.transitionState}
-    >
-      <div
-        aria-live={ariaLive}
-        className="feedback-dialog__surface glass-popover-surface floating-transition"
-        data-state={dialogPresence.transitionState}
-        role={role}
-      >
-        <span aria-hidden="true" className="feedback-dialog__marker">
-          {toneMarker[visibleTone]}
-        </span>
-
-        <div className="feedback-dialog__copy">
-          <strong>{dialogTitle}</strong>
-          <p>{visibleFeedback.message}</p>
-        </div>
-
-        <button
-          aria-label={l('Close notification')}
-          className="feedback-dialog__close"
-          onClick={onClose}
-          type="button"
+  return (
+    <OverlayPortal exitDurationMs={150} isPresent={isFeedbackOpen}>
+      {(transitionState) => (
+        <div
+          aria-hidden={!isFeedbackOpen}
+          className={`feedback-dialog feedback-dialog--${visibleTone}`}
+          data-state={transitionState}
+          inert={!isFeedbackOpen}
         >
-          <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 16 16">
-            <path
-              d="M4 4L12 12M12 4L4 12"
-              stroke="currentColor"
-              strokeLinecap="round"
-              strokeWidth="1.7"
-            />
-          </svg>
-        </button>
-      </div>
-    </div>,
-    document.body,
+          <div
+            aria-live={ariaLive}
+            className="feedback-dialog__surface glass-popover-surface floating-transition"
+            data-state={transitionState}
+            role={role}
+          >
+            <span aria-hidden="true" className="feedback-dialog__marker">
+              {toneMarker[visibleTone]}
+            </span>
+
+            <div className="feedback-dialog__copy">
+              <strong>{dialogTitle}</strong>
+              <p>{visibleFeedback.message}</p>
+            </div>
+
+            <button
+              aria-label={l('Close notification')}
+              className="feedback-dialog__close"
+              onClick={onClose}
+              type="button"
+            >
+              <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 16 16">
+                <path
+                  d="M4 4L12 12M12 4L4 12"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="1.7"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+    </OverlayPortal>
   )
 }

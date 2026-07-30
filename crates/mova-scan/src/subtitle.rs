@@ -3,7 +3,11 @@ use crate::{
     probe::EmbeddedSubtitleStream,
     DiscoveredSubtitleTrack,
 };
-use std::{collections::HashMap, fs, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Clone)]
 struct ParsedSubtitleSidecar {
@@ -16,9 +20,59 @@ struct ParsedSubtitleSidecar {
     is_hearing_impaired: bool,
 }
 
+#[derive(Debug, Clone)]
+struct IndexedSubtitleSidecar {
+    path: PathBuf,
+    subtitle_format: String,
+    parsed: ParsedSubtitleSidecar,
+}
+
+#[derive(Debug, Clone, Default)]
+struct IndexedSubtitleDirectory {
+    subtitles: Vec<IndexedSubtitleSidecar>,
+    episode_identity_counts: HashMap<(i32, i32), usize>,
+}
+
+/// Scan-local directory index for external subtitles.
+///
+/// A directory is read at most once while the index is built. Every video in
+/// that directory then reuses the parsed subtitle candidates and episode
+/// ambiguity counts instead of issuing two additional `read_dir` calls.
+#[derive(Debug, Clone, Default)]
+pub struct SubtitleDirectoryIndex {
+    directories: HashMap<PathBuf, IndexedSubtitleDirectory>,
+}
+
+impl SubtitleDirectoryIndex {
+    pub fn build<'a>(video_paths: impl IntoIterator<Item = &'a Path>) -> Self {
+        let directories = video_paths
+            .into_iter()
+            .filter_map(|path| path.parent().map(Path::to_path_buf))
+            .collect::<HashSet<_>>();
+        let mut index = Self::default();
+
+        for directory in directories {
+            index
+                .directories
+                .insert(directory.clone(), index_subtitle_directory(&directory));
+        }
+
+        index
+    }
+}
+
 pub(crate) fn discover_subtitle_tracks(
     video_path: &Path,
     embedded_streams: &[EmbeddedSubtitleStream],
+) -> Vec<DiscoveredSubtitleTrack> {
+    let index = SubtitleDirectoryIndex::build([video_path]);
+    discover_subtitle_tracks_with_index(video_path, embedded_streams, &index)
+}
+
+pub(crate) fn discover_subtitle_tracks_with_index(
+    video_path: &Path,
+    embedded_streams: &[EmbeddedSubtitleStream],
+    index: &SubtitleDirectoryIndex,
 ) -> Vec<DiscoveredSubtitleTrack> {
     let mut tracks = embedded_streams
         .iter()
@@ -35,77 +89,88 @@ pub(crate) fn discover_subtitle_tracks(
         })
         .collect::<Vec<_>>();
 
-    tracks.extend(discover_external_subtitle_tracks(video_path));
+    tracks.extend(discover_external_subtitle_tracks(video_path, index));
     tracks
 }
 
-fn discover_external_subtitle_tracks(video_path: &Path) -> Vec<DiscoveredSubtitleTrack> {
+fn discover_external_subtitle_tracks(
+    video_path: &Path,
+    index: &SubtitleDirectoryIndex,
+) -> Vec<DiscoveredSubtitleTrack> {
     let Some(parent) = video_path.parent() else {
         return Vec::new();
     };
-
-    let Ok(entries) = fs::read_dir(parent) else {
+    let Some(directory) = index.directories.get(parent) else {
         return Vec::new();
     };
 
     let video_base_stem = normalize_subtitle_comparison_stem(video_path);
     let video_episode_identity = episode_identity_for_path(video_path);
-    let identity_counts = collect_video_episode_identity_counts(parent);
-
-    entries
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| path.is_file())
-        .filter(|path| is_supported_subtitle(path))
-        .filter_map(|path| {
-            let parsed = parse_subtitle_sidecar(&path);
-            let subtitle_format = extension_lowercase(&path).unwrap_or_else(|| "srt".to_string());
+    directory
+        .subtitles
+        .iter()
+        .filter_map(|subtitle| {
             if !subtitle_matches_video(
                 &video_base_stem,
                 video_episode_identity,
-                &identity_counts,
-                &parsed,
+                &directory.episode_identity_counts,
+                &subtitle.parsed,
             ) {
                 return None;
             }
 
             Some(DiscoveredSubtitleTrack {
                 source_kind: "external".to_string(),
-                file_path: Some(path),
+                file_path: Some(subtitle.path.clone()),
                 stream_index: None,
-                language: parsed.language,
-                subtitle_format,
-                label: parsed.label,
-                is_default: parsed.is_default,
-                is_forced: parsed.is_forced,
-                is_hearing_impaired: parsed.is_hearing_impaired,
+                language: subtitle.parsed.language.clone(),
+                subtitle_format: subtitle.subtitle_format.clone(),
+                label: subtitle.parsed.label.clone(),
+                is_default: subtitle.parsed.is_default,
+                is_forced: subtitle.parsed.is_forced,
+                is_hearing_impaired: subtitle.parsed.is_hearing_impaired,
             })
         })
         .collect()
 }
 
-fn collect_video_episode_identity_counts(directory: &Path) -> HashMap<(i32, i32), usize> {
+fn index_subtitle_directory(directory: &Path) -> IndexedSubtitleDirectory {
     let Ok(entries) = fs::read_dir(directory) else {
-        return HashMap::new();
+        return IndexedSubtitleDirectory::default();
     };
 
-    let mut counts = HashMap::new();
+    let mut indexed = IndexedSubtitleDirectory::default();
     for path in entries
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
     {
-        if !path.is_file() || !is_supported_video(&path) {
+        if !path.is_file() {
             continue;
         }
 
-        if let Some(identity) = episode_identity_for_path(&path) {
-            *counts
-                .entry((identity.season_number, identity.episode_number))
-                .or_insert(0) += 1;
+        if is_supported_video(&path) {
+            if let Some(identity) = episode_identity_for_path(&path) {
+                *indexed
+                    .episode_identity_counts
+                    .entry((identity.season_number, identity.episode_number))
+                    .or_insert(0) += 1;
+            }
+            continue;
+        }
+
+        if is_supported_subtitle(&path) {
+            indexed.subtitles.push(IndexedSubtitleSidecar {
+                subtitle_format: extension_lowercase(&path).unwrap_or_else(|| "srt".to_string()),
+                parsed: parse_subtitle_sidecar(&path),
+                path,
+            });
         }
     }
 
-    counts
+    indexed
+        .subtitles
+        .sort_by(|left, right| left.path.cmp(&right.path));
+    indexed
 }
 
 fn subtitle_matches_video(
@@ -244,7 +309,9 @@ fn is_supported_video(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::discover_subtitle_tracks;
+    use super::{
+        discover_subtitle_tracks, discover_subtitle_tracks_with_index, SubtitleDirectoryIndex,
+    };
     use crate::probe::EmbeddedSubtitleStream;
     use std::{fs, path::PathBuf};
     use uuid::Uuid;
@@ -290,6 +357,34 @@ mod tests {
     }
 
     #[test]
+    fn discover_subtitle_tracks_reacts_to_episode_version_addition_and_removal() {
+        let root = temp_dir();
+        let video_path = root.join("show.1080p.S01E01.mkv");
+        let second_version_path = root.join("show.4k.S01E01.mkv");
+        let subtitle_path = root.join("random.S01E01.en.srt");
+        fs::write(&video_path, b"video").unwrap();
+        fs::write(&subtitle_path, b"1\n00:00:00,000 --> 00:00:01,000\nhello").unwrap();
+
+        let initial_tracks = discover_subtitle_tracks(&video_path, &[]);
+        assert!(initial_tracks
+            .iter()
+            .any(|track| track.file_path.as_ref() == Some(&subtitle_path)));
+
+        fs::write(&second_version_path, b"second video").unwrap();
+        let ambiguous_tracks = discover_subtitle_tracks(&video_path, &[]);
+        assert!(ambiguous_tracks
+            .iter()
+            .all(|track| track.file_path.as_ref() != Some(&subtitle_path)));
+
+        fs::remove_file(second_version_path).unwrap();
+        let restored_tracks = discover_subtitle_tracks(&video_path, &[]);
+        let _ = fs::remove_dir_all(root);
+        assert!(restored_tracks
+            .iter()
+            .any(|track| track.file_path.as_ref() == Some(&subtitle_path)));
+    }
+
+    #[test]
     fn discover_subtitle_tracks_marks_hearing_impaired_sidecars() {
         let root = temp_dir();
         let video_path = root.join("movie.mkv");
@@ -329,5 +424,27 @@ mod tests {
 
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0].stream_index, Some(3));
+    }
+
+    #[test]
+    fn directory_index_is_reused_for_multiple_videos() {
+        let root = temp_dir();
+        let first_video = root.join("show.S01E01.mkv");
+        let second_video = root.join("show.S01E02.mkv");
+        let first_subtitle = root.join("show.S01E01.zh.srt");
+        let second_subtitle = root.join("show.S01E02.en.srt");
+        fs::write(&first_video, b"video").unwrap();
+        fs::write(&second_video, b"video").unwrap();
+        fs::write(&first_subtitle, b"first").unwrap();
+        fs::write(&second_subtitle, b"second").unwrap();
+
+        let index = SubtitleDirectoryIndex::build([first_video.as_path(), second_video.as_path()]);
+        let first_tracks = discover_subtitle_tracks_with_index(&first_video, &[], &index);
+        let second_tracks = discover_subtitle_tracks_with_index(&second_video, &[], &index);
+
+        assert_eq!(first_tracks.len(), 1);
+        assert_eq!(first_tracks[0].file_path.as_ref(), Some(&first_subtitle));
+        assert_eq!(second_tracks.len(), 1);
+        assert_eq!(second_tracks[0].file_path.as_ref(), Some(&second_subtitle));
     }
 }

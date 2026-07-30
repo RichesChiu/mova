@@ -1,25 +1,108 @@
-use crate::library_artwork_cache_dir;
 use crate::metadata::{
-    apply_remote_metadata, MetadataLookup, MetadataLookupCache, MetadataProvider,
-    MetadataSeasonAirYearHint, RemoteMetadata, RemoteSeriesEpisodeOutline,
+    apply_remote_metadata, MetadataLookup, MetadataProvider, MetadataSeasonAirYearHint,
+    RemoteMetadata, RemoteSeriesEpisodeOutline,
 };
+use crate::{library_artwork_cache_dir, lock_cache_path, write_cache_file_atomically};
 use mova_scan::DiscoveredMediaFile;
-use reqwest::{header::CONTENT_TYPE, Client, Url};
+use reqwest::{
+    header::CONTENT_TYPE,
+    redirect::{Attempt, Policy},
+    Client, Url,
+};
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    borrow::Borrow,
+    collections::{
+        hash_map::{DefaultHasher, Entry},
+        HashMap, VecDeque,
+    },
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
+
+const ARTWORK_CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
+const ARTWORK_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+const MAX_ARTWORK_RESPONSE_BYTES: usize = 20 * 1024 * 1024;
+const OFFICIAL_TMDB_ARTWORK_PREFIX: &str = "https://image.tmdb.org/t/p";
+const METADATA_LOOKUP_CACHE_CAPACITY: usize = 512;
+const SERIES_OUTLINE_CACHE_CAPACITY: usize = 128;
+const ARTWORK_RESULT_CACHE_CAPACITY: usize = 2_048;
+
+/// An insertion-ordered cache used for scan-local request reuse.
+///
+/// Hits intentionally do not update eviction order. This keeps lookups O(1),
+/// makes eviction deterministic, and prevents scan-wide caches from growing
+/// with the number of discovered media items.
+struct BoundedCache<K, V> {
+    values: HashMap<K, V>,
+    insertion_order: VecDeque<K>,
+    capacity: usize,
+}
+
+impl<K, V> BoundedCache<K, V>
+where
+    K: Clone + Eq + Hash,
+{
+    fn new(capacity: usize) -> Self {
+        assert!(capacity > 0, "bounded cache capacity must be positive");
+        Self {
+            values: HashMap::with_capacity(capacity),
+            insertion_order: VecDeque::with_capacity(capacity),
+            capacity,
+        }
+    }
+
+    fn get<Q>(&self, key: &Q) -> Option<&V>
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        self.values.get(key)
+    }
+
+    fn insert(&mut self, key: K, value: V) {
+        if let Entry::Occupied(mut entry) = self.values.entry(key.clone()) {
+            entry.insert(value);
+            return;
+        }
+
+        if self.values.len() == self.capacity {
+            let oldest = self
+                .insertion_order
+                .pop_front()
+                .expect("a full bounded cache must have an eviction candidate");
+            self.values.remove(&oldest);
+        }
+
+        self.insertion_order.push_back(key.clone());
+        self.values.insert(key, value);
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    #[cfg(test)]
+    fn contains_key<Q>(&self, key: &Q) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
+        self.values.contains_key(key)
+    }
+}
 
 /// 复用扫描和手动刷新共用的 metadata 补全与图片缓存逻辑。
 pub struct MetadataEnrichmentContext {
     artwork_cache_dir: PathBuf,
     metadata_provider: Arc<dyn MetadataProvider>,
     metadata_language: String,
-    metadata_cache: MetadataLookupCache,
-    series_outline_cache: HashMap<MetadataLookup, Option<RemoteSeriesEpisodeOutline>>,
-    artwork_cache: HashMap<String, Option<String>>,
+    metadata_cache: BoundedCache<MetadataLookup, Option<RemoteMetadata>>,
+    series_outline_cache: BoundedCache<MetadataLookup, Option<RemoteSeriesEpisodeOutline>>,
+    artwork_cache: BoundedCache<String, Option<String>>,
+    trusted_artwork_bases: Arc<Vec<Url>>,
     artwork_client: Client,
 }
 
@@ -28,6 +111,12 @@ pub(crate) enum MetadataEnrichmentStage {
     Metadata,
     Artwork,
     Completed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MetadataEnrichmentOutcome {
+    pub remote_lookup_performed: bool,
+    pub remote_metadata_applied: bool,
 }
 
 impl MetadataEnrichmentContext {
@@ -39,14 +128,16 @@ impl MetadataEnrichmentContext {
         metadata_provider: Arc<dyn MetadataProvider>,
         metadata_language: String,
     ) -> Self {
+        let trusted_artwork_bases = trusted_artwork_bases(metadata_provider.as_ref());
         Self {
             artwork_cache_dir: library_artwork_cache_dir(&cache_dir, library_id),
             metadata_provider,
             metadata_language,
-            metadata_cache: HashMap::new(),
-            series_outline_cache: HashMap::new(),
-            artwork_cache: HashMap::new(),
-            artwork_client: Client::new(),
+            metadata_cache: BoundedCache::new(METADATA_LOOKUP_CACHE_CAPACITY),
+            series_outline_cache: BoundedCache::new(SERIES_OUTLINE_CACHE_CAPACITY),
+            artwork_cache: BoundedCache::new(ARTWORK_RESULT_CACHE_CAPACITY),
+            artwork_client: build_artwork_client(trusted_artwork_bases.clone()),
+            trusted_artwork_bases,
         }
     }
 
@@ -65,12 +156,15 @@ impl MetadataEnrichmentContext {
         files: &mut [DiscoveredMediaFile],
         season_air_year: Option<MetadataSeasonAirYearHint>,
         mut on_progress: F,
-    ) -> anyhow::Result<()>
+    ) -> anyhow::Result<MetadataEnrichmentOutcome>
     where
         F: FnMut(MetadataEnrichmentStage, &DiscoveredMediaFile),
     {
         if files.is_empty() {
-            return Ok(());
+            return Ok(MetadataEnrichmentOutcome {
+                remote_lookup_performed: false,
+                remote_metadata_applied: false,
+            });
         }
 
         let primary_lookup = metadata_group_primary_lookup(
@@ -83,9 +177,9 @@ impl MetadataEnrichmentContext {
 
         on_progress(MetadataEnrichmentStage::Metadata, &files[0]);
 
-        let resolved_remote_metadata = if self.metadata_provider.is_enabled()
-            && group_needs_remote_metadata(files)
-        {
+        let remote_lookup_performed =
+            self.metadata_provider.is_enabled() && group_needs_remote_metadata(files);
+        let resolved_remote_metadata = if remote_lookup_performed {
             let metadata = self
                 .lookup_group_remote_metadata(lookup_type, &files[0], season_air_year)
                 .await?;
@@ -120,7 +214,10 @@ impl MetadataEnrichmentContext {
         }
 
         on_progress(MetadataEnrichmentStage::Completed, &files[0]);
-        Ok(())
+        Ok(MetadataEnrichmentOutcome {
+            remote_lookup_performed,
+            remote_metadata_applied: resolved_remote_metadata.is_some(),
+        })
     }
 
     pub async fn enrich_file_with_progress<F>(
@@ -208,7 +305,8 @@ impl MetadataEnrichmentContext {
         &mut self,
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Option<RemoteMetadata>> {
-        if let Some(metadata) = self.metadata_cache.get(lookup) {
+        let cache_key = canonical_metadata_request_key(lookup);
+        if let Some(metadata) = self.metadata_cache.get(&cache_key) {
             return Ok(metadata.clone());
         }
 
@@ -226,7 +324,7 @@ impl MetadataEnrichmentContext {
             }
         };
 
-        self.metadata_cache.insert(lookup.clone(), metadata.clone());
+        self.metadata_cache.insert(cache_key, metadata.clone());
         Ok(metadata)
     }
 
@@ -234,7 +332,8 @@ impl MetadataEnrichmentContext {
         &mut self,
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
-        if let Some(outline) = self.series_outline_cache.get(lookup) {
+        let cache_key = canonical_metadata_request_key(lookup);
+        if let Some(outline) = self.series_outline_cache.get(&cache_key) {
             return Ok(outline.clone());
         }
 
@@ -256,8 +355,7 @@ impl MetadataEnrichmentContext {
             }
         };
 
-        self.series_outline_cache
-            .insert(lookup.clone(), outline.clone());
+        self.series_outline_cache.insert(cache_key, outline.clone());
         Ok(outline)
     }
 
@@ -329,65 +427,30 @@ impl MetadataEnrichmentContext {
         Ok(())
     }
     async fn cache_file_artwork(&mut self, file: &mut DiscoveredMediaFile) {
-        if let Some(series_logo_path) = file.series_logo_path.clone() {
-            if let Some(cached_path) = self.cache_remote_artwork(&series_logo_path, "logo").await {
-                file.series_logo_path = Some(cached_path);
-            }
-        }
-
-        if let Some(series_poster_path) = file.series_poster_path.clone() {
-            if let Some(cached_path) = self
-                .cache_remote_artwork(&series_poster_path, "poster")
-                .await
-            {
-                file.series_poster_path = Some(cached_path);
-            }
-        }
-
-        if let Some(series_backdrop_path) = file.series_backdrop_path.clone() {
-            if let Some(cached_path) = self
-                .cache_remote_artwork(&series_backdrop_path, "backdrop")
-                .await
-            {
-                file.series_backdrop_path = Some(cached_path);
-            }
-        }
-
-        if let Some(season_poster_path) = file.season_poster_path.clone() {
-            if let Some(cached_path) = self
-                .cache_remote_artwork(&season_poster_path, "poster")
-                .await
-            {
-                file.season_poster_path = Some(cached_path);
-            }
-        }
-
-        if let Some(season_backdrop_path) = file.season_backdrop_path.clone() {
-            if let Some(cached_path) = self
-                .cache_remote_artwork(&season_backdrop_path, "backdrop")
-                .await
-            {
-                file.season_backdrop_path = Some(cached_path);
-            }
-        }
-
-        if let Some(poster_path) = file.poster_path.clone() {
-            if let Some(cached_path) = self.cache_remote_artwork(&poster_path, "poster").await {
-                file.poster_path = Some(cached_path);
-            }
-        }
-
-        if let Some(backdrop_path) = file.backdrop_path.clone() {
-            if let Some(cached_path) = self.cache_remote_artwork(&backdrop_path, "backdrop").await {
-                file.backdrop_path = Some(cached_path);
-            }
-        }
-
-        if let Some(logo_path) = file.logo_path.clone() {
-            if let Some(cached_path) = self.cache_remote_artwork(&logo_path, "logo").await {
-                file.logo_path = Some(cached_path);
-            }
-        }
+        file.series_logo_path = self
+            .cache_artwork_source(file.series_logo_path.take(), "logo")
+            .await;
+        file.series_poster_path = self
+            .cache_artwork_source(file.series_poster_path.take(), "poster")
+            .await;
+        file.series_backdrop_path = self
+            .cache_artwork_source(file.series_backdrop_path.take(), "backdrop")
+            .await;
+        file.season_poster_path = self
+            .cache_artwork_source(file.season_poster_path.take(), "poster")
+            .await;
+        file.season_backdrop_path = self
+            .cache_artwork_source(file.season_backdrop_path.take(), "backdrop")
+            .await;
+        file.poster_path = self
+            .cache_artwork_source(file.poster_path.take(), "poster")
+            .await;
+        file.backdrop_path = self
+            .cache_artwork_source(file.backdrop_path.take(), "backdrop")
+            .await;
+        file.logo_path = self
+            .cache_artwork_source(file.logo_path.take(), "logo")
+            .await;
     }
 
     pub async fn cache_remote_metadata_artwork(&mut self, metadata: &mut RemoteMetadata) {
@@ -425,8 +488,32 @@ impl MetadataEnrichmentContext {
         }
     }
 
+    /// Removes external artwork that is outside the configured provider image
+    /// origins. This is also applied to the pre-enrichment snapshot used when
+    /// a later provider request fails, so restoring trusted metadata cannot
+    /// reintroduce an arbitrary URL read from an NFO file.
+    pub(crate) fn sanitize_file_artwork_sources(&self, file: &mut DiscoveredMediaFile) {
+        sanitize_file_artwork_sources(file, &self.trusted_artwork_bases);
+    }
+
     async fn cache_artwork_source(&mut self, source: Option<String>, kind: &str) -> Option<String> {
         let source = source?;
+
+        if !is_external_url(&source) {
+            return Some(source);
+        }
+
+        if !is_allowed_remote_artwork_url(&source, &self.trusted_artwork_bases) {
+            let source_host = Url::parse(&source)
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_owned));
+            tracing::warn!(
+                kind,
+                source_host = ?source_host,
+                "refusing untrusted remote artwork URL"
+            );
+            return None;
+        }
 
         self.cache_remote_artwork(&source, kind)
             .await
@@ -434,7 +521,7 @@ impl MetadataEnrichmentContext {
     }
 
     async fn cache_remote_artwork(&mut self, source_url: &str, kind: &str) -> Option<String> {
-        if !is_external_url(source_url) {
+        if !is_allowed_remote_artwork_url(source_url, &self.trusted_artwork_bases) {
             return None;
         }
 
@@ -443,16 +530,16 @@ impl MetadataEnrichmentContext {
         }
 
         let cache_path = build_artwork_cache_path(&self.artwork_cache_dir, source_url, kind);
+        let _cache_guard = lock_cache_path(&cache_path).await;
 
-        if tokio::fs::metadata(&cache_path)
-            .await
-            .map(|metadata| metadata.is_file())
-            .unwrap_or(false)
-        {
+        if is_valid_artwork_cache_file(&cache_path).await {
             let cached = Some(cache_path.to_string_lossy().to_string());
             self.artwork_cache
                 .insert(source_url.to_string(), cached.clone());
             return cached;
+        }
+        if tokio::fs::metadata(&cache_path).await.is_ok() {
+            let _ = tokio::fs::remove_file(&cache_path).await;
         }
 
         if let Some(parent) = cache_path.parent() {
@@ -482,7 +569,7 @@ impl MetadataEnrichmentContext {
             }
         };
 
-        let response = match response.error_for_status() {
+        let mut response = match response.error_for_status() {
             Ok(response) => response,
             Err(error) => {
                 tracing::warn!(
@@ -495,26 +582,101 @@ impl MetadataEnrichmentContext {
                 return None;
             }
         };
-
-        if let Some(content_type) = response.headers().get(CONTENT_TYPE) {
-            tracing::debug!(kind, source_url, content_type = ?content_type, "downloading artwork");
+        let content_type = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .map(str::trim)
+            .map(str::to_owned);
+        if !content_type
+            .as_deref()
+            .is_some_and(is_allowed_artwork_content_type)
+        {
+            tracing::warn!(
+                kind,
+                source_url,
+                content_type = ?content_type,
+                "artwork response has an unsupported content type"
+            );
+            self.artwork_cache.insert(source_url.to_string(), None);
+            return None;
+        }
+        let expected_content_type =
+            artwork_content_type_for_extension(artwork_file_extension(source_url));
+        if content_type.as_deref() != Some(expected_content_type) {
+            tracing::warn!(
+                kind,
+                source_url,
+                content_type = ?content_type,
+                expected_content_type,
+                "artwork response type does not match its cache file extension"
+            );
+            self.artwork_cache.insert(source_url.to_string(), None);
+            return None;
         }
 
-        let bytes = match response.bytes().await {
-            Ok(bytes) => bytes,
-            Err(error) => {
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_ARTWORK_RESPONSE_BYTES as u64)
+        {
+            tracing::warn!(
+                kind,
+                source_url,
+                content_length = response.content_length(),
+                "artwork response exceeds the configured size limit"
+            );
+            self.artwork_cache.insert(source_url.to_string(), None);
+            return None;
+        }
+
+        let mut bytes = Vec::with_capacity(
+            response
+                .content_length()
+                .unwrap_or_default()
+                .min(MAX_ARTWORK_RESPONSE_BYTES as u64) as usize,
+        );
+        loop {
+            let chunk = match response.chunk().await {
+                Ok(chunk) => chunk,
+                Err(error) => {
+                    tracing::warn!(
+                        kind,
+                        source_url,
+                        error = ?error,
+                        "failed to read artwork response body"
+                    );
+                    self.artwork_cache.insert(source_url.to_string(), None);
+                    return None;
+                }
+            };
+            let Some(chunk) = chunk else {
+                break;
+            };
+            if bytes.len().saturating_add(chunk.len()) > MAX_ARTWORK_RESPONSE_BYTES {
                 tracing::warn!(
                     kind,
                     source_url,
-                    error = ?error,
-                    "failed to read artwork response body"
+                    "artwork response exceeded the configured size limit while streaming"
                 );
                 self.artwork_cache.insert(source_url.to_string(), None);
                 return None;
             }
-        };
+            bytes.extend_from_slice(&chunk);
+        }
 
-        if let Err(error) = tokio::fs::write(&cache_path, &bytes).await {
+        if !artwork_bytes_match_content_type(&bytes, content_type.as_deref().unwrap_or_default()) {
+            tracing::warn!(
+                kind,
+                source_url,
+                content_type = ?content_type,
+                "artwork response body does not match its declared image type"
+            );
+            self.artwork_cache.insert(source_url.to_string(), None);
+            return None;
+        }
+
+        if let Err(error) = write_cache_file_atomically(&cache_path, &bytes).await {
             tracing::warn!(
                 kind,
                 source_url,
@@ -531,6 +693,58 @@ impl MetadataEnrichmentContext {
             .insert(source_url.to_string(), cached.clone());
         cached
     }
+}
+
+fn canonical_metadata_request_key(lookup: &MetadataLookup) -> MetadataLookup {
+    let library_type = lookup.library_type.trim().to_ascii_lowercase();
+    let language = lookup
+        .language
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+
+    if let Some(provider_item_id) = lookup
+        .provider_item_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return MetadataLookup {
+            title: String::new(),
+            year: None,
+            season_air_year: None,
+            library_type,
+            language,
+            provider_item_id: Some(provider_item_id.to_ascii_lowercase()),
+        };
+    }
+
+    MetadataLookup {
+        title: normalize_metadata_cache_title(&lookup.title),
+        year: lookup.year,
+        season_air_year: lookup.season_air_year,
+        library_type,
+        language,
+        provider_item_id: None,
+    }
+}
+
+fn normalize_metadata_cache_title(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(char::to_lowercase)
+        .map(|character| {
+            if character.is_alphanumeric() {
+                character
+            } else {
+                ' '
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn needs_remote_metadata(file: &DiscoveredMediaFile) -> bool {
@@ -805,7 +1019,198 @@ fn is_generic_artwork_path(value: &str, generic_stems: &[&str]) -> bool {
 }
 
 fn is_external_url(value: &str) -> bool {
-    value.starts_with("http://") || value.starts_with("https://")
+    Url::parse(value).ok().is_some_and(|url| {
+        url.scheme().eq_ignore_ascii_case("http") || url.scheme().eq_ignore_ascii_case("https")
+    })
+}
+
+pub(crate) fn trusted_artwork_bases(metadata_provider: &dyn MetadataProvider) -> Arc<Vec<Url>> {
+    let mut bases = Vec::new();
+    for value in [
+        Some(OFFICIAL_TMDB_ARTWORK_PREFIX),
+        metadata_provider.trusted_artwork_base_url(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let Ok(url) = Url::parse(value) else {
+            tracing::warn!("ignoring invalid trusted artwork base URL");
+            continue;
+        };
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            tracing::warn!("ignoring malformed trusted artwork base URL");
+            continue;
+        }
+        if !bases.iter().any(|existing| existing == &url) {
+            bases.push(url);
+        }
+    }
+
+    Arc::new(bases)
+}
+
+fn build_artwork_client(trusted_bases: Arc<Vec<Url>>) -> Client {
+    Client::builder()
+        .connect_timeout(ARTWORK_CONNECT_TIMEOUT)
+        .timeout(ARTWORK_REQUEST_TIMEOUT)
+        .redirect(Policy::custom(move |attempt| {
+            validate_artwork_redirect(attempt, &trusted_bases)
+        }))
+        .build()
+        .expect("static artwork HTTP client configuration must be valid")
+}
+
+fn validate_artwork_redirect(
+    attempt: Attempt<'_>,
+    trusted_bases: &[Url],
+) -> reqwest::redirect::Action {
+    if attempt.previous().len() >= 5 {
+        return attempt.error("too many artwork redirects");
+    }
+
+    if is_allowed_remote_artwork_url_value(attempt.url(), trusted_bases) {
+        attempt.follow()
+    } else {
+        attempt.error("artwork redirect target is not trusted")
+    }
+}
+
+fn is_allowed_remote_artwork_url(value: &str, trusted_bases: &[Url]) -> bool {
+    Url::parse(value)
+        .ok()
+        .as_ref()
+        .is_some_and(|url| is_allowed_remote_artwork_url_value(url, trusted_bases))
+}
+
+fn is_allowed_remote_artwork_url_value(url: &Url, trusted_bases: &[Url]) -> bool {
+    url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && trusted_bases
+            .iter()
+            .any(|base| artwork_url_is_within_base(url, base))
+}
+
+pub(crate) fn sanitize_file_artwork_sources(file: &mut DiscoveredMediaFile, trusted_bases: &[Url]) {
+    for source in [
+        &mut file.series_logo_path,
+        &mut file.series_poster_path,
+        &mut file.series_backdrop_path,
+        &mut file.season_poster_path,
+        &mut file.season_backdrop_path,
+        &mut file.poster_path,
+        &mut file.backdrop_path,
+        &mut file.logo_path,
+    ] {
+        if source.as_deref().is_some_and(|value| {
+            is_external_url(value) && !is_allowed_remote_artwork_url(value, trusted_bases)
+        }) {
+            *source = None;
+        }
+    }
+}
+
+fn artwork_url_is_within_base(url: &Url, base: &Url) -> bool {
+    let encoded_path = url.path().to_ascii_lowercase();
+    if encoded_path.contains("%2e")
+        || encoded_path.contains("%2f")
+        || encoded_path.contains("%5c")
+        || encoded_path.contains('\\')
+    {
+        return false;
+    }
+
+    if url.scheme() != base.scheme()
+        || !url
+            .host_str()
+            .zip(base.host_str())
+            .is_some_and(|(url_host, base_host)| url_host.eq_ignore_ascii_case(base_host))
+        || url.port_or_known_default() != base.port_or_known_default()
+    {
+        return false;
+    }
+
+    let base_path = base.path().trim_end_matches('/');
+    base_path.is_empty()
+        || base_path == "/"
+        || url.path() == base_path
+        || url
+            .path()
+            .strip_prefix(base_path)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn is_allowed_artwork_content_type(content_type: &str) -> bool {
+    matches!(
+        content_type.to_ascii_lowercase().as_str(),
+        "image/jpeg" | "image/png" | "image/webp" | "image/gif" | "image/avif"
+    )
+}
+
+fn artwork_content_type_for_extension(extension: &str) -> &'static str {
+    match extension {
+        "jpg" => "image/jpeg",
+        "png" => "image/png",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "avif" => "image/avif",
+        _ => "application/octet-stream",
+    }
+}
+
+fn artwork_bytes_match_content_type(bytes: &[u8], content_type: &str) -> bool {
+    match content_type.to_ascii_lowercase().as_str() {
+        "image/jpeg" => bytes.starts_with(&[0xff, 0xd8, 0xff]),
+        "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "image/webp" => bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP",
+        "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
+        "image/avif" => {
+            bytes.len() >= 12
+                && &bytes[4..8] == b"ftyp"
+                && matches!(&bytes[8..12], b"avif" | b"avis")
+        }
+        _ => false,
+    }
+}
+
+async fn is_valid_artwork_cache_file(path: &Path) -> bool {
+    use tokio::io::AsyncReadExt;
+
+    let Ok(metadata) = tokio::fs::metadata(path).await else {
+        return false;
+    };
+    if !metadata.is_file()
+        || metadata.len() == 0
+        || metadata.len() > MAX_ARTWORK_RESPONSE_BYTES as u64
+    {
+        return false;
+    }
+
+    let Ok(mut file) = tokio::fs::File::open(path).await else {
+        return false;
+    };
+    let mut header = [0_u8; 16];
+    let Ok(read) = file.read(&mut header).await else {
+        return false;
+    };
+
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase());
+    extension.is_some_and(|extension| {
+        artwork_bytes_match_content_type(
+            &header[..read],
+            artwork_content_type_for_extension(&extension),
+        )
+    })
 }
 
 fn metadata_lookup_candidates(
@@ -1142,14 +1547,17 @@ fn normalize_lookup_title(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        artwork_file_extension, build_artwork_cache_path, is_generated_episode_still_path,
+        artwork_bytes_match_content_type, artwork_file_extension, build_artwork_cache_path,
+        is_allowed_remote_artwork_url, is_generated_episode_still_path,
         is_generic_backdrop_artwork_path, is_generic_poster_artwork_path,
         metadata_lookup_candidates, needs_remote_metadata, needs_remote_title_refresh,
-        should_replace_episode_artwork, stable_artwork_cache_key, MetadataEnrichmentContext,
+        should_replace_episode_artwork, stable_artwork_cache_key, trusted_artwork_bases,
+        MetadataEnrichmentContext, ARTWORK_RESULT_CACHE_CAPACITY, METADATA_LOOKUP_CACHE_CAPACITY,
+        SERIES_OUTLINE_CACHE_CAPACITY,
     };
     use crate::metadata::{
-        MetadataLookup, MetadataProvider, MetadataSeasonAirYearHint, RemoteMetadata,
-        RemoteSeriesEpisode, RemoteSeriesEpisodeOutline, RemoteSeriesSeason,
+        MetadataLookup, MetadataProvider, MetadataSeasonAirYearHint, NullMetadataProvider,
+        RemoteMetadata, RemoteSeriesEpisode, RemoteSeriesEpisodeOutline, RemoteSeriesSeason,
     };
     use async_trait::async_trait;
     use mova_scan::DiscoveredMediaFile;
@@ -1174,6 +1582,158 @@ mod tests {
     }
 
     #[test]
+    fn remote_artwork_allows_only_the_tmdb_https_image_endpoint() {
+        let trusted_bases = trusted_artwork_bases(&NullMetadataProvider);
+        assert!(is_allowed_remote_artwork_url(
+            "https://image.tmdb.org/t/p/original/poster.jpg",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "http://image.tmdb.org/t/p/original/poster.jpg",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "https://image.tmdb.org.evil.example/t/p/original/poster.jpg",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "https://127.0.0.1/t/p/original/poster.jpg",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "https://image.tmdb.org:444/t/p/original/poster.jpg",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "https://user@image.tmdb.org/t/p/original/poster.jpg",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "https://image.tmdb.org/private/poster.jpg",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "https://image.tmdb.org/t/p/original/poster.jpg?url=http://127.0.0.1/private",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "https://image.tmdb.org/t/p/original/poster.jpg#fragment",
+            &trusted_bases
+        ));
+    }
+
+    #[test]
+    fn explicitly_configured_artwork_proxy_obeys_origin_and_path_boundaries() {
+        struct ProxyMetadataProvider;
+
+        #[async_trait]
+        impl MetadataProvider for ProxyMetadataProvider {
+            fn trusted_artwork_base_url(&self) -> Option<&str> {
+                Some("http://10.0.0.5:8080/tmdb/images")
+            }
+
+            async fn lookup(
+                &self,
+                _lookup: &MetadataLookup,
+            ) -> anyhow::Result<Option<RemoteMetadata>> {
+                Ok(None)
+            }
+        }
+
+        let trusted_bases = trusted_artwork_bases(&ProxyMetadataProvider);
+        assert!(is_allowed_remote_artwork_url(
+            "http://10.0.0.5:8080/tmdb/images/poster.jpg",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "http://10.0.0.5:8080/tmdb/images-evil/poster.jpg",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "http://10.0.0.5:8080/tmdb/images/%2e%2e/admin",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "http://10.0.0.5:8081/tmdb/images/poster.jpg",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "http://10.0.0.6:8080/tmdb/images/poster.jpg",
+            &trusted_bases
+        ));
+        assert!(!is_allowed_remote_artwork_url(
+            "http://10.0.0.5:8080/tmdb/images/poster.jpg?source=http://127.0.0.1",
+            &trusted_bases
+        ));
+    }
+
+    #[test]
+    fn artwork_payload_must_match_the_declared_image_type() {
+        assert!(artwork_bytes_match_content_type(
+            b"\x89PNG\r\n\x1a\npayload",
+            "image/png"
+        ));
+        assert!(!artwork_bytes_match_content_type(
+            b"<html>not an image</html>",
+            "image/jpeg"
+        ));
+        assert!(!artwork_bytes_match_content_type(
+            b"\x89PNG\r\n\x1a\npayload",
+            "image/jpeg"
+        ));
+    }
+
+    #[tokio::test]
+    async fn file_artwork_drops_untrusted_remote_urls_and_keeps_local_sidecars() {
+        let provider: Arc<dyn MetadataProvider> = Arc::new(NullMetadataProvider);
+        let mut context = MetadataEnrichmentContext::new(
+            std::env::temp_dir().join("mova-untrusted-artwork-test"),
+            1,
+            provider,
+            "zh-CN".to_string(),
+        );
+        let mut file = build_discovered_episode();
+        file.poster_path = Some("http://127.0.0.1:8080/private.jpg".to_string());
+        file.backdrop_path = Some("/media/series/Show/fanart.jpg".to_string());
+
+        context.cache_file_artwork(&mut file).await;
+
+        assert_eq!(file.poster_path, None);
+        assert_eq!(
+            file.backdrop_path.as_deref(),
+            Some("/media/series/Show/fanart.jpg")
+        );
+    }
+
+    #[test]
+    fn artwork_snapshot_sanitizer_drops_untrusted_urls_before_error_restore() {
+        let provider: Arc<dyn MetadataProvider> = Arc::new(NullMetadataProvider);
+        let context = MetadataEnrichmentContext::new(
+            std::env::temp_dir().join("mova-untrusted-artwork-snapshot-test"),
+            1,
+            provider,
+            "zh-CN".to_string(),
+        );
+        let mut file = build_discovered_episode();
+        file.series_poster_path = Some("http://127.0.0.1:8080/private.jpg".to_string());
+        file.poster_path =
+            Some("https://image.tmdb.org/t/p/original/episode-poster.jpg".to_string());
+        file.backdrop_path = Some("/media/series/Show/fanart.jpg".to_string());
+
+        context.sanitize_file_artwork_sources(&mut file);
+
+        assert_eq!(file.series_poster_path, None);
+        assert_eq!(
+            file.poster_path.as_deref(),
+            Some("https://image.tmdb.org/t/p/original/episode-poster.jpg")
+        );
+        assert_eq!(
+            file.backdrop_path.as_deref(),
+            Some("/media/series/Show/fanart.jpg")
+        );
+    }
+
+    #[test]
     fn build_artwork_cache_path_places_files_under_kind_directory() {
         let cache_root = Path::new("/tmp/mova-cache");
         let source_url = "https://image.tmdb.org/t/p/original/poster.jpg";
@@ -1187,6 +1747,79 @@ mod tests {
                 .join("poster")
                 .join(format!("{}.jpg", stable_artwork_cache_key(source_url)))
         );
+    }
+
+    #[test]
+    fn scan_local_caches_stay_bounded_and_evict_the_oldest_insertion() {
+        let provider: Arc<dyn MetadataProvider> = Arc::new(NullMetadataProvider);
+        let mut context = MetadataEnrichmentContext::new(
+            std::env::temp_dir().join("mova-bounded-enrichment-cache-test"),
+            1,
+            provider,
+            "zh-CN".to_string(),
+        );
+        let lookup = |index: usize| MetadataLookup {
+            title: format!("Title {index}"),
+            year: Some(2000 + index as i32),
+            season_air_year: None,
+            library_type: "movie".to_string(),
+            language: Some("zh-CN".to_string()),
+            provider_item_id: None,
+        };
+
+        for index in 0..METADATA_LOOKUP_CACHE_CAPACITY {
+            context.metadata_cache.insert(lookup(index), None);
+        }
+        let oldest_metadata_lookup = lookup(0);
+        assert!(context
+            .metadata_cache
+            .get(&oldest_metadata_lookup)
+            .is_some());
+        context
+            .metadata_cache
+            .insert(lookup(METADATA_LOOKUP_CACHE_CAPACITY), None);
+        assert_eq!(context.metadata_cache.len(), METADATA_LOOKUP_CACHE_CAPACITY);
+        assert!(!context.metadata_cache.contains_key(&oldest_metadata_lookup));
+        assert!(context
+            .metadata_cache
+            .contains_key(&lookup(METADATA_LOOKUP_CACHE_CAPACITY)));
+
+        for index in 0..SERIES_OUTLINE_CACHE_CAPACITY {
+            context.series_outline_cache.insert(lookup(index), None);
+        }
+        let oldest_outline_lookup = lookup(0);
+        assert!(context
+            .series_outline_cache
+            .get(&oldest_outline_lookup)
+            .is_some());
+        context
+            .series_outline_cache
+            .insert(lookup(SERIES_OUTLINE_CACHE_CAPACITY), None);
+        assert_eq!(
+            context.series_outline_cache.len(),
+            SERIES_OUTLINE_CACHE_CAPACITY
+        );
+        assert!(!context
+            .series_outline_cache
+            .contains_key(&oldest_outline_lookup));
+        assert!(context
+            .series_outline_cache
+            .contains_key(&lookup(SERIES_OUTLINE_CACHE_CAPACITY)));
+
+        for index in 0..ARTWORK_RESULT_CACHE_CAPACITY {
+            context
+                .artwork_cache
+                .insert(format!("artwork-{index}"), None);
+        }
+        assert!(context.artwork_cache.get("artwork-0").is_some());
+        context
+            .artwork_cache
+            .insert(format!("artwork-{ARTWORK_RESULT_CACHE_CAPACITY}"), None);
+        assert_eq!(context.artwork_cache.len(), ARTWORK_RESULT_CACHE_CAPACITY);
+        assert!(!context.artwork_cache.contains_key("artwork-0"));
+        assert!(context
+            .artwork_cache
+            .contains_key(format!("artwork-{ARTWORK_RESULT_CACHE_CAPACITY}").as_str()));
     }
 
     #[test]
@@ -1483,11 +2116,13 @@ mod tests {
 
         let mut files = vec![first, second];
 
-        context
+        let outcome = context
             .enrich_group_with_progress("series", &mut files, None, |_, _| {})
             .await
             .expect("group metadata enrichment should succeed");
 
+        assert!(outcome.remote_lookup_performed);
+        assert!(outcome.remote_metadata_applied);
         assert_eq!(provider.lookup_count.load(Ordering::SeqCst), 1);
         assert!(files.iter().all(|file| file.title == "诉讼女王"));
         assert!(files
@@ -1510,6 +2145,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_id_cache_key_deduplicates_equivalent_remote_requests() {
+        let provider = Arc::new(CountingMetadataProvider {
+            enabled: true,
+            lookup_count: AtomicUsize::new(0),
+        });
+        let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
+        let mut context = MetadataEnrichmentContext::new(
+            std::env::temp_dir().join("mova-provider-id-cache-test"),
+            1,
+            provider_for_context,
+            "zh-CN".to_string(),
+        );
+        let first = MetadataLookup {
+            title: "Local title A".to_string(),
+            year: Some(2024),
+            season_air_year: None,
+            library_type: "SERIES".to_string(),
+            language: Some("zh-CN".to_string()),
+            provider_item_id: Some(" 259909 ".to_string()),
+        };
+        let second = MetadataLookup {
+            title: "A translated title".to_string(),
+            year: None,
+            season_air_year: Some(MetadataSeasonAirYearHint {
+                season_number: 2,
+                year: 2025,
+            }),
+            library_type: "series".to_string(),
+            language: Some("ZH-cn".to_string()),
+            provider_item_id: Some("259909".to_string()),
+        };
+
+        context.lookup_remote_metadata_cached(&first).await.unwrap();
+        context
+            .lookup_remote_metadata_cached(&second)
+            .await
+            .unwrap();
+
+        assert_eq!(provider.lookup_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn enrich_group_skips_remote_lookup_when_provider_is_disabled() {
         let provider = Arc::new(CountingMetadataProvider {
             enabled: false,
@@ -1528,15 +2205,56 @@ mod tests {
         file.overview = Some("Local overview".to_string());
         let mut files = vec![file];
 
-        context
+        let outcome = context
             .enrich_group_with_progress("series", &mut files, None, |_, _| {})
             .await
             .expect("disabled provider should not block local enrichment");
 
+        assert!(!outcome.remote_lookup_performed);
+        assert!(!outcome.remote_metadata_applied);
         assert_eq!(provider.lookup_count.load(Ordering::SeqCst), 0);
         assert_eq!(files[0].title, "Local Series");
         assert_eq!(files[0].overview.as_deref(), Some("Local overview"));
         assert_eq!(files[0].metadata_provider_item_id, None);
+    }
+
+    #[tokio::test]
+    async fn enrich_group_reports_non_authoritative_when_complete_metadata_skips_lookup() {
+        let provider = Arc::new(CountingMetadataProvider {
+            enabled: true,
+            lookup_count: AtomicUsize::new(0),
+        });
+        let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
+        let mut context = MetadataEnrichmentContext::new(
+            std::env::temp_dir().join("mova-test-complete-artwork-cache"),
+            1,
+            provider_for_context,
+            "zh-CN".to_string(),
+        );
+        let mut file = build_discovered_episode();
+        file.metadata_provider = Some("tmdb".to_string());
+        file.metadata_provider_item_id = Some("259909".to_string());
+        file.title = "All's Fair".to_string();
+        file.source_title = "All's Fair".to_string();
+        file.original_title = Some("All's Fair".to_string());
+        file.year = Some(2025);
+        file.overview = Some("Complete overview".to_string());
+        file.poster_path = Some("/cache/episode-poster.jpg".to_string());
+        file.backdrop_path = Some("/cache/episode-backdrop.jpg".to_string());
+        file.series_poster_path = Some("/cache/series-poster.jpg".to_string());
+        file.series_backdrop_path = Some("/cache/series-backdrop.jpg".to_string());
+        file.season_poster_path = Some("/cache/season-poster.jpg".to_string());
+        file.season_backdrop_path = Some("/cache/season-backdrop.jpg".to_string());
+        let mut files = vec![file];
+
+        let outcome = context
+            .enrich_group_with_progress("series", &mut files, None, |_, _| {})
+            .await
+            .expect("complete metadata should pass through without a lookup");
+
+        assert_eq!(provider.lookup_count.load(Ordering::SeqCst), 0);
+        assert!(!outcome.remote_lookup_performed);
+        assert!(!outcome.remote_metadata_applied);
     }
 
     #[tokio::test]
@@ -1703,6 +2421,7 @@ mod tests {
         DiscoveredMediaFile {
             file_path: PathBuf::from("/media/series/Show/Season 01/Show.S01E01.mkv"),
             file_modified_at_ms: Some(1_700_000_000_000),
+            sidecar_fingerprint: String::new(),
             probe_error: None,
             metadata_provider: None,
             metadata_provider_item_id: None,

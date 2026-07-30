@@ -7,23 +7,6 @@ export interface ConfirmActionCopy {
   title: string
 }
 
-export const getUserAvatarInitial = (username: string) =>
-  username.trim().charAt(0).toUpperCase() || 'U'
-
-export const getUserLibraryAccessSummary = (user: UserAccount, libraries: Library[]) => {
-  if (user.role !== 'viewer') {
-    return ''
-  }
-
-  const libraryNames = libraries
-    .filter((library) => user.library_ids.includes(library.id))
-    .map((library) => library.name)
-
-  return libraryNames.length > 0
-    ? `Access: ${libraryNames.join(', ')}`
-    : 'Access: No libraries assigned'
-}
-
 export const getScanStatusLabel = (
   scanJob: ScanJob | null | undefined,
   progressPercent?: number,
@@ -72,26 +55,6 @@ export const getScanStatusTone = (scanJob: ScanJob | null | undefined) => {
       return 'muted'
   }
 }
-
-export const buildInitialScanJob = (
-  libraryId: number,
-  createdAt = new Date().toISOString(),
-): ScanJob => ({
-  id: -libraryId,
-  library_id: libraryId,
-  status: 'pending',
-  phase: 'discovering',
-  total_files: 0,
-  scanned_files: 0,
-  local_analyzed_files: 0,
-  local_committed_files: 0,
-  remote_completed_files: 0,
-  progress_percent: 0,
-  created_at: createdAt,
-  started_at: null,
-  finished_at: null,
-  error_message: null,
-})
 
 export const buildPlaceholderLibraryDetail = (library: Library): LibraryDetail => ({
   ...library,
@@ -153,17 +116,14 @@ export const buildCreatedLibraryCacheState = (
   return {
     libraries: upsertLibrary(libraries, createdLibrary),
     libraryDetail: placeholderDetail,
-    homeLibraryDetail: placeholderDetail,
   }
 }
 
 export const buildUpdatedLibraryCacheState = ({
-  currentHomeLibraryDetail,
   currentLibraryDetail,
   currentLibraries,
   updatedLibrary,
 }: {
-  currentHomeLibraryDetail: LibraryDetail | undefined
   currentLibraryDetail: LibraryDetail | undefined
   currentLibraries: Library[] | undefined
   updatedLibrary: Library
@@ -171,27 +131,19 @@ export const buildUpdatedLibraryCacheState = ({
   return {
     libraries: upsertLibrary(currentLibraries, updatedLibrary),
     libraryDetail: mergeUpdatedLibraryDetail(currentLibraryDetail, updatedLibrary),
-    homeLibraryDetail: mergeUpdatedLibraryDetail(currentHomeLibraryDetail, updatedLibrary),
   }
 }
 
 export const buildTriggeredScanCacheState = ({
   fallbackLibrary,
-  currentHomeLibraryDetail,
   currentLibraryDetail,
   scanJob,
 }: {
   fallbackLibrary: Library
-  currentHomeLibraryDetail: LibraryDetail | undefined
   currentLibraryDetail: LibraryDetail | undefined
   scanJob: ScanJob
 }) => ({
   libraryDetail: mergeTriggeredScanLibraryDetail(currentLibraryDetail, fallbackLibrary, scanJob),
-  homeLibraryDetail: mergeTriggeredScanLibraryDetail(
-    currentHomeLibraryDetail,
-    fallbackLibrary,
-    scanJob,
-  ),
 })
 
 export const buildDeletedLibraryCacheState = (

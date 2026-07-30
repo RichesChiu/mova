@@ -35,6 +35,8 @@ TMDB 命中不会把电影改成剧集或重建本地季集坐标。结构由本
 
 实现位于 `crates/mova-application/src/metadata.rs`。默认 API base URL 为 `https://api.themoviedb.org/3`，默认图片 base URL 为 `https://image.tmdb.org/t/p/original`；连接超时 4 秒、单次请求超时 12 秒。媒体库语言当前支持 `zh-CN` 和 `en-US`。
 
+扫描任务在内存中维护有界请求缓存。已有 provider ID 的请求以“媒体类型 + 语言 + provider ID”为唯一键，不受不同本地文件标题、年份或季提示影响；搜索请求则使用规范化标题、严格年份、季验证提示、媒体类型和语言。元数据详情与剧集季集大纲分别缓存，明确未命中也可以复用，临时网络或 provider 错误不进入缓存。该缓存只负责一次扫描执行内的请求去重，不替代数据库中的 provider binding，也不跨进程提供可靠状态。
+
 | Endpoint | 当前用途 |
 | --- | --- |
 | `GET /3/search/movie` | 无完整季集坐标的自动匹配、手动候选搜索 |
@@ -189,6 +191,10 @@ Logo 语言顺序：
 
 同语言候选按投票均值、投票数和像素面积选择。选中的图片下载到媒体库独立缓存目录，再通过 Mova 稳定 URL 提供给客户端。没有合适素材时对应字段保持为空。
 
+远端图片下载只接受 `https://image.tmdb.org/t/p/` 下的地址，或者管理员通过 `MOVA_TMDB_IMAGE_BASE_URL` 显式配置的来源；显式来源按解析后的 scheme、host、有效端口和路径边界校验，候选 URL 不得携带 query 或 fragment，重定向目标也必须满足同一约束。连接超时为 4 秒，完整请求超时为 15 秒，单张图片最多 20 MiB；响应必须同时通过受支持的图片 MIME 类型与文件头校验。下载先写入缓存目录内的临时文件，完整写入并同步后通过同文件系统原子重命名发布，客户端不会读取到半成品。
+
+API 响应只直接透出不带 query/fragment 的 TMDB 官方 HTTPS 图片地址；显式配置的服务端图片代理只用于受控下载，不作为客户端直连地址。已缓存图片和 NFO sidecar 图片通过 Mova 内部路由读取，并在响应前再次校验所属媒体库边界、20 MiB 上限和图片文件头。
+
 ## 9. 请求与失败策略
 
 - 单个补全上下文会按完整 `MetadataLookup` 缓存查询结果；key 包含类型、语言、标题、作品年份、可选季年份提示和 provider ID。
@@ -196,6 +202,9 @@ Logo 语言顺序：
 - `401/403` 表示服务配置错误。
 - `404` 表示已有 binding 可能失效，需要复核。
 - `429/5xx/timeout` 是可重试 provider 故障，不得写成 `no_remote_match`。
+- provider 请求在补全过程中失败时，扫描组恢复远端处理前的本地权威快照；不得清空既有 provider binding、标题、简介、图片、评分、external IDs 或 NFO 字段。此前已经持有 binding 的文件保持 `matched`，同时以 `metadata_provider_error` 记录本次刷新故障并在后续扫描重试；同组新版本或新单集可继承该已接受的作品身份以定位共享电影或剧集条目，但其自身仍标记为 `failed / metadata_provider_error`，不得伪装为已经完成远端补全，也不能在组事务中反向覆盖共享父条目。
+- TMDB 配置暂时不可用时，已有 binding 的条目保持已匹配数据；只有从未绑定的新条目标记为 provider disabled。
+- 评分、external IDs 和 artwork 只有在本次成功取得并应用 TMDB 详情时才允许替换或清空。查询未命中、已有完整元数据而跳过查询、provider disabled 和 provider 临时失败都属于非权威提交。非权威提交可以把既有受信任远端图片 URL 替换为本轮已经校验并原子发布的非空本地缓存路径，但不得清空图片或替换成另一条远端 URL。
 - 评分或图片处理失败不得把已经接受的身份伪装成严格匹配失败。
 - 网络、图片下载和文件 I/O 必须在数据库事务外完成。
 

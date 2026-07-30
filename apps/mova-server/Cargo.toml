@@ -13,6 +13,7 @@ axum-extra.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 dotenvy.workspace = true
+libc.workspace = true
 sqlx.workspace = true
 time.workspace = true
 anyhow.workspace = true

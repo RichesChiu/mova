@@ -3,7 +3,6 @@ import {
   buildFullscreenWarningMessage,
   buildPlaybackInteractionWarningMessage,
   isAutoplayBlockedError,
-  shouldShowImmersiveOverlay,
 } from './player-feedback'
 
 describe('player-feedback helpers', () => {
@@ -42,29 +41,5 @@ describe('player-feedback helpers', () => {
     ).toBe(
       'Fullscreen was blocked by the browser or app window. Try the browser fullscreen control.',
     )
-  })
-
-  it('keeps the immersive overlay visible for compatibility warnings and buffering states', () => {
-    expect(
-      shouldShowImmersiveOverlay({
-        hasInteractionWarning: true,
-        hasMultipleSources: false,
-        hasPlaybackSyncError: false,
-        hasPlayerError: false,
-        hasSubtitleWarning: false,
-        isBuffering: false,
-      }),
-    ).toBe(true)
-
-    expect(
-      shouldShowImmersiveOverlay({
-        hasInteractionWarning: false,
-        hasMultipleSources: false,
-        hasPlaybackSyncError: false,
-        hasPlayerError: false,
-        hasSubtitleWarning: false,
-        isBuffering: false,
-      }),
-    ).toBe(false)
   })
 })

@@ -9,11 +9,14 @@ pub use discover::{
     discover_media_files_with_progress, discover_media_files_with_progress_and_cancel,
     discover_media_files_with_progress_item_and_cancel, discover_media_paths, inspect_media_file,
     inspect_media_file_inventory, inspect_media_file_inventory_shallow,
+    inspect_media_file_inventory_with_cancel,
+    inspect_media_file_inventory_with_cancel_and_subtitle_index,
 };
 pub use parse::{
     infer_series_file_metadata, infer_series_sidecar_metadata, is_likely_episode_path,
     SeriesFileMetadata, SeriesSidecarMetadata,
 };
+pub use subtitle::SubtitleDirectoryIndex;
 
 use std::path::PathBuf;
 
@@ -50,6 +53,9 @@ pub struct DiscoveredMediaFileInventory {
     pub file_path: PathBuf,
     pub file_size: u64,
     pub file_modified_at_ms: Option<i64>,
+    /// Stable metadata-only fingerprint of NFO, local artwork and external
+    /// subtitle files that can affect this video's local analysis.
+    pub sidecar_fingerprint: String,
 }
 
 /// 扫描目录时发现的单个视频文件。
@@ -57,6 +63,7 @@ pub struct DiscoveredMediaFileInventory {
 pub struct DiscoveredMediaFile {
     pub file_path: PathBuf,
     pub file_modified_at_ms: Option<i64>,
+    pub sidecar_fingerprint: String,
     pub probe_error: Option<String>,
     pub metadata_provider: Option<String>,
     pub metadata_provider_item_id: Option<String>,
@@ -122,6 +129,7 @@ pub fn discovered_media_file_scan_hash(file: &DiscoveredMediaFile) -> String {
         file_path: file.file_path.clone(),
         file_size: file.file_size,
         file_modified_at_ms: file.file_modified_at_ms,
+        sidecar_fingerprint: file.sidecar_fingerprint.clone(),
     })
 }
 
@@ -130,6 +138,7 @@ pub fn discovered_media_file_inventory_scan_hash(file: &DiscoveredMediaFileInven
 
     hasher.write_u64("file_size", file.file_size);
     hasher.write_opt_i64("file_modified_at_ms", file.file_modified_at_ms);
+    hasher.write_str("sidecar_fingerprint", &file.sidecar_fingerprint);
 
     format!("{:016x}", hasher.finish())
 }
@@ -168,6 +177,12 @@ impl StableScanHasher {
         self.write_marker(key);
         self.write_bytes(&[1]);
         self.write_bytes(&value.to_le_bytes());
+    }
+
+    fn write_str(&mut self, key: &str, value: &str) {
+        self.write_marker(key);
+        self.write_bytes(&(value.len() as u64).to_le_bytes());
+        self.write_bytes(value.as_bytes());
     }
 
     fn write_opt_i64(&mut self, key: &str, value: Option<i64>) {

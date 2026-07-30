@@ -1,10 +1,16 @@
 use crate::{
-    parse::{extension_lowercase, parse_media_metadata, parse_media_metadata_without_sidecar},
-    probe::{probe_media_file, MediaProbe, ProbeAvailability},
-    subtitle::discover_subtitle_tracks,
+    parse::{
+        episode_identity_for_path, extension_lowercase, parse_media_metadata,
+        parse_media_metadata_without_sidecar,
+    },
+    probe::{probe_media_file_with_cancel, MediaProbe, ProbeAvailability},
+    subtitle::{
+        discover_subtitle_tracks, discover_subtitle_tracks_with_index, SubtitleDirectoryIndex,
+    },
     DiscoveredAudioTrack, DiscoveredMediaFile, DiscoveredMediaFileInventory,
 };
 use std::{
+    collections::{BTreeMap, HashSet},
     fs,
     io::{self, ErrorKind},
     path::{Path, PathBuf},
@@ -19,7 +25,8 @@ pub fn discover_media_files(root_path: &Path) -> io::Result<Vec<DiscoveredMediaF
 /// 递归扫描目录，返回当前支持的视频文件路径，不做 sidecar 解析和 ffprobe 探测。
 pub fn discover_media_paths(root_path: &Path) -> io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
-    visit_dir_paths(root_path, &mut files)?;
+    let mut boundary = DiscoveryBoundary::new(root_path)?;
+    visit_dir_paths(root_path, &mut files, &mut boundary)?;
     files.sort();
     Ok(files)
 }
@@ -64,7 +71,15 @@ where
     C: FnMut() -> bool,
 {
     let mut files = Vec::new();
-    visit_dir_inventory(root_path, &mut files, &mut on_progress, &mut should_cancel)?;
+    let mut boundary = DiscoveryBoundary::new(root_path)?;
+    visit_dir_inventory(
+        root_path,
+        &mut files,
+        &mut on_progress,
+        &mut should_cancel,
+        &mut boundary,
+    )?;
+    populate_inventory_sidecar_fingerprints(&mut files);
     files.sort_by(|left, right| left.file_path.cmp(&right.file_path));
 
     Ok(files)
@@ -84,6 +99,7 @@ where
 {
     let mut files = Vec::new();
     let mut probe_availability = ProbeAvailability::Unknown;
+    let mut boundary = DiscoveryBoundary::new(root_path)?;
     visit_dir(
         root_path,
         &mut files,
@@ -91,7 +107,9 @@ where
         &mut on_item_discovered,
         &mut should_cancel,
         &mut probe_availability,
+        &mut boundary,
     )?;
+    populate_discovered_sidecar_fingerprints(&mut files);
     files.sort_by(|left, right| left.file_path.cmp(&right.file_path));
 
     Ok(files)
@@ -115,22 +133,57 @@ pub fn inspect_media_file(path: &Path) -> io::Result<DiscoveredMediaFile> {
         ));
     }
 
-    inspect_media_file_inventory(build_discovered_media_file_inventory(
+    let mut inventory = build_discovered_media_file_inventory(
         path.to_path_buf(),
         metadata.len(),
         metadata_modified_at_ms(&metadata),
-    ))
+    );
+    inventory.sidecar_fingerprint =
+        sidecar_fingerprint_for_directory(path.parent().unwrap_or_else(|| Path::new(".")));
+    inspect_media_file_inventory(inventory)
 }
 
 /// 对已确认发生新增或变化的视频文件做完整解析和 ffprobe 探测。
 pub fn inspect_media_file_inventory(
     inventory: DiscoveredMediaFileInventory,
 ) -> io::Result<DiscoveredMediaFile> {
+    inspect_media_file_inventory_with_cancel(inventory, || false)
+}
+
+/// 对已确认发生新增或变化的视频文件做完整解析，并允许调用方中断正在运行的 ffprobe。
+pub fn inspect_media_file_inventory_with_cancel<C>(
+    inventory: DiscoveredMediaFileInventory,
+    mut should_cancel: C,
+) -> io::Result<DiscoveredMediaFile>
+where
+    C: FnMut() -> bool,
+{
     let mut probe_availability = ProbeAvailability::Unknown;
-    Ok(build_discovered_media_file(
+    build_discovered_media_file_with_cancel(
         inventory,
         &mut probe_availability,
-    ))
+        &mut should_cancel,
+        None,
+    )
+}
+
+/// Fully inspects one inventory entry while reusing a scan-local directory
+/// subtitle index.
+pub fn inspect_media_file_inventory_with_cancel_and_subtitle_index<C>(
+    inventory: DiscoveredMediaFileInventory,
+    subtitle_index: &SubtitleDirectoryIndex,
+    mut should_cancel: C,
+) -> io::Result<DiscoveredMediaFile>
+where
+    C: FnMut() -> bool,
+{
+    let mut probe_availability = ProbeAvailability::Unknown;
+    build_discovered_media_file_with_cancel(
+        inventory,
+        &mut probe_availability,
+        &mut should_cancel,
+        Some(subtitle_index),
+    )
 }
 
 /// 只做文件名/路径轻量解析，不读取 sidecar、不调用 ffprobe。
@@ -147,12 +200,17 @@ fn visit_dir<F>(
     on_item_discovered: &mut impl FnMut(&DiscoveredMediaFile),
     should_cancel: &mut impl FnMut() -> bool,
     probe_availability: &mut ProbeAvailability,
+    boundary: &mut DiscoveryBoundary,
 ) -> io::Result<()>
 where
     F: FnMut(usize),
 {
     if should_cancel() {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "scan cancelled"));
+    }
+
+    if !boundary.enter_directory(dir)? {
+        return Ok(());
     }
 
     for entry in fs::read_dir(dir)? {
@@ -162,7 +220,10 @@ where
 
         let entry = entry?;
         let path = entry.path();
-        let metadata = entry.metadata()?;
+        let Some(canonical_path) = boundary.canonical_path_if_allowed(&path)? else {
+            continue;
+        };
+        let metadata = fs::metadata(canonical_path)?;
 
         if metadata.is_dir() {
             visit_dir(
@@ -172,6 +233,7 @@ where
                 on_item_discovered,
                 should_cancel,
                 probe_availability,
+                boundary,
             )?;
             continue;
         }
@@ -185,7 +247,12 @@ where
             metadata.len(),
             metadata_modified_at_ms(&metadata),
         );
-        files.push(build_discovered_media_file(inventory, probe_availability));
+        files.push(build_discovered_media_file_with_cancel(
+            inventory,
+            probe_availability,
+            should_cancel,
+            None,
+        )?);
         if let Some(file) = files.last() {
             on_item_discovered(file);
         }
@@ -200,12 +267,17 @@ fn visit_dir_inventory<F>(
     files: &mut Vec<DiscoveredMediaFileInventory>,
     on_progress: &mut F,
     should_cancel: &mut impl FnMut() -> bool,
+    boundary: &mut DiscoveryBoundary,
 ) -> io::Result<()>
 where
     F: FnMut(usize),
 {
     if should_cancel() {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "scan cancelled"));
+    }
+
+    if !boundary.enter_directory(dir)? {
+        return Ok(());
     }
 
     for entry in fs::read_dir(dir)? {
@@ -215,10 +287,13 @@ where
 
         let entry = entry?;
         let path = entry.path();
-        let metadata = entry.metadata()?;
+        let Some(canonical_path) = boundary.canonical_path_if_allowed(&path)? else {
+            continue;
+        };
+        let metadata = fs::metadata(canonical_path)?;
 
         if metadata.is_dir() {
-            visit_dir_inventory(&path, files, on_progress, should_cancel)?;
+            visit_dir_inventory(&path, files, on_progress, should_cancel, boundary)?;
             continue;
         }
 
@@ -237,14 +312,25 @@ where
     Ok(())
 }
 
-fn visit_dir_paths(dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
+fn visit_dir_paths(
+    dir: &Path,
+    files: &mut Vec<PathBuf>,
+    boundary: &mut DiscoveryBoundary,
+) -> io::Result<()> {
+    if !boundary.enter_directory(dir)? {
+        return Ok(());
+    }
+
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        let metadata = entry.metadata()?;
+        let Some(canonical_path) = boundary.canonical_path_if_allowed(&path)? else {
+            continue;
+        };
+        let metadata = fs::metadata(canonical_path)?;
 
         if metadata.is_dir() {
-            visit_dir_paths(&path, files)?;
+            visit_dir_paths(&path, files, boundary)?;
             continue;
         }
 
@@ -258,6 +344,46 @@ fn visit_dir_paths(dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
     Ok(())
 }
 
+struct DiscoveryBoundary {
+    canonical_root: PathBuf,
+    visited_directories: HashSet<PathBuf>,
+}
+
+impl DiscoveryBoundary {
+    fn new(root_path: &Path) -> io::Result<Self> {
+        let canonical_root = fs::canonicalize(root_path)?;
+        if !fs::metadata(&canonical_root)?.is_dir() {
+            return Err(io::Error::new(
+                ErrorKind::NotADirectory,
+                format!(
+                    "media library root is not a directory: {}",
+                    root_path.display()
+                ),
+            ));
+        }
+
+        Ok(Self {
+            canonical_root,
+            visited_directories: HashSet::new(),
+        })
+    }
+
+    fn canonical_path_if_allowed(&self, path: &Path) -> io::Result<Option<PathBuf>> {
+        let canonical_path = fs::canonicalize(path)?;
+        Ok(canonical_path
+            .starts_with(&self.canonical_root)
+            .then_some(canonical_path))
+    }
+
+    fn enter_directory(&mut self, path: &Path) -> io::Result<bool> {
+        let Some(canonical_path) = self.canonical_path_if_allowed(path)? else {
+            return Ok(false);
+        };
+
+        Ok(self.visited_directories.insert(canonical_path))
+    }
+}
+
 fn build_discovered_media_file_inventory(
     path: PathBuf,
     file_size: u64,
@@ -267,18 +393,31 @@ fn build_discovered_media_file_inventory(
         file_path: path,
         file_size,
         file_modified_at_ms,
+        sidecar_fingerprint: String::new(),
     }
 }
 
-fn build_discovered_media_file(
+fn build_discovered_media_file_with_cancel(
     inventory: DiscoveredMediaFileInventory,
     probe_availability: &mut ProbeAvailability,
-) -> DiscoveredMediaFile {
+    should_cancel: &mut impl FnMut() -> bool,
+    subtitle_index: Option<&SubtitleDirectoryIndex>,
+) -> io::Result<DiscoveredMediaFile> {
+    if should_cancel() {
+        return Err(io::Error::new(io::ErrorKind::Interrupted, "scan cancelled"));
+    }
+
     let path = inventory.file_path.clone();
     let parsed = parse_media_metadata(&path);
-    let probe = probe_media_file(&path, probe_availability);
+    let probe = probe_media_file_with_cancel(&path, probe_availability, should_cancel)?;
 
-    build_discovered_media_file_from_parts(inventory, parsed, probe, true)
+    Ok(build_discovered_media_file_from_parts(
+        inventory,
+        parsed,
+        probe,
+        true,
+        subtitle_index,
+    ))
 }
 
 fn build_discovered_media_file_without_probe(
@@ -287,7 +426,7 @@ fn build_discovered_media_file_without_probe(
     let path = inventory.file_path.clone();
     let parsed = parse_media_metadata_without_sidecar(&path);
 
-    build_discovered_media_file_from_parts(inventory, parsed, MediaProbe::default(), false)
+    build_discovered_media_file_from_parts(inventory, parsed, MediaProbe::default(), false, None)
 }
 
 fn build_discovered_media_file_from_parts(
@@ -295,16 +434,23 @@ fn build_discovered_media_file_from_parts(
     parsed: crate::parse::ParsedMediaMetadata,
     probe: MediaProbe,
     discover_local_sidecars: bool,
+    subtitle_index: Option<&SubtitleDirectoryIndex>,
 ) -> DiscoveredMediaFile {
     let path = inventory.file_path;
     let subtitle_tracks = if discover_local_sidecars {
-        discover_subtitle_tracks(&path, &probe.subtitle_streams)
+        match subtitle_index {
+            Some(index) => {
+                discover_subtitle_tracks_with_index(&path, &probe.subtitle_streams, index)
+            }
+            None => discover_subtitle_tracks(&path, &probe.subtitle_streams),
+        }
     } else {
         Vec::new()
     };
 
     DiscoveredMediaFile {
         file_modified_at_ms: inventory.file_modified_at_ms,
+        sidecar_fingerprint: inventory.sidecar_fingerprint,
         probe_error: probe.error,
         metadata_provider: None,
         metadata_provider_item_id: None,
@@ -377,6 +523,159 @@ fn build_discovered_media_file_from_parts(
         file_path: path,
         file_size: inventory.file_size,
     }
+}
+
+fn populate_inventory_sidecar_fingerprints(files: &mut [DiscoveredMediaFileInventory]) {
+    let fingerprints = sidecar_fingerprints_by_directory(
+        files
+            .iter()
+            .map(|file| file.file_path.as_path())
+            .collect::<Vec<_>>()
+            .as_slice(),
+    );
+    for file in files {
+        file.sidecar_fingerprint = file
+            .file_path
+            .parent()
+            .and_then(|parent| fingerprints.get(parent))
+            .cloned()
+            .unwrap_or_default();
+    }
+}
+
+fn populate_discovered_sidecar_fingerprints(files: &mut [DiscoveredMediaFile]) {
+    let fingerprints = sidecar_fingerprints_by_directory(
+        files
+            .iter()
+            .map(|file| file.file_path.as_path())
+            .collect::<Vec<_>>()
+            .as_slice(),
+    );
+    for file in files {
+        file.sidecar_fingerprint = file
+            .file_path
+            .parent()
+            .and_then(|parent| fingerprints.get(parent))
+            .cloned()
+            .unwrap_or_default();
+    }
+}
+
+fn sidecar_fingerprints_by_directory(video_paths: &[&Path]) -> BTreeMap<PathBuf, String> {
+    let directories = video_paths
+        .iter()
+        .filter_map(|path| path.parent().map(Path::to_path_buf))
+        .collect::<HashSet<_>>();
+    let mut fingerprints = BTreeMap::new();
+
+    for directory in directories {
+        fingerprints.insert(
+            directory.clone(),
+            sidecar_fingerprint_for_directory(&directory),
+        );
+    }
+
+    fingerprints
+}
+
+fn sidecar_fingerprint_for_directory(directory: &Path) -> String {
+    let mut facts = Vec::new();
+    let mut episode_video_counts = BTreeMap::<(i32, i32), usize>::new();
+
+    if let Ok(entries) = fs::read_dir(directory) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if is_supported_video(&path) && path.is_file() {
+                if let Some(identity) = episode_identity_for_path(&path) {
+                    *episode_video_counts
+                        .entry((identity.season_number, identity.episode_number))
+                        .or_default() += 1;
+                }
+                continue;
+            }
+            if !is_local_analysis_sidecar(&path) {
+                continue;
+            }
+            if let Ok(metadata) = fs::metadata(&path) {
+                if metadata.is_file() {
+                    facts.push(sidecar_file_fact(&path, &metadata));
+                }
+            }
+        }
+    }
+
+    // External subtitle matching falls back to SxxExx only when exactly one
+    // video in the directory has that identity. Include the stable counts so
+    // adding or removing a second version invalidates surviving siblings and
+    // refreshes their subtitle associations.
+    facts.extend(episode_video_counts.into_iter().map(
+        |((season_number, episode_number), count)| {
+            format!("episode-video-count\0{season_number}\0{episode_number}\0{count}")
+        },
+    ));
+
+    if let Some(series_nfo) = directory
+        .ancestors()
+        .take(5)
+        .map(|ancestor| ancestor.join("tvshow.nfo"))
+        .find(|path| path.is_file())
+    {
+        if let Ok(metadata) = fs::metadata(&series_nfo) {
+            facts.push(sidecar_file_fact(&series_nfo, &metadata));
+        }
+    }
+
+    facts.sort();
+    stable_sidecar_fingerprint(&facts)
+}
+
+fn is_local_analysis_sidecar(path: &Path) -> bool {
+    matches!(
+        extension_lowercase(path).as_deref(),
+        Some(
+            "nfo"
+                | "srt"
+                | "ass"
+                | "ssa"
+                | "vtt"
+                | "jpg"
+                | "jpeg"
+                | "png"
+                | "webp"
+                | "gif"
+                | "avif"
+        )
+    )
+}
+
+fn sidecar_file_fact(path: &Path, metadata: &fs::Metadata) -> String {
+    format!(
+        "{}\0{}\0{}",
+        path.to_string_lossy(),
+        metadata.len(),
+        metadata_modified_at_ms(metadata)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "-".to_string())
+    )
+}
+
+fn stable_sidecar_fingerprint(facts: &[String]) -> String {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+    let mut hash = FNV_OFFSET;
+
+    for fact in facts {
+        for byte in (fact.len() as u64)
+            .to_le_bytes()
+            .into_iter()
+            .chain(fact.bytes())
+        {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+    }
+
+    format!("{hash:016x}")
 }
 
 fn metadata_modified_at_ms(metadata: &fs::Metadata) -> Option<i64> {

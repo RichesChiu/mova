@@ -163,29 +163,20 @@ pub async fn update_library(
         )));
     }
 
-    let previous_library = mova_application::get_library(&state.db, library_id)
-        .await
-        .map_err(ApiError::from)?;
-    let requested_metadata_language = request
-        .metadata_language
-        .as_ref()
-        .map(|value| {
-            mova_application::normalize_metadata_language(
-                Some(value.clone()),
-                mova_application::DEFAULT_TMDB_LANGUAGE,
-            )
-            .map_err(|error| ApiError::BadRequest(error.to_string()))
-        })
-        .transpose()?;
-    let metadata_language_will_change = requested_metadata_language
-        .as_deref()
-        .is_some_and(|language| language != previous_library.metadata_language);
+    let metadata_language_will_change = match request.metadata_language.as_deref() {
+        Some(language) => {
+            mova_application::library_metadata_language_will_change(&state.db, library_id, language)
+                .await
+                .map_err(ApiError::from)?
+        }
+        None => false,
+    };
 
     if metadata_language_will_change {
         stop_active_library_scan_for_metadata_language_change(&state, library_id).await?;
     }
 
-    let updated_library = mova_application::update_library(
+    let outcome = mova_application::update_library(
         &state.db,
         library_id,
         mova_application::UpdateLibraryInput {
@@ -197,19 +188,12 @@ pub async fn update_library(
     .await
     .map_err(ApiError::from)?;
 
-    let metadata_language_changed =
-        previous_library.metadata_language != updated_library.metadata_language;
-
-    if metadata_language_changed {
-        mova_application::prepare_library_metadata_rescan(&state.db, library_id)
-            .await
-            .map_err(ApiError::from)?;
-
-        trigger_library_scan_after_metadata_language_change(&state, library_id).await?;
+    if outcome.scan_job_created {
+        state.background_jobs.wake();
     }
 
     Ok(ok(LibraryResponse::from_domain(
-        updated_library,
+        outcome.library,
         state.api_time_offset,
     )))
 }
@@ -403,23 +387,6 @@ async fn stop_active_library_scan_for_metadata_language_change(
     Ok(())
 }
 
-async fn trigger_library_scan_after_metadata_language_change(
-    state: &AppState,
-    library_id: i64,
-) -> Result<(), ApiError> {
-    let enqueue_result = mova_application::enqueue_library_scan(&state.db, library_id)
-        .await
-        .map_err(ApiError::from)?;
-
-    if !enqueue_result.created {
-        return Ok(());
-    }
-
-    state.background_jobs.wake();
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -592,11 +559,12 @@ mod tests {
         .unwrap();
         let season_id = sqlx::query_scalar::<_, i64>(
             r#"
-            insert into seasons (series_id, season_number, title)
-            values ($1, 1, 'Season 1')
+            insert into seasons (library_id, series_id, season_number, title)
+            values ($1, $2, 1, 'Season 1')
             returning id
             "#,
         )
+        .bind(library_id)
         .bind(series_id)
         .fetch_one(pool)
         .await
@@ -604,11 +572,12 @@ mod tests {
 
         sqlx::query(
             r#"
-            insert into episodes (media_item_id, season_id, episode_number)
-            values ($1, $2, 1)
+            insert into episodes (media_item_id, library_id, season_id, episode_number)
+            values ($1, $2, $3, 1)
             "#,
         )
         .bind(episode_media_item_id)
+        .bind(library_id)
         .bind(season_id)
         .execute(pool)
         .await
@@ -616,11 +585,17 @@ mod tests {
 
         sqlx::query(
             r#"
-            insert into series_episode_outline_cache (series_media_item_id, outline_json, expires_at)
-            values ($1, '{}', now() + interval '1 day')
+            insert into series_episode_outline_cache (
+                series_media_item_id,
+                library_id,
+                outline_json,
+                expires_at
+            )
+            values ($1, $2, '{}', now() + interval '1 day')
             "#,
         )
         .bind(series_id)
+        .bind(library_id)
         .execute(pool)
         .await
         .unwrap();
@@ -662,8 +637,13 @@ mod tests {
 
         sqlx::query(
             r#"
-            insert into subtitle_files (media_file_id, source_kind)
-            values ($1, 'embedded')
+            insert into subtitle_files (
+                media_file_id,
+                source_kind,
+                stream_index,
+                subtitle_format
+            )
+            values ($1, 'embedded', 0, 'subrip')
             "#,
         )
         .bind(media_file_id)

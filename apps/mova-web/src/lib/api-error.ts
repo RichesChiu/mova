@@ -40,6 +40,7 @@ const errorMessageKeys: Record<string, string> = {
   metadata_provider_disabled: 'Metadata provider is disabled',
   metadata_processing_failed: 'Metadata processing failed',
   media_probe_warning: 'Media inspection warning',
+  subtitle_too_large: 'The selected subtitle is too large to process.',
   cache_cleanup_failed:
     'The library data was deleted, but its cache could not be removed after all retries.',
 }
@@ -73,6 +74,8 @@ export const errorCodeForHttpStatus = (status: number): string => {
       return 'resource_not_found'
     case 409:
       return 'resource_conflict'
+    case 413:
+      return 'subtitle_too_large'
     case 416:
       return 'range_not_satisfiable'
     case 429:

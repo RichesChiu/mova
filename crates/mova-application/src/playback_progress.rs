@@ -21,11 +21,16 @@ pub struct UpdatePlaybackProgressInput {
 pub async fn list_continue_watching(
     pool: &PgPool,
     user_id: i64,
+    visible_library_ids: Option<Vec<i64>>,
     limit: Option<i64>,
 ) -> ApplicationResult<Vec<ContinueWatchingItem>> {
     let limit = normalize_continue_watching_limit(limit)?;
 
-    mova_db::list_continue_watching(pool, user_id, limit)
+    if visible_library_ids.as_ref().is_some_and(Vec::is_empty) {
+        return Ok(Vec::new());
+    }
+
+    mova_db::list_continue_watching(pool, user_id, visible_library_ids.as_deref(), limit)
         .await
         .map_err(ApplicationError::from)
 }

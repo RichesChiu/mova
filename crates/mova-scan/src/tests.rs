@@ -1,10 +1,12 @@
 use super::{
     discover::{
-        discover_media_files, discover_media_files_with_progress_and_cancel,
+        discover_media_file_inventory_with_progress_and_cancel, discover_media_files,
+        discover_media_files_with_progress_and_cancel,
         discover_media_files_with_progress_item_and_cancel, discover_media_paths,
-        inspect_media_file,
+        inspect_media_file, inspect_media_file_inventory_with_cancel,
     },
-    infer_series_file_metadata, infer_series_sidecar_metadata, is_likely_episode_path,
+    discovered_media_file_inventory_scan_hash, infer_series_file_metadata,
+    infer_series_sidecar_metadata, is_likely_episode_path,
     parse::{humanize_file_stem, parse_media_metadata, ParsedMediaMetadata},
     probe::{parse_ffprobe_output, MediaProbe},
     sidecar::{parse_nfo_metadata, ParsedSidecarMetadata},
@@ -740,8 +742,8 @@ fn is_likely_episode_path_keeps_movies_as_non_episode() {
 fn parse_nfo_metadata_extracts_common_media_fields() {
     let root = unique_temp_path("nfo");
     fs::create_dir_all(&root).unwrap();
-    fs::write(root.join("poster.jpg"), b"poster").unwrap();
-    fs::write(root.join("fanart.png"), b"fanart").unwrap();
+    fs::write(root.join("poster.jpg"), b"\xff\xd8\xffposter").unwrap();
+    fs::write(root.join("fanart.png"), b"\x89PNG\r\n\x1a\nfanart").unwrap();
 
     let metadata = parse_nfo_metadata(
         r#"
@@ -759,6 +761,7 @@ fn parse_nfo_metadata_extracts_common_media_fields() {
         "#,
         &root,
     );
+    let canonical_root = root.canonicalize().unwrap();
 
     assert_eq!(
         metadata,
@@ -768,10 +771,80 @@ fn parse_nfo_metadata_extracts_common_media_fields() {
             sort_title: Some("Spirited Away".to_string()),
             year: Some(2001),
             overview: Some("Chihiro enters the spirit world.".to_string()),
-            poster_path: Some(root.join("poster.jpg").to_string_lossy().to_string()),
-            backdrop_path: Some(root.join("fanart.png").to_string_lossy().to_string()),
+            poster_path: Some(
+                canonical_root
+                    .join("poster.jpg")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
+            backdrop_path: Some(
+                canonical_root
+                    .join("fanart.png")
+                    .to_string_lossy()
+                    .to_string(),
+            ),
         }
     );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn parse_nfo_metadata_rejects_local_artwork_outside_the_nfo_directory() {
+    let root = unique_temp_path("nfo-artwork-boundary");
+    let media_dir = root.join("media");
+    let outside_image = root.join("outside.jpg");
+    fs::create_dir_all(&media_dir).unwrap();
+    fs::write(&outside_image, b"\xff\xd8\xffoutside").unwrap();
+
+    let metadata = parse_nfo_metadata(
+        &format!(
+            r#"
+            <movie>
+              <thumb>../outside.jpg</thumb>
+              <fanart><thumb>{}</thumb></fanart>
+            </movie>
+            "#,
+            outside_image.display()
+        ),
+        &media_dir,
+    );
+
+    assert_eq!(metadata.poster_path, None);
+    assert_eq!(metadata.backdrop_path, None);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn parse_nfo_metadata_rejects_symlinks_that_escape_the_nfo_directory() {
+    use std::os::unix::fs::symlink;
+
+    let root = unique_temp_path("nfo-artwork-symlink");
+    let media_dir = root.join("media");
+    let outside_image = root.join("outside.jpg");
+    let linked_image = media_dir.join("poster.jpg");
+    fs::create_dir_all(&media_dir).unwrap();
+    fs::write(&outside_image, b"\xff\xd8\xffoutside").unwrap();
+    symlink(&outside_image, &linked_image).unwrap();
+
+    let metadata = parse_nfo_metadata("<movie><thumb>poster.jpg</thumb></movie>", &media_dir);
+
+    assert_eq!(metadata.poster_path, None);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn parse_nfo_metadata_rejects_non_image_payloads() {
+    let root = unique_temp_path("nfo-artwork-content");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("poster.jpg"), b"not an image").unwrap();
+
+    let metadata = parse_nfo_metadata("<movie><thumb>poster.jpg</thumb></movie>", &root);
+
+    assert_eq!(metadata.poster_path, None);
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -1065,6 +1138,94 @@ fn parse_ffprobe_output_handles_missing_fields() {
 }
 
 #[test]
+fn inspect_media_inventory_can_be_cancelled_before_ffprobe_starts() {
+    let result = inspect_media_file_inventory_with_cancel(
+        super::DiscoveredMediaFileInventory {
+            file_path: PathBuf::from("/media/missing-file.mkv"),
+            file_size: 2048,
+            file_modified_at_ms: None,
+            sidecar_fingerprint: String::new(),
+        },
+        || true,
+    );
+
+    assert_eq!(
+        result.expect_err("inspection should be cancelled").kind(),
+        ErrorKind::Interrupted
+    );
+}
+
+#[test]
+fn inventory_scan_hash_changes_when_directory_sidecars_change() {
+    let root = unique_temp_path("sidecar-fingerprint");
+    let video_path = root.join("Movie.2026.mkv");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(&video_path, b"same video bytes").unwrap();
+    fs::write(root.join("movie.nfo"), b"<movie><title>A</title></movie>").unwrap();
+
+    let first = discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+        .unwrap()
+        .pop()
+        .unwrap();
+    let first_hash = discovered_media_file_inventory_scan_hash(&first);
+
+    fs::write(
+        root.join("movie.nfo"),
+        b"<movie><title>A changed title</title></movie>",
+    )
+    .unwrap();
+    let second = discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+        .unwrap()
+        .pop()
+        .unwrap();
+    let second_hash = discovered_media_file_inventory_scan_hash(&second);
+
+    let _ = fs::remove_dir_all(root);
+    assert_eq!(first.file_size, second.file_size);
+    assert_eq!(first.file_modified_at_ms, second.file_modified_at_ms);
+    assert_ne!(first.sidecar_fingerprint, second.sidecar_fingerprint);
+    assert_ne!(first_hash, second_hash);
+}
+
+#[test]
+fn inventory_scan_hash_tracks_episode_version_count_changes() {
+    let root = unique_temp_path("episode-version-fingerprint");
+    let first_video_path = root.join("Show.1080p.S01E01.mkv");
+    let second_video_path = root.join("Show.2160p.S01E01.mkv");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(&first_video_path, b"first video").unwrap();
+
+    let initial = discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+        .unwrap()
+        .into_iter()
+        .find(|file| file.file_path == first_video_path)
+        .unwrap();
+    let initial_hash = discovered_media_file_inventory_scan_hash(&initial);
+
+    fs::write(&second_video_path, b"second video").unwrap();
+    let ambiguous = discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+        .unwrap()
+        .into_iter()
+        .find(|file| file.file_path == first_video_path)
+        .unwrap();
+    let ambiguous_hash = discovered_media_file_inventory_scan_hash(&ambiguous);
+
+    fs::remove_file(&second_video_path).unwrap();
+    let restored = discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+        .unwrap()
+        .into_iter()
+        .find(|file| file.file_path == first_video_path)
+        .unwrap();
+    let restored_hash = discovered_media_file_inventory_scan_hash(&restored);
+
+    let _ = fs::remove_dir_all(root);
+    assert_ne!(initial.sidecar_fingerprint, ambiguous.sidecar_fingerprint);
+    assert_ne!(initial_hash, ambiguous_hash);
+    assert_eq!(initial.sidecar_fingerprint, restored.sidecar_fingerprint);
+    assert_eq!(initial_hash, restored_hash);
+}
+
+#[test]
 fn discover_media_files_only_returns_supported_videos() {
     let root = unique_temp_path("root");
     let nested = root.join("nested");
@@ -1124,6 +1285,83 @@ fn discover_media_paths_only_returns_supported_video_paths() {
     assert_eq!(files.len(), 2);
     assert!(discovered_names.contains(&"movie.mp4".to_string()));
     assert!(discovered_names.contains(&"episode.mkv".to_string()));
+}
+
+#[cfg(unix)]
+#[test]
+fn discover_media_paths_rejects_file_and_directory_symlinks_outside_the_library() {
+    use std::os::unix::fs::symlink;
+
+    let root = unique_temp_path("outside-symlink-root");
+    let outside = unique_temp_path("outside-symlink-target");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(root.join("inside.mp4"), b"video").unwrap();
+    fs::write(outside.join("outside.mkv"), b"video").unwrap();
+    symlink(outside.join("outside.mkv"), root.join("linked-file.mkv")).unwrap();
+    symlink(&outside, root.join("linked-directory")).unwrap();
+
+    let files = discover_media_paths(&root).unwrap();
+    let inventory =
+        discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false).unwrap();
+
+    assert_eq!(files, vec![root.join("inside.mp4")]);
+    assert_eq!(inventory.len(), 1);
+    assert_eq!(inventory[0].file_path, root.join("inside.mp4"));
+    let _ = fs::remove_dir_all(root);
+    let _ = fs::remove_dir_all(outside);
+}
+
+#[cfg(unix)]
+#[test]
+fn discover_media_paths_keeps_file_symlinks_that_resolve_inside_the_library() {
+    use std::os::unix::fs::symlink;
+
+    let root = unique_temp_path("inside-symlink-root");
+    fs::create_dir_all(root.join("targets")).unwrap();
+    let target = root.join("targets").join("movie.mkv");
+    let linked_file = root.join("movie-link.mkv");
+    fs::write(&target, b"video").unwrap();
+    symlink(&target, &linked_file).unwrap();
+
+    let files = discover_media_paths(&root).unwrap();
+
+    assert!(files.contains(&target));
+    assert!(files.contains(&linked_file));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn discover_media_paths_stops_internal_directory_symlink_cycles() {
+    use std::os::unix::fs::symlink;
+
+    let root = unique_temp_path("directory-symlink-cycle");
+    let nested = root.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("episode.mkv"), b"video").unwrap();
+    symlink(&root, nested.join("back-to-root")).unwrap();
+
+    let files = discover_media_paths(&root).unwrap();
+
+    assert_eq!(files.len(), 1);
+    assert_eq!(
+        files[0].canonicalize().unwrap(),
+        nested.join("episode.mkv").canonicalize().unwrap()
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn discover_media_inventory_returns_error_for_missing_root() {
+    let root = unique_temp_path("missing-root");
+
+    let result = discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false);
+
+    assert!(matches!(
+        result,
+        Err(error) if error.kind() == ErrorKind::NotFound
+    ));
 }
 
 #[test]

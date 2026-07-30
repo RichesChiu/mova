@@ -5,6 +5,7 @@ use axum::{routing::get, Router};
 pub fn router() -> Router<crate::state::AppState> {
     Router::new().route(
         "/subtitle-files/{id}/stream",
-        get(handlers::subtitle_files::stream_subtitle_file),
+        get(handlers::subtitle_files::stream_subtitle_file)
+            .head(handlers::subtitle_files::head_subtitle_file),
     )
 }

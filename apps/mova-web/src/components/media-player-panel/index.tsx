@@ -1,55 +1,36 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  type CSSProperties,
-  type PointerEvent as ReactPointerEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   flushMediaItemPlaybackProgress,
   getMediaItemPlaybackProgress,
   listMediaFileAudioTracks,
   listMediaFileSubtitles,
   listMediaItemFiles,
-  mediaFileStreamUrl,
-  subtitleFileStreamUrl,
   updateMediaItemPlaybackProgress,
 } from '../../api/client'
-import type { EpisodeOutline, MediaFile, SubtitleFile } from '../../api/types'
+import type { EpisodeOutline, MediaFile } from '../../api/types'
 import { translateCurrent } from '../../i18n'
 import {
-  buildAudioTrackLoadErrorMessage,
   buildAudioTrackReadyMessage,
   buildAudioTrackSwitchingMessage,
   describeAudioTrackSelection,
-  formatAudioTrackLabel,
-  formatAudioTrackMeta,
 } from '../../lib/audio-tracks'
-import { formatDuration, formatPlaybackTime } from '../../lib/format'
 import { shouldMarkPlaybackFinished } from '../../lib/playback'
 import {
-  buildFullscreenWarningMessage,
   buildPlaybackInteractionWarningMessage,
   isAutoplayBlockedError,
 } from '../../lib/player-feedback'
-import { usePresenceTransition } from '../../lib/use-presence-transition'
+import { PlayerPanelView } from './player-panel-view'
 import {
-  AudioTrackIcon,
-  EpisodeSwitchIcon,
-  FullscreenIcon,
-  PauseIcon,
-  PlayIcon,
-  SeekBackIcon,
-  SeekForwardIcon,
-  SpeakerIcon,
-  SubtitleIcon,
-} from './player-icons'
+  buildPlaybackSourceErrorMessage,
+  forceSelectedTextTrack,
+  measureBufferedSeconds,
+} from './player-utils'
+import { usePlayerInteractions } from './use-player-interactions'
+
+export { buildPlaybackSourceErrorMessage } from './player-utils'
 
 const PROGRESS_SYNC_INTERVAL_SECONDS = 5
-const PLAYER_CONTROLS_IDLE_HIDE_MS = 1_400
-const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const
 const PLAYBACK_PROGRESS_SAVE_ERROR = () =>
   translateCurrent('Playback progress could not be saved. We will retry on the next sync.')
 const SUBTITLE_LOAD_ERROR = () =>
@@ -87,148 +68,6 @@ interface PendingPlaybackRestore {
   shouldPersistSelection: boolean
 }
 
-const isInteractiveKeyboardTarget = (target: EventTarget | null) => {
-  if (!(target instanceof HTMLElement)) {
-    return false
-  }
-
-  const tagName = target.tagName.toLowerCase()
-  return (
-    target.isContentEditable ||
-    tagName === 'button' ||
-    tagName === 'input' ||
-    tagName === 'select' ||
-    tagName === 'textarea'
-  )
-}
-
-const releasePointerButtonFocus = (event: ReactPointerEvent<HTMLElement>) => {
-  if (!(event.target instanceof Element)) {
-    return
-  }
-
-  const button = event.target.closest('button')
-  if (button instanceof HTMLButtonElement && event.currentTarget.contains(button)) {
-    button.blur()
-  }
-}
-
-const formatVideoMeta = (file: MediaFile) => {
-  const parts = [file.container?.toUpperCase()]
-
-  if (file.width && file.height) {
-    parts.push(`${file.width}×${file.height}`)
-  }
-
-  if (file.duration_seconds) {
-    parts.push(formatDuration(file.duration_seconds))
-  }
-
-  return parts.filter(Boolean).join(' · ')
-}
-
-const normalizeSubtitleTrackLanguage = (language: string | null | undefined) =>
-  language?.split(/[-_]/)[0]?.toLowerCase() || 'und'
-
-const renderSubtitleLabel = (subtitle: SubtitleFile) => {
-  const languageLabel = (() => {
-    switch (subtitle.language?.toLowerCase()) {
-      case 'zh':
-      case 'zh-cn':
-        return translateCurrent('Chinese')
-      case 'zh-tw':
-        return translateCurrent('Traditional Chinese')
-      case 'en':
-        return translateCurrent('English')
-      case 'ja':
-        return translateCurrent('Japanese')
-      case 'ko':
-        return translateCurrent('Korean')
-      default:
-        return subtitle.language?.toUpperCase() ?? null
-    }
-  })()
-
-  return [languageLabel, subtitle.label, subtitle.is_forced ? translateCurrent('Forced') : null]
-    .filter(Boolean)
-    .join(' · ')
-}
-
-const measureBufferedSeconds = (video: HTMLVideoElement) => {
-  let maxBufferedEnd = 0
-
-  for (let index = 0; index < video.buffered.length; index += 1) {
-    const rangeStart = video.buffered.start(index)
-    const rangeEnd = video.buffered.end(index)
-
-    if (video.currentTime >= rangeStart && video.currentTime <= rangeEnd) {
-      return Math.round(rangeEnd)
-    }
-
-    maxBufferedEnd = Math.max(maxBufferedEnd, rangeEnd)
-  }
-
-  return Math.round(maxBufferedEnd)
-}
-
-const forceSelectedTextTrack = (video: HTMLVideoElement, shouldShowSubtitle: boolean) => {
-  const tracks = Array.from(video.textTracks)
-  tracks.forEach((track) => {
-    track.mode = 'disabled'
-  })
-
-  if (shouldShowSubtitle && tracks[0]) {
-    tracks[0].mode = 'showing'
-  }
-}
-
-export const buildPlaybackSourceErrorMessage = (video: HTMLVideoElement | null) => {
-  const errorCode = video?.error?.code
-
-  switch (errorCode) {
-    case 1:
-      return translateCurrent(
-        'Playback was interrupted before the file finished loading. Try again.',
-      )
-    case 2:
-      return translateCurrent(
-        'The selected file could not be streamed. Check the storage mount or network path.',
-      )
-    case 3:
-      return translateCurrent(
-        'This browser could not decode the selected file. Try another version or container.',
-      )
-    case 4:
-      return translateCurrent('This browser does not support the selected video format.')
-    default:
-      return translateCurrent(
-        'This browser could not play the selected file. Try another version or container.',
-      )
-  }
-}
-
-const PlayerPanelPlaybackError = ({
-  messages,
-  onRetry,
-}: {
-  messages: string[]
-  onRetry?: () => void
-}) => (
-  <div aria-live="assertive" className="player-panel__playback-error" role="alert">
-    <div className="player-panel__playback-error-copy">
-      <strong>{translateCurrent('Playback unavailable')}</strong>
-      {messages.map((message) => (
-        <span key={message}>{message}</span>
-      ))}
-    </div>
-    {onRetry ? (
-      <button className="player-panel__playback-error-action" onClick={onRetry} type="button">
-        {translateCurrent('Retry playback')}
-      </button>
-    ) : null}
-  </div>
-)
-
 export const MediaPlayerPanel = ({
   episodeSwitchOptions = [],
   intro = null,
@@ -245,14 +84,8 @@ export const MediaPlayerPanel = ({
   const isImmersive = variant === 'immersive'
   const stageRef = useRef<HTMLDivElement | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
-  const episodeMenuRef = useRef<HTMLDivElement | null>(null)
-  const episodeMenuListRef = useRef<HTMLDivElement | null>(null)
-  const audioMenuRef = useRef<HTMLDivElement | null>(null)
-  const subtitleMenuRef = useRef<HTMLDivElement | null>(null)
-  const playbackRateMenuRef = useRef<HTMLDivElement | null>(null)
   const selectedMediaFileRef = useRef<MediaFile | null>(null)
   const audioTrackNoticeTimeoutRef = useRef<number | null>(null)
-  const playerControlsHideTimeoutRef = useRef<number | null>(null)
   const pendingAudioTrackSwitchRef = useRef<{
     label: string
     target: number | null
@@ -288,11 +121,6 @@ export const MediaPlayerPanel = ({
   const [isSubtitleMenuOpen, setIsSubtitleMenuOpen] = useState(false)
   const [isPlaybackRateMenuOpen, setIsPlaybackRateMenuOpen] = useState(false)
   const [playbackRate, setPlaybackRate] = useState(1)
-  const [arePlayerControlsVisible, setArePlayerControlsVisible] = useState(false)
-  const episodeMenuPresence = usePresenceTransition(isEpisodeMenuOpen, 140)
-  const audioMenuPresence = usePresenceTransition(isAudioMenuOpen, 140)
-  const subtitleMenuPresence = usePresenceTransition(isSubtitleMenuOpen, 140)
-  const playbackRateMenuPresence = usePresenceTransition(isPlaybackRateMenuOpen, 140)
   const [selectedAudioTrackId, setSelectedAudioTrackId] = useState<number | null>(null)
   const [selectedSubtitleId, setSelectedSubtitleId] = useState<number | null>(null)
   const [hasSkippedIntro, setHasSkippedIntro] = useState(false)
@@ -302,72 +130,6 @@ export const MediaPlayerPanel = ({
     isAudioMenuOpen ||
     isSubtitleMenuOpen ||
     isPlaybackRateMenuOpen
-
-  const clearPlayerControlsHideTimeout = useCallback(() => {
-    if (playerControlsHideTimeoutRef.current === null) {
-      return
-    }
-
-    window.clearTimeout(playerControlsHideTimeoutRef.current)
-    playerControlsHideTimeoutRef.current = null
-  }, [])
-
-  const schedulePlayerControlsHide = useCallback(() => {
-    clearPlayerControlsHideTimeout()
-
-    if (!isImmersive || arePlayerControlsPinned) {
-      return
-    }
-
-    playerControlsHideTimeoutRef.current = window.setTimeout(() => {
-      playerControlsHideTimeoutRef.current = null
-      setArePlayerControlsVisible(false)
-    }, PLAYER_CONTROLS_IDLE_HIDE_MS)
-  }, [arePlayerControlsPinned, clearPlayerControlsHideTimeout, isImmersive])
-
-  const revealPlayerControls = useCallback(() => {
-    if (!isImmersive) {
-      return
-    }
-
-    setArePlayerControlsVisible(true)
-    schedulePlayerControlsHide()
-  }, [isImmersive, schedulePlayerControlsHide])
-
-  useEffect(() => {
-    if (!isImmersive) {
-      clearPlayerControlsHideTimeout()
-      return
-    }
-
-    const handleMouseMove = () => revealPlayerControls()
-    window.addEventListener('mousemove', handleMouseMove)
-    revealPlayerControls()
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      clearPlayerControlsHideTimeout()
-    }
-  }, [clearPlayerControlsHideTimeout, isImmersive, revealPlayerControls])
-
-  useEffect(() => {
-    if (!isImmersive) {
-      return
-    }
-
-    if (arePlayerControlsPinned) {
-      clearPlayerControlsHideTimeout()
-      setArePlayerControlsVisible(true)
-      return
-    }
-
-    schedulePlayerControlsHide()
-  }, [
-    arePlayerControlsPinned,
-    clearPlayerControlsHideTimeout,
-    isImmersive,
-    schedulePlayerControlsHide,
-  ])
 
   const syncEpisodeOutlinePlaybackProgress = ({
     duration_seconds,
@@ -633,83 +395,6 @@ export const MediaPlayerPanel = ({
 
     setSelectedSubtitleId(preferredSubtitle?.id ?? null)
   }, [selectedSubtitleId, subtitleFiles])
-
-  useEffect(() => {
-    if (!isSubtitleMenuOpen && !isEpisodeMenuOpen && !isAudioMenuOpen && !isPlaybackRateMenuOpen) {
-      return
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!(event.target instanceof Node)) {
-        return
-      }
-
-      const subtitleMenuRoot = subtitleMenuRef.current
-      const audioMenuRoot = audioMenuRef.current
-      const episodeMenuRoot = episodeMenuRef.current
-      const playbackRateMenuRoot = playbackRateMenuRef.current
-      const clickedSubtitleMenu = subtitleMenuRoot?.contains(event.target)
-      const clickedAudioMenu = audioMenuRoot?.contains(event.target)
-      const clickedEpisodeMenu = episodeMenuRoot?.contains(event.target)
-      const clickedPlaybackRateMenu = playbackRateMenuRoot?.contains(event.target)
-
-      if (!clickedSubtitleMenu) {
-        setIsSubtitleMenuOpen(false)
-      }
-
-      if (!clickedAudioMenu) {
-        setIsAudioMenuOpen(false)
-      }
-
-      if (!clickedEpisodeMenu) {
-        setIsEpisodeMenuOpen(false)
-      }
-
-      if (!clickedPlaybackRateMenu) {
-        setIsPlaybackRateMenuOpen(false)
-      }
-    }
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsSubtitleMenuOpen(false)
-        setIsAudioMenuOpen(false)
-        setIsEpisodeMenuOpen(false)
-        setIsPlaybackRateMenuOpen(false)
-      }
-    }
-
-    window.addEventListener('mousedown', handlePointerDown)
-    window.addEventListener('keydown', handleEscape)
-
-    return () => {
-      window.removeEventListener('mousedown', handlePointerDown)
-      window.removeEventListener('keydown', handleEscape)
-    }
-  }, [isAudioMenuOpen, isEpisodeMenuOpen, isPlaybackRateMenuOpen, isSubtitleMenuOpen])
-
-  useEffect(() => {
-    if (!isEpisodeMenuOpen || !episodeMenuPresence.shouldRender) {
-      return undefined
-    }
-
-    const animationFrame = window.requestAnimationFrame(() => {
-      const list = episodeMenuListRef.current
-      const currentOption = list?.querySelector<HTMLElement>(
-        `[data-media-item-id="${mediaItemId}"]`,
-      )
-      if (!list || !currentOption) {
-        return
-      }
-
-      const listRect = list.getBoundingClientRect()
-      const optionRect = currentOption.getBoundingClientRect()
-      list.scrollTop +=
-        optionRect.top - listRect.top - (list.clientHeight - currentOption.clientHeight) / 2
-    })
-
-    return () => window.cancelAnimationFrame(animationFrame)
-  }, [episodeMenuPresence.shouldRender, isEpisodeMenuOpen, mediaItemId])
 
   useEffect(() => {
     const video = videoRef.current
@@ -1220,9 +905,6 @@ export const MediaPlayerPanel = ({
   }
 
   const seekMax = Math.max(0, durationSeconds ?? selectedMediaFileDuration ?? 0)
-  const playedProgressPercent = seekMax > 0 ? Math.min(100, (positionSeconds / seekMax) * 100) : 0
-  const bufferedProgressPercent =
-    seekMax > 0 ? Math.min(100, (Math.max(bufferedSeconds, positionSeconds) / seekMax) * 100) : 0
   const canSkipIntro =
     intro !== null &&
     intro.endSeconds > intro.startSeconds &&
@@ -1230,18 +912,8 @@ export const MediaPlayerPanel = ({
     positionSeconds >= intro.startSeconds &&
     positionSeconds < intro.endSeconds
   const bufferingStatusMessage = audioTrackNotice ?? translateCurrent('Buffering playback…')
-  const shouldShowTopOverlay =
-    canSkipIntro ||
-    playbackSyncError !== null ||
-    interactionWarning !== null ||
-    subtitleWarning !== null ||
-    (!isBuffering && audioTrackNotice !== null)
   const shouldRenderAudioMenu =
     audioTracks.length > 1 || audioTracksQuery.isError || audioTracksQuery.isLoading
-  const timelineStyle = {
-    '--player-range-buffered': `${Math.max(playedProgressPercent, bufferedProgressPercent)}%`,
-    '--player-range-played': `${playedProgressPercent}%`,
-  } as CSSProperties
   const playbackLoadErrorMessages = [
     mediaFilesQuery.isError
       ? mediaFilesQuery.error instanceof Error
@@ -1261,84 +933,28 @@ export const MediaPlayerPanel = ({
     : []
   const statePlaybackErrorMessages = selectedMediaFile ? [] : playbackLoadErrorMessages
 
-  const togglePlay = useCallback(
-    async (hideControlsAfterToggle = false) => {
-      const video = videoRef.current
-      if (!video) {
-        return
-      }
-
-      if (video.paused) {
-        const wasAutoplayBlocked = isAutoplayBlocked
-        setIsAutoplayBlocked(false)
-        try {
-          await video.play()
-          if (wasAutoplayBlocked || hideControlsAfterToggle) {
-            clearPlayerControlsHideTimeout()
-            setArePlayerControlsVisible(false)
-          }
-        } catch (error) {
-          if (isAutoplayBlockedError(error)) {
-            setIsAutoplayBlocked(true)
-            setInteractionWarning(null)
-            return
-          }
-
-          setInteractionWarning(buildPlaybackInteractionWarningMessage(error))
-        }
-        return
-      }
-
-      video.pause()
-      if (hideControlsAfterToggle) {
-        clearPlayerControlsHideTimeout()
-        setArePlayerControlsVisible(false)
-      }
-    },
-    [clearPlayerControlsHideTimeout, isAutoplayBlocked],
-  )
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || isInteractiveKeyboardTarget(event.target)) {
-        return
-      }
-
-      if (event.code !== 'Space' && event.key !== ' ') {
-        return
-      }
-
-      event.preventDefault()
-      void togglePlay()
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [togglePlay])
-
-  const seekTo = (targetSeconds: number) => {
-    const video = videoRef.current
-    if (!video) {
-      return
-    }
-
-    const nextSeconds = Math.max(0, Math.min(seekMax || targetSeconds, targetSeconds))
-    video.currentTime = nextSeconds
-    setPositionSeconds(Math.round(nextSeconds))
-    syncPlaybackProgressRef.current(true, false)
-  }
-
-  const seekBy = (deltaSeconds: number) => {
-    const video = videoRef.current
-    if (!video) {
-      return
-    }
-
-    seekTo(video.currentTime + deltaSeconds)
-  }
+  const {
+    arePlayerControlsVisible,
+    changePlaybackRate,
+    changeVolume,
+    seekBy,
+    seekTo,
+    toggleFullscreen,
+    togglePlay,
+  } = usePlayerInteractions({
+    arePlayerControlsPinned,
+    isAutoplayBlocked,
+    isImmersive,
+    seekMax,
+    setInteractionWarning,
+    setIsAutoplayBlocked,
+    setIsPlaybackRateMenuOpen,
+    setPlaybackRate,
+    setPositionSeconds,
+    stageRef,
+    syncPlaybackProgressRef,
+    videoRef,
+  })
 
   const skipIntro = () => {
     if (!intro) {
@@ -1358,737 +974,93 @@ export const MediaPlayerPanel = ({
     onSelectEpisode(nextEpisode.mediaItemId)
   }
 
-  const changeVolume = (nextVolume: number) => {
-    const video = videoRef.current
-    if (!video) {
-      return
-    }
-
-    const normalizedVolume = Math.max(0, Math.min(1, nextVolume))
-    video.volume = normalizedVolume
-    video.muted = normalizedVolume === 0
-  }
-
-  const changePlaybackRate = (nextPlaybackRate: number) => {
-    const video = videoRef.current
-    if (!video) {
-      return
-    }
-
-    video.playbackRate = nextPlaybackRate
-    setPlaybackRate(nextPlaybackRate)
-    setIsPlaybackRateMenuOpen(false)
-  }
-
-  const toggleFullscreen = async () => {
-    const stage = stageRef.current
-    if (!stage) {
-      return
-    }
-
-    const fullscreenTarget = stage.closest<HTMLElement>('.player-screen') ?? stage
-
-    if (
-      document.fullscreenElement === fullscreenTarget ||
-      document.fullscreenElement?.contains(stage)
-    ) {
-      try {
-        await document.exitFullscreen()
-        setInteractionWarning(null)
-      } catch (error) {
-        setInteractionWarning(buildFullscreenWarningMessage(error))
-      }
-      return
-    }
-
-    if (
-      typeof fullscreenTarget.requestFullscreen !== 'function' ||
-      document.fullscreenEnabled === false
-    ) {
-      setInteractionWarning(buildFullscreenWarningMessage())
-      return
-    }
-
-    try {
-      await fullscreenTarget.requestFullscreen()
-      setInteractionWarning(null)
-    } catch (error) {
-      setInteractionWarning(buildFullscreenWarningMessage(error))
-    }
-  }
-
   return (
-    <section className={isImmersive ? 'player-panel player-panel--immersive' : 'player-panel'}>
-      {!isImmersive ? (
-        <div className="catalog-block__header">
-          <div>
-            <h3>{translateCurrent('Playback')}</h3>
-          </div>
-        </div>
-      ) : null}
-
-      {mediaFilesQuery.isLoading ? (
-        <p className="muted">{translateCurrent('Loading player…')}</p>
-      ) : null}
-
-      {statePlaybackErrorMessages.length > 0 ? (
-        <div className="player-panel__state-center">
-          <PlayerPanelPlaybackError messages={statePlaybackErrorMessages} />
-        </div>
-      ) : null}
-
-      {mediaFiles.length === 0 && !mediaFilesQuery.isLoading ? (
-        <div className="catalog-block__empty">
-          <p className="muted">
-            {translateCurrent('No playable media files are linked to this item yet.')}
-          </p>
-        </div>
-      ) : null}
-
-      {selectedMediaFile ? (
-        <div
-          className={
-            isImmersive
-              ? 'player-panel__content player-panel__content--immersive'
-              : 'player-panel__content'
-          }
-        >
-          <div className="player-stage" onPointerUp={releasePointerButtonFocus} ref={stageRef}>
-            <div className="player-stage__media">
-              {isImmersive && shouldShowTopOverlay ? (
-                <div className="player-panel__overlay">
-                  <div className="player-panel__overlay-status">
-                    {canSkipIntro ? (
-                      <button
-                        className="player-panel__floating-action"
-                        onClick={skipIntro}
-                        type="button"
-                      >
-                        {translateCurrent('Skip Intro')}
-                      </button>
-                    ) : null}
-                    {!playerError && playbackSyncError ? (
-                      <p className="callout">{playbackSyncError}</p>
-                    ) : null}
-                    {!playerError && interactionWarning ? (
-                      <p className="callout">{interactionWarning}</p>
-                    ) : null}
-                    {!playerError && subtitleWarning ? (
-                      <p className="callout">{subtitleWarning}</p>
-                    ) : null}
-                    {!playerError &&
-                    !isBuffering &&
-                    !playbackSyncError &&
-                    !interactionWarning &&
-                    !subtitleWarning &&
-                    audioTrackNotice ? (
-                      <p className="callout">{audioTrackNotice}</p>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              {isImmersive && isBuffering && !isAutoplayBlocked && !playerError ? (
-                <div aria-live="polite" className="player-panel__center-status" role="status">
-                  <p className="player-panel__status-badge">{bufferingStatusMessage}</p>
-                </div>
-              ) : null}
-
-              {isImmersive && arePlayerControlsVisible && !isBuffering && !playerError ? (
-                <div className="player-panel__center-status player-panel__center-status--interactive">
-                  <button
-                    aria-label={translateCurrent(isPlaying ? 'Pause playback' : 'Start playback')}
-                    className="player-panel__center-playback-control"
-                    onClick={() => void togglePlay(true)}
-                    type="button"
-                  >
-                    {isPlaying ? <PauseIcon /> : <PlayIcon />}
-                  </button>
-                </div>
-              ) : null}
-
-              {centeredPlaybackErrorMessages.length > 0 ? (
-                <div className="player-panel__center-status player-panel__center-status--interactive">
-                  <PlayerPanelPlaybackError
-                    messages={centeredPlaybackErrorMessages}
-                    onRetry={playerError ? retryCurrentSource : undefined}
-                  />
-                </div>
-              ) : null}
-
-              {/* biome-ignore lint/a11y/useMediaCaption: 当前播放器允许“关闭字幕”，未选中时不会挂载活动字幕轨道。 */}
-              <video
-                className="player-stage__video"
-                controls={!isImmersive}
-                controlsList="nodownload noplaybackrate"
-                disablePictureInPicture={isImmersive}
-                disableRemotePlayback={isImmersive}
-                onClick={isImmersive ? () => void togglePlay() : undefined}
-                onEnded={handleEnded}
-                onError={handlePlayerError}
-                onLoadedMetadata={handleLoadedMetadata}
-                onPause={handlePause}
-                onTimeUpdate={handleTimeUpdate}
-                poster={undefined}
-                preload="metadata"
-                playsInline
-                ref={videoRef}
-                src={mediaFileStreamUrl(selectedMediaFile.id, {
-                  audioTrackId: selectedAudioTrackId,
-                })}
-              >
-                {selectedSubtitle ? (
-                  // Web 端同一时间只挂一条字幕 track，切换时直接替换，避免内嵌/外挂叠加重影。
-                  <track
-                    default
-                    key={selectedSubtitle.id}
-                    kind="subtitles"
-                    label={renderSubtitleLabel(selectedSubtitle)}
-                    onError={handleSubtitleTrackError}
-                    src={subtitleFileStreamUrl(selectedSubtitle.id)}
-                    srcLang={normalizeSubtitleTrackLanguage(selectedSubtitle.language)}
-                  />
-                ) : null}
-                {translateCurrent('Your browser does not support HTML5 video playback.')}
-              </video>
-            </div>
-
-            {isImmersive ? (
-              <div
-                className={
-                  arePlayerControlsVisible
-                    ? 'player-stage__controls player-stage__controls--visible'
-                    : 'player-stage__controls'
-                }
-              >
-                <div className="player-stage__control-row">
-                  <div className="player-toolbar-cluster">
-                    <div className="player-toolbar-pill player-toolbar-pill--primary">
-                      <button
-                        aria-label={
-                          isPlaying
-                            ? translateCurrent('Pause playback')
-                            : translateCurrent('Start playback')
-                        }
-                        className="player-control-button player-control-button--icon player-control-button--toolbar player-control-button--primary"
-                        onClick={() => void togglePlay()}
-                        type="button"
-                      >
-                        {isPlaying ? <PauseIcon /> : <PlayIcon />}
-                      </button>
-                      <button
-                        aria-label={translateCurrent('Seek backward 10 seconds')}
-                        className="player-control-button player-control-button--icon player-control-button--toolbar player-control-button--seek"
-                        onClick={() => seekBy(-10)}
-                        title={translateCurrent('Back 10 seconds')}
-                        type="button"
-                      >
-                        <SeekBackIcon />
-                      </button>
-                      <button
-                        aria-label={translateCurrent('Seek forward 10 seconds')}
-                        className="player-control-button player-control-button--icon player-control-button--toolbar player-control-button--seek"
-                        onClick={() => seekBy(10)}
-                        title={translateCurrent('Forward 10 seconds')}
-                        type="button"
-                      >
-                        <SeekForwardIcon />
-                      </button>
-                      <div className="player-volume-control">
-                        <button
-                          aria-label={translateCurrent('Adjust volume')}
-                          className="player-control-button player-control-button--icon player-control-button--toolbar"
-                          type="button"
-                          title={
-                            selectedAudioTrack
-                              ? translateCurrent('Selected audio: {{name}}', {
-                                  name: formatAudioTrackLabel(selectedAudioTrack),
-                                })
-                              : translateCurrent('Adjust volume')
-                          }
-                        >
-                          <SpeakerIcon muted={isMuted} volume={volume} />
-                        </button>
-                        <div className="player-volume-control__slider">
-                          <input
-                            aria-label={translateCurrent('Adjust volume')}
-                            className="player-range player-range--volume-inline"
-                            max={1}
-                            min={0}
-                            onChange={(event) => changeVolume(Number(event.target.value))}
-                            step={0.05}
-                            type="range"
-                            value={isMuted ? 0 : volume}
-                          />
-                        </div>
-                      </div>
-                      <span className="player-stage__time">
-                        {formatPlaybackTime(positionSeconds)} /{' '}
-                        {formatPlaybackTime(durationSeconds)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="player-stage__timeline">
-                    <input
-                      aria-label={translateCurrent('Seek playback position')}
-                      className="player-range player-range--timeline"
-                      max={seekMax || 0}
-                      min={0}
-                      onChange={(event) => seekTo(Number(event.target.value))}
-                      step={1}
-                      style={timelineStyle}
-                      type="range"
-                      value={Math.min(positionSeconds, seekMax || positionSeconds)}
-                    />
-                  </div>
-
-                  <div className="player-toolbar-cluster player-toolbar-cluster--right">
-                    <div className="player-toolbar-pill player-toolbar-pill--tools">
-                      {episodeSwitchOptions.length > 1 && onSelectEpisode ? (
-                        <div
-                          className={
-                            isEpisodeMenuOpen
-                              ? 'player-popover-menu player-popover-menu--open'
-                              : 'player-popover-menu'
-                          }
-                          ref={episodeMenuRef}
-                        >
-                          <button
-                            aria-expanded={isEpisodeMenuOpen}
-                            aria-haspopup="menu"
-                            aria-label={translateCurrent('Switch episode')}
-                            className={
-                              isEpisodeMenuOpen
-                                ? 'player-control-button player-control-button--icon player-control-button--toolbar player-control-button--active'
-                                : 'player-control-button player-control-button--icon player-control-button--toolbar'
-                            }
-                            onClick={() => {
-                              setIsEpisodeMenuOpen((open) => !open)
-                              setIsAudioMenuOpen(false)
-                              setIsSubtitleMenuOpen(false)
-                              setIsPlaybackRateMenuOpen(false)
-                            }}
-                            type="button"
-                          >
-                            <EpisodeSwitchIcon />
-                          </button>
-
-                          {episodeMenuPresence.shouldRender ? (
-                            <div
-                              className="player-popover-menu__bubble glass-popover-surface floating-transition"
-                              data-state={episodeMenuPresence.transitionState}
-                              role="menu"
-                            >
-                              <div
-                                className="player-popover-menu__list scrollbar-thin"
-                                ref={episodeMenuListRef}
-                                role="none"
-                              >
-                                {episodeSwitchOptions.map((episode) => {
-                                  const isCurrentEpisode = episode.mediaItemId === mediaItemId
-                                  return (
-                                    <button
-                                      aria-current={isCurrentEpisode ? 'true' : undefined}
-                                      className={
-                                        isCurrentEpisode
-                                          ? 'player-popover-menu__option player-popover-menu__option--active'
-                                          : 'player-popover-menu__option'
-                                      }
-                                      data-media-item-id={episode.mediaItemId}
-                                      key={episode.mediaItemId}
-                                      onClick={() => {
-                                        setIsEpisodeMenuOpen(false)
-                                        if (isCurrentEpisode) {
-                                          return
-                                        }
-
-                                        persistProgressBeforeSwitch()
-                                        onSelectEpisode(episode.mediaItemId)
-                                      }}
-                                      role="menuitem"
-                                      type="button"
-                                    >
-                                      <span>{episode.label}</span>
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
-
-                      {shouldRenderAudioMenu ? (
-                        <div
-                          className={
-                            isAudioMenuOpen
-                              ? 'player-popover-menu player-popover-menu--open'
-                              : 'player-popover-menu'
-                          }
-                          ref={audioMenuRef}
-                        >
-                          <button
-                            aria-expanded={isAudioMenuOpen}
-                            aria-haspopup="menu"
-                            aria-label={translateCurrent('Select audio track')}
-                            title={translateCurrent('Audio: {{name}}', {
-                              name: currentAudioSelectionLabel,
-                            })}
-                            className={
-                              selectedAudioTrackId !== null || isAudioMenuOpen
-                                ? 'player-control-button player-control-button--icon player-control-button--toolbar player-control-button--active'
-                                : 'player-control-button player-control-button--icon player-control-button--toolbar'
-                            }
-                            onClick={() => {
-                              setIsAudioMenuOpen((open) => !open)
-                              setIsEpisodeMenuOpen(false)
-                              setIsSubtitleMenuOpen(false)
-                              setIsPlaybackRateMenuOpen(false)
-                            }}
-                            type="button"
-                          >
-                            <AudioTrackIcon />
-                          </button>
-
-                          {audioMenuPresence.shouldRender ? (
-                            <div
-                              className="player-popover-menu__bubble glass-popover-surface floating-transition"
-                              data-state={audioMenuPresence.transitionState}
-                              role="menu"
-                            >
-                              <div className="player-popover-menu__header">
-                                <strong>{translateCurrent('Audio')}</strong>
-                                <small>
-                                  {audioTracksQuery.isLoading
-                                    ? translateCurrent('Loading embedded audio tracks…')
-                                    : translateCurrent('Current: {{name}}', {
-                                        name: currentAudioSelectionLabel,
-                                      })}
-                                </small>
-                              </div>
-
-                              <div className="player-popover-menu__list scrollbar-thin" role="none">
-                                <button
-                                  className={
-                                    selectedAudioTrackId === null
-                                      ? 'player-popover-menu__option player-popover-menu__option--active'
-                                      : 'player-popover-menu__option'
-                                  }
-                                  onClick={() => switchAudioTrack(null)}
-                                  role="menuitem"
-                                  type="button"
-                                >
-                                  <span>{translateCurrent('Original default track')}</span>
-                                  <small>
-                                    {translateCurrent("Use the source file's default audio")}
-                                  </small>
-                                </button>
-
-                                {audioTracks.map((audioTrack) => (
-                                  <button
-                                    className={
-                                      selectedAudioTrackId === audioTrack.id
-                                        ? 'player-popover-menu__option player-popover-menu__option--active'
-                                        : 'player-popover-menu__option'
-                                    }
-                                    key={audioTrack.id}
-                                    onClick={() => switchAudioTrack(audioTrack.id)}
-                                    role="menuitem"
-                                    type="button"
-                                  >
-                                    <span>{formatAudioTrackLabel(audioTrack)}</span>
-                                    <small>
-                                      {formatAudioTrackMeta(audioTrack) ||
-                                        translateCurrent('Embedded')}
-                                    </small>
-                                  </button>
-                                ))}
-
-                                {audioTracks.length === 0 && !audioTracksQuery.isLoading ? (
-                                  <p className="player-popover-menu__empty">
-                                    {audioTracksQuery.error
-                                      ? buildAudioTrackLoadErrorMessage()
-                                      : translateCurrent('No alternate audio tracks found.')}
-                                  </p>
-                                ) : null}
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
-
-                      <div
-                        className={
-                          isSubtitleMenuOpen
-                            ? 'player-popover-menu player-popover-menu--open'
-                            : 'player-popover-menu'
-                        }
-                        ref={subtitleMenuRef}
-                      >
-                        <button
-                          aria-expanded={isSubtitleMenuOpen}
-                          aria-haspopup="menu"
-                          aria-label={translateCurrent('Select subtitles')}
-                          className={
-                            selectedSubtitleId !== null || isSubtitleMenuOpen
-                              ? 'player-control-button player-control-button--icon player-control-button--toolbar player-control-button--active'
-                              : 'player-control-button player-control-button--icon player-control-button--toolbar'
-                          }
-                          onClick={() => {
-                            setIsSubtitleMenuOpen((open) => !open)
-                            setIsEpisodeMenuOpen(false)
-                            setIsAudioMenuOpen(false)
-                            setIsPlaybackRateMenuOpen(false)
-                          }}
-                          type="button"
-                        >
-                          <SubtitleIcon />
-                        </button>
-
-                        {subtitleMenuPresence.shouldRender ? (
-                          <div
-                            className="player-popover-menu__bubble glass-popover-surface floating-transition"
-                            data-state={subtitleMenuPresence.transitionState}
-                            role="menu"
-                          >
-                            <div className="player-popover-menu__list scrollbar-thin" role="none">
-                              <button
-                                className={
-                                  selectedSubtitleId === null
-                                    ? 'player-popover-menu__option player-popover-menu__option--active'
-                                    : 'player-popover-menu__option'
-                                }
-                                onClick={() => {
-                                  setSubtitleTrackError(null)
-                                  setSelectedSubtitleId(null)
-                                  setIsSubtitleMenuOpen(false)
-                                }}
-                                role="menuitem"
-                                type="button"
-                              >
-                                {translateCurrent('Off')}
-                              </button>
-
-                              {subtitleFiles.map((subtitle) => (
-                                <button
-                                  className={
-                                    selectedSubtitleId === subtitle.id
-                                      ? 'player-popover-menu__option player-popover-menu__option--active'
-                                      : 'player-popover-menu__option'
-                                  }
-                                  key={subtitle.id}
-                                  onClick={() => {
-                                    setSubtitleTrackError(null)
-                                    setSelectedSubtitleId(subtitle.id)
-                                    setIsSubtitleMenuOpen(false)
-                                  }}
-                                  role="menuitem"
-                                  type="button"
-                                >
-                                  <span>
-                                    {renderSubtitleLabel(subtitle) ||
-                                      translateCurrent('Unknown subtitle')}
-                                  </span>
-                                  <small>
-                                    {subtitle.source_kind === 'embedded'
-                                      ? translateCurrent('Embedded')
-                                      : translateCurrent('External')}
-                                  </small>
-                                </button>
-                              ))}
-
-                              {subtitleFiles.length === 0 && !subtitleFilesQuery.isLoading ? (
-                                <p className="player-popover-menu__empty">
-                                  {translateCurrent('No subtitles found.')}
-                                </p>
-                              ) : null}
-                              {subtitleFilesQuery.isError ? (
-                                <p className="player-popover-menu__empty">
-                                  {subtitleFilesQuery.error instanceof Error
-                                    ? subtitleFilesQuery.error.message
-                                    : translateCurrent('Failed to load subtitles')}
-                                </p>
-                              ) : null}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <div
-                        className={
-                          isPlaybackRateMenuOpen
-                            ? 'player-popover-menu player-popover-menu--open'
-                            : 'player-popover-menu'
-                        }
-                        ref={playbackRateMenuRef}
-                      >
-                        <button
-                          aria-expanded={isPlaybackRateMenuOpen}
-                          aria-haspopup="menu"
-                          aria-label={translateCurrent('Playback speed: {{rate}}', {
-                            rate: `${playbackRate}×`,
-                          })}
-                          className={
-                            playbackRate !== 1 || isPlaybackRateMenuOpen
-                              ? 'player-control-button player-control-button--toolbar player-control-button--rate player-control-button--active'
-                              : 'player-control-button player-control-button--toolbar player-control-button--rate'
-                          }
-                          onClick={() => {
-                            setIsPlaybackRateMenuOpen((open) => !open)
-                            setIsEpisodeMenuOpen(false)
-                            setIsAudioMenuOpen(false)
-                            setIsSubtitleMenuOpen(false)
-                          }}
-                          title={translateCurrent('Playback speed: {{rate}}', {
-                            rate: `${playbackRate}×`,
-                          })}
-                          type="button"
-                        >
-                          {playbackRate}×
-                        </button>
-
-                        {playbackRateMenuPresence.shouldRender ? (
-                          <div
-                            className="player-popover-menu__bubble player-popover-menu__bubble--compact glass-popover-surface floating-transition"
-                            data-state={playbackRateMenuPresence.transitionState}
-                            role="menu"
-                          >
-                            <div className="player-popover-menu__header">
-                              <strong>{translateCurrent('Playback Speed')}</strong>
-                            </div>
-                            <div className="player-popover-menu__list" role="none">
-                              {PLAYBACK_RATE_OPTIONS.map((rate) => {
-                                const isCurrentRate = rate === playbackRate
-                                return (
-                                  <button
-                                    aria-checked={isCurrentRate}
-                                    className={
-                                      isCurrentRate
-                                        ? 'player-popover-menu__option player-popover-menu__option--active'
-                                        : 'player-popover-menu__option'
-                                    }
-                                    key={rate}
-                                    onClick={() => changePlaybackRate(rate)}
-                                    role="menuitemradio"
-                                    type="button"
-                                  >
-                                    <span>{rate}×</span>
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      <button
-                        aria-label={
-                          isFullscreen
-                            ? translateCurrent('Exit fullscreen')
-                            : translateCurrent('Enter fullscreen')
-                        }
-                        className="player-control-button player-control-button--icon player-control-button--toolbar"
-                        onClick={() => void toggleFullscreen()}
-                        title={
-                          isFullscreen
-                            ? translateCurrent('Exit fullscreen')
-                            : translateCurrent('Enter fullscreen')
-                        }
-                        type="button"
-                      >
-                        <FullscreenIcon />
-                      </button>
-
-                      {nextEpisode && onSelectEpisode ? (
-                        <button
-                          aria-label={translateCurrent('Play next episode: {{label}}', {
-                            label: nextEpisode.label,
-                          })}
-                          className="player-control-button player-control-button--toolbar player-control-button--next"
-                          onClick={goToNextEpisode}
-                          type="button"
-                        >
-                          {translateCurrent('Next Episode')}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          {!isImmersive ? (
-            <div className="player-panel__meta">
-              <div className="player-panel__info">
-                <strong>{title}</strong>
-                <span className="muted">
-                  {formatVideoMeta(selectedMediaFile) || translateCurrent('Playable source')}
-                </span>
-              </div>
-              <div className="player-panel__info player-panel__info--compact">
-                <span className="muted">{translateCurrent('Current')}</span>
-                <strong>{formatDuration(positionSeconds)}</strong>
-              </div>
-              <div className="player-panel__info player-panel__info--compact">
-                <span className="muted">{translateCurrent('Duration')}</span>
-                <strong>{formatDuration(durationSeconds)}</strong>
-              </div>
-            </div>
-          ) : null}
-
-          {!playerError && playbackSyncError && !isImmersive ? (
-            <p className="callout">{playbackSyncError}</p>
-          ) : null}
-
-          {!playerError && interactionWarning && !isImmersive ? (
-            <p className="callout">{interactionWarning}</p>
-          ) : null}
-
-          {!playerError && subtitleWarning && !isImmersive ? (
-            <p className="callout">{subtitleWarning}</p>
-          ) : null}
-
-          {!playerError &&
-          !isBuffering &&
-          !playbackSyncError &&
-          !interactionWarning &&
-          !subtitleWarning &&
-          audioTrackNotice &&
-          !isImmersive ? (
-            <p className="callout">{audioTrackNotice}</p>
-          ) : null}
-
-          {isBuffering && !playerError && !isImmersive ? (
-            <p className="player-panel__status-badge">{bufferingStatusMessage}</p>
-          ) : null}
-
-          {mediaFiles.length > 1 && !isImmersive ? (
-            <div className="player-source-list">
-              {mediaFiles.map((file) => {
-                const isActive = file.id === selectedMediaFile.id
-
-                return (
-                  <button
-                    className={isActive ? 'player-source player-source--active' : 'player-source'}
-                    key={file.id}
-                    onClick={() => switchMediaFile(file.id)}
-                    type="button"
-                  >
-                    <span className="player-source__title">
-                      {file.container?.toUpperCase() ?? translateCurrent('FILE')}
-                    </span>
-                    <span className="player-source__meta">
-                      {formatVideoMeta(file) || file.file_path}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </section>
+    <PlayerPanelView
+      arePlayerControlsVisible={arePlayerControlsVisible}
+      audioTrackNotice={audioTrackNotice}
+      bufferedSeconds={bufferedSeconds}
+      bufferingStatusMessage={bufferingStatusMessage}
+      canSkipIntro={canSkipIntro}
+      centeredPlaybackErrorMessages={centeredPlaybackErrorMessages}
+      controlMenus={{
+        audioTracks,
+        audioTracksError: audioTracksQuery.isError,
+        audioTracksLoading: audioTracksQuery.isLoading,
+        currentAudioSelectionLabel,
+        episodeSwitchOptions,
+        isAudioMenuOpen,
+        isEpisodeMenuOpen,
+        isFullscreen,
+        isPlaybackRateMenuOpen,
+        isSubtitleMenuOpen,
+        mediaItemId,
+        nextEpisode,
+        onAudioMenuOpenChange: setIsAudioMenuOpen,
+        onEpisodeMenuOpenChange: setIsEpisodeMenuOpen,
+        onGoToNextEpisode: goToNextEpisode,
+        onPlaybackRateMenuOpenChange: setIsPlaybackRateMenuOpen,
+        onSelectAudioTrack: switchAudioTrack,
+        onSelectEpisode: onSelectEpisode
+          ? (targetMediaItemId) => {
+              persistProgressBeforeSwitch()
+              onSelectEpisode(targetMediaItemId)
+            }
+          : undefined,
+        onSelectPlaybackRate: changePlaybackRate,
+        onSelectSubtitle: (subtitleId) => {
+          setSubtitleTrackError(null)
+          setSelectedSubtitleId(subtitleId)
+        },
+        onSubtitleMenuOpenChange: setIsSubtitleMenuOpen,
+        onToggleFullscreen: () => void toggleFullscreen(),
+        playbackRate,
+        selectedAudioTrackId,
+        selectedSubtitleId,
+        shouldRenderAudioMenu,
+        subtitleFiles,
+        subtitleFilesError: subtitleFilesQuery.isError
+          ? subtitleFilesQuery.error instanceof Error
+            ? subtitleFilesQuery.error.message
+            : translateCurrent('Failed to load subtitles')
+          : null,
+        subtitleFilesLoading: subtitleFilesQuery.isLoading,
+      }}
+      durationSeconds={durationSeconds}
+      interactionWarning={interactionWarning}
+      isAutoplayBlocked={isAutoplayBlocked}
+      isBuffering={isBuffering}
+      isImmersive={isImmersive}
+      isMuted={isMuted}
+      isPlaying={isPlaying}
+      mediaFiles={mediaFiles}
+      mediaFilesLoading={mediaFilesQuery.isLoading}
+      onChangeVolume={changeVolume}
+      onEnded={handleEnded}
+      onLoadedMetadata={handleLoadedMetadata}
+      onPause={handlePause}
+      onPlayerError={handlePlayerError}
+      onRetryCurrentSource={retryCurrentSource}
+      onSeekBy={seekBy}
+      onSeekTo={seekTo}
+      onSkipIntro={skipIntro}
+      onSubtitleTrackError={handleSubtitleTrackError}
+      onSwitchMediaFile={switchMediaFile}
+      onTimeUpdate={handleTimeUpdate}
+      onTogglePlay={togglePlay}
+      playbackSyncError={playbackSyncError}
+      playerError={playerError}
+      positionSeconds={positionSeconds}
+      seekMax={seekMax}
+      selectedAudioTrack={selectedAudioTrack}
+      selectedAudioTrackId={selectedAudioTrackId}
+      selectedMediaFile={selectedMediaFile}
+      selectedSubtitle={selectedSubtitle}
+      stageRef={stageRef}
+      statePlaybackErrorMessages={statePlaybackErrorMessages}
+      subtitleWarning={subtitleWarning}
+      title={title}
+      videoRef={videoRef}
+      volume={volume}
+    />
   )
 }

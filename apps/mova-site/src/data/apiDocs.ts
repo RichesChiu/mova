@@ -38,7 +38,7 @@ export const apiOverviewCards = [
 ]
 
 export const apiCommonNotes = [
-  'health、bootstrap-status、bootstrap-admin、login、token-login 和 refresh 可匿名访问，其余接口都要求登录态。',
+  'health、bootstrap-status、bootstrap-admin、login、token-login、refresh 和 logout 可匿名访问，其余接口都要求登录态。',
   '管理类接口允许 owner 和 admin；用户角色提升等所有者操作只允许 owner。',
   'Web 端使用 session cookie；原生客户端使用 access token，refresh token 仅用于调用 refresh 接口。',
   'realtime/events 返回 text/event-stream，不使用统一 JSON envelope；重连后应先请求 realtime/state。',
@@ -64,9 +64,11 @@ export const apiStatusCodes = [
   ['403', 'Forbidden，权限不足'],
   ['404', 'Not Found，资源不存在'],
   ['409', 'Conflict，当前资源状态不允许操作'],
+  ['413', 'Payload Too Large，媒体处理输入或结果超过服务端上限'],
   ['429', 'Too Many Requests，认证尝试过多'],
   ['416', 'Range Not Satisfiable，媒体 Range 越界'],
   ['500', 'Internal Server Error，服务内部错误'],
+  ['503', 'Service Unavailable，媒体处理资源或依赖服务暂不可用'],
 ]
 
 export const apiSuccessExample = `{
@@ -90,7 +92,11 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     id: 'health',
     title: '健康检查',
     summary: '用于探测服务进程和数据库是否可用，适合容器探针、本地调试和部署后的联通性检查。',
-    highlights: ['匿名可访问', '返回服务状态和权威构建版本', '适合作为部署后第一条检查接口'],
+    highlights: [
+      '匿名可访问',
+      '返回服务状态、权威构建版本和 HTTP API 契约版本',
+      '适合作为部署后第一条检查接口',
+    ],
     endpoints: [{ method: 'GET', path: '/api/health', description: '健康检查' }],
   },
   {
@@ -101,9 +107,12 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       'bootstrap 只在系统没有管理账户时创建唯一 owner，并直接建立登录态。',
       '账户按去除首尾空白后的小写值唯一；Web Session 与原生 Token 都只在数据库保存 hash。',
       'token-login 返回短期 access token 和长期 refresh token，refresh 会轮换两者。',
+      '同一设备必须串行 refresh：原始有效期内重放旧 refresh token 会原子撤销设备会话，已过期的历史 token 不影响当前会话。',
       '密码认证默认在 5 分钟内允许 5 次失败，受限时返回 429 和 Retry-After。',
       '/api/home 返回当前用户的有界首页快照，并携带 realtime revision 基线。',
       'SSE 只承载资源失效与临时进度；断线恢复必须使用 /api/realtime/state。',
+      'SSE 与连接凭据有效期绑定；收到 credential_expired 后先更新登录凭据并读取 /api/realtime/state，再重新连接。',
+      '登出、改密或 refresh token 重放撤销会话时，仅对应凭据的 SSE 收到 session_revoked 并关闭。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/auth/bootstrap-status', description: '查询是否需要初始化系统所有者' },
@@ -120,7 +129,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       { method: 'PUT', path: '/api/auth/password', description: '当前用户修改自己的密码' },
       { method: 'GET', path: '/api/users', description: '查询用户列表（管理员）' },
       { method: 'POST', path: '/api/users', description: '创建用户（管理员）' },
-      { method: 'PATCH', path: '/api/users/{id}', description: '更新低权限用户的角色与媒体库权限（管理员）' },
+      { method: 'PATCH', path: '/api/users/{id}', description: '更新低权限用户的角色、启用状态与媒体库权限（管理员）' },
       { method: 'DELETE', path: '/api/users/{id}', description: '删除用户（管理员）' },
       { method: 'PUT', path: '/api/users/{id}/password', description: '管理员重置指定用户密码' },
     ],
@@ -132,7 +141,9 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     highlights: [
       '标准类别包括 scan、system、library 和 account，未知类别也必须保留展示。',
       '通知和已读状态持久化在 PostgreSQL，SSE 只通知客户端重新读取。',
+      '扫描终态分别使用 completed、completed_with_issues、failed 和 cancelled，取消不等同于成功或失败。',
       '扫描通知使用 reason_code 和 reason_params 生成本地化主文案，diagnostic_message 仅用于排障。',
+      '已有远端身份在 provider 临时故障时保持 matched，并以 metadata_provider_error 表示刷新失败。',
       'GET 响应的未读统计不受 category 筛选影响。',
       '标记已读操作幂等，只有状态首次变化时才推进 revision。',
     ],
@@ -163,6 +174,8 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     highlights: [
       '媒体库统一自动识别电影和剧集，不再要求用户手动选择库类型。',
       'metadata_language 支持 zh-CN / en-US，影响扫描和 TMDB 元数据补全语言。',
+      '语言变更、缓存失效、catalog revision 和新扫描任务会在同一事务中提交。',
+      '仍有活跃扫描时语言变更返回 409，不会提交半更新状态。',
       '创建媒体库后会自动触发一次后台扫描；媒体库不提供启用/禁用状态。',
       '删除媒体库会由数据库级联清理权威数据，并持久化后台任务删除该库独立的图片、字幕和音轨缓存。',
       '搜索会在当前用户可见库内匹配电影、剧集和本地可用的集条目。',
@@ -191,7 +204,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       'metadata_provider_item_id、provider_item_id 和 person_id 都是字符串，客户端不得假设远端 ID 一定是数字。',
       'metadata_status 使用 matched / unmatched / failed / skipped 表达元数据处理状态。',
       '剧集可通过 seasons、episodes、episode-outline 获取本地可用集和远端大纲合并结果。',
-      'poster/backdrop/logo 返回图片流；若详情字段是远程 URL，前端可直接使用远程地址。',
+      'poster/backdrop/logo 返回经过媒体库边界、大小和图片内容校验的本地图片流；详情只透出可信的 TMDB 官方远程图片地址。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/media-items/{id}', description: '查询单个媒体条目详情' },
@@ -234,15 +247,20 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     highlights: [
       '媒体流和字幕流不返回 JSON envelope，直接返回文件流或 text/vtt。',
       'GET /stream 支持 Range 请求，拖动进度条时通常返回 206 Partial Content。',
-      'audio_track_id 会触发后端验证并生成 remux 缓存变体，这不是多码率转码。',
+      'GET 携带 audio_track_id 时会验证并按需生成 remux 缓存。',
+      '音轨和字幕 HEAD 都是只读探测；缓存命中返回准确头，缓存未命中返回 no-store 且不返回虚假长度，也不启动 FFmpeg。',
+      '音轨缓存命中会立即返回；生成槽位已满或同 key 等待超时时返回 503，由客户端稍后重试。',
       '字幕接口会把 srt、ass/ssa、内嵌字幕统一转换成浏览器可挂载的 WebVTT。',
+      '字幕源和 WebVTT 结果均有大小上限；超限返回 413 和 subtitle_too_large。',
+      '媒体与外部字幕的真实路径必须位于其所属媒体库根目录内。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/media-files/{id}/audio-tracks', description: '查询媒体文件可切换的内嵌音轨列表' },
       { method: 'GET', path: '/api/media-files/{id}/subtitles', description: '查询媒体文件可切换字幕列表' },
       { method: 'GET', path: '/api/subtitle-files/{id}/stream', description: '输出单条字幕轨道的 WebVTT 内容' },
+      { method: 'HEAD', path: '/api/subtitle-files/{id}/stream', description: '只读查询字幕 WebVTT 头信息，不生成字幕缓存' },
       { method: 'GET', path: '/api/media-files/{id}/stream', description: '播放媒体文件' },
-      { method: 'HEAD', path: '/api/media-files/{id}/stream', description: '查询媒体文件播放头信息' },
+      { method: 'HEAD', path: '/api/media-files/{id}/stream', description: '只读查询播放头信息，不生成音轨缓存' },
     ],
   },
 ]

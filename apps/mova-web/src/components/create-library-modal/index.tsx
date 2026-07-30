@@ -1,9 +1,7 @@
-import { useEffect } from 'react'
-import { createPortal } from 'react-dom'
 import type { CreateLibraryInput } from '../../api/types'
 import { useI18n } from '../../i18n'
-import { usePresenceTransition } from '../../lib/use-presence-transition'
 import { CreateLibraryForm } from '../create-library-form'
+import { GlassDialog, GlassDialogCloseButton } from '../glass-dialog'
 
 interface CreateLibraryModalProps {
   error: string | null
@@ -21,83 +19,30 @@ export const CreateLibraryModal = ({
   onSubmit,
 }: CreateLibraryModalProps) => {
   const { l } = useI18n()
-  const modalPresence = usePresenceTransition(isOpen)
-
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    const previousOverflow = document.body.style.overflow
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !isSubmitting) {
-        onClose()
-      }
-    }
-
-    document.body.style.overflow = 'hidden'
-    window.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isOpen, isSubmitting, onClose])
-
-  if (!modalPresence.shouldRender) {
-    return null
-  }
-
-  return createPortal(
-    <div
-      className="create-library-modal overlay-transition"
-      data-state={modalPresence.transitionState}
+  return (
+    <GlassDialog
+      ariaLabel={l('Create Library')}
+      className="create-library-modal"
+      closeLabel={l('Close create library dialog')}
+      isCloseDisabled={isSubmitting}
+      isOpen={isOpen}
+      onClose={onClose}
+      surfaceClassName="create-library-modal__surface scrollbar-thin"
     >
-      <button
-        aria-label={l('Close create library dialog')}
-        className="create-library-modal__backdrop glass-overlay-backdrop"
-        disabled={isSubmitting}
-        onClick={onClose}
-        type="button"
-      />
-
-      <div
-        aria-modal="true"
-        className="create-library-modal__surface glass-modal-surface scrollbar-thin"
-        role="dialog"
-      >
-        <div className="create-library-modal__header">
-          <div>
-            <h3>{l('Create Library')}</h3>
-          </div>
-
-          <button
-            aria-label={l('Close create library dialog')}
-            className="create-library-modal__close"
-            disabled={isSubmitting}
-            onClick={onClose}
-            type="button"
-          >
-            <svg
-              aria-hidden="true"
-              className="create-library-modal__close-icon"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <path
-                d="M6 6L18 18M18 6L6 18"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="1.8"
-              />
-            </svg>
-          </button>
+      <div className="create-library-modal__header">
+        <div>
+          <h3>{l('Create Library')}</h3>
         </div>
 
-        <CreateLibraryForm error={error} isSubmitting={isSubmitting} onSubmit={onSubmit} />
+        <GlassDialogCloseButton
+          ariaLabel={l('Close create library dialog')}
+          className="create-library-modal__close"
+          disabled={isSubmitting}
+          onClick={onClose}
+        />
       </div>
-    </div>,
-    document.body,
+
+      <CreateLibraryForm error={error} isSubmitting={isSubmitting} onSubmit={onSubmit} />
+    </GlassDialog>
   )
 }

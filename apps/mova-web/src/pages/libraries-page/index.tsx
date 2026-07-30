@@ -68,20 +68,12 @@ export const LibrariesPage = () => {
             'libraries-page-detail',
             libraryId,
           ]),
-          currentHomeLibraryDetail: queryClient.getQueryData<LibraryDetail>([
-            'home-library-detail',
-            libraryId,
-          ]),
           scanJob,
         })
 
         queryClient.setQueryData<LibraryDetail>(
           ['libraries-page-detail', libraryId],
           nextScanCache.libraryDetail,
-        )
-        queryClient.setQueryData<LibraryDetail>(
-          ['home-library-detail', libraryId],
-          nextScanCache.homeLibraryDetail,
         )
         queryClient.setQueryData<LibraryDetail>(['library', libraryId], (current) =>
           mergeTriggeredScanLibraryDetail(current, fallbackLibrary, scanJob),
@@ -92,7 +84,6 @@ export const LibrariesPage = () => {
         queryClient.invalidateQueries({ queryKey: ['libraries-page-detail', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
-        queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['home'] }),
       ])
     },
@@ -114,20 +105,12 @@ export const LibrariesPage = () => {
           'libraries-page-detail',
           libraryId,
         ]),
-        currentHomeLibraryDetail: queryClient.getQueryData<LibraryDetail>([
-          'home-library-detail',
-          libraryId,
-        ]),
       })
 
       queryClient.setQueryData<Library[]>(['libraries'], nextLibraryCache.libraries)
       queryClient.setQueryData<LibraryDetail>(
         ['libraries-page-detail', libraryId],
         nextLibraryCache.libraryDetail,
-      )
-      queryClient.setQueryData<LibraryDetail>(
-        ['home-library-detail', libraryId],
-        nextLibraryCache.homeLibraryDetail,
       )
       queryClient.setQueryData<LibraryDetail>(['library', libraryId], (current) =>
         mergeUpdatedLibraryDetail(current, updatedLibrary),
@@ -138,7 +121,6 @@ export const LibrariesPage = () => {
         queryClient.invalidateQueries({ queryKey: ['libraries-page-detail', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['library', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['library-media', libraryId] }),
-        queryClient.invalidateQueries({ queryKey: ['home-library-detail', libraryId] }),
         queryClient.invalidateQueries({ queryKey: ['home'] }),
       ])
     },
@@ -156,12 +138,10 @@ export const LibrariesPage = () => {
       queryClient.removeQueries({ queryKey: ['libraries-page-detail', libraryId] })
       queryClient.removeQueries({ queryKey: ['library', libraryId] })
       queryClient.removeQueries({ queryKey: ['library-media', libraryId] })
-      queryClient.removeQueries({ queryKey: ['home-library-detail', libraryId] })
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['libraries'] }),
         queryClient.invalidateQueries({ queryKey: ['libraries-page-recently-added'] }),
-        queryClient.invalidateQueries({ queryKey: ['recently-added-by-library'] }),
         queryClient.invalidateQueries({ queryKey: ['home'] }),
       ])
     },

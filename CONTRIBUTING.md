@@ -91,11 +91,13 @@ Add or update tests for behavior changes. Visible UI changes should include befo
 - Keep the root `README.md` focused on product positioning, deployment, first use, and major product direction.
 - Never commit credentials, TMDB tokens, local database files, media, caches, generated build output, or private logs.
 
-## Pre-1.0 database changes
+## Database and public contracts
 
-Until the project declares the `1.0` schema stable, edit `migrations/0001_init.sql` directly instead of adding sequential migrations.
+`migrations/0001_init.sql` is the frozen `1.0` schema baseline. Do not edit an applied migration. Add the next sequential migration for every later schema change and make it upgrade an initialized database in place.
 
-A schema Pull Request must update all affected Rust queries, response models, TypeScript types, tests, and documentation. It must also state clearly that existing development databases need to be rebuilt and media libraries rescanned unless the change is proven not to require it.
+A schema Pull Request must update all affected Rust queries, response models, TypeScript types, tests, and documentation. State whether media libraries need to be rescanned or caches rebuilt; a destructive database reset is not an acceptable upgrade path unless the maintainer explicitly approves it.
+
+HTTP API contract version `1` allows additive endpoints, optional fields, and error codes. Removing a route or changing an existing field, status code, authorization rule, or error meaning requires an explicit versioning proposal. Breaking SSE changes independently require a `protocol_version` increase. Run the official website API synchronization check so the server routes, `docs/API.md`, and public website remain aligned.
 
 ## Pull Requests
 

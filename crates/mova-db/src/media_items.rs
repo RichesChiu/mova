@@ -6,9 +6,11 @@ mod sync;
 use mova_domain::{MediaExternalId, MediaRating};
 pub use query::{
     count_media_items_for_library, delete_series_episode_outline_cache, get_audio_track,
-    get_library_media_type_counts, get_media_file, get_media_item, get_media_item_playback_header,
-    get_season, get_series_episode_outline_cache, get_subtitle_file, global_search,
-    list_audio_tracks_for_media_file, list_audio_tracks_for_media_files, list_episodes_for_season,
+    get_library_media_type_counts, get_media_file, get_media_file_with_library_visibility,
+    get_media_item, get_media_item_playback_header, get_media_item_with_library_visibility,
+    get_season, get_season_with_library_visibility, get_series_episode_outline_cache,
+    get_subtitle_file, global_search, list_audio_tracks_for_media_file,
+    list_audio_tracks_for_media_files, list_episodes_for_season,
     list_existing_media_metadata_for_file_paths, list_library_media_file_paths,
     list_media_files_for_media_item, list_media_item_previews_by_library,
     list_media_items_for_library, list_recently_added_media_items_by_library,
@@ -21,7 +23,8 @@ pub use query::{
 };
 pub use ratings::list_media_item_ratings;
 pub use sync::{
-    delete_library_media_by_file_path, delete_library_media_by_path_prefix, sync_library_media,
+    delete_library_media_by_file_path, delete_library_media_by_path_prefix,
+    patch_library_media_entries_remote_by_file_path, sync_library_media,
     sync_library_media_best_effort, sync_library_media_changes,
     upsert_library_media_entries_by_file_path, upsert_library_media_entry_by_file_path,
     ScanGroupCommitStage, SyncLibraryMediaBestEffortOutcome,

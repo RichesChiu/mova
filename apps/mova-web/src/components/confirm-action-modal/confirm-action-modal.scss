@@ -1,21 +1,8 @@
 .confirm-action-modal {
-  position: fixed;
-  inset: 0;
   z-index: 80;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-}
-
-.confirm-action-modal__backdrop {
-  position: absolute;
-  inset: 0;
-  border: 0;
 }
 
 .confirm-action-modal__surface {
-  position: relative;
-  z-index: 1;
   display: grid;
   gap: 18px;
   width: min(100%, 420px);

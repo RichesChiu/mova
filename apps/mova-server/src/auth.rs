@@ -15,23 +15,44 @@ pub enum AuthCredential {
     SessionCookie(String),
 }
 
+#[derive(Debug, Clone)]
+pub struct AuthContext {
+    pub user: UserProfile,
+    pub expires_at: OffsetDateTime,
+    pub realtime_session_key: String,
+}
+
 pub async fn require_user(
     state: &AppState,
     headers: &HeaderMap,
     jar: &CookieJar,
 ) -> Result<UserProfile, ApiError> {
-    match request_auth_credential(headers, jar)? {
+    Ok(require_auth_context(state, headers, jar).await?.user)
+}
+
+pub async fn require_auth_context(
+    state: &AppState,
+    headers: &HeaderMap,
+    jar: &CookieJar,
+) -> Result<AuthContext, ApiError> {
+    let session = match request_auth_credential(headers, jar)? {
         AuthCredential::Bearer(token) => {
-            mova_application::get_user_by_native_access_token(&state.db, &token)
+            mova_application::get_native_access_session(&state.db, &token)
                 .await
                 .map_err(ApiError::from)
         }
         AuthCredential::SessionCookie(token) => {
-            mova_application::get_user_by_session_token(&state.db, &token)
+            mova_application::get_user_session(&state.db, &token)
                 .await
                 .map_err(ApiError::from)
         }
-    }
+    }?;
+
+    Ok(AuthContext {
+        user: session.user,
+        expires_at: session.expires_at,
+        realtime_session_key: session.realtime_session_key,
+    })
 }
 
 pub async fn require_admin(
@@ -82,18 +103,9 @@ pub async fn require_library_access(
     user: &UserProfile,
     library_id: i64,
 ) -> Result<Library, ApiError> {
-    let library = mova_application::get_library(&state.db, library_id)
+    mova_application::authorize_library(&state.db, user, library_id)
         .await
-        .map_err(ApiError::from)?;
-
-    if !user.can_access_library(library.id) {
-        return Err(ApiError::Forbidden(format!(
-            "user {} cannot access library {}",
-            user.user.username, library.id
-        )));
-    }
-
-    Ok(library)
+        .map_err(ApiError::from)
 }
 
 pub async fn require_media_item_access(
@@ -101,12 +113,19 @@ pub async fn require_media_item_access(
     user: &UserProfile,
     media_item_id: i64,
 ) -> Result<MediaItem, ApiError> {
-    let media_item = mova_application::get_media_item(&state.db, media_item_id)
-        .await
-        .map_err(ApiError::from)?;
-    require_library_access(state, user, media_item.library_id).await?;
-
+    let (media_item, _) =
+        require_media_item_with_library_access(state, user, media_item_id).await?;
     Ok(media_item)
+}
+
+pub async fn require_media_item_with_library_access(
+    state: &AppState,
+    user: &UserProfile,
+    media_item_id: i64,
+) -> Result<(MediaItem, Library), ApiError> {
+    mova_application::authorize_media_item_with_library(&state.db, user, media_item_id)
+        .await
+        .map_err(ApiError::from)
 }
 
 pub async fn require_media_file_access(
@@ -114,31 +133,29 @@ pub async fn require_media_file_access(
     user: &UserProfile,
     media_file_id: i64,
 ) -> Result<MediaFile, ApiError> {
-    let media_file = mova_application::get_media_file(&state.db, media_file_id)
-        .await
-        .map_err(ApiError::from)?;
-    let media_item = mova_application::get_media_item(&state.db, media_file.media_item_id)
-        .await
-        .map_err(ApiError::from)?;
-    require_library_access(state, user, media_item.library_id).await?;
-
+    let (media_file, _) =
+        require_media_file_with_library_access(state, user, media_file_id).await?;
     Ok(media_file)
 }
 
-pub async fn require_season_access(
+pub async fn require_media_file_with_library_access(
+    state: &AppState,
+    user: &UserProfile,
+    media_file_id: i64,
+) -> Result<(MediaFile, Library), ApiError> {
+    mova_application::authorize_media_file_with_library(&state.db, user, media_file_id)
+        .await
+        .map_err(ApiError::from)
+}
+
+pub async fn require_season_with_library_access(
     state: &AppState,
     user: &UserProfile,
     season_id: i64,
-) -> Result<Season, ApiError> {
-    let season = mova_application::get_season(&state.db, season_id)
+) -> Result<(Season, Library), ApiError> {
+    mova_application::authorize_season_with_library(&state.db, user, season_id)
         .await
-        .map_err(ApiError::from)?;
-    let series = mova_application::get_media_item(&state.db, season.series_id)
-        .await
-        .map_err(ApiError::from)?;
-    require_library_access(state, user, series.library_id).await?;
-
-    Ok(season)
+        .map_err(ApiError::from)
 }
 
 fn session_token(jar: &CookieJar) -> Option<String> {

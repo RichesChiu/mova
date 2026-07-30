@@ -232,6 +232,38 @@
   box-shadow: var(--popover-surface-shadow);
 }
 
+.app-route-fallback {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.app-route-fallback__error {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  width: min(100%, 480px);
+  padding: 24px;
+  border: 1px solid var(--floating-border);
+  border-radius: var(--radius-surface);
+  background: var(--panel-background);
+  box-shadow: var(--floating-shadow);
+}
+
+.app-route-fallback__error h2,
+.app-route-fallback__error p {
+  margin: 0;
+}
+
+.app-route-fallback__error p {
+  color: var(--text-muted);
+  font-weight: 500;
+  line-height: 1.6;
+}
+
 .overlay-transition[data-state='closed'] {
   pointer-events: none;
 }

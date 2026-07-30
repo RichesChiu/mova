@@ -56,6 +56,11 @@ MOVA_WORKER_CONCURRENCY=2
 
 默认最多同时执行两个后台扫描任务。同一媒体库由进程内扫描注册表和数据库活跃任务约束共同保证单执行者。
 
+每次后台任务领取都会把 `attempt_count` 单调增加，并形成
+`job_id + locked_by + attempt_count` 执行 fence。扫描进度、组级媒体写入、最终缺失路径对账和任务终态都必须在各自事务内锁定并校验该 fence，同时确认 lease 尚未过期。旧 worker 的 lease 失效并被重新领取后，即使随后恢复运行，也不能再提交任何扫描业务数据或覆盖新 worker 的任务状态。进程内扫描注册表只负责本实例取消与互斥，不作为跨实例一致性边界。
+
+每次领取事务会先按创建时间锁定并终结最多 64 个遗弃任务，再领取一个可执行任务。租约过期的 `cancel_requested` 任务与父 scan job 原子进入 `cancelled`；最终尝试租约过期的 `running` 任务与父 scan job 原子进入 `failed`。终态通知和 realtime revision 在同一事务内生成，避免 worker 崩溃后留下永久 `running` 的扫描任务。
+
 每个扫描任务包含：
 
 - 一个 local worker。
@@ -70,7 +75,12 @@ MOVA_WORKER_CONCURRENCY=2
 - 单个扫描任务只串行执行一个远端扫描组。
 - 每个文件的 `ffprobe` 串行执行。
 - 单个任务最多保留当前 local 组、当前 remote 组和两个排队组的完整分析上下文。
+- 单次执行的 TMDB 元数据查询缓存最多保留 512 项，剧集季集概览缓存最多保留 128 项，图片 URL 结果缓存最多保留 2048 项。
+- 三类内存缓存均按插入顺序淘汰最早项；命中不改变淘汰顺序。图片文件保留在磁盘缓存中，内存索引淘汰后会先重新校验磁盘文件，不会因此重复下载有效图片。
 - 多媒体库总并发由 `MOVA_WORKER_CONCURRENCY` 控制。
+- 播放阶段的音轨切换不属于扫描流水线。服务端按需执行 stream-copy remux，并使用独立的进程级资源闸门：最多同时生成 2 个变体，生成上界为源文件大小加 256 MiB，且该上界必须不超过 128 GiB；全部媒体库的音轨缓存总量不超过 256 GiB。超过单产物上界的源文件会在启动 FFmpeg 前拒绝。
+- 音轨缓存命中直接返回。未命中时先以 try-acquire 取得进程级生成名额，再最多等待同一缓存键 5 秒；名额已满或等待超时均返回可重试的 `503`，不让 HTTP 请求无限堆积。音轨和字幕 `HEAD` 都只完成鉴权、关联、路径边界和已有缓存校验，不触发生成；缓存命中时返回准确资源头，未命中时返回 `no-store` 且不声明虚假的资源长度。
+- 服务端开始监听请求前会先把已有音轨缓存整理到 256 GiB 配额内，目录读取或淘汰失败会阻止启动。生成前再预留最坏情况空间，并按最早生成时间淘汰旧产物和进程崩溃遗留的临时文件；预留同时读取缓存卷实际可用空间、计入所有在途 reservation，并确保完成后至少保留 5 GiB。相同缓存 key 使用 single-flight，完成后通过同文件系统原子重命名发布，超时、取消、失败或超限均不保留残缺缓存。
 
 低功耗 NAS 或机械硬盘环境可以设置 `MOVA_WORKER_CONCURRENCY=1`。
 
@@ -176,7 +186,7 @@ probe_warning_params
 probe_warning_diagnostic
 ```
 
-`reason_code / reason_params` 是客户端本地化的稳定输入。`diagnostic_message` 和 `probe_warning_diagnostic` 会压缩空白并限制长度，只用于排障和未知原因码兜底。`ffprobe` 失败不改变 metadata 状态，也不阻断远端匹配。摘要不建立独立数据库表；成功任务在 finalize 事务中直接把它写入 `notifications.payload`。执行尝试异常退出时，后台任务按原 scan job 重试并重新计算摘要；重试耗尽时通知使用任务级 `reason_code = scan_execution_failed`，底层错误放入 `diagnostic_message` 并同时保留在 `tracing` 日志。
+`reason_code / reason_params` 是客户端本地化的稳定输入。`diagnostic_message` 和 `probe_warning_diagnostic` 会压缩空白并限制长度，只用于排障和未知原因码兜底。`ffprobe` 失败不改变 metadata 状态，也不阻断远端匹配。摘要不建立独立数据库表；任务进入成功、失败或取消终态时，在 finalize 事务中直接把摘要写入 `notifications.payload`。执行尝试异常退出时，后台任务按原 scan job 重试并重新计算摘要；重试耗尽时通知使用任务级 `reason_code = scan_execution_failed`，底层错误放入 `diagnostic_message` 并同时保留在 `tracing` 日志。
 
 ### 4.4 `background_jobs`
 
@@ -195,7 +205,7 @@ lease_expires_at
 last_error
 ```
 
-worker 使用 `FOR UPDATE SKIP LOCKED` 领取任务，并定期续租。lease 失效的运行任务可以被其他 worker 重新领取。
+worker 使用 `FOR UPDATE SKIP LOCKED` 领取任务，并定期续租。续租、完成和失败重试都必须同时匹配 owner 与当前 `attempt_count`；已经过期的 lease 不允许被原 worker 复活。lease 失效的运行任务可以被其他 worker 重新领取，新 generation 成为唯一可写执行者。
 
 ## 5. 文件发现
 
@@ -205,9 +215,14 @@ worker 使用 `FOR UPDATE SKIP LOCKED` 领取任务，并定期续租。lease �
 file_path
 file_size
 modified_at
+sidecar_fingerprint
 ```
 
-发现阶段不执行 sidecar 解析、`ffprobe`、TMDB 或图片下载。
+`sidecar_fingerprint` 只读取文件名、大小和修改时间，不读取 sidecar 内容。每个包含视频的目录只建立一次索引，按稳定路径顺序汇总 NFO、可作为本地海报或背景图的图片、支持的外挂字幕，以及视频目录向上五层内最近的 `tvshow.nfo`。
+
+NFO、同名图片或外挂字幕的新增、删除、大小变化和修改时间变化会让受影响目录中的视频重新进入本地分析。发现阶段不执行 sidecar 内容解析、`ffprobe`、TMDB 或图片下载。
+
+遍历开始时先规范化媒体库根目录的真实路径。每个候选文件和子目录在读取前都必须规范化，并且其真实路径仍以该库的真实根目录为前缀；指向库外的文件或目录符号链接直接跳过。指向库内的符号链接可以使用，目录遍历按真实路径去重，避免符号链接环路和重复递归。
 
 文件发现数量按以下条件节流写入扫描任务：
 
@@ -215,6 +230,8 @@ modified_at
 - 与上次持久化数量相差至少 25。
 - 距离上次写入至少 500ms。
 - 发现任务结束时强制写入最终数量。
+
+阻塞式目录遍历只更新一个原子 latest 值，并通过容量为 1 的信号通道唤醒异步持久化任务；数据库写入变慢时中间计数可以合并，但内存不会随文件数量增长，最终计数不会丢失。
 
 完整文件树、增量计划和浅层分组建立后，任务进入 `processing`，进度基线为 10%。
 
@@ -241,6 +258,8 @@ modified_at
 - 不包含需要转存的远端图片 URL。
 
 此类文件在生成计划时直接计入 analyzed、committed 和 remote completed。
+
+`scan_hash` 由视频大小、视频修改时间和 `sidecar_fingerprint` 共同组成。本地 sidecar 发生变化时不能复用旧的本地分析；只有视频及其本地依赖均未变化时，才允许直接进入“仅刷新远端”路径。
 
 ### 6.2 复用本地分析，仅刷新远端
 
@@ -356,17 +375,20 @@ Local worker 按扫描组串行执行：
 9. 将扫描组发送到 remote 队列。
 
 单个组内的文件按稳定路径顺序处理。`ffprobe` 通过 blocking worker 执行，不阻塞 Tokio reactor。
+进入完整分析前，local worker 按目录建立一次字幕索引；索引一次读取目录并预解析支持的字幕候选，同时统计完整季集坐标的歧义数量。目录内所有视频复用该索引，禁止为每个视频再次扫描目录。字幕候选按路径排序，保证相同文件树产生确定性输出。
+单个 `ffprobe` 最长运行 90 秒；stdout 最多保留 8 MiB，stderr 最多保留 256 KiB，超出任一上限会终止并回收子进程。超时或输出越界把该文件记录为可诊断的 probe warning 后继续扫描。收到任务取消标记时会立即终止当前 `ffprobe`，并把任务转入取消终态。
 
 ## 10. Sidecar、图片与字幕
 
 ### 10.1 NFO
 
-本地文件元数据读取与视频同名的 `<stem>.nfo`，找不到时再读取同目录的 `movie.nfo`；可提取标题、原始标题、排序标题、年份、简介和图片引用。
+本地文件元数据读取与视频同名的 `<stem>.nfo`，找不到时再读取同目录的 `movie.nfo`；可提取标题、原始标题、排序标题、年份、简介和图片引用。电影和单集 NFO 的读取上限为 2 MiB，`tvshow.nfo` 的读取上限为 4 MiB；读取前检查已打开文件的元数据，并在读取过程中继续使用硬上限，防止文件并发增长造成无界内存占用。文件超限、读取失败或不是有效 UTF-8 时忽略该 NFO，继续使用文件名和其他本地信息完成分析。NFO 本地图片引用在规范化真实路径后必须仍位于 NFO 所在目录内，绝对路径、`..` 或符号链接均不得逃逸该边界；文件还必须具有受支持的图片扩展名和匹配的图片文件头。
 
 剧集身份从视频所在目录向上查找最近的 `tvshow.nfo`，最多检查五层祖先目录。该文件中的非空标题和年份优先于文件名分析结果；单集 `<stem>.nfo` 的 `<title>` 不会被误用为系列标题。目录名称只用于定位 NFO 和建立分组边界，不作为 NFO 缺失时的标题或年份回退值。
 
 ### 10.2 图片层级
 
+- NFO 中通过目录边界和图片内容校验的本地 sidecar 图片路径可以直接复用；远端图片引用只接受 TMDB 官方 HTTPS 图片端点或管理员显式配置的 TMDB 图片代理，且不得携带 query 或 fragment。其他网络 URL 在 pending 事务前即被移除，不下载，也不作为图片地址持久化，避免服务端被引导访问 localhost、私网或任意第三方地址。
 - 电影海报只写电影海报字段。
 - 剧集海报只写 series 海报字段。
 - 电影标题 Logo 只写电影 `logo_path`，剧集标题 Logo 只写 series `logo_path`；单集播放复用所属剧集 Logo。
@@ -383,21 +405,33 @@ pending 事务不得清空已有远端图片。只有严格匹配成功的最终
 
 字幕属性包括 language、default、forced、hearing impaired、SDH、CC、external 和 embedded。
 
+浏览器字幕转换、音轨切换版本和图片缓存均使用同目录临时文件，校验成功后再以原子重命名发布。同一进程内相同缓存 key 只允许一个生成任务；生成失败、超时或请求被取消时均清理未发布的临时文件。字幕转换最长 2 分钟，音轨重封装最长 30 分钟，超时会终止 FFmpeg 子进程；FFmpeg 诊断输出最多保留 64 KiB。外挂字幕源文件最多读取 16 MiB，生成和缓存的 WebVTT 最多 24 MiB；FFmpeg 输出直接流入有界临时文件，进程内同时最多准入 4 个未命中缓存的字幕请求，缓存命中不占生成名额，准入已满时立即返回 `503 service_unavailable` 而不排队，最终响应从已经校验的缓存文件流式返回。音轨缓存 key 带格式版本，原子发布规则升级时不会复用旧版残缺缓存。
+
+图片实际返回客户端前再次规范化真实路径，只允许读取所属媒体库根目录或该库独立图片缓存目录内、大小不超过 20 MiB 且文件头有效的图片。该校验覆盖升级前遗留或手工写入数据库的越界路径；详情响应也只透出不带 query/fragment 的 TMDB 官方 HTTPS 图片地址，不可信历史远程地址按无图片处理。
+
+### 10.4 媒体文件读取
+
+播放、音轨重封装和外挂字幕读取/转换不能仅信任数据库中的文件路径。服务端在打开源文件前读取其关联的媒体库根目录，分别规范化根目录和文件真实路径，并确认源文件是根目录内的普通文件。直接路径或符号链接解析到库外时统一按文件不存在处理，不把库外内容返回给已授权用户；音轨与字幕转换的 FFmpeg 输入使用同一条已经校验的真实路径。该校验是文件发现边界之外的纵深防御，用于覆盖历史数据、手工修改数据和文件系统变化。
+
 ## 11. Pending 组事务
 
 Local worker 完成分析后执行一个短事务：
 
 1. 按文件路径读取现有 media file。
-2. upsert 顶层电影或剧集结构。
+2. upsert 顶层电影或剧集结构；已有父条目的远端身份、展示字段和 artwork 不被 local 数据覆盖。
 3. upsert 季和单集。
 4. upsert 组内全部 media file。
 5. 替换发生变化的音轨和字幕。
-6. 将需要远端补全的 metadata 标记为 `pending`。
-7. 保留 provider binding 和已有 artwork。
+6. 新建媒体结构中需要远端补全的 metadata 标记为 `pending`；既有非 pending 父条目保持当前终态。
+7. 保留 provider binding、标题、简介、评分、external IDs 和已有 artwork。
 8. 只执行一次孤儿结构清理。
 9. 幂等写入 `local_committed` 检查点。
 10. 增加一次 `library:{id}:catalog` revision。
 11. 提交事务。
+
+远端终态事务必须携带明确的权威性：只有成功取得并应用 TMDB 详情时才能替换评分和 external IDs，或清空远端确认缺失的 artwork。查询未命中、provider disabled、provider 临时失败或已有完整元数据而跳过查询时均属于非权威提交，必须保留既有电影、剧集、季和单集展示元数据，同时仍可更新本次文件级 `ffprobe` 结果。非权威提交唯一允许的图片变更，是把既有受信任远端 URL 提升为本轮已经校验并原子发布的非空本地缓存路径；不得借此清空图片或用另一条远端 URL 覆盖。
+
+同一扫描组已有可信 provider binding、但本轮远端处理失败时，该作品身份可以传播给新版本或新单集用于定位共享父条目；只有此前自身已经绑定的文件继续保持 `matched`。本轮新增且尚未完成远端补全的文件标记为 `failed / metadata_provider_error`，等待后续扫描重试。
 
 事务内设置：
 
@@ -423,6 +457,13 @@ Remote worker 从有界队列领取已经完成 pending 事务的扫描组：
 
 演员不在扫描阶段为全部媒体预抓。媒体详情接口按需获取演员并持久化。
 
+同一次扫描执行使用规范化请求键去重 TMDB 请求：
+
+- 已有 provider ID 时，请求键只由媒体类型、语言和 provider ID 组成，本地标题、年份或季提示差异不会重复请求同一远端条目。
+- 尚无 provider ID 时，请求键由规范化标题、严格年份、季验证提示、媒体类型和语言组成。
+- 元数据详情、剧集季集大纲和图片结果分别使用有界缓存。
+- 成功和明确的未命中结果可以复用；临时 provider 错误不缓存，允许后续扫描组重试。
+
 ## 13. TMDB 严格匹配
 
 扫描只向 metadata provider 提交已经确定的本地结构，不在扫描层实现第二套候选算法：
@@ -439,6 +480,7 @@ Remote worker 从有界队列领取已经完成 pending 事务的扫描组：
 | `metadata_status` | `metadata_failure_reason` | 含义 |
 | --- | --- | --- |
 | `matched` | `null` | 严格匹配并完成远端写入 |
+| `matched` | `metadata_provider_error` | 已接受的远端身份仍然有效，但本次刷新发生临时 provider 故障；后续扫描重试 |
 | `unmatched` | `no_remote_match` | 唯一类型中没有严格候选 |
 | `failed` | `metadata_provider_error` | provider 请求或处理失败 |
 | `skipped` | `metadata_provider_disabled` | metadata provider 未启用 |
@@ -453,15 +495,17 @@ Remote worker 从有界队列领取已经完成 pending 事务的扫描组：
 Remote worker 完成远端处理后执行一个短事务：
 
 1. 锁定扫描组检查点。
-2. 按 provider ID 归并电影或剧集顶层条目。
-3. 更新标题、原始标题、年份、简介、国家、类型、工作室和评分。
-4. 更新对应层级的 poster、backdrop、still 和标题 Logo。
-5. 更新本地存在的季与单集 metadata。
-6. 写入 metadata 终态和 provider binding。
-7. 只执行一次孤儿结构清理。
-8. 幂等写入 `remote_completed` 检查点。
-9. 增加一次 `library:{id}:catalog` revision。
-10. 提交事务。
+2. 按本地事务已经写入的稳定 `file_path` 定位媒体项；路径缺失时整组回滚，不在 Remote 阶段补建文件。
+3. 按 provider ID 归并已经存在的电影或剧集顶层条目；只允许重关联 `media_file_id`，不重写文件探测字段。
+4. 更新标题、原始标题、年份、简介、国家、类型确认、工作室和 provider binding。
+5. 更新对应层级的 poster、backdrop、still、标题 Logo、external IDs 和评分。
+6. 更新本地已经存在的季与单集远端 metadata；不得把电影改成剧集或重新解释季集坐标。
+7. 写入 metadata 终态；provider 临时失败只更新状态/原因并保留 NFO、本地结构和已接受远端数据。
+8. 保持 `media_files` 的探测字段、`scan_hash`、音轨和字幕不变。
+9. 只执行一次孤儿结构清理。
+10. 幂等写入 `remote_completed` 检查点。
+11. 增加一次 `library:{id}:catalog` revision。
+12. 提交事务。
 
 网络请求、图片下载和文件读取必须在事务开始前完成。
 
@@ -533,9 +577,11 @@ local 与 remote 可以同时增加各自计数，因此进度不要求停留在
 8. 推进最终 catalog、scan 和 notifications revisions。
 9. 发送 `scan.finished`。
 
+缺失文件对账只接受一次完整、成功且非异常清空的文件树发现结果。根目录或任一子目录读取失败、扫描被取消、local/remote 流水线未完成，或者已有 `media_files` 的媒体库发现结果突然变为零时，不删除数据库中已有的媒体文件记录。零发现保护用于避免 SMB、NFS 或 bind mount 脱离后遗留的空挂载点被误判为用户删除了全部资源；本轮扫描失败并保留已有目录数据。空媒体库发现到零文件可以正常完成。最终对账在一个数据库事务中批量删除缺失路径、清理孤儿剧集结构并只推进一次 catalog revision；任一校验或删除失败都会回滚整批对账并使本轮扫描失败，不允许以部分成功状态完成。
+
 `unmatched` 和 `skipped` 属于业务结果，不使整个扫描任务失败。
 
-任务完成后，客户端通过 `GET /api/notifications` 读取通用通知中心。扫描通知包含任务级统计，并最多内嵌 20 个未匹配、provider 失败或包含 `ffprobe` 警告的问题摘要；`issue_count` 保留实际问题组总数。服务端不提供独立扫描报告接口，完整底层诊断由运维侧从服务日志读取。`library:{id}:scan` 与 `library:{id}:notifications` revisions 在任务终态事务中一起推进，因此客户端不依赖 SSE 回放历史错误或通知正文。
+任务完成后，客户端通过 `GET /api/notifications` 读取通用通知中心。成功、带问题完成、执行失败和主动取消分别写为 `scan.completed`、`scan.completed_with_issues`、`scan.failed` 和 `scan.cancelled`；取消使用 `info` 严重级别，不得伪装成成功或执行失败。扫描通知包含任务级统计，并最多内嵌 20 个未匹配、provider 失败或包含 `ffprobe` 警告的问题摘要；`issue_count` 保留实际问题组总数。服务端不提供独立扫描报告接口，完整底层诊断由运维侧从服务日志读取。`library:{id}:scan` 与 `library:{id}:notifications` revisions 在任务终态事务中一起推进，因此客户端不依赖 SSE 回放历史错误或通知正文。
 
 ## 19. 错误与重试
 
@@ -547,8 +593,9 @@ local 与 remote 可以同时增加各自计数，因此进度不要求停留在
 - 重试使用同一个 scan job ID。
 - 中间失败不发送 `scan.finished`。
 - 重试额度耗尽后写入 `failed / finished` 并发送 `scan.finished`。
+- 最终尝试期间 worker 崩溃且租约过期时，下一次领取事务负责写入相同失败终态并发送 `scan.finished`。
 
-删除媒体库、修改需要替换任务的配置或 lease 所有权丢失时触发取消标记。worker 在组边界和关键 I/O 边界检查取消状态。
+删除媒体库、修改需要替换任务的配置或 lease 所有权丢失时触发取消标记。worker 在组边界和关键 I/O 边界检查取消状态；完整本地分析期间会轮询取消标记并终止当前 `ffprobe` 子进程。取消不会进入失败重试链路，任务持久化为 `cancelled / finished`，不执行缺失文件对账，并发送一次 `scan.finished`。只有取消终态成功提交后，后台任务才可确认完成；数据库暂时不可用时执行错误会向上传播，由后台任务重试或进入明确失败状态，不会遗留仍处于 `pending / running` 的幽灵扫描任务。
 
 ## 20. Revision 与 SSE
 
@@ -609,11 +656,15 @@ library:{id}:notifications
 ### 23.2 性能
 
 - 缓存恢复不产生音轨和字幕 `2N` 查询。
+- 完整本地分析对每个目录最多建立一次字幕索引。
+- NFO、本地图片和外挂字幕变化必须通过 sidecar 指纹使增量计划失效。
 - `ffprobe` 不阻塞 Tokio reactor。
 - local/remote 队列容量固定。
 - 扫描普通 SSE 进度按 200ms 合并。
 - 扫描组数据库写入只增加一次 catalog revision。
 - 同一 TMDB 搜索结果不执行第二次标题搜索。
+- 相同 provider ID 的详情和季集大纲请求在单次扫描内各执行一次。
+- Remote 事务不得替换 `media_files` 探测字段、音轨或字幕。
 
 ### 23.3 客户端
 

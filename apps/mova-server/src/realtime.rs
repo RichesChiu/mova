@@ -30,6 +30,7 @@ pub enum RealtimeVisibility {
     Admin,
     Library(i64),
     User(i64),
+    Session(String),
 }
 
 #[derive(Debug, Clone)]
@@ -56,12 +57,13 @@ impl RealtimeMessage {
         matches!(self.event_name, "resync.required" | "session.invalidated")
     }
 
-    pub fn is_visible_to(&self, user: &UserProfile) -> bool {
-        match self.visibility {
+    pub fn is_visible_to(&self, user: &UserProfile, realtime_session_key: &str) -> bool {
+        match &self.visibility {
             RealtimeVisibility::Public => true,
             RealtimeVisibility::Admin => user.is_admin(),
-            RealtimeVisibility::Library(library_id) => user.can_access_library(library_id),
-            RealtimeVisibility::User(user_id) => user.user.id == user_id,
+            RealtimeVisibility::Library(library_id) => user.can_access_library(*library_id),
+            RealtimeVisibility::User(user_id) => user.user.id == *user_id,
+            RealtimeVisibility::Session(session_key) => session_key == realtime_session_key,
         }
     }
 
@@ -77,6 +79,7 @@ struct RealtimeHubInner {
     admin_sender: broadcast::Sender<RealtimeMessage>,
     library_senders: RwLock<HashMap<i64, broadcast::Sender<RealtimeMessage>>>,
     user_senders: RwLock<HashMap<i64, broadcast::Sender<RealtimeMessage>>>,
+    session_senders: RwLock<HashMap<String, broadcast::Sender<RealtimeMessage>>>,
 }
 
 #[derive(Clone)]
@@ -94,6 +97,7 @@ impl Default for RealtimeHub {
                 admin_sender,
                 library_senders: RwLock::new(HashMap::new()),
                 user_senders: RwLock::new(HashMap::new()),
+                session_senders: RwLock::new(HashMap::new()),
             }),
         }
     }
@@ -101,7 +105,7 @@ impl Default for RealtimeHub {
 
 impl RealtimeHub {
     fn publish(&self, message: RealtimeMessage) {
-        match message.visibility {
+        match &message.visibility {
             RealtimeVisibility::Public => {
                 let _ = self.inner.public_sender.send(message);
             }
@@ -112,15 +116,31 @@ impl RealtimeHub {
                 // Administrators see every library, while regular users only subscribe to
                 // channels for libraries granted in their connection-time permission snapshot.
                 let _ = self.inner.admin_sender.send(message.clone());
-                let _ = Self::scoped_sender(&self.inner.library_senders, library_id).send(message);
+                let _ = Self::scoped_sender(&self.inner.library_senders, *library_id).send(message);
             }
             RealtimeVisibility::User(user_id) => {
-                let _ = Self::scoped_sender(&self.inner.user_senders, user_id).send(message);
+                let _ = Self::scoped_sender(&self.inner.user_senders, *user_id).send(message);
+            }
+            RealtimeVisibility::Session(session_key) => {
+                let sender = self
+                    .inner
+                    .session_senders
+                    .read()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .get(session_key)
+                    .cloned();
+                if let Some(sender) = sender {
+                    let _ = sender.send(message);
+                }
             }
         }
     }
 
-    pub fn subscribe(&self, user: &UserProfile) -> Vec<broadcast::Receiver<RealtimeMessage>> {
+    pub fn subscribe(
+        &self,
+        user: &UserProfile,
+        realtime_session_key: &str,
+    ) -> Vec<broadcast::Receiver<RealtimeMessage>> {
         let mut receivers = vec![
             self.inner.public_sender.subscribe(),
             Self::scoped_sender(&self.inner.user_senders, user.user.id).subscribe(),
@@ -133,8 +153,25 @@ impl RealtimeHub {
                 Self::scoped_sender(&self.inner.library_senders, *library_id).subscribe()
             }));
         }
+        receivers.push(
+            Self::session_sender(&self.inner.session_senders, realtime_session_key).subscribe(),
+        );
 
         receivers
+    }
+
+    pub(crate) fn unsubscribe_session(&self, realtime_session_key: &str) {
+        let mut senders = self
+            .inner
+            .session_senders
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
+        if senders
+            .get(realtime_session_key)
+            .is_some_and(|sender| sender.receiver_count() == 0)
+        {
+            senders.remove(realtime_session_key);
+        }
     }
 
     fn scoped_sender(
@@ -144,6 +181,17 @@ impl RealtimeHub {
         let mut senders = senders.write().unwrap_or_else(|error| error.into_inner());
         senders
             .entry(scope_id)
+            .or_insert_with(|| broadcast::channel(REALTIME_BATCH_BUFFER_SIZE).0)
+            .clone()
+    }
+
+    fn session_sender(
+        senders: &RwLock<HashMap<String, broadcast::Sender<RealtimeMessage>>>,
+        session_key: &str,
+    ) -> broadcast::Sender<RealtimeMessage> {
+        let mut senders = senders.write().unwrap_or_else(|error| error.into_inner());
+        senders
+            .entry(session_key.to_string())
             .or_insert_with(|| broadcast::channel(REALTIME_BATCH_BUFFER_SIZE).0)
             .clone()
     }
@@ -337,7 +385,9 @@ impl RealtimeDispatcher {
     async fn handle_command(&mut self, command: RealtimeCommand) {
         match command {
             RealtimeCommand::ResourceChanged(resource_key) => {
-                if let Some(user_id) = session_user_id(&resource_key) {
+                if let Some(session_key) = revoked_session_key(&resource_key) {
+                    self.publish_revoked_session_invalidated(session_key);
+                } else if let Some(user_id) = session_user_id(&resource_key) {
                     self.publish_session_invalidated(user_id);
                 } else if resource_key.ends_with(":continue-watching") {
                     self.pending_continue_watching.insert(resource_key);
@@ -532,7 +582,8 @@ impl RealtimeDispatcher {
                 .map(ScanItemProgressResponse::from_domain)
                 .collect(),
             changes: if include_changes {
-                self.load_scan_finished_revisions(library_id).await
+                self.load_scan_revisions(library_id, event_name == "scan.finished")
+                    .await
             } else {
                 Vec::new()
             },
@@ -547,12 +598,18 @@ impl RealtimeDispatcher {
         }
     }
 
-    async fn load_scan_finished_revisions(&self, library_id: i64) -> Vec<ResourceRevisionResponse> {
-        let resource_keys = vec![
+    async fn load_scan_revisions(
+        &self,
+        library_id: i64,
+        include_notifications: bool,
+    ) -> Vec<ResourceRevisionResponse> {
+        let mut resource_keys = vec![
             format!("library:{library_id}:catalog"),
             format!("library:{library_id}:scan"),
-            format!("library:{library_id}:notifications"),
         ];
+        if include_notifications {
+            resource_keys.push(format!("library:{library_id}:notifications"));
+        }
         match mova_db::list_realtime_revisions(&self.pool, &resource_keys).await {
             Ok(revisions) => {
                 let mut changes = revisions
@@ -585,6 +642,20 @@ impl RealtimeDispatcher {
             "session.invalidated",
             &payload,
             RealtimeVisibility::User(user_id),
+        ) {
+            self.hub.publish(message);
+        }
+    }
+
+    fn publish_revoked_session_invalidated(&self, session_key: &str) {
+        let payload = SessionInvalidatedResponse {
+            protocol_version: REALTIME_PROTOCOL_VERSION,
+            reason: "session_revoked",
+        };
+        if let Some(message) = RealtimeMessage::json(
+            "session.invalidated",
+            &payload,
+            RealtimeVisibility::Session(session_key.to_string()),
         ) {
             self.hub.publish(message);
         }
@@ -640,6 +711,23 @@ fn session_user_id(resource_key: &str) -> Option<i64> {
     resource_key.strip_prefix("session:user:")?.parse().ok()
 }
 
+fn revoked_session_key(resource_key: &str) -> Option<&str> {
+    if let Some(token_hash) = resource_key.strip_prefix("session:web:") {
+        return (token_hash.len() == 64
+            && token_hash
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
+        .then_some(resource_key);
+    }
+
+    let session_id = resource_key.strip_prefix("session:native:")?;
+    session_id
+        .parse::<i64>()
+        .ok()
+        .filter(|id| *id > 0)
+        .map(|_| resource_key)
+}
+
 fn visibility_for_resource(resource_key: &str) -> Option<RealtimeVisibility> {
     if resource_key.starts_with("admin:") {
         return Some(RealtimeVisibility::Admin);
@@ -670,7 +758,6 @@ struct ScanProgressResponse {
     protocol_version: u8,
     scan_job: ScanJobResponse,
     items: Vec<ScanItemProgressResponse>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     changes: Vec<ResourceRevisionResponse>,
 }
 
@@ -689,8 +776,8 @@ struct ResyncRequiredResponse {
 #[cfg(test)]
 mod tests {
     use super::{
-        session_user_id, visibility_for_resource, RealtimeCommand, RealtimeDispatcherHandle,
-        RealtimeMessage, RealtimeVisibility,
+        revoked_session_key, session_user_id, visibility_for_resource, RealtimeCommand,
+        RealtimeDispatcherHandle, RealtimeMessage, RealtimeVisibility,
     };
     use mova_application::{ScanJobEvent, ScanJobProgressUpdate};
     use mova_domain::{ScanJob, User, UserProfile, UserRole};
@@ -737,6 +824,19 @@ mod tests {
     fn session_resource_extracts_target_user() {
         assert_eq!(session_user_id("session:user:42"), Some(42));
         assert_eq!(session_user_id("user:42:profile"), None);
+    }
+
+    #[test]
+    fn revoked_session_resource_accepts_only_canonical_internal_keys() {
+        let web_key = format!("session:web:{}", "a".repeat(64));
+        assert_eq!(revoked_session_key(&web_key), Some(web_key.as_str()));
+        assert_eq!(
+            revoked_session_key("session:native:42"),
+            Some("session:native:42")
+        );
+        assert_eq!(revoked_session_key("session:web:not-a-hash"), None);
+        assert_eq!(revoked_session_key("session:native:0"), None);
+        assert_eq!(revoked_session_key("session:user:42"), None);
     }
 
     #[tokio::test]
@@ -801,7 +901,7 @@ mod tests {
     async fn resync_required_is_published_as_a_terminal_public_event() {
         let hub = super::RealtimeHub::default();
         let user = test_user(12, UserRole::Viewer, vec![7]);
-        let mut receivers = hub.subscribe(&user);
+        let mut receivers = hub.subscribe(&user, "session:native:12");
         let mut receiver = receivers.remove(0);
 
         hub.publish_resync_required("postgres_listener_subscribed");
@@ -821,8 +921,8 @@ mod tests {
         let hub = super::RealtimeHub::default();
         let viewer = test_user(12, UserRole::Viewer, vec![7]);
         let admin = test_user(1, UserRole::Admin, Vec::new());
-        let mut viewer_receivers = hub.subscribe(&viewer);
-        let mut admin_receivers = hub.subscribe(&admin);
+        let mut viewer_receivers = hub.subscribe(&viewer, "session:native:12");
+        let mut admin_receivers = hub.subscribe(&admin, "session:native:1");
 
         hub.publish(
             RealtimeMessage::json(
@@ -857,13 +957,166 @@ mod tests {
         assert_eq!(viewer_message.visibility, RealtimeVisibility::Library(7));
     }
 
+    #[tokio::test]
+    async fn session_revocation_only_reaches_the_matching_credential() {
+        let hub = super::RealtimeHub::default();
+        let user = test_user(12, UserRole::Viewer, vec![7]);
+        let matching_key = "session:native:41";
+        let other_key = "session:native:42";
+        let mut matching_receivers = hub.subscribe(&user, matching_key);
+        let mut other_receivers = hub.subscribe(&user, other_key);
+        let mut matching_session_receiver = matching_receivers
+            .pop()
+            .expect("session receiver should be registered");
+
+        hub.publish(
+            RealtimeMessage::json(
+                "session.invalidated",
+                &serde_json::json!({
+                    "protocol_version": 1,
+                    "reason": "session_revoked"
+                }),
+                RealtimeVisibility::Session(matching_key.to_string()),
+            )
+            .unwrap(),
+        );
+
+        let message = matching_session_receiver
+            .recv()
+            .await
+            .expect("matching session should receive its revocation");
+        assert!(message.closes_stream());
+        assert!(message.is_visible_to(&user, matching_key));
+        assert!(!message.is_visible_to(&user, other_key));
+        assert!(other_receivers
+            .iter_mut()
+            .all(|receiver| receiver.try_recv().is_err()));
+    }
+
+    #[test]
+    fn session_channels_are_created_only_for_subscribers_and_removed_after_disconnect() {
+        let hub = super::RealtimeHub::default();
+        let user = test_user(12, UserRole::Viewer, vec![7]);
+        let session_key = "session:native:41";
+
+        hub.publish(
+            RealtimeMessage::json(
+                "session.invalidated",
+                &serde_json::json!({
+                    "protocol_version": 1,
+                    "reason": "session_revoked"
+                }),
+                RealtimeVisibility::Session(session_key.to_string()),
+            )
+            .unwrap(),
+        );
+        assert!(hub.inner.session_senders.read().unwrap().is_empty());
+
+        let receivers = hub.subscribe(&user, session_key);
+        assert_eq!(hub.inner.session_senders.read().unwrap().len(), 1);
+        drop(receivers);
+        hub.unsubscribe_session(session_key);
+        assert!(hub.inner.session_senders.read().unwrap().is_empty());
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn session_revocation_triggers_emit_credential_scoped_signals(pool: sqlx::PgPool) {
+        let user_id: i64 = sqlx::query_scalar(
+            r#"
+            insert into users (
+                username,
+                username_normalized,
+                nickname,
+                password_hash,
+                role
+            )
+            values ('realtime-session', 'realtime-session', 'Realtime Session', 'hash', 'viewer')
+            returning id
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let web_hash = "a".repeat(64);
+        sqlx::query(
+            r#"
+            insert into user_sessions (token_hash, user_id, expires_at)
+            values ($1, $2, clock_timestamp() + interval '1 hour')
+            "#,
+        )
+        .bind(&web_hash)
+        .bind(user_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let native_session_id: i64 = sqlx::query_scalar(
+            r#"
+            insert into native_client_sessions (
+                user_id,
+                access_token_hash,
+                refresh_token_hash,
+                access_token_expires_at,
+                refresh_token_expires_at
+            )
+            values (
+                $1,
+                $2,
+                $3,
+                clock_timestamp() + interval '1 hour',
+                clock_timestamp() + interval '2 hours'
+            )
+            returning id
+            "#,
+        )
+        .bind(user_id)
+        .bind("b".repeat(64))
+        .bind("c".repeat(64))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let mut listener = sqlx::postgres::PgListener::connect_with(&pool)
+            .await
+            .unwrap();
+        listener.listen("mova_realtime").await.unwrap();
+
+        sqlx::query("delete from user_sessions where token_hash = $1")
+            .bind(&web_hash)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let web_signal = tokio::time::timeout(std::time::Duration::from_secs(1), listener.recv())
+            .await
+            .expect("web revocation signal should arrive")
+            .unwrap();
+        assert_eq!(web_signal.payload(), format!("session:web:{web_hash}"));
+
+        sqlx::query(
+            "update native_client_sessions set revoked_at = clock_timestamp() where id = $1",
+        )
+        .bind(native_session_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let native_signal =
+            tokio::time::timeout(std::time::Duration::from_secs(1), listener.recv())
+                .await
+                .expect("native revocation signal should arrive")
+                .unwrap();
+        assert_eq!(
+            native_signal.payload(),
+            format!("session:native:{native_session_id}")
+        );
+    }
+
     #[sqlx::test(migrations = "../../migrations")]
     #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
     async fn library_revision_triggers_separate_collection_and_settings(pool: sqlx::PgPool) {
         let library_id: i64 = sqlx::query_scalar(
             r#"
-            insert into libraries (name, library_type, metadata_language, root_path)
-            values ('Movies', 'mixed', 'zh-CN', '/media/movies')
+            insert into libraries (name, metadata_language, root_path)
+            values ('Movies', 'zh-CN', '/media/movies')
             returning id
             "#,
         )
@@ -922,8 +1175,8 @@ mod tests {
     async fn scan_revision_tracks_durable_lifecycle_transitions(pool: sqlx::PgPool) {
         let library_id: i64 = sqlx::query_scalar(
             r#"
-            insert into libraries (name, library_type, metadata_language, root_path)
-            values ('Series', 'mixed', 'zh-CN', '/media/series')
+            insert into libraries (name, metadata_language, root_path)
+            values ('Series', 'zh-CN', '/media/series')
             returning id
             "#,
         )
@@ -965,11 +1218,20 @@ mod tests {
                 .unwrap();
         assert_eq!(revision_while_running[0].revision, 2);
 
-        sqlx::query("update scan_jobs set status = 'success' where id = $1")
-            .bind(scan_job_id)
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            r#"
+            update scan_jobs
+            set status = 'success',
+                phase = 'finished',
+                progress_percent = 100,
+                finished_at = now()
+            where id = $1
+            "#,
+        )
+        .bind(scan_job_id)
+        .execute(&pool)
+        .await
+        .unwrap();
         let revision_after_finish = mova_db::list_realtime_revisions(&pool, &[scan_key])
             .await
             .unwrap();

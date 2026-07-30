@@ -21,6 +21,7 @@ async-trait = "0.1"
 axum = "0.8"
 axum-extra = { version = "0.10", features = ["cookie"] }
 dotenvy = "0.15"
+libc = "0.2"
 mova-db = { path = "crates/mova-db" }
 mova-domain = { path = "crates/mova-domain" }
 mova-application = { path = "crates/mova-application" }

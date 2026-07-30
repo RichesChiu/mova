@@ -3,5 +3,3 @@ import type { UserAccount } from '../api/types'
 export const canManageLibraries = (viewer: UserAccount) => viewer.role !== 'viewer'
 
 export const canManageServer = (viewer: UserAccount) => viewer.role !== 'viewer'
-
-export const canManageAdminAccounts = (viewer: UserAccount) => viewer.role === 'owner'

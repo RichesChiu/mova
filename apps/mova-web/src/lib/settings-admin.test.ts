@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { Library, LibraryDetail, ScanJob, UserAccount } from '../api/types'
 import {
   buildCreatedLibraryCacheState,
@@ -7,15 +7,12 @@ import {
   buildDeletedUserCacheState,
   buildDeleteLibraryConfirmationCopy,
   buildDeleteUserConfirmationCopy,
-  buildInitialScanJob,
   buildPlaceholderLibraryDetail,
   buildTriggeredScanCacheState,
   buildUpdatedLibraryCacheState,
   buildUpdatedUserCacheState,
   getScanStatusLabel,
   getScanStatusTone,
-  getUserAvatarInitial,
-  getUserLibraryAccessSummary,
   mergeTriggeredScanLibraryDetail,
   mergeUpdatedLibraryDetail,
   removeLibrary,
@@ -64,15 +61,6 @@ const viewer: UserAccount = {
 
 describe('settings admin helpers', () => {
   it('builds placeholder detail for a new library', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-04-08T10:00:00Z'))
-
-    expect(buildInitialScanJob(7)).toMatchObject({
-      id: -7,
-      library_id: 7,
-      status: 'pending',
-      phase: 'discovering',
-    })
     expect(buildPlaceholderLibraryDetail(library)).toMatchObject({
       id: 7,
       media_count: 0,
@@ -85,18 +73,10 @@ describe('settings admin helpers', () => {
       libraryDetail: {
         id: 7,
       },
-      homeLibraryDetail: {
-        id: 7,
-      },
     })
-
-    vi.useRealTimers()
   })
 
   it('upserts and removes libraries and users in cached collections', () => {
-    expect(getUserAvatarInitial(' viewer01 ')).toBe('V')
-    expect(getUserAvatarInitial('')).toBe('U')
-
     expect(
       upsertLibrary([library], {
         ...library,
@@ -178,7 +158,6 @@ describe('settings admin helpers', () => {
           name: 'Cinema',
         },
         currentLibraryDetail: currentDetail,
-        currentHomeLibraryDetail: currentDetail,
       }),
     ).toMatchObject({
       libraries: [
@@ -189,22 +168,15 @@ describe('settings admin helpers', () => {
       libraryDetail: {
         last_scan: currentDetail.last_scan,
       },
-      homeLibraryDetail: {
-        last_scan: currentDetail.last_scan,
-      },
     })
     expect(
       buildTriggeredScanCacheState({
         fallbackLibrary: library,
         currentLibraryDetail: undefined,
-        currentHomeLibraryDetail: undefined,
         scanJob,
       }),
     ).toMatchObject({
       libraryDetail: {
-        last_scan: scanJob,
-      },
-      homeLibraryDetail: {
         last_scan: scanJob,
       },
     })
@@ -224,17 +196,9 @@ describe('settings admin helpers', () => {
           ...currentDetail,
           last_scan: scanJob,
         },
-        currentHomeLibraryDetail: {
-          ...currentDetail,
-          last_scan: scanJob,
-        },
       }),
     ).toMatchObject({
       libraryDetail: {
-        description: 'Updated description',
-        last_scan: scanJob,
-      },
-      homeLibraryDetail: {
         description: 'Updated description',
         last_scan: scanJob,
       },
@@ -242,18 +206,6 @@ describe('settings admin helpers', () => {
   })
 
   it('formats scan and access summaries for the settings cards', () => {
-    expect(getUserLibraryAccessSummary(viewer, [library])).toBe('Access: Movies')
-    expect(
-      getUserLibraryAccessSummary(
-        {
-          ...viewer,
-          role: 'admin',
-          library_ids: [],
-        },
-        [library],
-      ),
-    ).toBe('')
-
     expect(getScanStatusLabel(scanJob)).toBe('Running')
     expect(getScanStatusLabel(scanJob, 42.4)).toBe('Running 42%')
     expect(getScanStatusLabel({ ...scanJob, status: 'pending' }, -2)).toBe('Pending 0%')

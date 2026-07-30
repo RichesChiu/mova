@@ -62,6 +62,8 @@ const getNotificationTitle = (notification: NotificationItem, l: Translate) => {
       return l('Library scan completed with issues')
     case 'scan.failed':
       return l('Library scan failed')
+    case 'scan.cancelled':
+      return l('Library scan cancelled')
     case 'cache.cleanup.failed':
       return l('Library cache cleanup failed')
     default:
@@ -146,6 +148,8 @@ const ScanNotificationContent = ({ payload }: { payload: ScanNotificationPayload
             <NotificationIssue item={item} key={item.item_key} />
           ))}
         </ul>
+      ) : payload.status === 'cancelled' ? (
+        <p className="notification-center__generic-message">{l('Scan was cancelled.')}</p>
       ) : (
         <p className="notification-center__success">{l('Scan completed without issues.')}</p>
       )}

@@ -1,6 +1,6 @@
 use crate::realtime::REALTIME_PROTOCOL_VERSION;
 use crate::{
-    auth::require_user,
+    auth::{require_auth_context, require_user, AuthContext},
     error::ApiError,
     response::{ok, ApiJson, ScanJobResponse},
     state::AppState,
@@ -15,6 +15,7 @@ use serde::Serialize;
 use std::{
     collections::BTreeMap,
     convert::Infallible,
+    future::Future,
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
@@ -99,14 +100,20 @@ pub async fn events(
     headers: HeaderMap,
     jar: CookieJar,
 ) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
+    let (auth, subscribed_receivers) = authenticate_and_subscribe(&state, &headers, &jar).await?;
+    let realtime_session_key = auth.realtime_session_key;
     let mut receivers = StreamMap::new();
-    for (index, receiver) in state.realtime_hub.subscribe(&user).into_iter().enumerate() {
+    for (index, receiver) in subscribed_receivers.into_iter().enumerate() {
         receivers.insert(index, BroadcastStream::new(receiver));
     }
     let stream = RealtimeSseStream {
         receivers,
-        user,
+        user: auth.user,
+        credential_expiration: Box::pin(tokio::time::sleep(credential_expiration_delay(
+            auth.expires_at,
+        ))),
+        hub: state.realtime_hub.clone(),
+        realtime_session_key,
         close_on_next_poll: false,
     };
 
@@ -117,10 +124,68 @@ pub async fn events(
     ))
 }
 
+async fn authenticate_and_subscribe(
+    state: &AppState,
+    headers: &HeaderMap,
+    jar: &CookieJar,
+) -> Result<
+    (
+        AuthContext,
+        Vec<tokio::sync::broadcast::Receiver<crate::realtime::RealtimeMessage>>,
+    ),
+    ApiError,
+> {
+    let mut auth = require_auth_context(state, headers, jar).await?;
+
+    for _ in 0..3 {
+        let session_key = auth.realtime_session_key.clone();
+        let receivers = state.realtime_hub.subscribe(&auth.user, &session_key);
+        match require_auth_context(state, headers, jar).await {
+            Ok(revalidated)
+                if revalidated.realtime_session_key == session_key
+                    && same_authorization_snapshot(&auth, &revalidated) =>
+            {
+                return Ok((revalidated, receivers));
+            }
+            Ok(revalidated) => {
+                drop(receivers);
+                state.realtime_hub.unsubscribe_session(&session_key);
+                auth = revalidated;
+            }
+            Err(error) => {
+                drop(receivers);
+                state.realtime_hub.unsubscribe_session(&session_key);
+                return Err(error);
+            }
+        }
+    }
+
+    Err(ApiError::ServiceUnavailable(
+        "authorization changed repeatedly while establishing realtime stream".to_string(),
+    ))
+}
+
+fn same_authorization_snapshot(left: &AuthContext, right: &AuthContext) -> bool {
+    left.user.user.id == right.user.user.id
+        && left.user.user.role == right.user.user.role
+        && left.user.user.is_enabled == right.user.user.is_enabled
+        && left.user.library_ids == right.user.library_ids
+}
+
 struct RealtimeSseStream {
     receivers: StreamMap<usize, BroadcastStream<crate::realtime::RealtimeMessage>>,
     user: mova_domain::UserProfile,
+    credential_expiration: Pin<Box<tokio::time::Sleep>>,
+    hub: crate::realtime::RealtimeHub,
+    realtime_session_key: String,
     close_on_next_poll: bool,
+}
+
+impl Drop for RealtimeSseStream {
+    fn drop(&mut self) {
+        self.receivers.clear();
+        self.hub.unsubscribe_session(&self.realtime_session_key);
+    }
 }
 
 impl Stream for RealtimeSseStream {
@@ -131,9 +196,20 @@ impl Stream for RealtimeSseStream {
             return Poll::Ready(None);
         }
 
+        if self.credential_expiration.as_mut().poll(context).is_ready() {
+            self.close_on_next_poll = true;
+            return Poll::Ready(Some(Ok(Event::default()
+                .event("session.invalidated")
+                .data(format!(
+                    r#"{{"protocol_version":{REALTIME_PROTOCOL_VERSION},"reason":"credential_expired"}}"#
+                )))));
+        }
+
         loop {
             match Pin::new(&mut self.receivers).poll_next(context) {
-                Poll::Ready(Some((_, Ok(message)))) if message.is_visible_to(&self.user) => {
+                Poll::Ready(Some((_, Ok(message))))
+                    if message.is_visible_to(&self.user, &self.realtime_session_key) =>
+                {
                     self.close_on_next_poll = message.closes_stream();
                     return Poll::Ready(Some(Ok(message.to_sse_event())));
                 }
@@ -156,6 +232,11 @@ impl Stream for RealtimeSseStream {
             }
         }
     }
+}
+
+fn credential_expiration_delay(expires_at: time::OffsetDateTime) -> Duration {
+    let remaining = expires_at - time::OffsetDateTime::now_utc();
+    Duration::try_from(remaining).unwrap_or(Duration::ZERO)
 }
 
 fn resource_keys_for_user(

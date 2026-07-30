@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { logout } from '../../api/client'
 import type { UserAccount } from '../../api/types'
+import { GlassMenu } from '../../components/glass-menu'
 import { useI18n } from '../../i18n'
 import { getUserDisplayName, getUserInitial } from '../../lib/user-identity'
 import { getUserRolePresentation } from '../../lib/user-role'
@@ -81,8 +82,6 @@ export const HomeDashboardShell = ({
     () => autoCollapseSidebar || readStoredSidebarCollapsed(),
   )
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false)
-  const accountMenuRef = useRef<HTMLDivElement | null>(null)
-  const accountMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
   const displayName = getUserDisplayName(currentUser)
   const userInitial = getUserInitial(currentUser)
   const isAdmin = canManageServer(currentUser)
@@ -104,37 +103,6 @@ export const HomeDashboardShell = ({
 
     setIsAccountMenuOpen(false)
   }, [autoCollapseSidebar, location.pathname])
-
-  useEffect(() => {
-    if (!isAccountMenuOpen) {
-      return
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      if (event.target instanceof Node && accountMenuRef.current?.contains(event.target)) {
-        return
-      }
-
-      setIsAccountMenuOpen(false)
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') {
-        return
-      }
-
-      setIsAccountMenuOpen(false)
-      accountMenuTriggerRef.current?.focus()
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    document.addEventListener('keydown', handleKeyDown)
-
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [isAccountMenuOpen])
 
   const handleSidebarToggle = () => {
     setIsAccountMenuOpen(false)
@@ -195,45 +163,45 @@ export const HomeDashboardShell = ({
           })}
         </nav>
 
-        <div className="home-sidebar__account-menu" ref={accountMenuRef}>
-          <button
-            aria-controls="home-sidebar-account-menu"
-            aria-expanded={isAccountMenuOpen}
-            aria-haspopup="menu"
-            aria-label={l('Open account menu')}
-            className={
-              isAccountRoute
-                ? 'home-sidebar__user home-sidebar__user--active'
-                : 'home-sidebar__user'
-            }
-            onClick={() => {
-              logoutMutation.reset()
-              setIsAccountMenuOpen((current) => !current)
-            }}
-            ref={accountMenuTriggerRef}
-            title={isSidebarCollapsed ? displayName : undefined}
-            type="button"
-          >
-            <span className="home-sidebar__avatar" aria-hidden="true">
-              {userInitial}
-            </span>
-            <span className="home-sidebar__user-copy">
-              <strong>{displayName}</strong>
-              <em>{l(getUserRolePresentation(currentUser).label)}</em>
-            </span>
-            <span aria-hidden="true" className="home-sidebar__user-arrow">
-              <HomeIcon name="chevronRight" />
-            </span>
-          </button>
-
-          {isAccountMenuOpen ? (
-            <div
-              aria-label={l('Account menu')}
-              className="home-sidebar__account-popover glass-popover-surface floating-transition"
-              data-state="open"
-              id="home-sidebar-account-menu"
-              role="menu"
+        <GlassMenu
+          ariaLabel={l('Account menu')}
+          id="home-sidebar-account-menu"
+          isOpen={isAccountMenuOpen}
+          onOpenChange={setIsAccountMenuOpen}
+          popoverClassName="home-sidebar__account-popover"
+          rootClassName="home-sidebar__account-menu"
+          trigger={(triggerProps) => (
+            <button
+              {...triggerProps}
+              aria-controls="home-sidebar-account-menu"
+              aria-label={l('Open account menu')}
+              className={
+                isAccountRoute
+                  ? 'home-sidebar__user home-sidebar__user--active'
+                  : 'home-sidebar__user'
+              }
+              onClick={() => {
+                logoutMutation.reset()
+                triggerProps.onClick()
+              }}
+              title={isSidebarCollapsed ? displayName : undefined}
+              type="button"
             >
+              <span className="home-sidebar__avatar" aria-hidden="true">
+                {userInitial}
+              </span>
+              <span className="home-sidebar__user-copy">
+                <strong>{displayName}</strong>
+                <em>{l(getUserRolePresentation(currentUser).label)}</em>
+              </span>
+              <span aria-hidden="true" className="home-sidebar__user-arrow">
+                <HomeIcon name="chevronRight" />
+              </span>
+            </button>
+          )}
+        >
+          {(closeMenu) => (
+            <>
               {isAdmin ? (
                 <Link
                   className={
@@ -241,7 +209,7 @@ export const HomeDashboardShell = ({
                       ? 'home-sidebar__account-action home-sidebar__account-action--active'
                       : 'home-sidebar__account-action'
                   }
-                  onClick={() => setIsAccountMenuOpen(false)}
+                  onClick={closeMenu}
                   role="menuitem"
                   to="/settings"
                 >
@@ -256,7 +224,7 @@ export const HomeDashboardShell = ({
                     ? 'home-sidebar__account-action home-sidebar__account-action--active'
                     : 'home-sidebar__account-action'
                 }
-                onClick={() => setIsAccountMenuOpen(false)}
+                onClick={closeMenu}
                 role="menuitem"
                 to="/profile"
               >
@@ -280,9 +248,9 @@ export const HomeDashboardShell = ({
                   {l('Failed to log out')}
                 </p>
               ) : null}
-            </div>
-          ) : null}
-        </div>
+            </>
+          )}
+        </GlassMenu>
       </aside>
 
       <section className="home-dashboard" aria-label={ariaLabel}>

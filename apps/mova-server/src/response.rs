@@ -864,7 +864,11 @@ impl SeriesEpisodeOutlineSeasonResponse {
                 "poster",
                 OffsetDateTime::UNIX_EPOCH,
             ),
-            None => season.poster_path.as_deref().map(|value| value.to_string()),
+            None => season
+                .poster_path
+                .as_deref()
+                .filter(|value| is_trusted_public_artwork_url(value))
+                .map(str::to_string),
         };
         Self {
             season_id: season.season_id,
@@ -1189,7 +1193,7 @@ fn public_media_item_asset_path(
     }
 
     if is_external_url(stored_path) {
-        Some(stored_path.to_string())
+        is_trusted_public_artwork_url(stored_path).then(|| stored_path.to_string())
     } else {
         Some(format!(
             "/api/media-items/{}/{}?v={}",
@@ -1213,7 +1217,7 @@ fn public_season_asset_path(
     }
 
     if is_external_url(stored_path) {
-        Some(stored_path.to_string())
+        is_trusted_public_artwork_url(stored_path).then(|| stored_path.to_string())
     } else {
         Some(format!(
             "/api/seasons/{}/{}?v={}",
@@ -1226,6 +1230,12 @@ fn public_season_asset_path(
 
 fn is_external_url(value: &str) -> bool {
     value.starts_with("http://") || value.starts_with("https://")
+}
+
+fn is_trusted_public_artwork_url(value: &str) -> bool {
+    value
+        .strip_prefix("https://image.tmdb.org/t/p/")
+        .is_some_and(|path| !path.is_empty() && !path.contains(['?', '#']))
 }
 
 fn is_generated_episode_still_path(value: &str) -> bool {
@@ -1277,7 +1287,7 @@ mod tests {
             studio: Some("Studio Ghibli".to_string()),
             overview: Some("A young girl enters the spirit world.".to_string()),
             poster_path: Some("/library/poster.jpg".to_string()),
-            backdrop_path: Some("https://images.example.com/backdrop.jpg".to_string()),
+            backdrop_path: Some("https://image.tmdb.org/t/p/original/backdrop.jpg".to_string()),
             logo_path: Some("/library/logo.png".to_string()),
             created_at: timestamp,
             updated_at: timestamp,
@@ -1302,11 +1312,33 @@ mod tests {
         assert_eq!(
             public_media_item_asset_path(
                 42,
-                Some("https://images.example.com/poster.jpg"),
+                Some("https://image.tmdb.org/t/p/original/poster.jpg"),
                 "poster",
                 OffsetDateTime::UNIX_EPOCH,
             ),
-            Some("https://images.example.com/poster.jpg".to_string())
+            Some("https://image.tmdb.org/t/p/original/poster.jpg".to_string())
+        );
+    }
+
+    #[test]
+    fn public_media_item_asset_path_hides_untrusted_legacy_remote_urls() {
+        assert_eq!(
+            public_media_item_asset_path(
+                42,
+                Some("http://127.0.0.1/private.jpg"),
+                "poster",
+                OffsetDateTime::UNIX_EPOCH,
+            ),
+            None
+        );
+        assert_eq!(
+            public_media_item_asset_path(
+                42,
+                Some("https://image.tmdb.org/t/p/original/poster.jpg?redirect=private"),
+                "poster",
+                OffsetDateTime::UNIX_EPOCH,
+            ),
+            None
         );
     }
 
@@ -1328,11 +1360,11 @@ mod tests {
         assert_eq!(
             public_season_asset_path(
                 7,
-                Some("https://images.example.com/season01.jpg"),
+                Some("https://image.tmdb.org/t/p/original/season01.jpg"),
                 "poster",
                 OffsetDateTime::UNIX_EPOCH,
             ),
-            Some("https://images.example.com/season01.jpg".to_string())
+            Some("https://image.tmdb.org/t/p/original/season01.jpg".to_string())
         );
     }
 
@@ -1359,7 +1391,7 @@ mod tests {
         );
         assert_eq!(
             response.backdrop_path.as_deref(),
-            Some("https://images.example.com/backdrop.jpg")
+            Some("https://image.tmdb.org/t/p/original/backdrop.jpg")
         );
         assert_eq!(
             response.logo_path.as_deref(),

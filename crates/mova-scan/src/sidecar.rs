@@ -1,8 +1,13 @@
 use super::parse::parse_year_token;
 use std::{
     fs,
+    io::Read,
+    ops::Range,
     path::{Path, PathBuf},
 };
+
+const MAX_MEDIA_NFO_BYTES: usize = 2 * 1024 * 1024;
+const MAX_TVSHOW_NFO_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct ParsedSidecarMetadata {
@@ -32,16 +37,8 @@ pub(crate) fn read_sidecar_metadata(path: &Path) -> ParsedSidecarMetadata {
         return ParsedSidecarMetadata::default();
     };
 
-    let contents = match fs::read_to_string(&nfo_path) {
-        Ok(contents) => contents,
-        Err(error) => {
-            tracing::warn!(
-                file_path = %nfo_path.display(),
-                error = %error,
-                "failed to read sidecar nfo file"
-            );
-            return ParsedSidecarMetadata::default();
-        }
+    let Some(contents) = read_nfo_file(&nfo_path, MAX_MEDIA_NFO_BYTES) else {
+        return ParsedSidecarMetadata::default();
     };
 
     parse_nfo_metadata(
@@ -61,22 +58,90 @@ pub(crate) fn read_series_sidecar_metadata(path: &Path) -> ParsedSidecarMetadata
         return ParsedSidecarMetadata::default();
     };
 
-    let contents = match fs::read_to_string(&nfo_path) {
-        Ok(contents) => contents,
-        Err(error) => {
-            tracing::warn!(
-                file_path = %nfo_path.display(),
-                error = %error,
-                "failed to read series sidecar nfo file"
-            );
-            return ParsedSidecarMetadata::default();
-        }
+    let Some(contents) = read_nfo_file(&nfo_path, MAX_TVSHOW_NFO_BYTES) else {
+        return ParsedSidecarMetadata::default();
     };
 
     parse_nfo_metadata(
         &contents,
         nfo_path.parent().unwrap_or_else(|| Path::new("/")),
     )
+}
+
+fn read_nfo_file(path: &Path, max_bytes: usize) -> Option<String> {
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) => {
+            tracing::warn!(
+                file_path = %path.display(),
+                error = %error,
+                "failed to open sidecar nfo file"
+            );
+            return None;
+        }
+    };
+    let metadata = match file.metadata() {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            tracing::warn!(
+                file_path = %path.display(),
+                error = %error,
+                "failed to inspect sidecar nfo file"
+            );
+            return None;
+        }
+    };
+
+    if !metadata.is_file() {
+        tracing::warn!(
+            file_path = %path.display(),
+            "sidecar nfo path is not a regular file"
+        );
+        return None;
+    }
+    if metadata.len() > max_bytes as u64 {
+        tracing::warn!(
+            file_path = %path.display(),
+            file_bytes = metadata.len(),
+            max_bytes,
+            "sidecar nfo file exceeds the size limit"
+        );
+        return None;
+    }
+
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    let read_result = (&mut file)
+        .take(max_bytes as u64 + 1)
+        .read_to_end(&mut bytes);
+    if let Err(error) = read_result {
+        tracing::warn!(
+            file_path = %path.display(),
+            error = %error,
+            "failed to read sidecar nfo file"
+        );
+        return None;
+    }
+    if bytes.len() > max_bytes {
+        tracing::warn!(
+            file_path = %path.display(),
+            file_bytes = bytes.len(),
+            max_bytes,
+            "sidecar nfo file grew beyond the size limit while being read"
+        );
+        return None;
+    }
+
+    match String::from_utf8(bytes) {
+        Ok(contents) => Some(contents),
+        Err(error) => {
+            tracing::warn!(
+                file_path = %path.display(),
+                error = %error,
+                "sidecar nfo file is not valid UTF-8"
+            );
+            None
+        }
+    }
 }
 
 fn find_sidecar_nfo(video_path: &Path) -> Option<PathBuf> {
@@ -90,41 +155,76 @@ fn find_sidecar_nfo(video_path: &Path) -> Option<PathBuf> {
 }
 
 pub(crate) fn parse_nfo_metadata(contents: &str, base_dir: &Path) -> ParsedSidecarMetadata {
-    let poster_path = extract_xml_tag_value(contents, "thumb")
+    let document = NfoDocument::new(contents);
+    let poster_path = document
+        .extract("thumb")
         .as_deref()
         .and_then(|value| resolve_sidecar_reference(value, base_dir));
-    let backdrop_path = extract_fanart_reference(contents)
+    let backdrop_path = extract_fanart_reference(&document)
         .as_deref()
         .and_then(|value| resolve_sidecar_reference(value, base_dir));
 
     ParsedSidecarMetadata {
-        title: extract_xml_tag_value(contents, "title"),
-        original_title: extract_xml_tag_value(contents, "originaltitle"),
-        sort_title: extract_xml_tag_value(contents, "sorttitle"),
-        year: extract_xml_tag_value(contents, "year").and_then(|value| parse_year_token(&value)),
-        overview: extract_xml_tag_value(contents, "plot")
-            .or_else(|| extract_xml_tag_value(contents, "outline")),
+        title: document.extract("title"),
+        original_title: document.extract("originaltitle"),
+        sort_title: document.extract("sorttitle"),
+        year: document
+            .extract("year")
+            .and_then(|value| parse_year_token(&value)),
+        overview: document
+            .extract("plot")
+            .or_else(|| document.extract("outline")),
         poster_path,
         backdrop_path,
     }
 }
 
-fn extract_fanart_reference(contents: &str) -> Option<String> {
-    let fanart = extract_xml_tag_value(contents, "fanart")?;
-
-    extract_xml_tag_value(&fanart, "thumb").or(Some(fanart))
+struct NfoDocument<'a> {
+    contents: &'a str,
+    lowercase: String,
 }
 
-fn extract_xml_tag_value(contents: &str, tag: &str) -> Option<String> {
-    let lower = contents.to_ascii_lowercase();
-    let tag = tag.to_ascii_lowercase();
+impl<'a> NfoDocument<'a> {
+    fn new(contents: &'a str) -> Self {
+        Self {
+            contents,
+            lowercase: contents.to_ascii_lowercase(),
+        }
+    }
+
+    fn extract(&self, tag: &str) -> Option<String> {
+        extract_xml_tag_value(self.contents, &self.lowercase, tag)
+    }
+
+    fn extract_nested(&self, outer_tag: &str, inner_tag: &str) -> Option<String> {
+        let range = find_xml_tag_value_range(&self.lowercase, outer_tag)?;
+        extract_xml_tag_value(
+            &self.contents[range.clone()],
+            &self.lowercase[range],
+            inner_tag,
+        )
+    }
+}
+
+fn extract_fanart_reference(document: &NfoDocument<'_>) -> Option<String> {
+    document
+        .extract_nested("fanart", "thumb")
+        .or_else(|| document.extract("fanart"))
+}
+
+fn extract_xml_tag_value(contents: &str, lowercase: &str, tag: &str) -> Option<String> {
+    let range = find_xml_tag_value_range(lowercase, tag)?;
+    normalize_xml_text(&contents[range])
+}
+
+fn find_xml_tag_value_range(lowercase: &str, tag: &str) -> Option<Range<usize>> {
     let start_tag = format!("<{}", tag);
     let end_tag = format!("</{}>", tag);
     let mut search_from = 0;
 
-    while let Some(relative_start) = lower[search_from..].find(&start_tag) {
+    while let Some(relative_start) = lowercase[search_from..].find(&start_tag) {
         let start = search_from + relative_start;
-        let boundary = lower.as_bytes().get(start + start_tag.len()).copied();
+        let boundary = lowercase.as_bytes().get(start + start_tag.len()).copied();
 
         if !matches!(
             boundary,
@@ -134,11 +234,11 @@ fn extract_xml_tag_value(contents: &str, tag: &str) -> Option<String> {
             continue;
         }
 
-        let tag_end = lower[start + start_tag.len()..].find('>')? + start + start_tag.len();
+        let tag_end = lowercase[start + start_tag.len()..].find('>')? + start + start_tag.len();
         let value_start = tag_end + 1;
-        let value_end = lower[value_start..].find(&end_tag)? + value_start;
+        let value_end = lowercase[value_start..].find(&end_tag)? + value_start;
 
-        return normalize_xml_text(&contents[value_start..value_end]);
+        return Some(value_start..value_end);
     }
 
     None
@@ -180,14 +280,66 @@ fn resolve_sidecar_reference(value: &str, base_dir: &Path) -> Option<String> {
         return Some(value.to_string());
     }
 
+    let canonical_base = fs::canonicalize(base_dir).ok()?;
     let reference = Path::new(value);
     let resolved = if reference.is_absolute() {
         reference.to_path_buf()
     } else {
         base_dir.join(reference)
     };
+    let canonical_reference = fs::canonicalize(resolved).ok()?;
 
-    is_non_empty_file(&resolved).then(|| resolved.to_string_lossy().to_string())
+    if !canonical_reference.starts_with(&canonical_base)
+        || !is_supported_sidecar_image(&canonical_reference)
+    {
+        return None;
+    }
+
+    Some(canonical_reference.to_string_lossy().to_string())
+}
+
+fn is_supported_sidecar_image(path: &Path) -> bool {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase());
+    if !matches!(
+        extension.as_deref(),
+        Some("jpg" | "jpeg" | "png" | "webp" | "gif" | "avif")
+    ) {
+        return false;
+    }
+
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.len() == 0 {
+        return false;
+    }
+
+    let Ok(mut file) = fs::File::open(path) else {
+        return false;
+    };
+    let mut header = [0_u8; 16];
+    let Ok(read) = file.read(&mut header) else {
+        return false;
+    };
+    let header = &header[..read];
+
+    match extension.as_deref() {
+        Some("jpg" | "jpeg") => header.starts_with(&[0xff, 0xd8, 0xff]),
+        Some("png") => header.starts_with(b"\x89PNG\r\n\x1a\n"),
+        Some("webp") => {
+            header.len() >= 12 && header.starts_with(b"RIFF") && &header[8..12] == b"WEBP"
+        }
+        Some("gif") => header.starts_with(b"GIF87a") || header.starts_with(b"GIF89a"),
+        Some("avif") => {
+            header.len() >= 12
+                && &header[4..8] == b"ftyp"
+                && matches!(&header[8..12], b"avif" | b"avis")
+        }
+        _ => false,
+    }
 }
 
 pub(crate) fn find_local_artwork(video_path: &Path, kind: ArtworkKind) -> Option<String> {
@@ -252,4 +404,76 @@ fn is_non_empty_file(path: &Path) -> bool {
 
 fn is_external_url(value: &str) -> bool {
     value.starts_with("http://") || value.starts_with("https://")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        read_series_sidecar_metadata, read_sidecar_metadata, ParsedSidecarMetadata,
+        MAX_MEDIA_NFO_BYTES, MAX_TVSHOW_NFO_BYTES,
+    };
+    use std::{env, fs, path::PathBuf};
+    use uuid::Uuid;
+
+    fn unique_temp_path(kind: &str) -> PathBuf {
+        env::temp_dir().join(format!("mova-scan-sidecar-{kind}-{}", Uuid::new_v4()))
+    }
+
+    fn create_sparse_file(path: &std::path::Path, bytes: usize) {
+        let file = fs::File::create(path).expect("oversized nfo should be created");
+        file.set_len(bytes as u64)
+            .expect("oversized nfo length should be set");
+    }
+
+    #[test]
+    fn oversized_movie_nfo_safely_falls_back_to_empty_metadata() {
+        let root = unique_temp_path("oversized-movie");
+        let video_path = root.join("Movie.2026.mkv");
+        fs::create_dir_all(&root).unwrap();
+        create_sparse_file(&root.join("movie.nfo"), MAX_MEDIA_NFO_BYTES + 1);
+
+        let metadata = read_sidecar_metadata(&video_path);
+
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(metadata, ParsedSidecarMetadata::default());
+    }
+
+    #[test]
+    fn oversized_episode_nfo_safely_falls_back_to_empty_metadata() {
+        let root = unique_temp_path("oversized-episode");
+        let video_path = root.join("Series.S01E01.mkv");
+        fs::create_dir_all(&root).unwrap();
+        create_sparse_file(&video_path.with_extension("nfo"), MAX_MEDIA_NFO_BYTES + 1);
+
+        let metadata = read_sidecar_metadata(&video_path);
+
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(metadata, ParsedSidecarMetadata::default());
+    }
+
+    #[test]
+    fn oversized_tvshow_nfo_safely_falls_back_to_empty_metadata() {
+        let root = unique_temp_path("oversized-tvshow");
+        let video_path = root.join("Season 01").join("Series.S01E01.mkv");
+        fs::create_dir_all(video_path.parent().unwrap()).unwrap();
+        create_sparse_file(&root.join("tvshow.nfo"), MAX_TVSHOW_NFO_BYTES + 1);
+
+        let metadata = read_series_sidecar_metadata(&video_path);
+
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(metadata, ParsedSidecarMetadata::default());
+    }
+
+    #[test]
+    fn invalid_utf8_nfo_safely_falls_back_to_empty_metadata() {
+        let root = unique_temp_path("invalid-utf8");
+        let video_path = root.join("Movie.2026.mkv");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("movie.nfo"), [0xff, 0xfe, 0xfd]).unwrap();
+
+        let metadata = read_sidecar_metadata(&video_path);
+
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(metadata, ParsedSidecarMetadata::default());
+    }
 }

@@ -29,12 +29,14 @@ MOVA_CACHE_DIR/
         ├── subtitles/
         │   └── subtitle-{subtitle_file_id}.vtt
         └── audio-tracks/
-            └── media-file-{media_file_id}-audio-track-{audio_track_id}-{version}.{container}
+            └── v{cache_version}-media-file-{media_file_id}-audio-track-{audio_track_id}-{source_version}.{container}
 ```
 
 `library_id` 是数据库生成的正整数，不接受客户端路径。清理器只根据服务端缓存根目录和该整数构造目标目录，不执行 payload 中提供的任意文件路径。
 
 TMDB 图片在单个库内按源 URL 的稳定哈希复用。不同库之间不共享物理文件，因此删库不需要猜测图片是否仍被其它库引用，也不会误删其它库的封面。
+
+音轨切换产物包含复制后的视频流和指定音轨，因此按视频级资源管理：单产物上限为 128 GiB，所有媒体库的音轨缓存总配额为 256 GiB，进程内最多同时执行 2 个 remux。服务端在开始监听请求前先整理现有音轨缓存，按最早生成时间删除超额产物和遗留临时文件；目录读取或淘汰失败会终止启动，不能带着未受控缓存状态继续运行。每个生成任务按 `源文件大小 + 256 MiB` 预留空间；该值超过 128 GiB 时会在启动 FFmpeg 前拒绝。预留还会通过缓存卷的 `statvfs` 可用空间计入全部在途任务，按最早生成时间淘汰旧产物后仍必须保留至少 5 GiB；空间不足时拒绝生成。缓存命中不进入生成闸门；未命中时以 try-acquire 限制入口，同一缓存键最多等待 5 秒。同一缓存键 single-flight，FFmpeg 只写唯一临时文件；达到 `-fs` 边界的产物视作可能被截断，只有未触及边界并通过大小复核的文件才会原子发布，失败、取消、超时或超限不会留下可见的最终文件。
 
 ## 3. 删除事务
 

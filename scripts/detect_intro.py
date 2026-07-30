@@ -4,16 +4,24 @@ import math
 import statistics
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
 SAMPLE_RATE = 8000
+PCM_BYTES_PER_SAMPLE = 2
 FRAME_SECONDS = 1
 FRAME_SIZE = SAMPLE_RATE * FRAME_SECONDS
 MIN_MATCH_SECONDS = 12
 MAX_MATCH_SECONDS = 150
 OFFSET_TOLERANCE_SECONDS = 18
 FRAME_SIMILARITY_THRESHOLD = 0.93
+DEFAULT_ANALYSIS_SECONDS = 240
+MAX_ANALYSIS_SECONDS = 600
+DEFAULT_FFMPEG_TIMEOUT_SECONDS = 90
+MAX_FFMPEG_TIMEOUT_SECONDS = 600
+FFMPEG_READ_CHUNK_BYTES = 64 * 1024
+MAX_FFMPEG_STDERR_BYTES = 64 * 1024
 
 
 @dataclass
@@ -30,6 +38,14 @@ class PairCandidate:
     episode_numbers: Tuple[int, int]
 
 
+@dataclass
+class BoundedStreamCapture:
+    limit_bytes: int
+    data: bytearray
+    truncated: bool = False
+    error: Optional[BaseException] = None
+
+
 def emit(payload: dict) -> None:
     sys.stdout.write(json.dumps(payload))
 
@@ -38,7 +54,49 @@ def fail(reason: str) -> None:
     emit({"status": "no-match", "reason": reason})
 
 
-def run_ffmpeg_extract(file_path: str, analysis_seconds: int) -> bytes:
+def drain_stream_bounded(stream, capture: BoundedStreamCapture) -> None:
+    try:
+        while True:
+            chunk = stream.read(FFMPEG_READ_CHUNK_BYTES)
+            if not chunk:
+                break
+
+            remaining = max(0, capture.limit_bytes - len(capture.data))
+            if remaining:
+                capture.data.extend(chunk[:remaining])
+            if len(chunk) > remaining:
+                capture.truncated = True
+    except BaseException as error:  # noqa: BLE001
+        capture.error = error
+    finally:
+        stream.close()
+
+
+def terminate_and_reap(process: subprocess.Popen) -> None:
+    if process.poll() is None:
+        process.kill()
+    process.wait()
+
+
+def bounded_stderr_message(capture: BoundedStreamCapture) -> str:
+    message = bytes(capture.data).decode("utf-8", errors="ignore").strip()
+    if capture.truncated:
+        marker = (
+            f"[ffmpeg stderr truncated after "
+            f"{capture.limit_bytes} bytes]"
+        )
+        message = f"{message}\n{marker}" if message else marker
+    return message
+
+
+def run_ffmpeg_extract(
+    file_path: str, analysis_seconds: int, timeout_seconds: int
+) -> bytes:
+    analysis_seconds = max(1, min(MAX_ANALYSIS_SECONDS, analysis_seconds))
+    max_stdout_bytes = (
+        SAMPLE_RATE * analysis_seconds * PCM_BYTES_PER_SAMPLE
+        + FRAME_SIZE * PCM_BYTES_PER_SAMPLE
+    )
     command = [
         "ffmpeg",
         "-hide_banner",
@@ -57,11 +115,61 @@ def run_ffmpeg_extract(file_path: str, analysis_seconds: int) -> bytes:
         "s16le",
         "-",
     ]
-    result = subprocess.run(command, capture_output=True, check=False)
-    if result.returncode != 0:
-        stderr = result.stderr.decode("utf-8", errors="ignore").strip()
-        raise RuntimeError(stderr or f"ffmpeg exited with status {result.returncode}")
-    return result.stdout
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if process.stdout is None or process.stderr is None:
+        terminate_and_reap(process)
+        raise RuntimeError("ffmpeg output pipes were not created")
+
+    stdout_capture = BoundedStreamCapture(max_stdout_bytes, bytearray())
+    stderr_capture = BoundedStreamCapture(MAX_FFMPEG_STDERR_BYTES, bytearray())
+    stdout_reader = threading.Thread(
+        target=drain_stream_bounded,
+        args=(process.stdout, stdout_capture),
+        daemon=True,
+    )
+    stderr_reader = threading.Thread(
+        target=drain_stream_bounded,
+        args=(process.stderr, stderr_capture),
+        daemon=True,
+    )
+    stdout_reader.start()
+    stderr_reader.start()
+
+    try:
+        return_code = process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as error:
+        terminate_and_reap(process)
+        stdout_reader.join()
+        stderr_reader.join()
+        raise RuntimeError(
+            f"ffmpeg exceeded the {timeout_seconds} second timeout"
+        ) from error
+    except BaseException:  # noqa: BLE001
+        terminate_and_reap(process)
+        stdout_reader.join()
+        stderr_reader.join()
+        raise
+
+    stdout_reader.join()
+    stderr_reader.join()
+
+    if stdout_capture.error is not None:
+        raise RuntimeError(f"failed to read ffmpeg stdout: {stdout_capture.error}")
+    if stderr_capture.error is not None:
+        raise RuntimeError(f"failed to read ffmpeg stderr: {stderr_capture.error}")
+    if stdout_capture.truncated:
+        raise RuntimeError(
+            f"ffmpeg PCM output exceeded the {max_stdout_bytes} byte limit"
+        )
+
+    if return_code != 0:
+        stderr = bounded_stderr_message(stderr_capture)
+        raise RuntimeError(stderr or f"ffmpeg exited with status {return_code}")
+    return bytes(stdout_capture.data)
 
 
 def decode_pcm_mono_s16le(raw_bytes: bytes) -> List[int]:
@@ -160,8 +268,12 @@ def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
     return numerator / (left_norm * right_norm)
 
 
-def load_episode_features(file_path: str, analysis_seconds: int) -> List[List[float]]:
-    raw_audio = run_ffmpeg_extract(file_path, analysis_seconds)
+def load_episode_features(
+    file_path: str, analysis_seconds: int, ffmpeg_timeout_seconds: int
+) -> List[List[float]]:
+    raw_audio = run_ffmpeg_extract(
+        file_path, analysis_seconds, ffmpeg_timeout_seconds
+    )
     samples = decode_pcm_mono_s16le(raw_audio)
     windows = window_samples(samples)
     return normalize_feature_vectors([build_frame_features(window) for window in windows])
@@ -327,9 +439,27 @@ def main() -> int:
         emit({"status": "error", "reason": f"invalid request json: {error}"})
         return 1
 
-    analysis_seconds = int(payload.get("analysis_seconds", 240))
+    analysis_seconds = max(
+        1,
+        min(
+            MAX_ANALYSIS_SECONDS,
+            int(payload.get("analysis_seconds", DEFAULT_ANALYSIS_SECONDS)),
+        ),
+    )
     max_start_offset_seconds = int(payload.get("max_start_offset_seconds", 150))
     min_match_seconds = max(8, int(payload.get("min_intro_seconds", MIN_MATCH_SECONDS)))
+    ffmpeg_timeout_seconds = max(
+        1,
+        min(
+            MAX_FFMPEG_TIMEOUT_SECONDS,
+            int(
+                payload.get(
+                    "ffmpeg_timeout_seconds",
+                    DEFAULT_FFMPEG_TIMEOUT_SECONDS,
+                )
+            ),
+        ),
+    )
 
     episodes = [
         EpisodeInput(
@@ -346,7 +476,11 @@ def main() -> int:
     episode_features = []
     for episode in episodes:
         try:
-            features = load_episode_features(episode.file_path, analysis_seconds)
+            features = load_episode_features(
+                episode.file_path,
+                analysis_seconds,
+                ffmpeg_timeout_seconds,
+            )
         except Exception as error:  # noqa: BLE001
             fail(f"failed to analyze {episode.file_path}: {error}")
             return 0

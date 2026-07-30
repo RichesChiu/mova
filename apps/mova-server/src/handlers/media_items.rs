@@ -1,4 +1,7 @@
-use crate::auth::{require_admin, require_media_item_access, require_user};
+use crate::artwork::{read_trusted_local_artwork, LocalArtworkError};
+use crate::auth::{
+    require_admin, require_media_item_access, require_media_item_with_library_access, require_user,
+};
 use crate::error::ApiError;
 use crate::response::{
     ok, ApiJson, MediaCastMemberResponse, MediaFileResponse, MediaItemDetailResponse,
@@ -17,8 +20,6 @@ use axum::{
 };
 use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
-use std::{io::ErrorKind, path::Path as FsPath};
-
 const ARTWORK_CACHE_CONTROL: &str = "private, max-age=31536000, immutable";
 
 #[derive(Debug, Deserialize)]
@@ -288,7 +289,8 @@ async fn serve_media_item_artwork(
     media_item_id: i64,
     kind: ArtworkKind,
 ) -> Result<Response<Body>, ApiError> {
-    let media_item = require_media_item_access(&state, user, media_item_id).await?;
+    let (media_item, library) =
+        require_media_item_with_library_access(&state, user, media_item_id).await?;
 
     let artwork_path = match kind {
         ArtworkKind::Poster => media_item.poster_path.as_deref(),
@@ -311,29 +313,24 @@ async fn serve_media_item_artwork(
         )));
     }
 
-    let metadata = tokio::fs::metadata(artwork_path)
-        .await
-        .map_err(|error| map_media_artwork_io_error(kind, media_item_id, artwork_path, error))?;
+    let artwork_cache_root =
+        mova_application::library_artwork_cache_dir(&state.cache_dir, library.id);
+    let artwork = read_trusted_local_artwork(
+        artwork_path,
+        std::path::Path::new(&library.root_path),
+        &artwork_cache_root,
+    )
+    .await
+    .map_err(|error| map_media_artwork_error(kind, media_item_id, artwork_path, error))?;
+    let content_length = artwork.bytes.len();
 
-    if !metadata.is_file() {
-        return Err(ApiError::NotFound(format!(
-            "{} path is not a regular file for media item {}: {}",
-            kind.field_name(),
-            media_item_id,
-            artwork_path
-        )));
-    }
-
-    let file_bytes = tokio::fs::read(artwork_path)
-        .await
-        .map_err(|error| map_media_artwork_io_error(kind, media_item_id, artwork_path, error))?;
-    let content_length = file_bytes.len();
-    let content_type = content_type_for_artwork(artwork_path);
-
-    let mut response = Response::new(Body::from(file_bytes));
+    let mut response = Response::new(Body::from(artwork.bytes));
     *response.status_mut() = StatusCode::OK;
     let response_headers = response.headers_mut();
-    response_headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(content_type));
+    response_headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(artwork.content_type),
+    );
     response_headers.insert(
         header::CONTENT_LENGTH,
         HeaderValue::from_str(&content_length.to_string())
@@ -347,36 +344,32 @@ async fn serve_media_item_artwork(
     Ok(response)
 }
 
-fn content_type_for_artwork(path: &str) -> &'static str {
-    match FsPath::new(path)
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(|value| value.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        Some("png") => "image/png",
-        Some("webp") => "image/webp",
-        Some("gif") => "image/gif",
-        Some("avif") => "image/avif",
-        _ => "application/octet-stream",
-    }
-}
-
-fn map_media_artwork_io_error(
+fn map_media_artwork_error(
     kind: ArtworkKind,
     media_item_id: i64,
     artwork_path: &str,
-    error: std::io::Error,
+    error: LocalArtworkError,
 ) -> ApiError {
-    match error.kind() {
-        ErrorKind::NotFound => ApiError::NotFound(format!(
-            "{} file not found for media item {}: {}",
+    match error {
+        LocalArtworkError::NotFound => ApiError::NotFound(format!(
+            "{} not available for media item {}",
             kind.field_name(),
             media_item_id,
-            artwork_path
         )),
-        _ => {
+        LocalArtworkError::Untrusted => {
+            tracing::warn!(
+                media_item_id,
+                artwork_path,
+                artwork_kind = kind.field_name(),
+                "rejected untrusted media artwork path or payload"
+            );
+            ApiError::NotFound(format!(
+                "{} not available for media item {}",
+                kind.field_name(),
+                media_item_id,
+            ))
+        }
+        LocalArtworkError::Io(error) => {
             tracing::error!(
                 media_item_id,
                 artwork_path,

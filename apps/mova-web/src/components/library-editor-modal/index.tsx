@@ -1,5 +1,4 @@
 import { type FormEvent, useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
 import type { Library, UpdateLibraryInput } from '../../api/types'
 import { useI18n } from '../../i18n'
 import {
@@ -9,8 +8,8 @@ import {
   hasLibraryMetadataLanguageChanged,
   LIBRARY_DESCRIPTION_MAX_LENGTH,
 } from '../../lib/library-config'
-import { usePresenceTransition } from '../../lib/use-presence-transition'
 import { ConfirmActionModal } from '../confirm-action-modal'
+import { GlassDialog, GlassDialogCloseButton } from '../glass-dialog'
 import { GlassSelect, type GlassSelectOption } from '../glass-select'
 import { SectionHelp } from '../section-help'
 
@@ -35,7 +34,6 @@ export const LibraryEditorModal = ({
   onUpdate,
 }: LibraryEditorModalProps) => {
   const { l } = useI18n()
-  const modalPresence = usePresenceTransition(isOpen && library !== null)
   const [visibleLibrary, setVisibleLibrary] = useState<Library | null>(library)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -55,34 +53,6 @@ export const LibraryEditorModal = ({
     setMetadataLanguage(draft.metadataLanguage)
     setPendingMetadataLanguageUpdate(null)
   }, [isOpen, library])
-
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-    }
-  }, [isOpen])
-
-  useEffect(() => {
-    if (!isOpen) {
-      return
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !pendingMetadataLanguageUpdate && !isSubmitting) {
-        onClose()
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, isSubmitting, onClose, pendingMetadataLanguageUpdate])
 
   const submitUpdate = async (input: UpdateLibraryInput) => {
     if (!library) {
@@ -118,7 +88,7 @@ export const LibraryEditorModal = ({
 
   const activeLibrary = library ?? visibleLibrary
 
-  if (!modalPresence.shouldRender || !activeLibrary) {
+  if (!activeLibrary) {
     return null
   }
 
@@ -135,123 +105,95 @@ export const LibraryEditorModal = ({
 
   return (
     <>
-      {createPortal(
-        <div
-          className="library-editor-modal overlay-transition"
-          data-state={modalPresence.transitionState}
-        >
-          <button
-            aria-label={l('Close library editor dialog')}
-            className="library-editor-modal__backdrop glass-overlay-backdrop"
+      <GlassDialog
+        ariaLabel={l('Edit Library')}
+        className="library-editor-modal"
+        closeLabel={l('Close library editor dialog')}
+        isCloseDisabled={isSubmitting || pendingMetadataLanguageUpdate !== null}
+        isOpen={isOpen && library !== null}
+        onClose={onClose}
+        surfaceClassName="library-editor-modal__surface scrollbar-thin"
+      >
+        <div className="library-editor-modal__header">
+          <div className="library-editor-modal__identity">
+            <div className="library-editor-modal__badge">{libraryBadge(activeLibrary)}</div>
+            <div>
+              <p className="eyebrow">{l('Library Management')}</p>
+              <h3>{l('Edit Library')}</h3>
+            </div>
+          </div>
+
+          <GlassDialogCloseButton
+            ariaLabel={l('Close library editor dialog')}
+            className="library-editor-modal__close"
             disabled={isSubmitting || pendingMetadataLanguageUpdate !== null}
             onClick={onClose}
-            type="button"
           />
+        </div>
 
-          <div
-            aria-modal="true"
-            className="library-editor-modal__surface glass-modal-surface"
-            role="dialog"
-          >
-            <div className="library-editor-modal__header">
-              <div className="library-editor-modal__identity">
-                <div className="library-editor-modal__badge">{libraryBadge(activeLibrary)}</div>
-                <div>
-                  <p className="eyebrow">{l('Library Management')}</p>
-                  <h3>{l('Edit Library')}</h3>
-                </div>
-              </div>
+        <form className="stack" onSubmit={handleSubmit}>
+          <label className="field">
+            <span>{l('Library Name')}</span>
+            <input
+              onChange={(event) => setName(event.target.value)}
+              placeholder={l('Library Name')}
+              required
+              type="text"
+              value={name}
+            />
+          </label>
 
-              <button
-                aria-label={l('Close library editor dialog')}
-                className="library-editor-modal__close"
-                disabled={isSubmitting || pendingMetadataLanguageUpdate !== null}
-                onClick={onClose}
-                type="button"
-              >
-                <svg
-                  aria-hidden="true"
-                  className="library-editor-modal__close-icon"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    d="M6 6L18 18M18 6L6 18"
-                    stroke="currentColor"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="1.8"
-                  />
-                </svg>
-              </button>
-            </div>
+          <label className="field">
+            <span>{l('Description')}</span>
+            <textarea
+              className="library-description-input"
+              maxLength={LIBRARY_DESCRIPTION_MAX_LENGTH}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder={l('What is this library for?')}
+              rows={4}
+              value={description}
+            />
+          </label>
 
-            <form className="stack" onSubmit={handleSubmit}>
-              <label className="field">
-                <span>{l('Library Name')}</span>
-                <input
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder={l('Library Name')}
-                  required
-                  type="text"
-                  value={name}
-                />
-              </label>
-
-              <label className="field">
-                <span>{l('Description')}</span>
-                <textarea
-                  className="library-description-input"
-                  maxLength={LIBRARY_DESCRIPTION_MAX_LENGTH}
-                  onChange={(event) => setDescription(event.target.value)}
-                  placeholder={l('What is this library for?')}
-                  rows={4}
-                  value={description}
-                />
-              </label>
-
-              <div className="field">
-                <span>{l('Metadata Language')}</span>
-                <GlassSelect
-                  ariaLabel={l('Metadata Language')}
-                  onChange={setMetadataLanguage}
-                  options={metadataLanguageOptions}
-                  value={metadataLanguage}
-                />
-              </div>
-
-              <div className="field">
-                <div className="field__label">
-                  <span className="field__label-copy">{l('Root Path')}</span>
-                  <SectionHelp
-                    detail={l(
-                      'This shows the in-container path. The host media directory configured in Docker Compose is mounted at /media, so the /media/... value shown here is the real scan path used by the app.',
-                    )}
-                    title={l('Root path help')}
-                  />
-                </div>
-                <code className="library-editor-modal__path">{activeLibrary.root_path}</code>
-              </div>
-
-              {error ? <p className="callout callout--danger">{error}</p> : null}
-
-              <div className="library-editor-modal__footer">
-                <button className="button" onClick={onClose} type="button">
-                  {l('Cancel')}
-                </button>
-                <button
-                  className="button button--primary"
-                  disabled={isSubmitting || normalizedName.length === 0 || !hasChanges}
-                  type="submit"
-                >
-                  {isSubmitting ? l('Saving…') : l('Save Changes')}
-                </button>
-              </div>
-            </form>
+          <div className="field">
+            <span>{l('Metadata Language')}</span>
+            <GlassSelect
+              ariaLabel={l('Metadata Language')}
+              onChange={setMetadataLanguage}
+              options={metadataLanguageOptions}
+              value={metadataLanguage}
+            />
           </div>
-        </div>,
-        document.body,
-      )}
+
+          <div className="field">
+            <div className="field__label">
+              <span className="field__label-copy">{l('Root Path')}</span>
+              <SectionHelp
+                detail={l(
+                  'This shows the in-container path. The host media directory configured in Docker Compose is mounted at /media, so the /media/... value shown here is the real scan path used by the app.',
+                )}
+                title={l('Root path help')}
+              />
+            </div>
+            <code className="library-editor-modal__path">{activeLibrary.root_path}</code>
+          </div>
+
+          {error ? <p className="callout callout--danger">{error}</p> : null}
+
+          <div className="library-editor-modal__footer">
+            <button className="button" onClick={onClose} type="button">
+              {l('Cancel')}
+            </button>
+            <button
+              className="button button--primary"
+              disabled={isSubmitting || normalizedName.length === 0 || !hasChanges}
+              type="submit"
+            >
+              {isSubmitting ? l('Saving…') : l('Save Changes')}
+            </button>
+          </div>
+        </form>
+      </GlassDialog>
 
       <ConfirmActionModal
         confirmLabel={l('Save and scan')}

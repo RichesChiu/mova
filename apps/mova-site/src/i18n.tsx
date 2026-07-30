@@ -115,8 +115,8 @@ const translations: Record<string, string> = {
   实时事件: 'Realtime events',
   'GET /api/realtime/events 推送资源失效与临时扫描进度。':
     'GET /api/realtime/events pushes resource invalidation and transient scan progress.',
-  'health、bootstrap-status、bootstrap-admin、login、token-login 和 refresh 可匿名访问，其余接口都要求登录态。':
-    'health, bootstrap-status, bootstrap-admin, login, token-login, and refresh are public; all other endpoints require authentication.',
+  'health、bootstrap-status、bootstrap-admin、login、token-login、refresh 和 logout 可匿名访问，其余接口都要求登录态。':
+    'health, bootstrap-status, bootstrap-admin, login, token-login, refresh, and logout are public; all other endpoints require authentication.',
   '管理类接口允许 owner 和 admin；用户角色提升等所有者操作只允许 owner。':
     'Administrative endpoints allow owner and admin roles; owner-only operations such as role elevation require the owner role.',
   'Web 端使用 session cookie；原生客户端使用 access token，refresh token 仅用于调用 refresh 接口。':
@@ -141,15 +141,20 @@ const translations: Record<string, string> = {
   'Forbidden，权限不足': 'Forbidden, insufficient permission',
   'Not Found，资源不存在': 'Not Found, resource does not exist',
   'Conflict，当前资源状态不允许操作': 'Conflict, the current resource state does not allow this operation',
+  'Payload Too Large，媒体处理输入或结果超过服务端上限':
+    'Payload Too Large, media processing input or output exceeds the server limit',
   'Too Many Requests，认证尝试过多': 'Too Many Requests, too many authentication attempts',
   'Range Not Satisfiable，媒体 Range 越界': 'Range Not Satisfiable, media range is out of bounds',
   'Internal Server Error，服务内部错误': 'Internal Server Error',
+  'Service Unavailable，媒体处理资源或依赖服务暂不可用':
+    'Service Unavailable, media processing capacity or a dependency is temporarily unavailable',
 
   健康检查: 'Health',
   '用于探测服务进程和数据库是否可用，适合容器探针、本地调试和部署后的联通性检查。':
     'Checks service and database availability for container probes, local debugging, and post-deployment connectivity tests.',
   匿名可访问: 'Publicly accessible',
-  返回服务状态和权威构建版本: 'Returns service status and the authoritative build version',
+  '返回服务状态、权威构建版本和 HTTP API 契约版本':
+    'Returns service status, the authoritative build version, and the HTTP API contract version',
   适合作为部署后第一条检查接口: 'A good first check after deployment',
   '认证、用户与实时同步': 'Authentication, users, and realtime sync',
   '覆盖首次初始化、Cookie / Bearer 登录、Token 轮换、首页快照、资源 revision、SSE 和管理员用户管理。':
@@ -160,12 +165,18 @@ const translations: Record<string, string> = {
     'Accounts are unique by their trimmed lowercase value; Web sessions and native tokens are stored only as hashes.',
   'token-login 返回短期 access token 和长期 refresh token，refresh 会轮换两者。':
     'token-login returns a short-lived access token and a long-lived refresh token; refresh rotates both.',
+  '同一设备必须串行 refresh：原始有效期内重放旧 refresh token 会原子撤销设备会话，已过期的历史 token 不影响当前会话。':
+    'Refresh requests for one device must be serialized: replaying an old refresh token within its original lifetime atomically revokes that device session, while an expired historical token does not affect the current session.',
   '密码认证默认在 5 分钟内允许 5 次失败，受限时返回 429 和 Retry-After。':
     'Password authentication allows five failures within five minutes by default, then returns 429 with Retry-After.',
   '/api/home 返回当前用户的有界首页快照，并携带 realtime revision 基线。':
     '/api/home returns a bounded home snapshot for the current user with the realtime revision baseline.',
   'SSE 只承载资源失效与临时进度；断线恢复必须使用 /api/realtime/state。':
     'SSE carries resource invalidation and transient progress only; reconnect recovery must use /api/realtime/state.',
+  'SSE 与连接凭据有效期绑定；收到 credential_expired 后先更新登录凭据并读取 /api/realtime/state，再重新连接。':
+    'SSE is bound to the lifetime of the connection credential; after credential_expired, renew the login credential, read /api/realtime/state, and then reconnect.',
+  '登出、改密或 refresh token 重放撤销会话时，仅对应凭据的 SSE 收到 session_revoked 并关闭。':
+    'When logout, a password change, or refresh-token replay revokes a session, only the SSE connection using that credential receives session_revoked and closes.',
   查询是否需要初始化系统所有者: 'Check whether the system owner must be initialized',
   初始化系统所有者并登录: 'Initialize the system owner and sign in',
   登录: 'Sign in',
@@ -180,8 +191,8 @@ const translations: Record<string, string> = {
   当前用户修改自己的密码: 'Change the current user password',
   '查询用户列表（管理员）': 'List users (admin)',
   '创建用户（管理员）': 'Create a user (admin)',
-  '更新低权限用户的角色与媒体库权限（管理员）':
-    'Update roles and library access for lower-privilege users (admin)',
+  '更新低权限用户的角色、启用状态与媒体库权限（管理员）':
+    'Update roles, enabled status, and library access for lower-privilege users (admin)',
   '删除用户（管理员）': 'Delete a user (admin)',
   管理员重置指定用户密码: 'Reset a user password (admin)',
   通知中心: 'Notifications',
@@ -191,8 +202,12 @@ const translations: Record<string, string> = {
     'Standard categories include scan, system, library, and account; unknown categories must remain visible.',
   '通知和已读状态持久化在 PostgreSQL，SSE 只通知客户端重新读取。':
     'Notifications and read states are persisted in PostgreSQL; SSE only tells clients to fetch again.',
+  '扫描终态分别使用 completed、completed_with_issues、failed 和 cancelled，取消不等同于成功或失败。':
+    'Scan terminal states use completed, completed_with_issues, failed, and cancelled; cancellation is neither success nor failure.',
   '扫描通知使用 reason_code 和 reason_params 生成本地化主文案，diagnostic_message 仅用于排障。':
     'Scan notifications use reason_code and reason_params for localized primary copy; diagnostic_message is only for troubleshooting.',
+  '已有远端身份在 provider 临时故障时保持 matched，并以 metadata_provider_error 表示刷新失败。':
+    'Existing remote identities remain matched during transient provider failures, with metadata_provider_error indicating the refresh failure.',
   'GET 响应的未读统计不受 category 筛选影响。':
     'Unread counts in GET responses are not affected by the category filter.',
   '标记已读操作幂等，只有状态首次变化时才推进 revision。':
@@ -217,6 +232,10 @@ const translations: Record<string, string> = {
     'Libraries automatically identify movies and series without requiring users to choose a library type.',
   'metadata_language 支持 zh-CN / en-US，影响扫描和 TMDB 元数据补全语言。':
     'metadata_language supports zh-CN and en-US and controls scanning and TMDB metadata language.',
+  '语言变更、缓存失效、catalog revision 和新扫描任务会在同一事务中提交。':
+    'Language changes, cache invalidation, catalog revisions, and the new scan job commit in one transaction.',
+  '仍有活跃扫描时语言变更返回 409，不会提交半更新状态。':
+    'Changing metadata language while a scan remains active returns 409 without committing partial state.',
   '创建媒体库后会自动触发一次后台扫描；媒体库不提供启用/禁用状态。':
     'Creating a library automatically starts a background scan; libraries do not have an enabled/disabled state.',
   '删除媒体库会由数据库级联清理权威数据，并持久化后台任务删除该库独立的图片、字幕和音轨缓存。':
@@ -249,8 +268,8 @@ const translations: Record<string, string> = {
     'Series use seasons, episodes, and episode-outline to merge locally available episodes with remote outlines.',
   'poster/backdrop 返回图片流；若详情字段是远程 URL，前端可直接使用远程地址。':
     'poster/backdrop return image streams; when a detail field is a remote URL, clients may use it directly.',
-  'poster/backdrop/logo 返回图片流；若详情字段是远程 URL，前端可直接使用远程地址。':
-    'poster/backdrop/logo return image streams; when a detail field is a remote URL, clients may use it directly.',
+  'poster/backdrop/logo 返回经过媒体库边界、大小和图片内容校验的本地图片流；详情只透出可信的 TMDB 官方远程图片地址。':
+    'poster/backdrop/logo return local image streams validated by library boundary, size, and image content; details expose only trusted official TMDB remote artwork URLs.',
   查询单个媒体条目详情: 'Get media item details',
   查询单个媒体条目的演员列表: 'Get the cast for a media item',
   查询播放器页头部信息: 'Get player header information',
@@ -288,13 +307,23 @@ const translations: Record<string, string> = {
     'Media and subtitle streams do not use the JSON envelope; they return file streams or text/vtt directly.',
   'GET /stream 支持 Range 请求，拖动进度条时通常返回 206 Partial Content。':
     'GET /stream supports Range requests and usually returns 206 Partial Content when seeking.',
-  'audio_track_id 会触发后端验证并生成 remux 缓存变体，这不是多码率转码。':
-    'audio_track_id triggers validation and creates a cached remux variant; this is not adaptive-bitrate transcoding.',
+  'GET 携带 audio_track_id 时会验证并按需生成 remux 缓存。':
+    'GET validates audio_track_id and creates a remux cache on demand.',
+  '音轨和字幕 HEAD 都是只读探测；缓存命中返回准确头，缓存未命中返回 no-store 且不返回虚假长度，也不启动 FFmpeg。':
+    'Audio and subtitle HEAD requests are read-only probes; cache hits return accurate headers, while misses return no-store without a false length or starting FFmpeg.',
+  '音轨缓存命中会立即返回；生成槽位已满或同 key 等待超时时返回 503，由客户端稍后重试。':
+    'Audio cache hits return immediately; a full generation gate or same-key wait timeout returns 503 so the client can retry later.',
+  '字幕源和 WebVTT 结果均有大小上限；超限返回 413 和 subtitle_too_large。':
+    'Subtitle sources and WebVTT output are size-limited; oversized content returns 413 with subtitle_too_large.',
+  '媒体与外部字幕的真实路径必须位于其所属媒体库根目录内。':
+    'Canonical media and external subtitle paths must remain inside their owning library root.',
   '字幕接口会把 srt、ass/ssa、内嵌字幕统一转换成浏览器可挂载的 WebVTT。':
     'Subtitle endpoints convert srt, ass/ssa, and embedded subtitles to browser-ready WebVTT.',
   查询媒体文件可切换的内嵌音轨列表: 'List selectable embedded audio tracks',
   查询媒体文件可切换字幕列表: 'List selectable subtitles',
   '输出单条字幕轨道的 WebVTT 内容': 'Output one subtitle track as WebVTT',
+  '只读查询字幕 WebVTT 头信息，不生成字幕缓存':
+    'Read subtitle WebVTT headers without generating a subtitle cache',
   播放媒体文件: 'Stream a media file',
   查询媒体文件播放头信息: 'Get media file playback headers',
   '来自 /api/libraries，用于媒体库相关接口': 'From /api/libraries; used by library endpoints',
