@@ -1,7 +1,9 @@
 use crate::{
     error::{ApplicationError, ApplicationResult},
     libraries::get_library,
-    media_classification::classify_media_type,
+    media_classification::{
+        apply_movie_container_identity_when_title_is_missing, classify_media_type,
+    },
     media_enrichment::{
         sanitize_file_artwork_sources, trusted_artwork_bases, MetadataEnrichmentContext,
         MetadataEnrichmentStage,
@@ -20,7 +22,7 @@ use mova_domain::{
 };
 use mova_scan::{
     discovered_media_file_inventory_scan_hash, discovered_media_file_scan_hash,
-    infer_series_file_metadata, infer_series_sidecar_metadata, DiscoveredAudioTrack,
+    infer_series_file_metadata, infer_series_sidecar_metadata_within_root, DiscoveredAudioTrack,
     DiscoveredMediaFile, DiscoveredMediaFileInventory, DiscoveredSubtitleTrack,
 };
 use sqlx::postgres::PgPool;
@@ -118,7 +120,7 @@ struct LocalSeriesGroup {
     display_title: String,
     year: Option<i32>,
     year_priority: u8,
-    identity_from_sidecar: bool,
+    identity_priority: u8,
     identity_season_number: i32,
     has_first_season: bool,
     season_air_year: Option<MetadataSeasonAirYearHint>,
@@ -140,6 +142,8 @@ struct ScanPresentationGroup {
 struct ScanDiscoveredGroup {
     presentation: ScanPresentationGroup,
     files: Vec<DiscoveredMediaFile>,
+    metadata_lookup_hint: Option<String>,
+    metadata_binding_conflict: bool,
 }
 
 #[derive(Debug)]
@@ -158,12 +162,15 @@ struct RemoteScanPipelineOutcome {
 #[derive(Debug)]
 struct PendingScanGroup {
     files: Vec<IncrementalScanFile>,
+    metadata_lookup_hint: Option<String>,
+    metadata_binding_conflict: bool,
 }
 
 #[derive(Debug)]
 struct IncrementalScanPlan {
     discovered_paths: Vec<String>,
     changed_files: Vec<IncrementalScanFile>,
+    container_bindings: HashMap<String, ContainerBindingResolution>,
 }
 
 #[derive(Debug, Clone)]
@@ -176,6 +183,12 @@ struct IncrementalScanFile {
 struct PendingScanFile {
     changed_file: IncrementalScanFile,
     file: DiscoveredMediaFile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ContainerBindingResolution {
+    Unique(String),
+    Conflict,
 }
 
 #[derive(Debug, Clone)]
@@ -200,7 +213,7 @@ const SCAN_ITEM_STAGE_COMPLETED: &str = "completed";
 const SCAN_PHASE_INITIALIZING: &str = "initializing";
 const SCAN_DISCOVERY_PROGRESS_MIN_FILE_DELTA: i32 = 25;
 const SCAN_DISCOVERY_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(500);
-pub(crate) const LOCAL_ANALYSIS_VERSION: i32 = 6;
+pub(crate) const LOCAL_ANALYSIS_VERSION: i32 = 7;
 
 fn should_flush_discovery_progress(
     persisted_progress: i32,
@@ -478,9 +491,11 @@ pub async fn execute_scan_job_with_cancellation(
     let IncrementalScanPlan {
         discovered_paths,
         changed_files,
+        container_bindings,
     } = match build_incremental_scan_plan(
         pool,
         library.id,
+        std::path::Path::new(&library.root_path),
         discovered_files,
         metadata_provider.is_enabled(),
         &library.metadata_language,
@@ -499,7 +514,13 @@ pub async fn execute_scan_job_with_cancellation(
     };
 
     let pending_file_count = i32::try_from(changed_files.len()).unwrap_or(i32::MAX);
-    let pending_groups = match build_pending_scan_groups(changed_files).await {
+    let pending_groups = match build_pending_scan_groups(
+        changed_files,
+        std::path::Path::new(&library.root_path),
+        &container_bindings,
+    )
+    .await
+    {
         Ok(groups) => groups,
         Err(error) => {
             let message = format_scan_phase_error(
@@ -702,14 +723,22 @@ pub async fn execute_scan_job_with_cancellation(
 
 async fn build_pending_scan_groups(
     changed_files: Vec<IncrementalScanFile>,
+    root_path: &std::path::Path,
+    container_bindings: &HashMap<String, ContainerBindingResolution>,
 ) -> ApplicationResult<Vec<PendingScanGroup>> {
     let pending_files = inspect_incremental_scan_files_shallow(changed_files).await?;
 
-    Ok(build_pending_scan_groups_from_files(pending_files))
+    Ok(build_pending_scan_groups_from_files(
+        pending_files,
+        root_path,
+        container_bindings,
+    ))
 }
 
 fn build_pending_scan_groups_from_files(
     pending_files: Vec<PendingScanFile>,
+    root_path: &std::path::Path,
+    container_bindings: &HashMap<String, ContainerBindingResolution>,
 ) -> Vec<PendingScanGroup> {
     let mut changed_files_by_path = HashMap::new();
     let mut shallow_files = Vec::with_capacity(pending_files.len());
@@ -720,10 +749,11 @@ fn build_pending_scan_groups_from_files(
         changed_files_by_path.insert(file_path, pending_file.changed_file);
     }
 
-    let groups = group_discovered_files_for_scan(shallow_files);
+    let mut groups = group_discovered_files_for_scan_with_root(shallow_files, root_path);
     let mut pending_groups = Vec::with_capacity(groups.len());
 
-    for group in groups {
+    for mut group in groups.drain(..) {
+        apply_container_binding_resolution(&mut group, root_path, container_bindings);
         let mut group_files = Vec::with_capacity(group.files.len());
 
         for file in group.files {
@@ -737,10 +767,82 @@ fn build_pending_scan_groups_from_files(
             continue;
         }
 
-        pending_groups.push(PendingScanGroup { files: group_files });
+        pending_groups.push(PendingScanGroup {
+            files: group_files,
+            metadata_lookup_hint: group.metadata_lookup_hint,
+            metadata_binding_conflict: group.metadata_binding_conflict,
+        });
     }
 
     pending_groups
+}
+
+fn apply_container_binding_resolution(
+    group: &mut ScanDiscoveredGroup,
+    root_path: &std::path::Path,
+    container_bindings: &HashMap<String, ContainerBindingResolution>,
+) {
+    if group.metadata_binding_conflict || group.metadata_lookup_hint.is_some() {
+        return;
+    }
+
+    let lookup_type = scan_presentation_lookup_type(&group.presentation);
+    if lookup_type == "movie"
+        && group
+            .files
+            .iter()
+            .all(|file| mova_scan::has_meaningful_file_title(&file.file_path))
+    {
+        return;
+    }
+
+    let Some(container_key) = group
+        .files
+        .first()
+        .and_then(|file| metadata_container_key_for_path(&file.file_path, root_path, lookup_type))
+    else {
+        return;
+    };
+
+    match container_bindings.get(&container_key) {
+        Some(ContainerBindingResolution::Unique(provider_item_id)) => {
+            group.metadata_lookup_hint = Some(provider_item_id.clone());
+        }
+        Some(ContainerBindingResolution::Conflict) => {
+            group.metadata_binding_conflict = true;
+        }
+        None => {}
+    }
+}
+
+fn merge_pending_group_lookup_state(
+    group: &mut ScanDiscoveredGroup,
+    pending_lookup_hint: Option<&str>,
+    pending_binding_conflict: bool,
+) {
+    if group.metadata_binding_conflict {
+        return;
+    }
+
+    if let (Some(current), Some(pending)) =
+        (group.metadata_lookup_hint.as_deref(), pending_lookup_hint)
+    {
+        if current != pending {
+            group.metadata_lookup_hint = None;
+            group.metadata_binding_conflict = true;
+        }
+        return;
+    }
+
+    if group.metadata_lookup_hint.is_some() {
+        return;
+    }
+
+    if pending_binding_conflict {
+        group.metadata_binding_conflict = true;
+    } else {
+        group.metadata_lookup_hint = pending_lookup_hint.map(str::to_string);
+    }
 }
 
 struct LocalScanPipelineContext<'a> {
@@ -779,17 +881,35 @@ async fn analyze_pending_scan_groups(
             break;
         }
 
-        let discovered_files =
-            match inspect_incremental_scan_files(pending_group.files, cancellation_flag.clone())
-                .await?
-            {
-                InspectIncrementalScanFilesOutcome::Completed(files) => files,
-                InspectIncrementalScanFilesOutcome::Cancelled => {
-                    completed_all_local_groups = false;
-                    break;
-                }
-            };
-        let mut groups = group_discovered_files_for_scan(discovered_files);
+        let PendingScanGroup {
+            files,
+            metadata_lookup_hint,
+            metadata_binding_conflict,
+        } = pending_group;
+        let discovered_files = match inspect_incremental_scan_files_within_root(
+            files,
+            PathBuf::from(&library.root_path),
+            cancellation_flag.clone(),
+        )
+        .await?
+        {
+            InspectIncrementalScanFilesOutcome::Completed(files) => files,
+            InspectIncrementalScanFilesOutcome::Cancelled => {
+                completed_all_local_groups = false;
+                break;
+            }
+        };
+        let mut groups = group_discovered_files_for_scan_with_root(
+            discovered_files,
+            std::path::Path::new(&library.root_path),
+        );
+        for group in &mut groups {
+            merge_pending_group_lookup_state(
+                group,
+                metadata_lookup_hint.as_deref(),
+                metadata_binding_conflict,
+            );
+        }
 
         prepare_scan_groups_for_metadata_lookup(&mut groups);
         for group in &mut groups {
@@ -999,10 +1119,11 @@ async fn enrich_discovered_groups(
             enrichment.sanitize_file_artwork_sources(file);
         }
         let enrichment_result = enrichment
-            .enrich_group_with_progress(
+            .enrich_group_with_lookup_hint_and_progress(
                 lookup_type,
                 &mut group.files,
                 season_air_year,
+                group.metadata_lookup_hint.as_deref(),
                 move |stage, file| {
                     if stage != MetadataEnrichmentStage::Metadata && !file.title.trim().is_empty() {
                         presentation.title = file.title.clone();
@@ -1322,6 +1443,21 @@ fn resolve_group_metadata_lookup_type(
 ) -> GroupMetadataLookupDecision {
     let presentation = &group.presentation;
     let local_lookup_type = scan_presentation_lookup_type(presentation);
+
+    if group.metadata_binding_conflict {
+        tracing::warn!(
+            item_key = %presentation.item_key,
+            title = %presentation.lookup_title,
+            media_type = %presentation.media_type,
+            "metadata lookup skipped because the scan container has conflicting TMDB bindings"
+        );
+        return GroupMetadataLookupDecision {
+            lookup_type: None,
+            metadata_status: METADATA_STATUS_UNMATCHED,
+            metadata_failure_reason: Some(METADATA_FAILURE_NO_REMOTE_MATCH),
+            remote_media_type: remote_media_type_for_lookup_type(local_lookup_type),
+        };
+    }
 
     if !metadata_provider.is_enabled() {
         return GroupMetadataLookupDecision {

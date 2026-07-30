@@ -1,8 +1,8 @@
 use super::sidecar::{
     find_local_artwork, find_local_artwork_with_scope, read_series_sidecar_metadata,
-    read_sidecar_metadata, ArtworkKind, ArtworkScope,
+    read_series_sidecar_metadata_within_root, read_sidecar_metadata, ArtworkKind, ArtworkScope,
 };
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 /// 根据文件名和目录结构判断某个视频路径是否更像剧集文件。
 pub fn is_likely_episode_path(path: &Path) -> bool {
@@ -80,6 +80,19 @@ pub struct SeriesFileMetadata {
 pub struct SeriesSidecarMetadata {
     pub title: Option<String>,
     pub year: Option<i32>,
+}
+
+/// 从媒体文件所在容器目录解析出的本地作品身份。
+///
+/// `display_title` 保留目录中的年份展示文本，但会移除显式 TMDB 标记；
+/// `title` 是用于查询的无年份标题。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaContainerIdentity {
+    pub container_path: PathBuf,
+    pub display_title: String,
+    pub title: String,
+    pub year: Option<i32>,
+    pub tmdb_id: Option<String>,
 }
 
 pub(crate) fn parse_media_metadata(path: &Path) -> ParsedMediaMetadata {
@@ -177,6 +190,7 @@ pub(crate) fn parse_media_metadata_without_sidecar(path: &Path) -> ParsedMediaMe
 struct ParsedNameMetadata {
     title: String,
     year: Option<i32>,
+    has_meaningful_title: bool,
 }
 
 fn parse_media_name(path: &Path) -> ParsedNameMetadata {
@@ -193,6 +207,7 @@ fn parse_media_name(path: &Path) -> ParsedNameMetadata {
     ParsedNameMetadata {
         title: if title.is_empty() { normalized } else { title },
         year,
+        has_meaningful_title: parsed_name.has_meaningful_title,
     }
 }
 
@@ -246,9 +261,83 @@ pub fn infer_series_file_metadata(path: &Path) -> Option<SeriesFileMetadata> {
     })
 }
 
+/// 判断文件名在年份、季集标记和技术标签之前是否包含可用的作品标题。
+///
+/// 该判断只检查文件名，不读取或猜测任何父目录。
+pub fn has_meaningful_file_title(path: &Path) -> bool {
+    let parsed_name = parse_media_name(path);
+    parsed_name.has_meaningful_title
+        && is_valid_container_title(&parsed_name.title)
+        && !is_season_directory_name(&parsed_name.title)
+        && !is_technical_directory_name(&parsed_name.title)
+}
+
+/// 从媒体库根目录内的受限父目录链解析纯季集文件的容器身份。
+///
+/// 只跳过明确的季目录和技术版本目录。遇到第一个非结构目录后立即停止；
+/// 该目录无效时不会继续向更高层寻找，媒体库根目录本身也不会成为候选。
+pub fn infer_series_container_identity(
+    path: &Path,
+    root_path: &Path,
+) -> Option<MediaContainerIdentity> {
+    parse_episode_identity(path)?;
+    let mut candidate_path = relative_media_parent(path, root_path)?;
+
+    loop {
+        let directory = candidate_path.file_name()?.to_str()?;
+
+        if is_season_directory_name(directory) || is_technical_directory_name(directory) {
+            candidate_path = candidate_path.parent()?;
+            if candidate_path.as_os_str().is_empty() {
+                return None;
+            }
+            continue;
+        }
+
+        return parse_container_identity(directory, candidate_path);
+    }
+}
+
+/// 从媒体库根目录内的电影直接父目录解析容器身份。
+///
+/// 本函数不向上跳层。调用方应结合 [`has_meaningful_file_title`]，只在文件名
+/// 没有可用作品标题时把该结果提升为主身份。
+pub fn infer_movie_container_identity(
+    path: &Path,
+    root_path: &Path,
+) -> Option<MediaContainerIdentity> {
+    if parse_episode_identity(path).is_some() {
+        return None;
+    }
+
+    let relative_parent = relative_media_parent(path, root_path)?;
+    let directory = relative_parent.file_name()?.to_str()?;
+
+    if is_season_directory_name(directory) || is_technical_directory_name(directory) {
+        return None;
+    }
+
+    parse_container_identity(directory, relative_parent)
+}
+
 /// 读取剧集路径最近的 `tvshow.nfo` 身份字段。目录名称不会参与该结果。
 pub fn infer_series_sidecar_metadata(path: &Path) -> Option<SeriesSidecarMetadata> {
     let metadata = read_series_sidecar_metadata(path);
+    series_sidecar_metadata_from_parsed(metadata)
+}
+
+/// 在媒体库根目录边界内读取最近的 `tvshow.nfo` 身份字段。
+pub fn infer_series_sidecar_metadata_within_root(
+    path: &Path,
+    root_path: &Path,
+) -> Option<SeriesSidecarMetadata> {
+    let metadata = read_series_sidecar_metadata_within_root(path, root_path);
+    series_sidecar_metadata_from_parsed(metadata)
+}
+
+fn series_sidecar_metadata_from_parsed(
+    metadata: super::sidecar::ParsedSidecarMetadata,
+) -> Option<SeriesSidecarMetadata> {
     let title = metadata.title.filter(|value| !value.trim().is_empty());
 
     (title.is_some() || metadata.year.is_some()).then_some(SeriesSidecarMetadata {
@@ -269,20 +358,13 @@ fn parse_episode_identity(path: &Path) -> Option<ParsedEpisodeIdentity> {
     let tokens = normalized.split_whitespace().collect::<Vec<_>>();
     let (_, title_start, season_number, episode_number) =
         tokens.iter().enumerate().find_map(|(index, token)| {
-            parse_episode_token_marker(token).and_then(|episode_token| {
-                let has_title_prefix = episode_token
-                    .title_prefix
-                    .as_deref()
-                    .is_some_and(|value| !value.trim().is_empty());
-                let has_title_before = tokens[..index]
-                    .iter()
-                    .any(|value| !is_separator_token(value));
-                (has_title_prefix || has_title_before).then_some((
+            parse_episode_token_marker(token).map(|episode_token| {
+                (
                     index,
                     index + 1,
                     episode_token.season_number,
                     episode_token.episode_number,
-                ))
+                )
             })
         })?;
 
@@ -473,6 +555,125 @@ fn decode_basic_html_entities(value: &str) -> String {
         .replace("&amp;", "&")
 }
 
+fn relative_media_parent<'a>(path: &'a Path, root_path: &Path) -> Option<&'a Path> {
+    let relative_path = path.strip_prefix(root_path).ok()?;
+    if relative_path.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return None;
+    }
+    let parent = relative_path.parent()?;
+
+    (!parent.as_os_str().is_empty()).then_some(parent)
+}
+
+fn parse_container_identity(value: &str, container_path: &Path) -> Option<MediaContainerIdentity> {
+    let (title_without_identity, tmdb_id) = strip_trailing_tmdb_identity(value);
+    let display_title = humanize_directory_title(&title_without_identity)?;
+    let parsed_name = parse_title_year_from_humanized_name(&display_title);
+
+    if !parsed_name.has_meaningful_title
+        || !is_valid_container_title(&parsed_name.title)
+        || is_season_directory_name(&parsed_name.title)
+        || is_technical_directory_name(&parsed_name.title)
+    {
+        return None;
+    }
+
+    Some(MediaContainerIdentity {
+        container_path: container_path.to_path_buf(),
+        display_title,
+        title: parsed_name.title,
+        year: parsed_name.year,
+        tmdb_id,
+    })
+}
+
+fn strip_trailing_tmdb_identity(value: &str) -> (String, Option<String>) {
+    let trimmed = value.trim();
+    let Some((opening, closing)) = trimmed
+        .ends_with('}')
+        .then_some(('{', '}'))
+        .or_else(|| trimmed.ends_with(']').then_some(('[', ']')))
+    else {
+        return (trimmed.to_string(), None);
+    };
+    let Some(opening_index) = trimmed.rfind(opening) else {
+        return (trimmed.to_string(), None);
+    };
+    let token = &trimmed[opening_index + opening.len_utf8()..trimmed.len() - closing.len_utf8()];
+    let Some(tmdb_id) = parse_tmdb_identity_token(token) else {
+        return (trimmed.to_string(), None);
+    };
+    let title = trimmed[..opening_index]
+        .trim_end_matches(|ch: char| {
+            ch.is_whitespace() || matches!(ch, '.' | '_' | '-' | '–' | '—')
+        })
+        .to_string();
+
+    (title, Some(tmdb_id))
+}
+
+fn parse_tmdb_identity_token(value: &str) -> Option<String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    let id = normalized
+        .strip_prefix("tmdb-")
+        .or_else(|| normalized.strip_prefix("tmdbid-"))?;
+
+    let id = id.parse::<i64>().ok()?;
+    (id > 0).then(|| id.to_string())
+}
+
+fn humanize_directory_title(value: &str) -> Option<String> {
+    let normalized = value
+        .chars()
+        .map(|ch| {
+            if is_filename_word_separator_char(ch) {
+                ' '
+            } else {
+                ch
+            }
+        })
+        .collect::<String>();
+    let title = decode_basic_html_entities(&normalized)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    (!title.is_empty()).then_some(title)
+}
+
+fn is_valid_container_title(value: &str) -> bool {
+    let trimmed = value.trim();
+    let normalized = trimmed.to_ascii_lowercase();
+
+    !trimmed.is_empty()
+        && trimmed.chars().any(char::is_alphanumeric)
+        && !trimmed
+            .chars()
+            .filter(|ch| !ch.is_whitespace())
+            .all(|ch| ch.is_ascii_digit())
+        && !is_generic_library_folder(trimmed)
+        && !is_collection_folder_title(trimmed)
+        && !matches!(
+            normalized.as_str(),
+            "mainland"
+                | "new folder"
+                | "untitled folder"
+                | "uncategorized"
+                | "temporary"
+                | "temp"
+                | "tmp"
+        )
+        && !matches!(
+            trimmed,
+            "国产剧" | "海外剧" | "新建文件夹" | "未分类" | "临时文件" | "临时目录"
+        )
+}
+
 fn is_generic_library_folder(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -536,6 +737,90 @@ fn is_season_folder_title(value: &str) -> bool {
             .and_then(|value| value.strip_suffix('季'))
             .and_then(parse_short_number_token)
             .is_some()
+}
+
+fn is_season_directory_name(value: &str) -> bool {
+    let normalized = value
+        .trim()
+        .replace(['.', '_', '-', '—', '–'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let normalized_lower = normalized.to_ascii_lowercase();
+    let tokens = normalized_lower.split_whitespace().collect::<Vec<_>>();
+
+    if tokens
+        .windows(2)
+        .any(|pair| pair[0] == "season" && parse_short_number_token(pair[1]).is_some())
+    {
+        return true;
+    }
+
+    if normalized.contains('季') && normalized.chars().any(|ch| ch.is_ascii_digit()) {
+        return true;
+    }
+
+    tokens.iter().any(|token| {
+        token.strip_prefix('s').is_some_and(|suffix| {
+            !suffix.is_empty() && suffix.len() <= 3 && suffix.chars().all(|ch| ch.is_ascii_digit())
+        })
+    })
+}
+
+fn is_technical_directory_name(value: &str) -> bool {
+    let normalized = value
+        .trim()
+        .replace(['.', '_', '-', '—', '–'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    let tokens = normalized.split_whitespace().collect::<Vec<_>>();
+
+    !tokens.is_empty()
+        && tokens
+            .iter()
+            .all(|token| is_technical_directory_token(token))
+}
+
+fn is_technical_directory_token(token: &str) -> bool {
+    matches!(
+        token,
+        "4k" | "8k"
+            | "2160p"
+            | "1440p"
+            | "1080p"
+            | "720p"
+            | "480p"
+            | "uhd"
+            | "web"
+            | "dl"
+            | "rip"
+            | "webrip"
+            | "webdl"
+            | "blu"
+            | "ray"
+            | "bluray"
+            | "bdrip"
+            | "remux"
+            | "dv"
+            | "dovi"
+            | "dolby"
+            | "vision"
+            | "hdr"
+            | "hdr10"
+            | "hdr10+"
+            | "sdr"
+            | "avc"
+            | "av1"
+            | "hevc"
+            | "x264"
+            | "x265"
+            | "h264"
+            | "h265"
+            | "10bit"
+            | "8bit"
+    )
 }
 
 fn has_leading_sequence_index(path: &Path) -> bool {
@@ -637,6 +922,7 @@ fn parse_title_year_from_humanized_name(value: &str) -> ParsedNameMetadata {
             title
         },
         year,
+        has_meaningful_title: title_start < title_end,
     }
 }
 
@@ -655,6 +941,10 @@ fn split_trailing_year_suffix(token: &str) -> Option<(String, i32)> {
     let prefix = characters[..characters.len() - 4]
         .iter()
         .collect::<String>();
+    let prefix = trim_wrapping_punctuation(&prefix)
+        .trim_matches(is_separator_token_char)
+        .trim()
+        .to_string();
 
     if prefix.is_empty() || prefix.chars().all(|ch| ch.is_ascii_digit()) {
         return None;
@@ -698,30 +988,59 @@ fn trim_wrapping_punctuation(token: &str) -> &str {
 }
 
 fn is_release_token(token: &str) -> bool {
+    if token == "iT" {
+        return true;
+    }
     let token = token.to_ascii_lowercase();
 
     matches!(
         token.as_str(),
-        "2160p"
+        "8k" | "4k"
+            | "2160p"
+            | "1440p"
             | "1080p"
             | "720p"
             | "480p"
+            | "web"
+            | "webdl"
+            | "web-dl"
+            | "webrip"
             | "x264"
             | "x265"
             | "h264"
             | "h265"
             | "hevc"
+            | "avc"
+            | "av1"
             | "bluray"
             | "bdrip"
-            | "webrip"
-            | "webdl"
-            | "web-dl"
             | "hdrip"
             | "dvdrip"
             | "remux"
+            | "hdr"
+            | "hdr10"
+            | "hdr10+"
+            | "dv"
+            | "dovi"
+            | "sdr"
+            | "nf"
+            | "amzn"
+            | "dsnp"
+            | "hmax"
+            | "atvp"
+            | "pcok"
             | "aac"
             | "dts"
+            | "atmos"
+            | "truehd"
+            | "eac3"
+            | "ac3"
             | "10bit"
             | "8bit"
-    )
+    ) || token
+        .strip_prefix("ddp")
+        .is_some_and(|suffix| suffix.is_empty() || suffix.chars().all(|ch| ch.is_ascii_digit()))
+        || token.strip_suffix("audio").is_some_and(|prefix| {
+            !prefix.is_empty() && prefix.chars().all(|ch| ch.is_ascii_digit())
+        })
 }

@@ -3,6 +3,7 @@ use super::*;
 pub(super) async fn build_incremental_scan_plan(
     pool: &PgPool,
     library_id: i64,
+    root_path: &std::path::Path,
     discovered_files: Vec<DiscoveredMediaFileInventory>,
     metadata_provider_enabled: bool,
     metadata_language: &str,
@@ -16,6 +17,7 @@ pub(super) async fn build_incremental_scan_plan(
         mova_db::list_existing_media_metadata_for_file_paths(pool, library_id, &file_paths)
             .await
             .map_err(ApplicationError::Unexpected)?;
+    let container_bindings = build_container_binding_index(existing_metadata.as_slice(), root_path);
 
     let existing_by_path = existing_metadata
         .into_iter()
@@ -52,7 +54,85 @@ pub(super) async fn build_incremental_scan_plan(
     Ok(IncrementalScanPlan {
         discovered_paths: file_paths,
         changed_files,
+        container_bindings,
     })
+}
+
+pub(super) fn build_container_binding_index(
+    existing_metadata: &[mova_db::ExistingMediaMetadataSummary],
+    root_path: &std::path::Path,
+) -> HashMap<String, ContainerBindingResolution> {
+    let mut ids_by_container = HashMap::<String, HashSet<String>>::new();
+
+    for summary in existing_metadata {
+        if summary.metadata_status != METADATA_STATUS_MATCHED
+            || !effective_existing_metadata_provider(summary)
+                .is_some_and(|provider| provider.eq_ignore_ascii_case(TMDB_PROVIDER_NAME))
+        {
+            continue;
+        }
+
+        let lookup_type = if summary.media_type.eq_ignore_ascii_case("episode") {
+            if !summary
+                .remote_media_type
+                .as_deref()
+                .is_some_and(|value| value.eq_ignore_ascii_case(REMOTE_MEDIA_TYPE_SERIES))
+            {
+                continue;
+            }
+            "series"
+        } else if summary.media_type.eq_ignore_ascii_case("movie") {
+            if !summary
+                .remote_media_type
+                .as_deref()
+                .is_some_and(|value| value.eq_ignore_ascii_case(REMOTE_MEDIA_TYPE_MOVIE))
+            {
+                continue;
+            }
+            "movie"
+        } else {
+            continue;
+        };
+
+        let Some(provider_item_id) = effective_existing_metadata_provider_item_id(summary)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let Some(container_key) = metadata_container_key_for_path(
+            std::path::Path::new(&summary.file_path),
+            root_path,
+            lookup_type,
+        ) else {
+            continue;
+        };
+
+        ids_by_container
+            .entry(container_key)
+            .or_default()
+            .insert(provider_item_id);
+    }
+
+    ids_by_container
+        .into_iter()
+        .filter_map(|(key, ids)| {
+            if ids.is_empty() {
+                return None;
+            }
+
+            let resolution = if ids.len() == 1 {
+                ContainerBindingResolution::Unique(
+                    ids.into_iter()
+                        .next()
+                        .expect("one-element binding set must contain an id"),
+                )
+            } else {
+                ContainerBindingResolution::Conflict
+            };
+            Some((key, resolution))
+        })
+        .collect()
 }
 
 pub(super) async fn hydrate_incremental_scan_file_cached_tracks(
@@ -392,8 +472,26 @@ pub(super) fn should_retry_local_series_title_override(
         && current_title.eq_ignore_ascii_case(local_display_title)
 }
 
+#[cfg(test)]
 pub(super) async fn inspect_incremental_scan_files(
     changed_files: Vec<IncrementalScanFile>,
+    cancellation_flag: Arc<AtomicBool>,
+) -> ApplicationResult<InspectIncrementalScanFilesOutcome> {
+    inspect_incremental_scan_files_with_root(changed_files, None, cancellation_flag).await
+}
+
+pub(super) async fn inspect_incremental_scan_files_within_root(
+    changed_files: Vec<IncrementalScanFile>,
+    root_path: PathBuf,
+    cancellation_flag: Arc<AtomicBool>,
+) -> ApplicationResult<InspectIncrementalScanFilesOutcome> {
+    inspect_incremental_scan_files_with_root(changed_files, Some(root_path), cancellation_flag)
+        .await
+}
+
+async fn inspect_incremental_scan_files_with_root(
+    changed_files: Vec<IncrementalScanFile>,
+    root_path: Option<PathBuf>,
     cancellation_flag: Arc<AtomicBool>,
 ) -> ApplicationResult<InspectIncrementalScanFilesOutcome> {
     tokio::task::spawn_blocking(move || {
@@ -419,7 +517,11 @@ pub(super) async fn inspect_incremental_scan_files(
                         &changed_file.inventory,
                         existing_metadata,
                     )?;
-                    populate_series_sidecar_metadata(&mut discovered_file, &mut series_sidecars);
+                    populate_series_sidecar_metadata_with_optional_root(
+                        &mut discovered_file,
+                        root_path.as_deref(),
+                        &mut series_sidecars,
+                    );
                     discovered_files.push(discovered_file);
                     continue;
                 }
@@ -451,7 +553,11 @@ pub(super) async fn inspect_incremental_scan_files(
                 apply_existing_media_metadata(&mut discovered_file, existing_metadata);
             }
 
-            populate_series_sidecar_metadata(&mut discovered_file, &mut series_sidecars);
+            populate_series_sidecar_metadata_with_optional_root(
+                &mut discovered_file,
+                root_path.as_deref(),
+                &mut series_sidecars,
+            );
             discovered_files.push(discovered_file);
         }
 
@@ -468,24 +574,45 @@ pub(super) async fn inspect_incremental_scan_files(
     })?
 }
 
+#[cfg(test)]
 pub(super) fn populate_series_sidecar_metadata(
     file: &mut DiscoveredMediaFile,
+    cache: &mut HashMap<String, Option<mova_scan::SeriesSidecarMetadata>>,
+) {
+    populate_series_sidecar_metadata_with_optional_root(file, None, cache);
+}
+
+fn populate_series_sidecar_metadata_with_optional_root(
+    file: &mut DiscoveredMediaFile,
+    root_path: Option<&std::path::Path>,
     cache: &mut HashMap<String, Option<mova_scan::SeriesSidecarMetadata>>,
 ) {
     if file.season_number.is_none() || file.episode_number.is_none() {
         return;
     }
 
-    let cache_key = series_container_item_key(&file.file_path).unwrap_or_else(|| {
-        file.file_path
-            .parent()
-            .unwrap_or(file.file_path.as_path())
-            .to_string_lossy()
-            .to_string()
+    let cache_key = root_path
+        .and_then(|root_path| metadata_container_key_for_path(&file.file_path, root_path, "series"))
+        .or_else(|| series_container_item_key(&file.file_path))
+        .unwrap_or_else(|| {
+            file.file_path
+                .parent()
+                .unwrap_or(file.file_path.as_path())
+                .to_string_lossy()
+                .to_string()
+        });
+    let metadata = cache.entry(cache_key).or_insert_with(|| {
+        root_path
+            .and_then(|root_path| {
+                infer_series_sidecar_metadata_within_root(&file.file_path, root_path)
+            })
+            .or_else(|| {
+                root_path
+                    .is_none()
+                    .then(|| mova_scan::infer_series_sidecar_metadata(&file.file_path))
+                    .flatten()
+            })
     });
-    let metadata = cache
-        .entry(cache_key)
-        .or_insert_with(|| infer_series_sidecar_metadata(&file.file_path));
 
     file.series_sidecar_title = metadata
         .as_ref()

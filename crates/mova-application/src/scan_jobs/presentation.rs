@@ -1,7 +1,29 @@
 use super::*;
+use mova_scan::{
+    has_meaningful_file_title, infer_movie_container_identity, infer_series_container_identity,
+    MediaContainerIdentity,
+};
+use std::path::Path;
 
 pub(super) fn normalize_discovered_files_for_local_structure(
+    discovered_files: Vec<DiscoveredMediaFile>,
+) -> Vec<DiscoveredMediaFile> {
+    normalize_discovered_files_for_local_structure_with_optional_root(discovered_files, None)
+}
+
+pub(super) fn normalize_discovered_files_for_local_structure_with_root(
+    discovered_files: Vec<DiscoveredMediaFile>,
+    root_path: &Path,
+) -> Vec<DiscoveredMediaFile> {
+    normalize_discovered_files_for_local_structure_with_optional_root(
+        discovered_files,
+        Some(root_path),
+    )
+}
+
+fn normalize_discovered_files_for_local_structure_with_optional_root(
     mut discovered_files: Vec<DiscoveredMediaFile>,
+    root_path: Option<&Path>,
 ) -> Vec<DiscoveredMediaFile> {
     discovered_files.sort_by(|left, right| left.file_path.cmp(&right.file_path));
 
@@ -11,7 +33,11 @@ pub(super) fn normalize_discovered_files_for_local_structure(
             continue;
         }
 
-        let Some(group_seed) = local_series_group_seed_for_file(file) else {
+        let group_seed = match root_path {
+            Some(root_path) => local_series_group_seed_for_file_with_root(file, root_path),
+            None => local_series_group_seed_for_file(file),
+        };
+        let Some(group_seed) = group_seed else {
             continue;
         };
 
@@ -22,7 +48,7 @@ pub(super) fn normalize_discovered_files_for_local_structure(
                 display_title: group_seed.display_title.clone(),
                 year: group_seed.year,
                 year_priority: group_seed.year_priority,
-                identity_from_sidecar: group_seed.identity_from_sidecar,
+                identity_priority: group_seed.identity_priority,
                 identity_season_number: group_seed.season_number,
                 has_first_season: group_seed.season_number == 1,
                 season_air_year: group_seed.season_air_year,
@@ -54,6 +80,12 @@ pub(super) fn normalize_discovered_files_for_local_structure(
         assign_local_series_structure(&mut discovered_files, &group);
     }
 
+    if let Some(root_path) = root_path {
+        for file in &mut discovered_files {
+            apply_movie_container_identity_when_title_is_missing(file, root_path);
+        }
+    }
+
     discovered_files
 }
 
@@ -64,7 +96,7 @@ pub(super) struct LocalSeriesGroupSeed {
     display_title: String,
     year: Option<i32>,
     year_priority: u8,
-    identity_from_sidecar: bool,
+    identity_priority: u8,
     season_number: i32,
     season_air_year: Option<MetadataSeasonAirYearHint>,
 }
@@ -72,8 +104,24 @@ pub(super) struct LocalSeriesGroupSeed {
 pub(super) fn local_series_group_seed_for_file(
     file: &DiscoveredMediaFile,
 ) -> Option<LocalSeriesGroupSeed> {
+    local_series_group_seed_for_file_with_optional_root(file, None)
+}
+
+pub(super) fn local_series_group_seed_for_file_with_root(
+    file: &DiscoveredMediaFile,
+    root_path: &Path,
+) -> Option<LocalSeriesGroupSeed> {
+    local_series_group_seed_for_file_with_optional_root(file, Some(root_path))
+}
+
+fn local_series_group_seed_for_file_with_optional_root(
+    file: &DiscoveredMediaFile,
+    root_path: Option<&Path>,
+) -> Option<LocalSeriesGroupSeed> {
     if file.season_number.is_some() && file.episode_number.is_some() {
         let file_metadata = infer_series_file_metadata(&file.file_path);
+        let container_identity = root_path
+            .and_then(|root_path| infer_series_container_identity(&file.file_path, root_path));
         let sidecar_title = file
             .series_sidecar_title
             .as_deref()
@@ -81,7 +129,12 @@ pub(super) fn local_series_group_seed_for_file(
             .filter(|title| !title.is_empty());
         let fallback_title = file_metadata
             .as_ref()
-            .map(|metadata| metadata.title.as_str());
+            .map(|metadata| metadata.title.as_str())
+            .or_else(|| {
+                container_identity
+                    .as_ref()
+                    .map(|identity| identity.title.as_str())
+            });
         let lookup_title = sidecar_title.or(fallback_title)?.to_string();
         let display_title = sidecar_title
             .map(str::to_string)
@@ -90,23 +143,37 @@ pub(super) fn local_series_group_seed_for_file(
                     .as_ref()
                     .map(|metadata| metadata.display_title.clone())
             })
+            .or_else(|| {
+                container_identity
+                    .as_ref()
+                    .map(|identity| identity.display_title.clone())
+            })
             .unwrap_or_else(|| lookup_title.clone());
         let season_number = file_metadata
             .as_ref()
             .map(|metadata| metadata.season_number)
             .or(file.season_number)?;
+        let filename_has_series_identity = file_metadata.is_some();
         let sidecar_year = file.series_sidecar_year;
         let file_first_air_year = file_metadata.as_ref().and_then(|metadata| metadata.year);
-        let year = sidecar_year.or(file_first_air_year);
+        let container_year = if filename_has_series_identity {
+            None
+        } else {
+            container_identity
+                .as_ref()
+                .and_then(|identity| identity.year)
+        };
+        let year = sidecar_year.or(file_first_air_year).or(container_year);
         let year_priority = if sidecar_year.is_some() {
-            2
+            3
         } else if season_number == 1 && file_first_air_year.is_some() {
+            2
+        } else if container_year.is_some() {
             1
         } else {
             0
         };
-        let season_air_year = sidecar_year
-            .is_none()
+        let season_air_year = (sidecar_year.is_none() && container_year.is_none())
             .then(|| {
                 file_metadata
                     .as_ref()
@@ -117,14 +184,26 @@ pub(super) fn local_series_group_seed_for_file(
                     })
             })
             .flatten();
+        let identity_priority = if sidecar_title.is_some() {
+            3
+        } else if filename_has_series_identity {
+            2
+        } else {
+            1
+        };
 
         return Some(LocalSeriesGroupSeed {
-            item_key: series_group_item_key(&file.file_path, &lookup_title),
+            item_key: series_group_item_key_with_optional_root(
+                &file.file_path,
+                &lookup_title,
+                root_path,
+                container_identity.as_ref(),
+            ),
             lookup_title,
             display_title,
             year,
             year_priority,
-            identity_from_sidecar: sidecar_title.is_some(),
+            identity_priority,
             season_number,
             season_air_year,
         });
@@ -153,21 +232,41 @@ pub(super) fn apply_local_series_group_seed(
         }
     }
 
-    let should_replace_identity = (group_seed.identity_from_sidecar
-        && !group.identity_from_sidecar)
-        || (group_seed.identity_from_sidecar == group.identity_from_sidecar
+    let should_replace_identity = (group_seed.identity_priority > group.identity_priority)
+        || (group_seed.identity_priority == group.identity_priority
             && group_seed.season_number < group.identity_season_number);
 
     if should_replace_identity {
         group.lookup_title = group_seed.lookup_title.clone();
         group.display_title = group_seed.display_title.clone();
-        group.identity_from_sidecar = group_seed.identity_from_sidecar;
+        group.identity_priority = group_seed.identity_priority;
         group.identity_season_number = group_seed.season_number;
     }
 }
 
 pub(super) fn series_group_item_key(file_path: &std::path::Path, title: &str) -> String {
     series_container_item_key(file_path).unwrap_or_else(|| series_title_item_key(title))
+}
+
+fn series_group_item_key_with_optional_root(
+    file_path: &Path,
+    title: &str,
+    root_path: Option<&Path>,
+    container_identity: Option<&MediaContainerIdentity>,
+) -> String {
+    let Some(root_path) = root_path else {
+        return series_group_item_key(file_path, title);
+    };
+
+    if let Some(container_key) = series_container_item_key_within_root(file_path, root_path) {
+        return container_key;
+    }
+
+    if let Some(identity) = container_identity {
+        return container_item_key("series-folder", &identity.container_path);
+    }
+
+    series_title_item_key(title)
 }
 
 pub(super) fn series_title_item_key(title: &str) -> String {
@@ -178,6 +277,38 @@ pub(super) fn series_title_item_key(title: &str) -> String {
         .to_ascii_lowercase();
 
     format!("series-title:{normalized_title}")
+}
+
+pub(super) fn series_container_item_key_within_root(
+    file_path: &Path,
+    root_path: &Path,
+) -> Option<String> {
+    let relative_path = file_path.strip_prefix(root_path).ok()?;
+    let parent = relative_path.parent()?;
+    let mut directories = parent
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .filter(|component| !component.trim().is_empty())
+        .collect::<Vec<_>>();
+
+    while directories
+        .last()
+        .is_some_and(|directory| is_series_variant_directory_name(directory))
+    {
+        directories.pop();
+    }
+
+    let season_directory_index = directories
+        .iter()
+        .rposition(|directory| is_season_directory_name(directory))?;
+    if season_directory_index == 0 {
+        return None;
+    }
+
+    let container_path = directories[..season_directory_index]
+        .iter()
+        .collect::<std::path::PathBuf>();
+    Some(container_item_key("series-folder", &container_path))
 }
 
 pub(super) fn series_container_item_key(file_path: &std::path::Path) -> Option<String> {
@@ -210,6 +341,18 @@ pub(super) fn series_container_item_key(file_path: &std::path::Path) -> Option<S
         .join("/");
 
     (!container_key.is_empty()).then(|| format!("series-folder:{container_key}"))
+}
+
+fn container_item_key(prefix: &str, container_path: &Path) -> String {
+    let container_key = container_path
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .map(normalize_series_key_component)
+        .filter(|component| !component.is_empty())
+        .collect::<Vec<_>>()
+        .join("/");
+
+    format!("{prefix}:{container_key}")
 }
 
 pub(super) fn normalize_series_key_component(value: &str) -> String {
@@ -315,16 +458,6 @@ pub(super) fn assign_local_series_structure(
                 file.episode_number = Some(next_episode_number);
                 used_episode_numbers.insert(next_episode_number);
                 next_episode_number += 1;
-            }
-
-            if file.episode_title.is_none() {
-                file.episode_title = Some(
-                    file.file_path
-                        .file_stem()
-                        .and_then(|value| value.to_str())
-                        .unwrap_or("Episode")
-                        .replace(['.', '_'], " "),
-                );
             }
         }
     }
@@ -527,9 +660,25 @@ pub(super) fn scan_phase_label(phase: &str) -> &'static str {
 }
 
 pub(super) fn build_scan_presentation_group(file: &DiscoveredMediaFile) -> ScanPresentationGroup {
+    build_scan_presentation_group_with_optional_root(file, None)
+}
+
+pub(super) fn build_scan_presentation_group_with_root(
+    file: &DiscoveredMediaFile,
+    root_path: &Path,
+) -> ScanPresentationGroup {
+    build_scan_presentation_group_with_optional_root(file, Some(root_path))
+}
+
+fn build_scan_presentation_group_with_optional_root(
+    file: &DiscoveredMediaFile,
+    root_path: Option<&Path>,
+) -> ScanPresentationGroup {
     let media_type = effective_media_type(file);
 
     if media_type == "episode" {
+        let container_identity = root_path
+            .and_then(|root_path| infer_series_container_identity(&file.file_path, root_path));
         if let Some(file_metadata) = infer_series_file_metadata(&file.file_path) {
             let source_title = file.source_title.trim();
             let lookup_title =
@@ -558,7 +707,12 @@ pub(super) fn build_scan_presentation_group(file: &DiscoveredMediaFile) -> ScanP
                 })
                 .flatten();
             return ScanPresentationGroup {
-                item_key: series_group_item_key(&file.file_path, &lookup_title),
+                item_key: series_group_item_key_with_optional_root(
+                    &file.file_path,
+                    &lookup_title,
+                    root_path,
+                    container_identity.as_ref(),
+                ),
                 media_type: "series".to_string(),
                 title,
                 lookup_title,
@@ -568,7 +722,12 @@ pub(super) fn build_scan_presentation_group(file: &DiscoveredMediaFile) -> ScanP
         }
 
         return ScanPresentationGroup {
-            item_key: series_group_item_key(&file.file_path, &file.source_title),
+            item_key: series_group_item_key_with_optional_root(
+                &file.file_path,
+                &file.source_title,
+                root_path,
+                container_identity.as_ref(),
+            ),
             media_type: "series".to_string(),
             title: if file.title.trim().is_empty() {
                 file.source_title.clone()
@@ -581,8 +740,15 @@ pub(super) fn build_scan_presentation_group(file: &DiscoveredMediaFile) -> ScanP
         };
     }
 
+    let container_identity = root_path
+        .filter(|_| !has_meaningful_file_title(&file.file_path))
+        .and_then(|root_path| infer_movie_container_identity(&file.file_path, root_path));
+
     ScanPresentationGroup {
-        item_key: file.file_path.to_string_lossy().to_string(),
+        item_key: container_identity
+            .as_ref()
+            .map(|identity| container_item_key("movie-folder", &identity.container_path))
+            .unwrap_or_else(|| file.file_path.to_string_lossy().to_string()),
         media_type: "movie".to_string(),
         title: if file.title.trim().is_empty() {
             file.source_title.clone()
@@ -600,17 +766,43 @@ pub(super) fn is_episode_like_source_title(value: &str) -> bool {
     infer_series_file_metadata(std::path::Path::new(&pseudo_file_name)).is_some()
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn group_discovered_files_for_scan(
     discovered_files: Vec<DiscoveredMediaFile>,
 ) -> Vec<ScanDiscoveredGroup> {
-    let discovered_files = normalize_discovered_files_for_local_structure(discovered_files);
+    group_discovered_files_for_scan_with_optional_root(discovered_files, None)
+}
+
+pub(super) fn group_discovered_files_for_scan_with_root(
+    discovered_files: Vec<DiscoveredMediaFile>,
+    root_path: &Path,
+) -> Vec<ScanDiscoveredGroup> {
+    group_discovered_files_for_scan_with_optional_root(discovered_files, Some(root_path))
+}
+
+fn group_discovered_files_for_scan_with_optional_root(
+    discovered_files: Vec<DiscoveredMediaFile>,
+    root_path: Option<&Path>,
+) -> Vec<ScanDiscoveredGroup> {
+    let discovered_files = match root_path {
+        Some(root_path) => {
+            normalize_discovered_files_for_local_structure_with_root(discovered_files, root_path)
+        }
+        None => normalize_discovered_files_for_local_structure(discovered_files),
+    };
     let mut groups = Vec::<ScanDiscoveredGroup>::new();
     let mut group_indexes = HashMap::<String, usize>::new();
 
     for file in discovered_files {
-        let presentation = build_scan_presentation_group(&file);
+        let presentation = match root_path {
+            Some(root_path) => build_scan_presentation_group_with_root(&file, root_path),
+            None => build_scan_presentation_group(&file),
+        };
+        let explicit_tmdb_id =
+            root_path.and_then(|root_path| explicit_container_tmdb_id(&file, root_path));
 
         if let Some(index) = group_indexes.get(&presentation.item_key).copied() {
+            merge_metadata_lookup_hint(&mut groups[index], explicit_tmdb_id);
             groups[index].files.push(file);
             continue;
         }
@@ -620,10 +812,71 @@ pub(super) fn group_discovered_files_for_scan(
         groups.push(ScanDiscoveredGroup {
             presentation,
             files: vec![file],
+            metadata_lookup_hint: explicit_tmdb_id,
+            metadata_binding_conflict: false,
         });
     }
 
     groups
+}
+
+pub(super) fn metadata_container_key_for_path(
+    file_path: &Path,
+    root_path: &Path,
+    lookup_type: &str,
+) -> Option<String> {
+    let (normalized_type, identity) = if lookup_type.eq_ignore_ascii_case("series")
+        || lookup_type.eq_ignore_ascii_case("episode")
+    {
+        (
+            "series",
+            infer_series_container_identity(file_path, root_path),
+        )
+    } else if lookup_type.eq_ignore_ascii_case("movie") {
+        (
+            "movie",
+            infer_movie_container_identity(file_path, root_path),
+        )
+    } else {
+        return None;
+    };
+    let identity = identity?;
+
+    Some(format!(
+        "{normalized_type}:{}",
+        identity.container_path.to_string_lossy()
+    ))
+}
+
+fn explicit_container_tmdb_id(file: &DiscoveredMediaFile, root_path: &Path) -> Option<String> {
+    let identity = if file.season_number.is_some() && file.episode_number.is_some() {
+        infer_series_container_identity(&file.file_path, root_path)
+    } else {
+        infer_movie_container_identity(&file.file_path, root_path)
+    };
+
+    identity.and_then(|identity| identity.tmdb_id)
+}
+
+pub(super) fn merge_metadata_lookup_hint(
+    group: &mut ScanDiscoveredGroup,
+    candidate: Option<String>,
+) {
+    let Some(candidate) = candidate else {
+        return;
+    };
+    if group.metadata_binding_conflict {
+        return;
+    }
+
+    match group.metadata_lookup_hint.as_deref() {
+        None => group.metadata_lookup_hint = Some(candidate),
+        Some(current) if current == candidate => {}
+        Some(_) => {
+            group.metadata_lookup_hint = None;
+            group.metadata_binding_conflict = true;
+        }
+    }
 }
 
 pub(super) fn build_scan_group_progress_update(

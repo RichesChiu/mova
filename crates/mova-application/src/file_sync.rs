@@ -1,7 +1,9 @@
 use crate::{
     error::{ApplicationError, ApplicationResult},
     libraries::get_library,
-    media_classification::{classify_media_type, metadata_lookup_type_for_media_type},
+    media_classification::{
+        apply_root_aware_media_identity, classify_media_type, metadata_lookup_type_for_media_type,
+    },
     media_enrichment::MetadataEnrichmentContext,
     metadata::MetadataProvider,
     scan_jobs::LOCAL_ANALYSIS_VERSION,
@@ -70,11 +72,27 @@ pub async fn sync_library_filesystem_changes(
             continue;
         }
 
-        let media_type = classify_media_type(&path);
-        let lookup_type = metadata_lookup_type_for_media_type(media_type);
         let mut discovered_file = inspect_media_file(&path).await?;
+        let metadata_lookup_hint = apply_root_aware_media_identity(
+            &mut discovered_file,
+            std::path::Path::new(&library.root_path),
+        );
+        let media_type = if discovered_file.season_number.is_some()
+            && discovered_file.episode_number.is_some()
+        {
+            "episode"
+        } else {
+            classify_media_type(&path)
+        };
+        let lookup_type = metadata_lookup_type_for_media_type(media_type);
         enrichment
-            .enrich_file(lookup_type, &mut discovered_file)
+            .enrich_group_with_lookup_hint_and_progress(
+                lookup_type,
+                std::slice::from_mut(&mut discovered_file),
+                None,
+                metadata_lookup_hint.as_deref(),
+                |_, _| {},
+            )
             .await
             .map_err(ApplicationError::Unexpected)?;
         finalize_file_metadata_status(
@@ -410,4 +428,65 @@ fn map_discover_io_error(error: io::Error) -> ApplicationError {
         "failed to inspect media filesystem change: {}",
         error
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::media_classification::apply_root_aware_media_identity;
+    use mova_scan::{inspect_media_file_inventory_shallow, DiscoveredMediaFileInventory};
+    use std::path::{Path, PathBuf};
+
+    fn shallow_file(path: &str) -> mova_scan::DiscoveredMediaFile {
+        inspect_media_file_inventory_shallow(DiscoveredMediaFileInventory {
+            file_path: PathBuf::from(path),
+            file_size: 1,
+            file_modified_at_ms: Some(1),
+            sidecar_fingerprint: String::new(),
+        })
+        .expect("shallow file metadata")
+    }
+
+    #[test]
+    fn filesystem_sync_uses_container_title_for_titleless_movie() {
+        let mut file = shallow_file(
+            "/media/movies/星球大战曼达洛人与古古(2026)/2026.2160p.iT.WEB-DL.DV.DDP5.1.Atmos.2Audio.mkv",
+        );
+
+        let hint = apply_root_aware_media_identity(&mut file, Path::new("/media/movies"));
+
+        assert_eq!(hint, None);
+        assert_eq!(file.source_title, "星球大战曼达洛人与古古");
+        assert_eq!(file.title, "星球大战曼达洛人与古古(2026)");
+        assert_eq!(file.year, Some(2026));
+    }
+
+    #[test]
+    fn filesystem_sync_uses_series_container_and_explicit_tmdb_hint() {
+        let mut file = shallow_file(
+            "/media/mainland/千香 (2026) {tmdb-123456}/Season 01/S01E01.2160p.WEB-DL.mkv",
+        );
+
+        let hint = apply_root_aware_media_identity(&mut file, Path::new("/media/mainland"));
+
+        assert_eq!(hint.as_deref(), Some("123456"));
+        assert_eq!(file.source_title, "千香");
+        assert_eq!(file.title, "千香 (2026)");
+        assert_eq!(file.year, Some(2026));
+        assert_eq!(file.season_number, Some(1));
+        assert_eq!(file.episode_number, Some(1));
+        assert_eq!(file.episode_title, None);
+    }
+
+    #[test]
+    fn filesystem_sync_preserves_movie_nfo_display_title_during_container_fallback() {
+        let mut file = shallow_file("/media/movies/Container Movie (2026)/2026.2160p.WEB-DL.mkv");
+        file.title = "Authoritative NFO Title".to_string();
+
+        let hint = apply_root_aware_media_identity(&mut file, Path::new("/media/movies"));
+
+        assert_eq!(hint, None);
+        assert_eq!(file.source_title, "Container Movie");
+        assert_eq!(file.title, "Authoritative NFO Title");
+        assert_eq!(file.year, Some(2026));
+    }
 }

@@ -13,7 +13,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     fs,
     io::{self, ErrorKind},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     time::UNIX_EPOCH,
 };
 
@@ -79,7 +79,7 @@ where
         &mut should_cancel,
         &mut boundary,
     )?;
-    populate_inventory_sidecar_fingerprints(&mut files);
+    populate_inventory_sidecar_fingerprints(&mut files, root_path);
     files.sort_by(|left, right| left.file_path.cmp(&right.file_path));
 
     Ok(files)
@@ -109,7 +109,7 @@ where
         &mut probe_availability,
         &mut boundary,
     )?;
-    populate_discovered_sidecar_fingerprints(&mut files);
+    populate_discovered_sidecar_fingerprints(&mut files, root_path);
     files.sort_by(|left, right| left.file_path.cmp(&right.file_path));
 
     Ok(files)
@@ -139,7 +139,7 @@ pub fn inspect_media_file(path: &Path) -> io::Result<DiscoveredMediaFile> {
         metadata_modified_at_ms(&metadata),
     );
     inventory.sidecar_fingerprint =
-        sidecar_fingerprint_for_directory(path.parent().unwrap_or_else(|| Path::new(".")));
+        sidecar_fingerprint_for_directory(path.parent().unwrap_or_else(|| Path::new(".")), None);
     inspect_media_file_inventory(inventory)
 }
 
@@ -525,13 +525,17 @@ fn build_discovered_media_file_from_parts(
     }
 }
 
-fn populate_inventory_sidecar_fingerprints(files: &mut [DiscoveredMediaFileInventory]) {
+fn populate_inventory_sidecar_fingerprints(
+    files: &mut [DiscoveredMediaFileInventory],
+    root_path: &Path,
+) {
     let fingerprints = sidecar_fingerprints_by_directory(
         files
             .iter()
             .map(|file| file.file_path.as_path())
             .collect::<Vec<_>>()
             .as_slice(),
+        Some(root_path),
     );
     for file in files {
         file.sidecar_fingerprint = file
@@ -543,13 +547,14 @@ fn populate_inventory_sidecar_fingerprints(files: &mut [DiscoveredMediaFileInven
     }
 }
 
-fn populate_discovered_sidecar_fingerprints(files: &mut [DiscoveredMediaFile]) {
+fn populate_discovered_sidecar_fingerprints(files: &mut [DiscoveredMediaFile], root_path: &Path) {
     let fingerprints = sidecar_fingerprints_by_directory(
         files
             .iter()
             .map(|file| file.file_path.as_path())
             .collect::<Vec<_>>()
             .as_slice(),
+        Some(root_path),
     );
     for file in files {
         file.sidecar_fingerprint = file
@@ -561,7 +566,10 @@ fn populate_discovered_sidecar_fingerprints(files: &mut [DiscoveredMediaFile]) {
     }
 }
 
-fn sidecar_fingerprints_by_directory(video_paths: &[&Path]) -> BTreeMap<PathBuf, String> {
+fn sidecar_fingerprints_by_directory(
+    video_paths: &[&Path],
+    root_path: Option<&Path>,
+) -> BTreeMap<PathBuf, String> {
     let directories = video_paths
         .iter()
         .filter_map(|path| path.parent().map(Path::to_path_buf))
@@ -571,14 +579,14 @@ fn sidecar_fingerprints_by_directory(video_paths: &[&Path]) -> BTreeMap<PathBuf,
     for directory in directories {
         fingerprints.insert(
             directory.clone(),
-            sidecar_fingerprint_for_directory(&directory),
+            sidecar_fingerprint_for_directory(&directory, root_path),
         );
     }
 
     fingerprints
 }
 
-fn sidecar_fingerprint_for_directory(directory: &Path) -> String {
+fn sidecar_fingerprint_for_directory(directory: &Path, root_path: Option<&Path>) -> String {
     let mut facts = Vec::new();
     let mut episode_video_counts = BTreeMap::<(i32, i32), usize>::new();
 
@@ -614,12 +622,31 @@ fn sidecar_fingerprint_for_directory(directory: &Path) -> String {
         },
     ));
 
-    if let Some(series_nfo) = directory
-        .ancestors()
-        .take(5)
-        .map(|ancestor| ancestor.join("tvshow.nfo"))
-        .find(|path| path.is_file())
-    {
+    let series_nfo = match root_path {
+        Some(root_path) => directory
+            .strip_prefix(root_path)
+            .ok()
+            .filter(|relative_directory| {
+                !relative_directory.components().any(|component| {
+                    matches!(
+                        component,
+                        Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                    )
+                })
+            })
+            .and_then(|relative_directory| {
+                relative_directory
+                    .ancestors()
+                    .map(|ancestor| root_path.join(ancestor).join("tvshow.nfo"))
+                    .find(|path| path.is_file())
+            }),
+        None => directory
+            .ancestors()
+            .take(5)
+            .map(|ancestor| ancestor.join("tvshow.nfo"))
+            .find(|path| path.is_file()),
+    };
+    if let Some(series_nfo) = series_nfo {
         if let Ok(metadata) = fs::metadata(&series_nfo) {
             facts.push(sidecar_file_fact(&series_nfo, &metadata));
         }

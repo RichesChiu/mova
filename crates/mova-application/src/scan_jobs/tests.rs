@@ -99,6 +99,8 @@ fn scan_notification_summary_keeps_matched_provider_failure_and_probe_warning_se
             season_air_year: None,
         },
         files: vec![file],
+        metadata_lookup_hint: None,
+        metadata_binding_conflict: false,
     };
 
     let mut summary = mova_domain::ScanNotificationSummary::default();
@@ -145,6 +147,8 @@ fn scan_notification_summary_counts_all_issues_but_bounds_payload_details() {
                 season_air_year: None,
             },
             files: vec![file],
+            metadata_lookup_hint: None,
+            metadata_binding_conflict: false,
         };
 
         super::record_scan_notification_group(&mut summary, &group, None);
@@ -376,6 +380,60 @@ fn build_existing_episode_metadata() -> ExistingMediaMetadataSummary {
 }
 
 #[test]
+fn container_binding_index_reuses_one_accepted_tmdb_id_per_series_container() {
+    let mut first = build_existing_episode_metadata();
+    first.file_path = "/media/overseas_tv/金斯敦市长 (2021)/S01/金斯敦市长.S01E01.mkv".to_string();
+    first.series_metadata_provider_item_id = Some("97951".to_string());
+    first.metadata_provider_item_id = Some("97951".to_string());
+    let mut second = first.clone();
+    second.media_file_id = 23;
+    second.file_path = "/media/overseas_tv/金斯敦市长 (2021)/S01/金斯敦市长.S01E02.mkv".to_string();
+
+    let bindings =
+        super::build_container_binding_index(&[first, second], Path::new("/media/overseas_tv"));
+    let key = super::metadata_container_key_for_path(
+        Path::new("/media/overseas_tv/金斯敦市长 (2021)/S01/金斯敦市长.S01E03.mkv"),
+        Path::new("/media/overseas_tv"),
+        "series",
+    )
+    .expect("series container key");
+
+    assert_eq!(
+        bindings.get(&key),
+        Some(&super::ContainerBindingResolution::Unique(
+            "97951".to_string()
+        ))
+    );
+}
+
+#[test]
+fn container_binding_index_marks_distinct_ids_in_one_container_as_conflicting() {
+    let mut first = build_existing_episode_metadata();
+    first.file_path = "/media/series/Show/S01/Show.S01E01.mkv".to_string();
+    first.series_metadata_provider_item_id = Some("100".to_string());
+    first.metadata_provider_item_id = Some("100".to_string());
+    let mut second = first.clone();
+    second.media_file_id = 23;
+    second.file_path = "/media/series/Show/S01/Show.S01E02.mkv".to_string();
+    second.series_metadata_provider_item_id = Some("200".to_string());
+    second.metadata_provider_item_id = Some("200".to_string());
+
+    let bindings =
+        super::build_container_binding_index(&[first, second], Path::new("/media/series"));
+    let key = super::metadata_container_key_for_path(
+        Path::new("/media/series/Show/S01/Show.S01E03.mkv"),
+        Path::new("/media/series"),
+        "series",
+    )
+    .expect("series container key");
+
+    assert_eq!(
+        bindings.get(&key),
+        Some(&super::ContainerBindingResolution::Conflict)
+    );
+}
+
+#[test]
 fn can_skip_existing_media_summary_only_skips_successful_rows() {
     let mut summary = build_existing_movie_metadata();
     summary.scan_hash = Some("same-hash".to_string());
@@ -488,6 +546,8 @@ fn prepare_scan_groups_marks_rows_as_pending_before_remote_confirmation() {
     let mut groups = vec![super::ScanDiscoveredGroup {
         presentation,
         files: vec![file],
+        metadata_lookup_hint: None,
+        metadata_binding_conflict: false,
     }];
 
     super::prepare_scan_groups_for_metadata_lookup(&mut groups);
@@ -962,6 +1022,209 @@ fn group_discovered_files_for_scan_merges_episode_files_by_series_folder() {
 }
 
 #[test]
+fn root_aware_grouping_uses_container_identity_for_titleless_episodes() {
+    let root = Path::new("/media/mainland");
+    let mut first_file = build_discovered_file();
+    first_file.file_path = root.join("千香/S01E01.2026.2160p.60fps.WEB-DL.H265.10bit.AAC.mp4");
+    first_file.title = "S01E01 2026 2160p 60fps WEB DL H265 10bit AAC".to_string();
+    first_file.source_title = first_file.title.clone();
+    first_file.year = None;
+    first_file.episode_title = None;
+
+    let mut second_file = first_file.clone();
+    second_file.file_path = root.join("千香/S01E02.2026.2160p.WEB-DL.H265.AAC.mp4");
+    second_file.episode_number = Some(2);
+
+    let groups =
+        super::group_discovered_files_for_scan_with_root(vec![first_file, second_file], root);
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].presentation.media_type, "series");
+    assert_eq!(groups[0].presentation.title, "千香");
+    assert_eq!(groups[0].presentation.lookup_title, "千香");
+    assert_eq!(groups[0].presentation.item_key, "series-folder:千香");
+    assert_eq!(groups[0].files.len(), 2);
+    assert!(groups[0]
+        .files
+        .iter()
+        .all(|file| file.source_title == "千香"));
+    assert!(groups[0]
+        .files
+        .iter()
+        .all(|file| file.episode_title.is_none()));
+}
+
+#[test]
+fn root_aware_grouping_does_not_take_container_year_when_episode_filename_has_series_title() {
+    let root = Path::new("/media/series");
+    let mut file = build_discovered_file();
+    file.file_path = root.join("Wrong Parent (2030)/Fallout.S01E01.mkv");
+    file.title = "Fallout".to_string();
+    file.source_title = "Fallout".to_string();
+    file.year = None;
+    file.episode_title = None;
+
+    let groups = super::group_discovered_files_for_scan_with_root(vec![file], root);
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].presentation.lookup_title, "Fallout");
+    assert_eq!(groups[0].presentation.year, None);
+    assert_eq!(groups[0].presentation.season_air_year, None);
+    assert_eq!(groups[0].files[0].year, None);
+}
+
+#[test]
+fn root_aware_grouping_keeps_filename_season_air_year_without_taking_container_year() {
+    let root = Path::new("/media/series");
+    let mut file = build_discovered_file();
+    file.file_path = root.join("Wrong Parent (2030)/Fallout.S02E01.2025.mkv");
+    file.title = "Fallout".to_string();
+    file.source_title = "Fallout".to_string();
+    file.year = Some(2025);
+    file.season_number = Some(2);
+    file.episode_title = None;
+
+    let groups = super::group_discovered_files_for_scan_with_root(vec![file], root);
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].presentation.lookup_title, "Fallout");
+    assert_eq!(groups[0].presentation.year, None);
+    assert_eq!(
+        groups[0].presentation.season_air_year,
+        Some(crate::metadata::MetadataSeasonAirYearHint {
+            season_number: 2,
+            year: 2025,
+        })
+    );
+    assert_eq!(groups[0].files[0].year, None);
+}
+
+#[test]
+fn root_aware_grouping_takes_container_year_when_episode_filename_has_no_series_title() {
+    let root = Path::new("/media/series");
+    let mut file = build_discovered_file();
+    file.file_path = root.join("Fallout (2021)/S01/S01E01.mkv");
+    file.title = "S01E01".to_string();
+    file.source_title = "S01E01".to_string();
+    file.year = None;
+    file.episode_title = None;
+
+    let groups = super::group_discovered_files_for_scan_with_root(vec![file], root);
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].presentation.lookup_title, "Fallout");
+    assert_eq!(groups[0].presentation.year, Some(2021));
+    assert_eq!(groups[0].presentation.season_air_year, None);
+    assert_eq!(groups[0].files[0].year, Some(2021));
+}
+
+#[test]
+fn root_aware_grouping_uses_container_identity_for_titleless_movie() {
+    let root = Path::new("/media/movies");
+    let mut file = build_discovered_file();
+    file.file_path =
+        root.join("星球大战曼达洛人与古古(2026)/2026.2160p.iT.WEB-DL.DV.DDP5.1.Atmos.2Audio.mkv");
+    file.title = "2026".to_string();
+    file.source_title = "2026".to_string();
+    file.year = Some(2026);
+    file.season_number = None;
+    file.episode_number = None;
+    file.episode_title = None;
+
+    let groups = super::group_discovered_files_for_scan_with_root(vec![file], root);
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].presentation.media_type, "movie");
+    assert_eq!(groups[0].presentation.title, "星球大战曼达洛人与古古(2026)");
+    assert_eq!(
+        groups[0].presentation.lookup_title,
+        "星球大战曼达洛人与古古"
+    );
+    assert_eq!(groups[0].presentation.year, Some(2026));
+    assert_eq!(
+        groups[0].presentation.item_key,
+        "movie-folder:星球大战曼达洛人与古古(2026)"
+    );
+    assert_eq!(groups[0].files[0].source_title, "星球大战曼达洛人与古古");
+}
+
+#[test]
+fn root_aware_movie_container_fallback_preserves_sidecar_display_title() {
+    let root = Path::new("/media/movies");
+    let mut file = build_discovered_file();
+    file.file_path = root.join("Container Movie (2026)/2026.2160p.WEB-DL.mkv");
+    file.title = "Sidecar Display Title".to_string();
+    file.source_title = "2026".to_string();
+    file.year = Some(2026);
+    file.season_number = None;
+    file.episode_number = None;
+    file.episode_title = None;
+
+    let groups = super::group_discovered_files_for_scan_with_root(vec![file], root);
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].presentation.title, "Sidecar Display Title");
+    assert_eq!(groups[0].presentation.lookup_title, "Container Movie");
+}
+
+#[test]
+fn root_aware_grouping_keeps_explicit_movie_file_title_and_uses_container_tmdb_hint() {
+    let root = Path::new("/media/movies");
+    let mut file = build_discovered_file();
+    file.file_path = root.join("Container Title (2026) {tmdb-123456}/Actual.Movie.2025.2160p.mkv");
+    file.title = "Actual Movie".to_string();
+    file.source_title = "Actual Movie".to_string();
+    file.year = Some(2025);
+    file.season_number = None;
+    file.episode_number = None;
+    file.episode_title = None;
+
+    let groups = super::group_discovered_files_for_scan_with_root(vec![file], root);
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].presentation.title, "Actual Movie");
+    assert_eq!(groups[0].presentation.lookup_title, "Actual Movie");
+    assert_eq!(groups[0].presentation.year, Some(2025));
+    assert_eq!(groups[0].metadata_lookup_hint.as_deref(), Some("123456"));
+    assert!(!groups[0].metadata_binding_conflict);
+}
+
+#[test]
+fn scan_group_rejects_conflicting_container_tmdb_hints() {
+    let root = Path::new("/media/series");
+    let mut first_file = build_discovered_file();
+    first_file.file_path = root.join("Same Show {tmdb-111}/Same.Show.S01E01.mkv");
+    first_file.title = "Same Show".to_string();
+    first_file.source_title = "Same Show".to_string();
+    first_file.year = None;
+    first_file.episode_title = None;
+
+    let mut groups = super::group_discovered_files_for_scan_with_root(vec![first_file], root);
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].metadata_lookup_hint.as_deref(), Some("111"));
+    super::merge_metadata_lookup_hint(&mut groups[0], Some("222".to_string()));
+
+    assert_eq!(groups[0].metadata_lookup_hint, None);
+    assert!(groups[0].metadata_binding_conflict);
+}
+
+#[test]
+fn metadata_container_key_is_root_relative_and_skips_season_directory() {
+    let root = Path::new("/media/series");
+    let file_path = root.join("千香/Season 01/4K/S01E01.mkv");
+
+    assert_eq!(
+        super::metadata_container_key_for_path(&file_path, root, "series").as_deref(),
+        Some("series:千香")
+    );
+    assert_eq!(
+        super::metadata_container_key_for_path(&file_path, Path::new("/media/other"), "series"),
+        None
+    );
+}
+
+#[test]
 fn group_discovered_files_for_scan_merges_multi_season_series_years_by_title() {
     let mut first_file = build_discovered_file();
     first_file.file_path = PathBuf::from("黑袍纠察队/Season 01/The Boys (2019) - S01E01.mkv");
@@ -1257,13 +1520,74 @@ fn build_pending_scan_groups_groups_series_before_full_inspection() {
     );
     second_file.episode_number = Some(2);
 
-    let groups = super::build_pending_scan_groups_from_files(vec![
-        build_pending_scan_file(first_file),
-        build_pending_scan_file(second_file),
-    ]);
+    let groups = super::build_pending_scan_groups_from_files(
+        vec![
+            build_pending_scan_file(first_file),
+            build_pending_scan_file(second_file),
+        ],
+        Path::new("/media/overseas_tv"),
+        &std::collections::HashMap::new(),
+    );
 
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[0].files.len(), 2);
+}
+
+#[test]
+fn pending_titleless_episode_inherits_unique_same_container_tmdb_binding() {
+    let root = Path::new("/media/mainland");
+    let mut file = build_discovered_file();
+    file.file_path = root.join("千香/S01E02.2026.2160p.WEB-DL.H265.AAC.mp4");
+    file.title = "S01E02 2026 2160p WEB DL H265 AAC".to_string();
+    file.source_title = file.title.clone();
+    file.year = None;
+    file.episode_number = Some(2);
+    file.episode_title = None;
+    let container_key = super::metadata_container_key_for_path(&file.file_path, root, "series")
+        .expect("series container key");
+    let bindings = std::collections::HashMap::from([(
+        container_key,
+        super::ContainerBindingResolution::Unique("123456".to_string()),
+    )]);
+
+    let groups = super::build_pending_scan_groups_from_files(
+        vec![build_pending_scan_file(file)],
+        root,
+        &bindings,
+    );
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].metadata_lookup_hint.as_deref(), Some("123456"));
+    assert!(!groups[0].metadata_binding_conflict);
+}
+
+#[test]
+fn pending_named_movie_does_not_inherit_container_binding() {
+    let root = Path::new("/media/movies");
+    let mut file = build_discovered_file();
+    file.file_path = root.join("Mixed Folder/Actual.Movie.2025.2160p.mkv");
+    file.title = "Actual Movie".to_string();
+    file.source_title = "Actual Movie".to_string();
+    file.year = Some(2025);
+    file.season_number = None;
+    file.episode_number = None;
+    file.episode_title = None;
+    let container_key = super::metadata_container_key_for_path(&file.file_path, root, "movie")
+        .expect("movie container key");
+    let bindings = std::collections::HashMap::from([(
+        container_key,
+        super::ContainerBindingResolution::Unique("123456".to_string()),
+    )]);
+
+    let groups = super::build_pending_scan_groups_from_files(
+        vec![build_pending_scan_file(file)],
+        root,
+        &bindings,
+    );
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].metadata_lookup_hint, None);
+    assert!(!groups[0].metadata_binding_conflict);
 }
 
 #[tokio::test]
@@ -1858,6 +2182,8 @@ fn provider_error_keeps_new_episode_fields_and_commits_bound_series_last() {
             season_air_year: None,
         },
         files,
+        metadata_lookup_hint: None,
+        metadata_binding_conflict: false,
     };
     let mut summary = mova_domain::ScanNotificationSummary::default();
     super::record_scan_notification_group(
