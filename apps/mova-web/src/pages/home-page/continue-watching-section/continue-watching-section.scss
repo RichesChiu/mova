@@ -4,30 +4,16 @@
   overflow: visible;
 }
 
-.home-dashboard .continue-watching-section__viewport {
-  width: calc(100% + 48px);
-  margin-inline: -24px;
-  padding-inline: 24px;
-  scroll-padding-inline: 24px;
-}
-
-.continue-watching-section__viewport .scrollable-rail__track {
-  grid-auto-columns: clamp(136px, 13.5vw, 158px);
-  gap: clamp(10px, 1vw, 13px);
-  padding: 20px 0 46px;
-}
-
-.continue-watching-section__overflow {
+.continue-watching-section__grid {
   display: grid;
-  place-items: center;
-  width: clamp(40px, 3.2vw, 58px);
-  min-height: clamp(174px, 16.8vw, 198px);
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  color: var(--text-muted);
-  font-size: 1.05rem;
-  font-weight: 800;
-  scroll-snap-align: start;
+  grid-template-columns: repeat(auto-fill, minmax(136px, 158px));
+  justify-content: start;
+  gap: 10px;
+  padding: 2px 0 10px;
+}
+
+@media (max-width: 720px) {
+  .continue-watching-section__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

@@ -120,6 +120,12 @@ const zhCN: Record<string, string> = {
     'This product uses the TMDB API but is not endorsed or certified by TMDB.',
   'MOVA uses TMDB for media metadata and artwork. TMDB does not endorse, certify, or sponsor MOVA.':
     'MOVA 使用 TMDB 提供媒体元数据和图片。TMDB 不认可、认证或赞助 MOVA。',
+  'Support the author': '支持作者',
+  'If MOVA is useful to you, you can support its continued development.':
+    '如果 MOVA 对你有帮助，欢迎支持项目持续开发。',
+  'Open the WeChat donation QR code': '打开微信赞赏二维码',
+  'WeChat donation QR code': '微信赞赏二维码',
+  'Scan with WeChat': '使用微信扫码支持',
   'Checking whether you are already signed in.': '正在检查是否已经登录。',
   'Session check failed': '会话检查失败',
   Bootstrap: '初始化',
@@ -145,7 +151,6 @@ const zhCN: Record<string, string> = {
   'The page files could not be loaded. Reload to use the latest application version.':
     '页面文件加载失败，请重新加载以使用最新版本。',
   'Reload page': '重新加载页面',
-  'Scroll horizontally.': '横向滚动浏览。',
   Libraries: '媒体库',
   'Your Libraries': '你的库',
   'View all': '查看全部',

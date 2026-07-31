@@ -1,49 +1,88 @@
 .home-dashboard__content--about {
   align-content: start;
+  justify-items: center;
 }
 
 .about-page {
   display: grid;
   align-content: start;
-  gap: 14px;
   width: 100%;
-  max-width: 900px;
+  max-width: 680px;
 }
 
-.about-page__panel {
+.about-page__header {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  width: 100%;
+  max-width: 680px;
+}
+
+.about-page__header::before {
+  width: 34px;
+  height: 34px;
+  content: '';
+}
+
+.about-page__header .home-dashboard-page-header__content {
+  justify-content: center;
+  text-align: center;
+}
+
+.about-page__header > .notification-center {
+  justify-self: end;
+}
+
+.home-dashboard .about-page__panel {
+  display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 0;
+  width: 100%;
+  padding: clamp(24px, 4vw, 38px);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-surface);
+  background: var(--panel-background);
+  box-shadow:
+    var(--panel-shadow),
+    inset 0 1px 0 var(--panel-rim-highlight);
+  backdrop-filter: var(--glass-filter-standard);
+}
+
+.about-page__section {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
 }
 
 .about-page__brand,
 .about-page__provider-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-}
-
-.about-page__brand {
-  justify-content: flex-start;
+  flex-direction: column;
+  gap: 9px;
 }
 
 .about-page__brand > img {
   flex: 0 0 auto;
+  filter: drop-shadow(0 10px 22px color-mix(in srgb, var(--accent) 20%, transparent));
 }
 
 .about-page h3,
-.about-page p {
+.about-page p,
+.about-page figure {
   margin: 0;
 }
 
 .about-page__brand h3,
-.about-page__provider-heading h3 {
+.about-page__provider-heading h3,
+.about-page__section > h3 {
   color: var(--text);
   font-size: 1.06rem;
 }
 
 .about-page__brand p,
 .about-page__copy {
+  max-width: 560px;
   color: var(--text-soft);
   font-size: 0.86rem;
   line-height: 1.65;
@@ -52,7 +91,7 @@
 .about-page__tmdb-logo-link {
   display: inline-flex;
   flex: 0 0 auto;
-  max-width: min(120px, 38vw);
+  width: min(120px, 38vw);
   padding: 6px 0;
   border-radius: var(--radius-control);
 }
@@ -69,7 +108,7 @@
 }
 
 .about-page__notice {
-  max-width: 720px;
+  max-width: 560px;
   color: var(--text);
   font-size: 0.92rem;
   font-weight: 720;
@@ -77,14 +116,73 @@
 }
 
 .about-page__link {
-  justify-self: start;
+  justify-self: center;
   font-size: 0.86rem;
 }
 
+.about-page__divider {
+  width: min(100%, 520px);
+  height: 1px;
+  margin: clamp(22px, 3vw, 30px) auto;
+  background: color-mix(in srgb, var(--panel-border) 72%, transparent);
+}
+
+.about-page__donation {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.about-page__donation-link {
+  display: block;
+  border-radius: var(--radius-card);
+  transition:
+    box-shadow var(--motion-duration-standard) var(--motion-ease-standard),
+    transform var(--motion-duration-standard) var(--motion-ease-standard);
+}
+
+.about-page__donation-link:hover {
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--color-black) 22%, transparent);
+  transform: translateY(-2px);
+}
+
+.about-page__donation-link:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 78%, transparent);
+  outline-offset: 4px;
+}
+
+.about-page__donation-qr {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  width: clamp(196px, 25vw, 236px);
+  aspect-ratio: 1;
+  border: 1px solid color-mix(in srgb, var(--panel-border) 72%, transparent);
+  border-radius: var(--radius-card);
+  background: var(--color-white);
+  box-shadow: var(--panel-inset);
+}
+
+.about-page__donation-qr img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 196%;
+  max-width: none;
+  height: auto;
+  transform: translate(-24.5%, -22.6%);
+}
+
+.about-page__donation figcaption {
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  font-weight: 680;
+}
+
 @media (max-width: 560px) {
-  .about-page__provider-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 12px;
+  .home-dashboard .about-page__panel {
+    padding: 22px 18px;
   }
 }
