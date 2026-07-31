@@ -589,13 +589,8 @@ create table if not exists continue_watching (
                                                  user_id bigint not null references users(id) on delete cascade,
     media_item_id bigint not null references media_items(id) on delete cascade,
     last_played_media_item_id bigint not null references media_items(id) on delete cascade,
-    last_media_file_id bigint not null,
     last_watched_at timestamptz not null default now(),
-    unique(user_id, media_item_id),
-    foreign key (last_media_file_id, last_played_media_item_id)
-        references media_files(id, media_item_id)
-        on delete cascade
-        deferrable initially deferred
+    unique(user_id, media_item_id)
     );
 
 create index if not exists idx_continue_watching_user_last_watched
@@ -604,8 +599,6 @@ create index if not exists idx_continue_watching_media_item_id
     on continue_watching(media_item_id);
 create index if not exists idx_continue_watching_last_played_media_item_id
     on continue_watching(last_played_media_item_id);
-create index if not exists idx_continue_watching_last_media_file_id
-    on continue_watching(last_media_file_id);
 
 create table if not exists realtime_system_state (
                                                     singleton boolean primary key default true check (singleton),

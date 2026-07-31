@@ -15,6 +15,7 @@ logs
 .git
 .env
 .env.*
+*.local
 .direnv
 
 # Editor and IDE noise.
@@ -54,3 +55,4 @@ $RECYCLE.BIN
 data
 media
 dev-media
+backups

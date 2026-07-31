@@ -96,7 +96,7 @@
     box-shadow: var(--media-technical-badge-shadow);
   }
 
-  .media-technical-badge--text span {
+  .media-technical-badge span {
     color: var(--media-technical-badge-text);
   }
 }
@@ -467,56 +467,66 @@
 }
 
 .media-technical-badge {
+  --media-technical-badge-accent: var(--accent-strong);
+
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 78px;
-  min-height: 34px;
-  padding: 7px 12px;
-  border: 1px solid var(--media-technical-badge-border);
-  border-radius: var(--radius-control);
-  background: var(--media-technical-badge-background);
+  min-width: 48px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      var(--media-technical-badge-accent) 36%,
+      var(--media-technical-badge-border)
+    );
+  border-radius: var(--radius-tag);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--media-technical-badge-accent) 14%, transparent),
+      transparent 58%
+    ),
+    var(--media-technical-badge-background);
   box-shadow: var(--media-technical-badge-shadow);
 }
 
-.media-technical-badge img {
-  display: block;
-  max-width: 104px;
-  max-height: 18px;
-  object-fit: contain;
-  filter: invert(1) brightness(1.1) contrast(1.04);
+.media-technical-badge--picture {
+  --media-technical-badge-accent: var(--accent-strong);
 }
 
-.media-technical-badge--text span {
+.media-technical-badge--audio {
+  --media-technical-badge-accent: var(--mova-color-hex-f5c518);
+}
+
+.media-technical-badge--resolution {
+  --media-technical-badge-accent: var(--mova-color-hex-64c98a);
+}
+
+.media-technical-badge--neutral {
+  --media-technical-badge-accent: var(--text-soft);
+}
+
+.media-technical-badge span {
   color: var(--media-technical-badge-text);
-  font-size: 0.8rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.055em;
   line-height: 1;
   text-transform: uppercase;
 }
 
 .media-technical-badges--hero .media-technical-badge {
-  min-width: 54px;
-  min-height: 24px;
-  padding: 5px 8px;
-  border-radius: var(--radius-control);
+  min-width: 42px;
+  min-height: 23px;
+  padding: 4px 7px;
+  border-radius: var(--radius-tag);
 }
 
-.media-technical-badges--hero .media-technical-badge img {
-  max-width: 74px;
-  max-height: 12px;
-}
-
-.media-technical-badges--hero .media-technical-badge--text span {
+.media-technical-badges--hero .media-technical-badge span {
   font-size: 0.64rem;
-}
-
-/* Keep any unknown backend tag readable even before a logo asset exists. */
-.media-technical-badge--text {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .media-file-detail__meta-block,

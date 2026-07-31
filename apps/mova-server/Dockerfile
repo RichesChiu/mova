@@ -1,21 +1,13 @@
 # syntax=docker/dockerfile:1.7
 
-FROM richeschiu/mova-web-build-base:node24-pnpm11 AS web-builder
+ARG MOVA_WEB_BUILD_BASE=richeschiu/mova-web-build-base:node24-pnpm11
+ARG MOVA_RUST_BUILD_BASE=richeschiu/mova-rust-build-base:1-bookworm
+ARG MOVA_RUNTIME_BASE=richeschiu/mova-runtime-base:bookworm-ffmpeg-python3
+
+FROM ${MOVA_WEB_BUILD_BASE} AS web-builder
 ARG TARGETARCH
 ARG TARGETOS
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG NO_PROXY
-ARG ALL_PROXY
-ENV HTTP_PROXY=$HTTP_PROXY \
-    HTTPS_PROXY=$HTTPS_PROXY \
-    NO_PROXY=$NO_PROXY \
-    ALL_PROXY=$ALL_PROXY \
-    http_proxy=$HTTP_PROXY \
-    https_proxy=$HTTPS_PROXY \
-    no_proxy=$NO_PROXY \
-    all_proxy=$ALL_PROXY \
-    npm_config_fetch_retries=10 \
+ENV npm_config_fetch_retries=10 \
     npm_config_fetch_retry_mintimeout=10000 \
     npm_config_fetch_retry_maxtimeout=120000 \
     npm_config_network_concurrency=1
@@ -32,23 +24,11 @@ COPY apps/mova-web ./apps/mova-web
 
 RUN pnpm --dir apps/mova-web build
 
-FROM richeschiu/mova-rust-build-base:1-bookworm AS builder
+FROM ${MOVA_RUST_BUILD_BASE} AS builder
 ARG TARGETARCH
 ARG TARGETOS
 ARG MOVA_BUILD_VERSION=development
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG NO_PROXY
-ARG ALL_PROXY
-ENV HTTP_PROXY=$HTTP_PROXY \
-    HTTPS_PROXY=$HTTPS_PROXY \
-    NO_PROXY=$NO_PROXY \
-    ALL_PROXY=$ALL_PROXY \
-    http_proxy=$HTTP_PROXY \
-    https_proxy=$HTTPS_PROXY \
-    no_proxy=$NO_PROXY \
-    all_proxy=$ALL_PROXY \
-    MOVA_BUILD_VERSION=$MOVA_BUILD_VERSION \
+ENV MOVA_BUILD_VERSION=$MOVA_BUILD_VERSION \
     CARGO_HTTP_LOW_SPEED_LIMIT=1 \
     CARGO_HTTP_LOW_SPEED_TIME=600 \
     CARGO_HTTP_TIMEOUT=600 \
@@ -65,16 +45,16 @@ RUN --mount=type=cache,id=mova-cargo-registry-${TARGETOS}-${TARGETARCH},target=/
     --mount=type=cache,id=mova-cargo-git-${TARGETOS}-${TARGETARCH},target=/usr/local/cargo/git,sharing=locked \
     cargo build --locked --release -p mova-server
 
-FROM richeschiu/mova-runtime-base:bookworm-ffmpeg-python3 AS runtime
+FROM ${MOVA_RUNTIME_BASE} AS runtime
 ARG MOVA_BUILD_VERSION=development
-ENV MOVA_DATABASE_URL=postgres://mova:postgres@database:5432/mova \
-    MOVA_WEB_DIST_DIR=/app/web \
+ENV MOVA_WEB_DIST_DIR=/app/web \
     MOVA_CACHE_DIR=/app/data/cache \
     MOVA_BUILD_VERSION=$MOVA_BUILD_VERSION
 LABEL org.opencontainers.image.title="Mova" \
     org.opencontainers.image.description="Open-source media server built with Rust" \
     org.opencontainers.image.version=$MOVA_BUILD_VERSION \
-    org.opencontainers.image.source="https://github.com/RichesChiu/mova"
+    org.opencontainers.image.source="https://github.com/RichesChiu/mova" \
+    org.opencontainers.image.licenses="AGPL-3.0-only"
 WORKDIR /app
 
 COPY --from=builder /app/target/release/mova-server /usr/local/bin/mova-server

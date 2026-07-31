@@ -7,6 +7,8 @@ services:
     ports:
       - "36080:36080"
     environment:
+      # Internal Compose database connection. Keep this password in sync with database.POSTGRES_PASSWORD.
+      MOVA_DATABASE_URL: "postgres://mova:postgres@database:5432/mova"
       # Optional: TMDB API Read Access Token. Leave empty to skip remote metadata scraping.
       MOVA_TMDB_ACCESS_TOKEN: ""
       # Optional: proxy address reachable from the container, for example http://192.168.1.10:7890.
@@ -23,8 +25,6 @@ services:
 
   database:
     image: postgres:18
-    ports:
-      - "5432:5432"
     environment:
       POSTGRES_USER: mova
       POSTGRES_PASSWORD: postgres

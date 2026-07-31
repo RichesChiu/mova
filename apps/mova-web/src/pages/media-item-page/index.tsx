@@ -50,19 +50,12 @@ function preferHeroArtwork(path: string | null | undefined): string | null {
 
 const renderMediaTechnicalBadge = (badge: MediaFileTechnicalBadge, key: string) => (
   <li
-    className={
-      badge.iconSrc
-        ? 'media-technical-badge media-technical-badge--icon'
-        : 'media-technical-badge media-technical-badge--text'
-    }
+    aria-label={badge.label}
+    className={`media-technical-badge media-technical-badge--${badge.tone}`}
     key={key}
     title={badge.label}
   >
-    {badge.iconSrc ? (
-      <img alt={badge.label} loading="lazy" src={badge.iconSrc} />
-    ) : (
-      <span>{badge.label}</span>
-    )}
+    <span aria-hidden="true">{badge.text}</span>
   </li>
 )
 
