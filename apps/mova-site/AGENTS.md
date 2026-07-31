@@ -8,7 +8,4 @@ These instructions apply to the official website under `apps/mova-site`.
 - Treat `docs/API.md` as the API source of truth and update `src/data/apiDocs.ts` plus its
   localized public copy in the same change.
 - Preserve `public/CNAME`. GitHub Actions belong only in the repository-root `.github/workflows/`.
-- Keep this npm package independent from `apps/mova-web` and reuse its existing site components,
-  icons, and responsive patterns.
-- Follow `apps/mova-site/README.md` for verification. After website changes reach `master`, verify
-  the root `Deploy Site` workflow and dispatch it manually when the path trigger did not run.
+- Keep this npm package independent from `apps/mova-web`; do not import Web client internals.

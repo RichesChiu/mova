@@ -21,8 +21,9 @@ services:
     command: ["cargo", "--version"]
 
   app:
+    image: mova:local
     build:
-      context: .
+      context: ${MOVA_BUILD_CONTEXT:-.}
       dockerfile: apps/mova-server/Dockerfile
       args:
         MOVA_BUILD_VERSION: ${MOVA_BUILD_VERSION:-development}
