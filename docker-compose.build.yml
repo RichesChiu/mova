@@ -1,6 +1,6 @@
 services:
   rust-tooling:
-    image: richeschiu/mova-rust-build-base:1-bookworm-v2
+    image: richeschiu/mova-rust-build-base:1-bookworm
     working_dir: /app
     environment:
       HTTP_PROXY: ${HTTP_PROXY:-}

@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1.7
 
-FROM richeschiu/mova-web-build-base:node24-pnpm11-v2 AS web-builder
+ARG MOVA_WEB_BUILD_BASE=richeschiu/mova-web-build-base:node24-pnpm11
+ARG MOVA_RUST_BUILD_BASE=richeschiu/mova-rust-build-base:1-bookworm
+ARG MOVA_RUNTIME_BASE=richeschiu/mova-runtime-base:bookworm-ffmpeg-python3
+
+FROM ${MOVA_WEB_BUILD_BASE} AS web-builder
 ARG TARGETARCH
 ARG TARGETOS
 ENV npm_config_fetch_retries=10 \
@@ -20,7 +24,7 @@ COPY apps/mova-web ./apps/mova-web
 
 RUN pnpm --dir apps/mova-web build
 
-FROM richeschiu/mova-rust-build-base:1-bookworm-v2 AS builder
+FROM ${MOVA_RUST_BUILD_BASE} AS builder
 ARG TARGETARCH
 ARG TARGETOS
 ARG MOVA_BUILD_VERSION=development
@@ -41,7 +45,7 @@ RUN --mount=type=cache,id=mova-cargo-registry-${TARGETOS}-${TARGETARCH},target=/
     --mount=type=cache,id=mova-cargo-git-${TARGETOS}-${TARGETARCH},target=/usr/local/cargo/git,sharing=locked \
     cargo build --locked --release -p mova-server
 
-FROM richeschiu/mova-runtime-base:bookworm-ffmpeg-python3-v2 AS runtime
+FROM ${MOVA_RUNTIME_BASE} AS runtime
 ARG MOVA_BUILD_VERSION=development
 ENV MOVA_WEB_DIST_DIR=/app/web \
     MOVA_CACHE_DIR=/app/data/cache \

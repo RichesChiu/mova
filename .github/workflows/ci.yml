@@ -116,10 +116,34 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
+      - name: Build Web base image
+        run: >-
+          docker build
+          --file docker/base/web-build.Dockerfile
+          --tag mova-web-build-base:ci
+          .
+
+      - name: Build Rust base image
+        run: >-
+          docker build
+          --file docker/base/rust-build.Dockerfile
+          --tag mova-rust-build-base:ci
+          .
+
+      - name: Build runtime base image
+        run: >-
+          docker build
+          --file docker/base/runtime.Dockerfile
+          --tag mova-runtime-base:ci
+          .
+
       - name: Build image
         run: >-
           docker build
           --file apps/mova-server/Dockerfile
+          --build-arg MOVA_WEB_BUILD_BASE=mova-web-build-base:ci
+          --build-arg MOVA_RUST_BUILD_BASE=mova-rust-build-base:ci
+          --build-arg MOVA_RUNTIME_BASE=mova-runtime-base:ci
           --build-arg MOVA_BUILD_VERSION=ci-${{ github.sha }}
           --tag mova:ci
           .
