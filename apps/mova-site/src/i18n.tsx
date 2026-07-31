@@ -212,6 +212,8 @@ const translations: Record<string, string> = {
     'Scan notifications use reason_code and reason_params for localized primary copy; diagnostic_message is secondary troubleshooting information.',
   '已有远端身份在 provider 临时故障时保持 matched，并以 metadata_provider_error 表示刷新失败。':
     'Existing remote identities remain matched during transient provider failures, with metadata_provider_error indicating the refresh failure.',
+  'metadata.tmdb.retention_expired 是媒体库 warning，表示条目的 TMDB 元数据超过 180 天仍未重新验证；provider-owned 数据与缓存已清除，payload 只保留本地定位字段，不保留原 TMDB 条目 ID。':
+    'metadata.tmdb.retention_expired is a library warning indicating that an item’s TMDB metadata remained unverified beyond 180 days; provider-owned data and caches are cleared, and its payload retains only local identifiers rather than the original TMDB item ID.',
   'GET 响应的未读统计不受 category 筛选影响。':
     'Unread counts in GET responses are not affected by the category filter.',
   '标记已读操作幂等，只有状态首次变化时才推进 revision。':

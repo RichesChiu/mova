@@ -25,6 +25,9 @@ pub async fn list_media_item_cast(
     if media_item.media_type.eq_ignore_ascii_case("episode") {
         return Ok(Vec::new());
     }
+    if validated_tmdb_binding(media_item).is_none() {
+        return Ok(Vec::new());
+    }
 
     let members = mova_db::list_media_item_cast_members(pool, media_item.id)
         .await
@@ -68,7 +71,10 @@ pub async fn ensure_media_item_cast(
     media_item: &MediaItem,
     metadata_provider: Arc<dyn MetadataProvider>,
 ) -> ApplicationResult<()> {
-    if media_item.media_type.eq_ignore_ascii_case("episode") || !metadata_provider.is_enabled() {
+    if media_item.media_type.eq_ignore_ascii_case("episode")
+        || validated_tmdb_binding(media_item).is_none()
+        || !metadata_provider.is_enabled()
+    {
         return Ok(());
     }
 
@@ -110,6 +116,9 @@ async fn sync_media_item_cast(
     metadata_provider: Arc<dyn MetadataProvider>,
 ) -> ApplicationResult<()> {
     let now = OffsetDateTime::now_utc();
+    let Some(provider_item_id) = validated_tmdb_binding(media_item) else {
+        return Ok(());
+    };
 
     let library = get_library(pool, media_item.library_id).await?;
     let lookup = MetadataLookup {
@@ -118,7 +127,7 @@ async fn sync_media_item_cast(
         season_air_year: None,
         library_type: metadata_lookup_type_for_media_type(&media_item.media_type).to_string(),
         language: Some(library.metadata_language),
-        provider_item_id: media_item.metadata_provider_item_id.clone(),
+        provider_item_id: Some(provider_item_id.to_string()),
     };
 
     let remote_cast = match metadata_provider.lookup_cast(&lookup).await {
@@ -138,11 +147,27 @@ async fn sync_media_item_cast(
 
     if let Some(remote_cast) = remote_cast {
         let cast_members = normalize_remote_cast(media_item.id, remote_cast);
-        persist_cast_members(pool, media_item.id, &cast_members, now).await?;
+        persist_cast_members(
+            pool,
+            media_item.id,
+            provider_item_id,
+            media_item.updated_at,
+            &cast_members,
+            now,
+        )
+        .await?;
         return Ok(());
     }
 
-    persist_cast_members(pool, media_item.id, &[], now).await?;
+    persist_cast_members(
+        pool,
+        media_item.id,
+        provider_item_id,
+        media_item.updated_at,
+        &[],
+        now,
+    )
+    .await?;
 
     Ok(())
 }
@@ -150,6 +175,8 @@ async fn sync_media_item_cast(
 async fn persist_cast_members(
     pool: &PgPool,
     media_item_id: i64,
+    expected_provider_item_id: &str,
+    expected_media_item_updated_at: OffsetDateTime,
     members: &[MediaCastMember],
     fetched_at: OffsetDateTime,
 ) -> ApplicationResult<()> {
@@ -157,6 +184,8 @@ async fn persist_cast_members(
         pool,
         mova_db::ReplaceMediaItemCastParams {
             media_item_id,
+            expected_provider_item_id: expected_provider_item_id.to_string(),
+            expected_media_item_updated_at,
             members: members
                 .iter()
                 .map(|member| mova_db::ReplaceMediaItemCastMember {
@@ -172,10 +201,36 @@ async fn persist_cast_members(
         },
     )
     .await
+    .map(|replaced| {
+        if !replaced {
+            tracing::debug!(
+                media_item_id,
+                "discarded cast fetched for a superseded TMDB binding generation"
+            );
+        }
+    })
     .map_err(ApplicationError::from)
 }
 
-fn normalize_remote_cast(
+pub(crate) fn validated_tmdb_binding(media_item: &MediaItem) -> Option<&str> {
+    if !media_item.media_type.eq_ignore_ascii_case("movie")
+        && !media_item.media_type.eq_ignore_ascii_case("series")
+    {
+        return None;
+    }
+    if media_item.metadata_provider.as_deref() != Some("tmdb")
+        || !media_item.metadata_status.eq_ignore_ascii_case("matched")
+    {
+        return None;
+    }
+    media_item
+        .metadata_provider_item_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+pub(crate) fn normalize_remote_cast(
     media_item_id: i64,
     remote_cast: Vec<RemoteCastMember>,
 ) -> Vec<MediaCastMember> {

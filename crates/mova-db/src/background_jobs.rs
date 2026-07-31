@@ -8,6 +8,28 @@ pub const BACKGROUND_JOB_FENCE_LOST_MESSAGE: &str =
     "background job execution fence is no longer valid";
 pub const BACKGROUND_JOB_FINAL_ATTEMPT_LEASE_EXPIRED_MESSAGE: &str =
     "background job final attempt lease expired before completion";
+const TMDB_MAINTENANCE_CANCELLED_ERROR: &str = "tmdb_maintenance_cancelled";
+pub(crate) const TMDB_MAINTENANCE_FAILED_ERROR: &str = "tmdb_maintenance_failed";
+pub(crate) const TMDB_MAINTENANCE_RETRY_ERROR: &str = "tmdb_maintenance_retry_scheduled";
+
+fn is_tmdb_maintenance_job_type(job_type: &str) -> bool {
+    matches!(
+        job_type,
+        "metadata.tmdb.revalidate" | "metadata.tmdb.artwork.cleanup"
+    )
+}
+
+fn persisted_background_job_error(job_type: &str, status: &str, error_message: &str) -> String {
+    if !is_tmdb_maintenance_job_type(job_type) {
+        return error_message.to_string();
+    }
+
+    match status {
+        "cancelled" => TMDB_MAINTENANCE_CANCELLED_ERROR.to_string(),
+        "failed" => TMDB_MAINTENANCE_FAILED_ERROR.to_string(),
+        _ => TMDB_MAINTENANCE_RETRY_ERROR.to_string(),
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct BackgroundJob {
@@ -266,6 +288,40 @@ pub async fn claim_background_job(
         .begin()
         .await
         .context("failed to start background job claim transaction")?;
+    // Claim decisions include cross-job exclusions (scan vs. metadata
+    // revalidation/cleanup). Serialize the short claim transaction so two
+    // workers cannot both observe the opposite job as pending and claim
+    // conflicting work concurrently.
+    sqlx::query("select pg_advisory_xact_lock(5066646249903483750)")
+        .fetch_one(&mut *tx)
+        .await
+        .context("failed to serialize background job claims")?;
+
+    // Active TMDB maintenance payloads contain provider identifiers or local
+    // artwork paths only while the job can still execute. Terminal rows retain
+    // local scope/status for diagnostics, and old history is removed in bounded
+    // batches so it cannot grow forever.
+    sqlx::query(
+        r#"
+        delete from background_jobs
+        where id in (
+            select id
+            from background_jobs
+            where job_type in (
+                    'metadata.tmdb.revalidate',
+                    'metadata.tmdb.artwork.cleanup'
+                  )
+              and status in ('succeeded', 'failed', 'cancelled')
+              and coalesce(finished_at, updated_at) < now() - interval '30 days'
+            order by coalesce(finished_at, updated_at) asc, id asc
+            limit 64
+        )
+        "#,
+    )
+    .execute(&mut *tx)
+    .await
+    .context("failed to prune terminal TMDB maintenance jobs")?;
+
     let abandoned_rows = sqlx::query(
         r#"
         select
@@ -303,6 +359,31 @@ pub async fn claim_background_job(
     let mut terminalized_jobs = Vec::with_capacity(abandoned_rows.len());
     for row in abandoned_rows {
         let abandoned_job = map_background_job_row(row);
+        if abandoned_job.job_type == "metadata.tmdb.artwork.cleanup"
+            && abandoned_job.status == "running"
+            && abandoned_job.attempt_count >= abandoned_job.max_attempts
+        {
+            sqlx::query(
+                r#"
+                update background_jobs
+                set status = 'pending',
+                    attempt_count = greatest(max_attempts - 1, 0),
+                    run_after = now() + interval '24 hours',
+                    locked_by = null,
+                    locked_at = null,
+                    lease_expires_at = null,
+                    last_error = 'TMDB artwork cleanup lease expired; retry scheduled',
+                    updated_at = now(),
+                    finished_at = null
+                where id = $1
+                "#,
+            )
+            .bind(abandoned_job.id)
+            .execute(&mut *tx)
+            .await
+            .context("failed to reschedule abandoned TMDB artwork cleanup")?;
+            continue;
+        }
         let Some((terminal_status, terminal_error)) = abandoned_terminal_transition(
             &abandoned_job.status,
             abandoned_job.attempt_count,
@@ -330,6 +411,62 @@ pub async fn claim_background_job(
         } else {
             None
         };
+        let persisted_terminal_error = if is_tmdb_maintenance_job_type(&abandoned_job.job_type) {
+            Some(persisted_background_job_error(
+                &abandoned_job.job_type,
+                terminal_status,
+                terminal_error.unwrap_or_default(),
+            ))
+        } else {
+            terminal_error.map(ToOwned::to_owned)
+        };
+
+        if abandoned_job.job_type == "metadata.tmdb.revalidate" && terminal_status == "failed" {
+            let provider_item_id = serde_json::from_str::<Value>(&abandoned_job.payload_json)
+                .ok()
+                .and_then(|payload| {
+                    payload
+                        .get("provider_item_id")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned)
+                });
+            if let Some(provider_item_id) = provider_item_id {
+                sqlx::query(
+                    r#"
+                    with failure_clock as materialized (
+                        select clock_timestamp() as failed_at
+                    )
+                    update tmdb_metadata_revalidations revalidation
+                    set last_attempt_at = failure_clock.failed_at,
+                        next_attempt_at = failure_clock.failed_at + case
+                            when consecutive_failures = 0 then interval '15 minutes'
+                            when consecutive_failures = 1 then interval '1 hour'
+                            when consecutive_failures = 2 then interval '6 hours'
+                            else interval '24 hours'
+                        end,
+                        consecutive_failures = consecutive_failures + 1,
+                        updated_at = failure_clock.failed_at
+                    from background_jobs job, media_items item, failure_clock
+                    where revalidation.media_item_id = $1
+                      and revalidation.provider_item_id = $2
+                      and job.id = $3
+                      and item.id = revalidation.media_item_id
+                      and revalidation.updated_at <= job.locked_at
+                      and item.updated_at <= job.locked_at
+                      and (
+                            revalidation.last_attempt_at is null
+                            or revalidation.last_attempt_at < job.locked_at
+                          )
+                    "#,
+                )
+                .bind(abandoned_job.scope_id)
+                .bind(provider_item_id)
+                .bind(abandoned_job.id)
+                .execute(&mut *tx)
+                .await
+                .context("failed to back off abandoned TMDB metadata revalidation")?;
+            }
+        }
 
         let terminalized_row = sqlx::query(
             r#"
@@ -339,6 +476,26 @@ pub async fn claim_background_job(
                 locked_at = null,
                 lease_expires_at = null,
                 last_error = coalesce($3, last_error),
+                payload = case
+                    when job_type in (
+                            'metadata.tmdb.revalidate',
+                            'metadata.tmdb.artwork.cleanup'
+                         ) then
+                        jsonb_strip_nulls(jsonb_build_object(
+                            'library_id', case
+                                when job_type = 'metadata.tmdb.artwork.cleanup'
+                                    then to_jsonb(scope_id)
+                                else payload -> 'library_id'
+                            end,
+                            'media_item_id', case
+                                when job_type = 'metadata.tmdb.revalidate'
+                                    then to_jsonb(scope_id)
+                                else payload -> 'media_item_id'
+                            end,
+                            'maintenance', payload -> 'maintenance'
+                        ))
+                    else payload
+                end,
                 updated_at = now(),
                 finished_at = now()
             where id = $1
@@ -359,7 +516,7 @@ pub async fn claim_background_job(
         )
         .bind(abandoned_job.id)
         .bind(terminal_status)
-        .bind(terminal_error)
+        .bind(persisted_terminal_error.as_deref())
         .fetch_one(&mut *tx)
         .await
         .context("failed to terminalize abandoned background job")?;
@@ -382,7 +539,10 @@ pub async fn claim_background_job(
                     or (job.status = 'running' and job.lease_expires_at < now())
                   )
               and not (
-                    job.job_type = 'library.cache.cleanup'
+                    job.job_type in (
+                        'library.cache.cleanup',
+                        'metadata.tmdb.artwork.cleanup'
+                    )
                     and exists (
                         select 1
                         from background_jobs blocker
@@ -392,7 +552,68 @@ pub async fn claim_background_job(
                           and blocker.status in ('running', 'cancel_requested')
                     )
                   )
-            order by job.run_after asc, job.created_at asc
+              and not (
+                    job.job_type = 'metadata.tmdb.revalidate'
+                    and exists (
+                        select 1
+                        from background_jobs blocker
+                        where blocker.job_type = 'library.scan'
+                          and blocker.scope_type = 'library'
+                          and blocker.scope_id =
+                              nullif(job.payload ->> 'library_id', '')::bigint
+                          and (
+                                blocker.status in ('running', 'cancel_requested')
+                                or (
+                                    blocker.status = 'pending'
+                                    and coalesce(
+                                        job.payload ->> 'retention_expired',
+                                        'false'
+                                    ) <> 'true'
+                                )
+                              )
+                    )
+                  )
+              and not (
+                    job.job_type = 'library.scan'
+                    and exists (
+                        select 1
+                        from background_jobs blocker
+                        where (
+                                (
+                                    blocker.job_type = 'metadata.tmdb.revalidate'
+                                    and nullif(
+                                        blocker.payload ->> 'library_id',
+                                        ''
+                                    )::bigint = job.scope_id
+                                    and (
+                                        blocker.status in ('running', 'cancel_requested')
+                                        or (
+                                            blocker.status = 'pending'
+                                            and coalesce(
+                                                blocker.payload ->> 'retention_expired',
+                                                'false'
+                                            ) = 'true'
+                                        )
+                                    )
+                                )
+                                or (
+                                    blocker.job_type = 'metadata.tmdb.artwork.cleanup'
+                                    and blocker.scope_type = 'library'
+                                    and blocker.scope_id = job.scope_id
+                                    and blocker.status in ('running', 'cancel_requested')
+                                )
+                              )
+                    )
+                  )
+            order by
+                case
+                    when job.job_type = 'metadata.tmdb.revalidate'
+                         and job.payload ->> 'retention_expired' = 'true' then -1
+                    when job.job_type = 'metadata.tmdb.revalidate' then 1
+                    else 0
+                end asc,
+                job.run_after asc,
+                job.created_at asc
             for update skip locked
             limit 1
         )
@@ -489,6 +710,40 @@ pub async fn complete_background_job(pool: &PgPool, fence: &BackgroundJobFence) 
                 when status = 'cancel_requested' then 'cancelled'
                 else 'succeeded'
             end,
+            payload = case
+                when job_type in (
+                        'metadata.tmdb.revalidate',
+                        'metadata.tmdb.artwork.cleanup'
+                     ) then
+                    jsonb_strip_nulls(jsonb_build_object(
+                        'library_id', case
+                            when job_type = 'metadata.tmdb.artwork.cleanup'
+                                then to_jsonb(scope_id)
+                            else payload -> 'library_id'
+                        end,
+                        'media_item_id', case
+                            when job_type = 'metadata.tmdb.revalidate'
+                                then to_jsonb(scope_id)
+                            else payload -> 'media_item_id'
+                        end,
+                        'maintenance', payload -> 'maintenance'
+                    ))
+                else payload
+            end,
+            last_error = case
+                when job_type in (
+                        'metadata.tmdb.revalidate',
+                        'metadata.tmdb.artwork.cleanup'
+                     )
+                     and status = 'cancel_requested'
+                    then 'tmdb_maintenance_cancelled'
+                when job_type in (
+                        'metadata.tmdb.revalidate',
+                        'metadata.tmdb.artwork.cleanup'
+                     )
+                    then null
+                else last_error
+            end,
             locked_by = null,
             locked_at = null,
             lease_expires_at = null,
@@ -528,7 +783,7 @@ pub async fn retry_or_fail_background_job(
 
     let row = sqlx::query(
         r#"
-        select status, max_attempts, related_scan_job_id
+        select status, job_type, max_attempts, related_scan_job_id
         from background_jobs
         where id = $1
         "#,
@@ -541,15 +796,17 @@ pub async fn retry_or_fail_background_job(
         bail!("{BACKGROUND_JOB_FENCE_LOST_MESSAGE}: retry state disappeared");
     };
     let current_status = row.get::<String, _>("status");
+    let job_type = row.get::<String, _>("job_type");
     let max_attempts = row.get::<i32, _>("max_attempts");
     let related_scan_job_id = row.get::<Option<i64>, _>("related_scan_job_id");
     let status = if current_status == "cancel_requested" {
         "cancelled"
-    } else if fence.attempt_count >= max_attempts {
+    } else if fence.attempt_count >= max_attempts && job_type != "metadata.tmdb.artwork.cleanup" {
         "failed"
     } else {
         "pending"
     };
+    let persisted_error_message = persisted_background_job_error(&job_type, status, error_message);
 
     let scan_job = match (related_scan_job_id, status) {
         (Some(scan_job_id), "pending") => {
@@ -585,6 +842,34 @@ pub async fn retry_or_fail_background_job(
                 when $2 = 'pending' then now() + make_interval(secs => $4)
                 else run_after
             end,
+            payload = case
+                when $2 in ('cancelled', 'failed')
+                     and job_type in (
+                        'metadata.tmdb.revalidate',
+                        'metadata.tmdb.artwork.cleanup'
+                     ) then
+                    jsonb_strip_nulls(jsonb_build_object(
+                        'library_id', case
+                            when job_type = 'metadata.tmdb.artwork.cleanup'
+                                then to_jsonb(scope_id)
+                            else payload -> 'library_id'
+                        end,
+                        'media_item_id', case
+                            when job_type = 'metadata.tmdb.revalidate'
+                                then to_jsonb(scope_id)
+                            else payload -> 'media_item_id'
+                        end,
+                        'maintenance', payload -> 'maintenance'
+                    ))
+                else payload
+            end,
+            attempt_count = case
+                when $2 = 'pending'
+                     and job_type = 'metadata.tmdb.artwork.cleanup'
+                     and attempt_count >= max_attempts
+                    then greatest(max_attempts - 1, 0)
+                else attempt_count
+            end,
             locked_by = null,
             locked_at = null,
             lease_expires_at = null,
@@ -603,7 +888,7 @@ pub async fn retry_or_fail_background_job(
     )
     .bind(fence.job_id)
     .bind(status)
-    .bind(error_message)
+    .bind(&persisted_error_message)
     .bind(retry_delay_seconds)
     .bind(&fence.worker_id)
     .bind(fence.attempt_count)
@@ -708,9 +993,10 @@ fn map_background_job_row(row: PgRow) -> BackgroundJob {
 #[cfg(test)]
 mod tests {
     use super::{
-        abandoned_terminal_transition, claim_background_job, retry_or_fail_background_job,
-        BackgroundJob, BACKGROUND_JOB_FENCE_LOST_MESSAGE,
-        BACKGROUND_JOB_FINAL_ATTEMPT_LEASE_EXPIRED_MESSAGE,
+        abandoned_terminal_transition, claim_background_job, persisted_background_job_error,
+        retry_or_fail_background_job, BackgroundJob, BACKGROUND_JOB_FENCE_LOST_MESSAGE,
+        BACKGROUND_JOB_FINAL_ATTEMPT_LEASE_EXPIRED_MESSAGE, TMDB_MAINTENANCE_CANCELLED_ERROR,
+        TMDB_MAINTENANCE_FAILED_ERROR, TMDB_MAINTENANCE_RETRY_ERROR,
     };
     use crate::{
         create_library, delete_library, enqueue_scan_job, get_scan_job, mark_scan_job_running,
@@ -756,6 +1042,37 @@ mod tests {
         );
         assert_eq!(abandoned_terminal_transition("running", 2, 3), None);
         assert_eq!(abandoned_terminal_transition("pending", 3, 3), None);
+    }
+
+    #[test]
+    fn tmdb_maintenance_errors_are_generic_when_terminal_and_bounded_when_active() {
+        let diagnostic = format!(
+            "provider 42 failed for /cache/libraries/1/artwork/tmdb/secret.jpg: {}",
+            "细".repeat(4_096)
+        );
+
+        assert_eq!(
+            persisted_background_job_error("metadata.tmdb.revalidate", "failed", &diagnostic),
+            TMDB_MAINTENANCE_FAILED_ERROR
+        );
+        assert_eq!(
+            persisted_background_job_error(
+                "metadata.tmdb.artwork.cleanup",
+                "cancelled",
+                &diagnostic
+            ),
+            TMDB_MAINTENANCE_CANCELLED_ERROR
+        );
+
+        let active =
+            persisted_background_job_error("metadata.tmdb.artwork.cleanup", "pending", &diagnostic);
+        assert_eq!(active, TMDB_MAINTENANCE_RETRY_ERROR);
+        assert!(!active.contains("42"));
+        assert!(!active.contains("/cache"));
+        assert_eq!(
+            persisted_background_job_error("library.scan", "failed", &diagnostic),
+            diagnostic
+        );
     }
 
     #[sqlx::test(migrations = "../../migrations")]

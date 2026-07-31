@@ -44,6 +44,7 @@ export const AppShell = () => {
   })
   const isDesktopDashboardRoute =
     location.pathname === '/' ||
+    location.pathname === '/about' ||
     location.pathname === '/search' ||
     location.pathname === '/settings' ||
     location.pathname === '/profile' ||

@@ -31,6 +31,26 @@ Token 缺失或只含空白时，服务端使用 disabled provider：
 
 TMDB 命中不会把电影改成剧集或重建本地季集坐标。结构由本地证据决定，TMDB 只在对应类型内确认作品身份并提供规范元数据。
 
+### 1.1 归属与品牌
+
+所有展示 TMDB 数据或图片的 Mova 界面都必须遵守 TMDB 官方归属要求：
+
+- 使用 TMDB 官方批准的 Logo，并让其视觉显著性低于 Mova 主品牌。
+- 不修改 Logo 的颜色或纵横比，不翻转或旋转 Logo。
+- 在 About、Credits 或同类归属入口显著保留以下英文原文；中文界面说明不能替代该原文：
+
+> This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+Web 客户端通过账户菜单中的 `/about` 提供 About & Credits；官网通过页脚中的 `/credits` 提供 Credits & Data Sources。两处 Logo 都链接到 `https://www.themoviedb.org`。
+
+项目内使用 TMDB 官方 [Logos & Attribution](https://www.themoviedb.org/about/logos-attribution) 页面提供的 **Alt short (blue) - SVG**，原始资产 URL 为：
+
+```text
+https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg
+```
+
+该文件原始 SHA-256 为 `8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c`，本地副本不得重新导出或改写。具体归属原文与品牌规则以 TMDB 官方 [FAQ](https://developer.themoviedb.org/docs/faq) 为准。
+
 ## 2. 当前已实现的 endpoint
 
 实现位于 `crates/mova-application/src/metadata.rs`。默认 API base URL 为 `https://api.themoviedb.org/3`，默认图片 base URL 为 `https://image.tmdb.org/t/p/original`；连接超时 4 秒、单次请求超时 12 秒。媒体库语言当前支持 `zh-CN` 和 `en-US`。
@@ -51,7 +71,7 @@ TMDB 命中不会把电影改成剧集或重建本地季集坐标。结构由本
 
 详情请求通过 `append_to_response=external_ids,images` 合并外部身份和图片集合。当前实现没有调用 `/configuration`，图片 URL 仍使用运行时配置或默认图片 base URL；也没有 append `release_dates` 或 `content_ratings`。
 
-演员不在全库扫描阶段预取。客户端调用 `GET /api/media-items/{id}/cast` 时，服务端先读本地缓存；缺失时按已绑定 provider ID 获取并持久化全部有效演员。演员失败不阻断媒体详情主体。
+演员不在全库扫描阶段预取。客户端调用 `GET /api/media-items/{id}/cast` 时，服务端先读本地缓存；缺失时按已绑定 provider ID 获取并持久化全部有效演员。演员失败不阻断媒体详情主体；一旦存在本地演员缓存，后续 TMDB 合规复核会与作品详情一起更新它，但不会为从未打开演员列表的条目预取演员。
 
 ## 3. 身份来源与唯一类型
 
@@ -244,6 +264,38 @@ API 响应只直接透出不带 query/fragment 的 TMDB 官方 HTTPS 图片地�
 - 评分或图片处理失败不得把已经接受的身份伪装成严格匹配失败。
 - 网络、图片下载和文件 I/O 必须在数据库事务外完成。
 
+### 9.1 后台复核与 180 天保留边界
+
+成功写入 TMDB binding 后，服务端维护独立的持久化复核状态。首次 binding 以写入时间建立 150/180 天窗口，不会紧接扫描再做一次重复网络抓取；正常扫描、人工匹配和人工刷新会在写入远端字段的同一数据库事务中保存本次实际响应的 ownership 快照，但不会移动该时钟。只有专用后台复核使用当前已接受 ID 取得 movie details，或同时取得 TV details 与全部季详情，并再次通过 binding/generation CAS 后，才续期。正常目标是在首次 binding 或最近一次严格复核后的第 150 天开始静默复核，为 180 天本地保留上限留出失败重试窗口。复核固定使用当前已经接受的 provider ID、媒体类型和媒体库语言调用 movie 或 TV details endpoint；它不调用 search、alternative titles，也不改变 provider ID、电影/剧集类型、物理版本关系或季集坐标。
+
+调度与限流：
+
+- PostgreSQL 全局最多存在一个 `metadata.tmdb.revalidate` 活跃任务，服务启动只回填复核状态，不为全库一次性创建后台任务。
+- 普通复核排在扫描和缓存清理之后；同库扫描运行时不并发写 metadata。180 天到期的本地清理优先于尚未开始的扫描，运行中的扫描仍需先完成当前有 fence 的写入。
+- 单次失败任务立即让出全局执行位，条目状态按 15 分钟、1 小时、6 小时、24 小时退避后重新具备入队资格；重启不会丢失该状态。
+- Token 缺失时调度器仍运行本地 retention 检查，但不会创建 150 天网络复核任务，也不会发 TMDB 请求；只有条目达到 180 天保留期限时才入队执行本地清理。
+- 正常剧集扫描保持部分成功容错：某一季请求失败时，已经取得的季集字段仍可入库并记录实际 ownership 快照，但不会续期整个剧集；条目保持立即可复核，由后续 direct-ID 完整复核补齐。
+- 扫描、人工写入和复核都以媒体项及季集的 `updated_at` 做 compare-and-swap；复核时间统一取 PostgreSQL 时钟。相同 provider ID 的 NFO、扫描或人工修改也会让旧复核结果失效，避免晚到响应覆盖新数据。
+
+字段所有权通过上一份成功复核的 TMDB 快照判断，不通过文件路径或字段是否非空猜测：
+
+- `source_title`、`sort_title`、媒体类型、文件、版本关系和季集坐标始终保持本地权威。
+- 首次为旧 binding 建立快照时，已有非空标题、简介、年份、国家、题材和制作方若与 direct-ID 响应不同则视为本地值并保留；与响应完全相同的值会在快照提交后建立 ownership。artwork 只有在已位于当前媒体库 `artwork/tmdb` 命名空间，或与随后提交的响应快照一致时才建立 ownership，路径外 sidecar 不会被接管。
+- 后续复核只有在当前字段仍等于上一份 TMDB 快照时才更新或清空它；NFO、sidecar 或其它本地流程写成不同值后继续保留。
+- 剧集的已持久化季标题、季简介、季 artwork、单集标题、单集简介、单集 artwork，以及 `series_episode_outline_cache` 使用同一快照和 150/180 天生命周期；季集坐标、源标题、文件和播放状态始终保持本地权威。
+- TMDB 详情响应产生的 external IDs 和 `source=tmdb` 评分具有明确远端来源，成功复核时权威替换。评分自身的 `fetched_at` 与复核状态的 `verified_at` 分别记录评分和完整详情的获取时间。
+- 已存在的 cast cache 通过同一 provider ID 重新获取并更新 `fetched_at`；没有 cast cache 的条目保持按需加载，不因后台任务预取。
+- 新 poster、backdrop 和 Logo 必须先通过既有安全下载与原子发布流程进入本地缓存，图片缓存失败会让整次复核进入退避，不会用失败结果替换当前图片。成功换图后，仅删除不再被任何媒体或季引用、且来自上一份 TMDB 快照的缓存文件。
+
+达到 180 天仍未成功复核时，服务端执行一次有明确通知的本地 retention 清理：
+
+- 有可信快照时，仅把仍等于上一份 TMDB 快照的展示字段清除；远端标题回退到 `source_title`。快照始终为空的 binding 若直到 180 天仍未完成一次 direct-ID 复核，已经无法证明哪些 enrichment 可继续保留，因此标题、简介、年份、国家、题材、制作方、季集展示字段和 artwork 均按未知远端 enrichment 清除，只有 `source_title`、`sort_title`、季集坐标、文件和用户状态等本地权威数据保留。
+- 清除 TMDB binding、`remote_media_type`、该 binding 写入的 external IDs、TMDB 评分、cast cache 和 series outline cache；媒体项保留并进入 `pending`，可在 Token 恢复后的扫描或人工操作中重新匹配。
+- 清除数据库引用的同一事务会持久化 `metadata.tmdb.artwork.cleanup` 后台任务；该任务带租约并以最长 24 小时的封顶退避持续重试直至成功。引用检查和物理删除持有媒体库级 advisory lock，所有可能写入 TMDB artwork 引用的事务使用同一组锁，只对已无任何媒体、季、outline 或演员引用且规范化后仍位于当前媒体库 `artwork/tmdb` 命名空间内的文件执行物理删除。共享图片和路径边界外文件不会删除，进程退出也不会丢失待清理工作；终态任务会立即擦除路径列表，并由有界历史清理回收。为覆盖图片已原子发布、但进程在数据库引用提交前退出的极窄窗口，每个媒体库还会每天持久化一次孤儿扫描任务；该任务不跟随符号链接，只复查并删除修改时间已超过 180 天且仍无引用的 TMDB 缓存文件。
+- 写入 library 范围的 warning 通知，`notification_type=metadata.tmdb.retention_expired`、`reason_code=tmdb_retention_expired`；通知和终态复核任务只保留本地定位信息，不继续保存原 TMDB 条目 ID，旧终态任务会按有界批次清理。这不是日常可见的“六个月倒计时”；正常可用的 Token 会在第 150 天后台续期，不改变用户体验。
+
+这套状态属于 1.0 的 `migrations/0001_init.sql` 基线。数据库初始化、升级与数据维护要求见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
+
 ## 10. 规划能力
 
 以下能力尚未进入当前运行时契约：
@@ -253,7 +305,7 @@ API 响应只直接透出不带 query/fragment 的 TMDB 官方 HTTPS 图片地�
 - 保存完整图片候选集合并允许切换。
 - 关键词、视频、推荐、相似内容和观看渠道。
 - 人物详情、合集和非标准 episode groups。
-- 统一的 provider 全局 rate limiter、`Retry-After` 和带抖动退避。
+- 扫描和人工查询共用的 provider 全局 rate limiter、`Retry-After` 和带抖动退避；合规复核已经使用独立的数据库单任务限流和持久退避。
 - 跨 worker 的查询缓存和 single-flight，避免不同扫描任务同时请求相同 lookup。
 
 规划能力不得在 [`API.md`](API.md) 中描述成已经可用的客户端功能；落地时需要同步代码、schema、API 和本文。

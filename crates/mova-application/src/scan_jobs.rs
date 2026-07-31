@@ -960,6 +960,8 @@ async fn analyze_pending_scan_groups(
                 mova_db::ScanGroupCommitStage::Local,
                 false,
                 false,
+                None,
+                false,
                 fence,
             )
             .await?;
@@ -1044,7 +1046,7 @@ async fn enrich_discovered_groups(
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> ApplicationResult<RemoteScanPipelineOutcome> {
     let mut enrichment = MetadataEnrichmentContext::new(
-        artwork_cache_dir,
+        artwork_cache_dir.clone(),
         library.id,
         metadata_provider.clone(),
         library.metadata_language.clone(),
@@ -1089,6 +1091,8 @@ async fn enrich_discovered_groups(
                 mova_db::ScanGroupCommitStage::Remote,
                 true,
                 true,
+                None,
+                false,
                 fence,
             )
             .await?;
@@ -1118,6 +1122,9 @@ async fn enrich_discovered_groups(
         for file in &mut files_before_enrichment {
             enrichment.sanitize_file_artwork_sources(file);
         }
+        let artwork_publication = mova_db::TmdbArtworkPublicationGuard::acquire(pool, library.id)
+            .await
+            .map_err(ApplicationError::from)?;
         let enrichment_result = enrichment
             .enrich_group_with_lookup_hint_and_progress(
                 lookup_type,
@@ -1147,6 +1154,12 @@ async fn enrich_discovered_groups(
                 },
             )
             .await;
+        let materialized_artwork =
+            crate::tmdb_revalidation::materialized_tmdb_artwork_paths_from_files(
+                &group.files,
+                &artwork_cache_dir,
+                library.id,
+            );
 
         let remote_media_type = metadata_decision.remote_media_type;
         let enrichment_outcome = match enrichment_result {
@@ -1169,7 +1182,7 @@ async fn enrich_discovered_groups(
                     remote_media_type,
                 );
 
-                let group_outcome = sync_scan_group_media_entries(
+                let group_result = sync_scan_group_media_entries(
                     pool,
                     scan_job_id,
                     library,
@@ -1177,7 +1190,19 @@ async fn enrich_discovered_groups(
                     mova_db::ScanGroupCommitStage::Remote,
                     false,
                     false,
+                    None,
+                    false,
                     fence,
+                )
+                .await;
+                let group_outcome = crate::tmdb_revalidation::finish_tmdb_artwork_publication(
+                    artwork_publication,
+                    group_result,
+                    pool,
+                    &artwork_cache_dir,
+                    library.id,
+                    materialized_artwork,
+                    false,
                 )
                 .await?;
                 merge_sync_outcome(&mut sync_outcome, group_outcome);
@@ -1214,7 +1239,7 @@ async fn enrich_discovered_groups(
             }
         }
 
-        let group_outcome = sync_scan_group_media_entries(
+        let group_result = sync_scan_group_media_entries(
             pool,
             scan_job_id,
             library,
@@ -1222,7 +1247,19 @@ async fn enrich_discovered_groups(
             mova_db::ScanGroupCommitStage::Remote,
             enrichment_outcome.remote_metadata_applied,
             enrichment_outcome.remote_metadata_applied,
+            enrichment_outcome.tmdb_remote_snapshot_json.as_deref(),
+            enrichment_outcome.tmdb_remote_snapshot_renews_retention,
             fence,
+        )
+        .await;
+        let group_outcome = crate::tmdb_revalidation::finish_tmdb_artwork_publication(
+            artwork_publication,
+            group_result,
+            pool,
+            &artwork_cache_dir,
+            library.id,
+            materialized_artwork,
+            true,
         )
         .await?;
         merge_sync_outcome(&mut sync_outcome, group_outcome);
@@ -1254,6 +1291,8 @@ async fn sync_scan_group_media_entries(
     stage: mova_db::ScanGroupCommitStage,
     allow_artwork_clear: bool,
     replace_remote_data: bool,
+    tmdb_remote_snapshot_json: Option<&str>,
+    tmdb_remote_snapshot_renews_retention: bool,
     fence: &BackgroundJobFence,
 ) -> ApplicationResult<mova_db::SyncLibraryMediaBestEffortOutcome> {
     let entries = build_media_entries(
@@ -1261,6 +1300,8 @@ async fn sync_scan_group_media_entries(
         group.files.clone(),
         allow_artwork_clear,
         replace_remote_data,
+        tmdb_remote_snapshot_json,
+        tmdb_remote_snapshot_renews_retention,
     )?;
     let upserted_count = match stage {
         mova_db::ScanGroupCommitStage::Local => {
@@ -1658,6 +1699,8 @@ fn build_media_entries(
     discovered_files: Vec<DiscoveredMediaFile>,
     allow_artwork_clear: bool,
     replace_remote_data: bool,
+    tmdb_remote_snapshot_json: Option<&str>,
+    tmdb_remote_snapshot_renews_retention: bool,
 ) -> ApplicationResult<Vec<mova_db::CreateMediaEntryParams>> {
     let discovered_files = normalize_discovered_files_for_local_structure(discovered_files);
     let mut entries = Vec::new();
@@ -1698,6 +1741,11 @@ fn build_media_entries(
         if replace_remote_data {
             remote_data_pending = false;
         }
+        let tmdb_remote_snapshot_json = replace_remote_data
+            .then(|| tmdb_remote_snapshot_json.map(str::to_owned))
+            .flatten();
+        let tmdb_remote_snapshot_renews_retention =
+            replace_remote_data && tmdb_remote_snapshot_renews_retention;
 
         entries.push(mova_db::CreateMediaEntryParams {
             library_id: library.id,
@@ -1708,6 +1756,8 @@ fn build_media_entries(
             metadata_failure_reason: file.metadata_failure_reason,
             allow_artwork_clear: entry_allow_artwork_clear,
             replace_remote_data,
+            tmdb_remote_snapshot_json,
+            tmdb_remote_snapshot_renews_retention,
             remote_media_type: file.remote_media_type,
             title: file.title,
             source_title: file.source_title,

@@ -146,6 +146,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '扫描统计只有在 summary_available 为 true 时才可展示；失败或取消时不得把默认 0 当作真实统计。',
       '扫描通知使用 reason_code 和 reason_params 生成本地化主文案，diagnostic_message 只作为次级排障信息。',
       '已有远端身份在 provider 临时故障时保持 matched，并以 metadata_provider_error 表示刷新失败。',
+      'metadata.tmdb.retention_expired 是媒体库 warning，表示条目的 TMDB 元数据超过 180 天仍未重新验证；provider-owned 数据与缓存已清除，payload 只保留本地定位字段，不保留原 TMDB 条目 ID。',
       'GET 响应的未读统计不受 category 筛选影响。',
       '标记已读操作幂等，只有状态首次变化时才推进 revision。',
     ],

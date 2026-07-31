@@ -1412,6 +1412,8 @@ fn build_media_entries_normalizes_multi_season_series_years_before_sync() {
         vec![first_file, second_file, third_file],
         true,
         true,
+        None,
+        false,
     )
     .unwrap();
 
@@ -1438,7 +1440,8 @@ fn build_media_entries_preserves_tmdb_series_title_after_local_grouping() {
     file.season_number = Some(1);
     file.episode_number = Some(1);
 
-    let entries = super::build_media_entries(&build_library(), vec![file], true, true).unwrap();
+    let entries =
+        super::build_media_entries(&build_library(), vec![file], true, true, None, false).unwrap();
 
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].media_type, "episode");
@@ -1461,8 +1464,15 @@ fn build_media_entries_applies_authoritative_group_flags_and_keeps_each_episode_
     second_file.overview = Some("Remote overview two".to_string());
     second_file.poster_path = Some("/cache/episode-two.jpg".to_string());
 
-    let pending_entries =
-        super::build_media_entries(&build_library(), vec![file.clone()], false, false).unwrap();
+    let pending_entries = super::build_media_entries(
+        &build_library(),
+        vec![file.clone()],
+        false,
+        false,
+        None,
+        false,
+    )
+    .unwrap();
     assert!(!pending_entries[0].allow_artwork_clear);
     assert!(!pending_entries[0].replace_remote_data);
 
@@ -1471,6 +1481,8 @@ fn build_media_entries_applies_authoritative_group_flags_and_keeps_each_episode_
         vec![file.clone(), second_file],
         true,
         true,
+        None,
+        false,
     )
     .unwrap();
     assert!(matched_entries
@@ -1499,7 +1511,7 @@ fn build_media_entries_applies_authoritative_group_flags_and_keeps_each_episode_
     file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
     file.metadata_provider_item_id = None;
     let unmatched_entries =
-        super::build_media_entries(&build_library(), vec![file], true, true).unwrap();
+        super::build_media_entries(&build_library(), vec![file], true, true, None, false).unwrap();
     assert!(!unmatched_entries[0].allow_artwork_clear);
     assert!(unmatched_entries[0].replace_remote_data);
 }
@@ -2031,7 +2043,8 @@ fn provider_error_restores_trusted_metadata_and_preserves_remote_data() {
     assert_eq!(restored.external_ids, preserved_file.external_ids);
     assert_eq!(restored.ratings, preserved_file.ratings);
 
-    let entries = super::build_media_entries(&build_library(), files, false, false).unwrap();
+    let entries =
+        super::build_media_entries(&build_library(), files, false, false, None, false).unwrap();
     assert_eq!(entries.len(), 1);
     assert!(!entries[0].replace_remote_data);
     assert!(!entries[0].allow_artwork_clear);
@@ -2249,9 +2262,15 @@ fn build_media_entries_keeps_plain_series_folder_files_as_movies() {
     second_file.episode_number = None;
     second_file.episode_title = None;
 
-    let entries =
-        super::build_media_entries(&build_library(), vec![first_file, second_file], true, true)
-            .unwrap();
+    let entries = super::build_media_entries(
+        &build_library(),
+        vec![first_file, second_file],
+        true,
+        true,
+        None,
+        false,
+    )
+    .unwrap();
 
     assert_eq!(entries.len(), 2);
     assert!(entries.iter().all(|entry| entry.media_type == "movie"));

@@ -11,6 +11,9 @@ use crate::{
         lock_library_scan_background_job_fence, BackgroundJobFence, LibraryScanFenceMode,
     },
     playback_progress::merge_media_item_user_state,
+    tmdb_revalidation::{
+        lock_library_tmdb_artwork_reference_write, record_authoritative_tmdb_snapshot_tx,
+    },
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -37,6 +40,7 @@ pub async fn sync_library_media(
         .begin()
         .await
         .context("failed to start media sync transaction")?;
+    lock_library_tmdb_artwork_reference_write(&mut tx, library_id).await?;
 
     let existing_records = list_library_media_files_for_sync(&mut tx, library_id).await?;
     let mut existing_by_path = existing_records
@@ -151,6 +155,7 @@ pub async fn sync_library_media_changes(
         LibraryScanFenceMode::Running,
     )
     .await?;
+    lock_library_tmdb_artwork_reference_write(&mut tx, library_id).await?;
     sqlx::query("select set_config('mova.defer_catalog_revision', 'on', true)")
         .fetch_one(&mut *tx)
         .await
@@ -243,6 +248,7 @@ pub async fn upsert_library_media_entry_by_file_path(
         .begin()
         .await
         .context("failed to start single media upsert transaction")?;
+    lock_library_tmdb_artwork_reference_write(&mut tx, library_id).await?;
 
     let existing =
         get_existing_library_media_file_by_path(&mut tx, library_id, &entry.file_path).await?;
@@ -283,6 +289,7 @@ pub async fn upsert_library_media_entries_by_file_path(
         LibraryScanFenceMode::Running,
     )
     .await?;
+    lock_library_tmdb_artwork_reference_write(&mut tx, library_id).await?;
 
     sqlx::query("select set_config('mova.defer_catalog_revision', 'on', true)")
         .fetch_one(&mut *tx)
@@ -347,6 +354,7 @@ pub async fn patch_library_media_entries_remote_by_file_path(
         LibraryScanFenceMode::Running,
     )
     .await?;
+    lock_library_tmdb_artwork_reference_write(&mut tx, library_id).await?;
     sqlx::query("select set_config('mova.defer_catalog_revision', 'on', true)")
         .fetch_one(&mut *tx)
         .await
@@ -541,6 +549,14 @@ pub(super) async fn patch_media_item_remote_fields(
         entry.metadata_provider.as_deref(),
         &entry.external_ids,
         &entry.ratings,
+    )
+    .await?;
+    record_authoritative_tmdb_snapshot_tx(
+        tx,
+        media_item_id,
+        entry.metadata_provider.as_deref(),
+        entry.tmdb_remote_snapshot_json.as_deref(),
+        entry.tmdb_remote_snapshot_renews_retention,
     )
     .await
 }
@@ -1331,6 +1347,14 @@ async fn insert_media_item(
             &entry.ratings,
         )
         .await?;
+        record_authoritative_tmdb_snapshot_tx(
+            tx,
+            media_item_id,
+            entry.metadata_provider.as_deref(),
+            entry.tmdb_remote_snapshot_json.as_deref(),
+            entry.tmdb_remote_snapshot_renews_retention,
+        )
+        .await?;
     }
 
     Ok(media_item_id)
@@ -1399,6 +1423,14 @@ async fn update_media_item_from_entry(
             entry.metadata_provider.as_deref(),
             &entry.external_ids,
             &entry.ratings,
+        )
+        .await?;
+        record_authoritative_tmdb_snapshot_tx(
+            tx,
+            media_item_id,
+            entry.metadata_provider.as_deref(),
+            entry.tmdb_remote_snapshot_json.as_deref(),
+            entry.tmdb_remote_snapshot_renews_retention,
         )
         .await?;
     }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Header } from './components/Header'
 import { SiteFooter } from './components/SiteFooter'
 import { ApiDocsPage } from './pages/ApiDocsPage'
+import { CreditsPage } from './pages/CreditsPage'
 import { DeploymentPage } from './pages/DeploymentPage'
 import { HomePage } from './pages/HomePage'
 import { PrivacyPage } from './pages/PrivacyPage'
@@ -9,11 +10,12 @@ import { SupportPage } from './pages/SupportPage'
 import { useI18n } from './i18n-context'
 import './App.css'
 
-type Page = 'home' | 'deploy' | 'api' | 'privacy' | 'support'
+type Page = 'home' | 'deploy' | 'api' | 'credits' | 'privacy' | 'support'
 
 const pagePaths: Record<Exclude<Page, 'home'>, string> = {
   deploy: '/deploy',
   api: '/api',
+  credits: '/credits',
   privacy: '/privacy',
   support: '/support',
 }
@@ -28,6 +30,7 @@ const getRoutePage = (): Page => {
 
   if (path === '/deploy' || hashRoute === 'deploy') return 'deploy'
   if (path === '/api' || hashRoute === 'api') return 'api'
+  if (path === '/credits' || hashRoute === 'credits') return 'credits'
   if (path === '/privacy' || hashRoute === 'privacy') return 'privacy'
   if (path === '/support' || hashRoute === 'support') return 'support'
   return 'home'
@@ -44,6 +47,7 @@ function App() {
       home: { zh: 'MOVA 自托管媒体服务', en: 'MOVA Self-hosted Media Service' },
       deploy: { zh: '部署文档 · MOVA', en: 'Deployment Guide · MOVA' },
       api: { zh: 'API 文档 · MOVA', en: 'API Documentation · MOVA' },
+      credits: { zh: '鸣谢与数据来源 · MOVA', en: 'Credits & Data Sources · MOVA' },
       privacy: { zh: '隐私政策 · MOVA', en: 'Privacy Policy · MOVA' },
       support: { zh: '支持 · MOVA', en: 'Support · MOVA' },
     }
@@ -179,6 +183,8 @@ function App() {
           <DeploymentPage onNavigate={handleHeaderNavigate} />
         ) : page === 'api' ? (
           <ApiDocsPage onNavigate={handleHeaderNavigate} />
+        ) : page === 'credits' ? (
+          <CreditsPage />
         ) : page === 'privacy' ? (
           <PrivacyPage />
         ) : page === 'support' ? (
@@ -189,6 +195,7 @@ function App() {
       </main>
 
       <SiteFooter
+        onOpenCredits={() => openPage('credits')}
         onOpenHome={() => scrollToSection('home')}
         onOpenPrivacy={() => openPage('privacy')}
       />

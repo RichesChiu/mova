@@ -7,6 +7,7 @@ mod playback_progress;
 mod pool;
 mod realtime;
 mod scan_jobs;
+mod tmdb_revalidation;
 mod users;
 
 #[cfg(test)]
@@ -69,6 +70,18 @@ pub use scan_jobs::{
     initialize_scan_job_work, list_scan_jobs_for_library, mark_scan_group_analyzed,
     mark_scan_job_retry_pending, mark_scan_job_running, record_scan_job_attempt_failure,
     update_scan_job_phase, update_scan_job_progress, CreateScanJobParams, EnqueueScanJobResult,
+};
+pub use tmdb_revalidation::{
+    complete_tmdb_metadata_revalidation, defer_tmdb_revalidation_until_retention_deadline,
+    discard_ineligible_tmdb_metadata_revalidation, enqueue_due_tmdb_artwork_orphan_sweeps,
+    enqueue_due_tmdb_metadata_revalidation, expire_tmdb_metadata_retention,
+    get_tmdb_metadata_revalidation_target, is_artwork_path_referenced_tx,
+    lock_library_tmdb_artwork, lock_library_tmdb_artwork_reference_write,
+    record_tmdb_metadata_revalidation_failure, CompleteTmdbMetadataRevalidationParams,
+    ExpireTmdbMetadataRetentionParams, ReplaceTmdbRevalidationEpisode,
+    ReplaceTmdbRevalidationSeason, TmdbArtworkPublicationGuard, TmdbMetadataRevalidationTarget,
+    TmdbRevalidationEpisode, TmdbRevalidationSeason, TMDB_ARTWORK_CLEANUP_JOB_TYPE,
+    TMDB_ARTWORK_RETENTION_DAYS, TMDB_REVALIDATION_INTERVAL_DAYS, TMDB_REVALIDATION_JOB_TYPE,
 };
 pub use users::{
     cleanup_auth_sessions, count_admin_users, count_enabled_admin_users,

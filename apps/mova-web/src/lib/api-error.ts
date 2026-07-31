@@ -43,6 +43,8 @@ const errorMessageKeys: Record<string, string> = {
   subtitle_too_large: 'The selected subtitle is too large to process.',
   cache_cleanup_failed:
     'The library data was deleted, but its cache could not be removed after all retries.',
+  tmdb_retention_expired:
+    'TMDB metadata could not be revalidated within 180 days. Provider-owned metadata and cached data were cleared, and the item is ready to be matched again.',
 }
 
 const fieldMessageKeys: Record<string, string> = {

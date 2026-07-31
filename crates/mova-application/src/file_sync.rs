@@ -35,7 +35,7 @@ pub async fn sync_library_filesystem_changes(
     let library = get_library(pool, library_id).await?;
     let metadata_provider_enabled = metadata_provider.is_enabled();
     let mut enrichment = MetadataEnrichmentContext::new(
-        artwork_cache_dir,
+        artwork_cache_dir.clone(),
         library.id,
         metadata_provider,
         library.metadata_language.clone(),
@@ -85,7 +85,10 @@ pub async fn sync_library_filesystem_changes(
             classify_media_type(&path)
         };
         let lookup_type = metadata_lookup_type_for_media_type(media_type);
-        enrichment
+        let artwork_publication = mova_db::TmdbArtworkPublicationGuard::acquire(pool, library.id)
+            .await
+            .map_err(ApplicationError::from)?;
+        let enrichment_result = enrichment
             .enrich_group_with_lookup_hint_and_progress(
                 lookup_type,
                 std::slice::from_mut(&mut discovered_file),
@@ -94,19 +97,82 @@ pub async fn sync_library_filesystem_changes(
                 |_, _| {},
             )
             .await
-            .map_err(ApplicationError::Unexpected)?;
+            .map_err(ApplicationError::Unexpected);
+        let materialized_artwork =
+            crate::tmdb_revalidation::materialized_tmdb_artwork_paths_from_files(
+                std::slice::from_ref(&discovered_file),
+                &artwork_cache_dir,
+                library.id,
+            );
+        let enrichment_outcome = match enrichment_result {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                return crate::tmdb_revalidation::finish_tmdb_artwork_publication(
+                    artwork_publication,
+                    Err(error),
+                    pool,
+                    &artwork_cache_dir,
+                    library.id,
+                    materialized_artwork,
+                    true,
+                )
+                .await;
+            }
+        };
         finalize_file_metadata_status(
             &mut discovered_file,
             metadata_provider_enabled,
             remote_media_type_for_lookup_type(lookup_type),
         );
-        let Some(entry) = build_media_entry(&library, media_type, discovered_file)? else {
-            continue;
+        let entry = build_media_entry(
+            &library,
+            media_type,
+            discovered_file,
+            enrichment_outcome.tmdb_remote_snapshot_json,
+            enrichment_outcome.tmdb_remote_snapshot_renews_retention,
+        );
+        let entry = match entry {
+            Ok(Some(entry)) => entry,
+            Ok(None) => {
+                crate::tmdb_revalidation::finish_tmdb_artwork_publication(
+                    artwork_publication,
+                    Ok::<(), ApplicationError>(()),
+                    pool,
+                    &artwork_cache_dir,
+                    library.id,
+                    materialized_artwork,
+                    false,
+                )
+                .await?;
+                continue;
+            }
+            Err(error) => {
+                return crate::tmdb_revalidation::finish_tmdb_artwork_publication(
+                    artwork_publication,
+                    Err(error),
+                    pool,
+                    &artwork_cache_dir,
+                    library.id,
+                    materialized_artwork,
+                    true,
+                )
+                .await;
+            }
         };
 
-        mova_db::upsert_library_media_entry_by_file_path(pool, library.id, &entry)
+        let upsert = mova_db::upsert_library_media_entry_by_file_path(pool, library.id, &entry)
             .await
-            .map_err(ApplicationError::from)?;
+            .map_err(ApplicationError::from);
+        crate::tmdb_revalidation::finish_tmdb_artwork_publication(
+            artwork_publication,
+            upsert,
+            pool,
+            &artwork_cache_dir,
+            library.id,
+            materialized_artwork,
+            true,
+        )
+        .await?;
     }
 
     for directory_prefix in removed_directory_prefixes {
@@ -237,6 +303,8 @@ fn build_media_entry(
     library: &mova_domain::Library,
     media_type: &str,
     file: DiscoveredMediaFile,
+    tmdb_remote_snapshot_json: Option<String>,
+    tmdb_remote_snapshot_renews_retention: bool,
 ) -> ApplicationResult<Option<mova_db::CreateMediaEntryParams>> {
     if media_type == "episode" && (file.season_number.is_none() || file.episode_number.is_none()) {
         tracing::warn!(
@@ -274,6 +342,8 @@ fn build_media_entry(
         metadata_failure_reason: file.metadata_failure_reason,
         allow_artwork_clear,
         replace_remote_data,
+        tmdb_remote_snapshot_json,
+        tmdb_remote_snapshot_renews_retention,
         remote_media_type: file.remote_media_type,
         title: file.title,
         source_title: file.source_title,

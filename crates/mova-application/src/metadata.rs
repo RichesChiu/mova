@@ -1,3 +1,4 @@
+use anyhow::Context;
 use async_trait::async_trait;
 use reqwest::{
     header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION},
@@ -131,6 +132,16 @@ pub trait MetadataProvider: Send + Sync {
         _lookup: &MetadataLookup,
     ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
         Ok(None)
+    }
+
+    /// Compliance revalidation must not renew a series retention window from
+    /// a partial outline. Providers that can return partial data should
+    /// override this with an all-or-error implementation.
+    async fn lookup_complete_series_episode_outline(
+        &self,
+        lookup: &MetadataLookup,
+    ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
+        self.lookup_series_episode_outline(lookup).await
     }
 
     async fn lookup_cast(
@@ -777,6 +788,7 @@ impl TmdbMetadataProvider {
     async fn lookup_tv_episode_outline(
         &self,
         lookup: &MetadataLookup,
+        require_complete: bool,
     ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
         let tv_id = match lookup.provider_item_id.as_deref() {
             Some(tv_id) => parse_tmdb_provider_item_id(tv_id)?,
@@ -803,6 +815,14 @@ impl TmdbMetadataProvider {
                 .await
             {
                 Ok(season_details) => season_details,
+                Err(error) if require_complete => {
+                    return Err(error).with_context(|| {
+                        format!(
+                            "failed to fetch complete TMDB outline for series {tv_id}, season {}",
+                            season.season_number
+                        )
+                    });
+                }
                 Err(error) => {
                     tracing::warn!(
                         tv_id,
@@ -1052,7 +1072,20 @@ impl MetadataProvider for TmdbMetadataProvider {
             return Ok(None);
         }
 
-        self.lookup_tv_episode_outline(lookup).await
+        self.lookup_tv_episode_outline(lookup, false).await
+    }
+
+    async fn lookup_complete_series_episode_outline(
+        &self,
+        lookup: &MetadataLookup,
+    ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
+        if (lookup.title.trim().is_empty() && lookup.provider_item_id.is_none())
+            || !lookup.library_type.eq_ignore_ascii_case("series")
+        {
+            return Ok(None);
+        }
+
+        self.lookup_tv_episode_outline(lookup, true).await
     }
 
     async fn lookup_cast(

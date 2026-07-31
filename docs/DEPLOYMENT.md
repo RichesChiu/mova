@@ -17,6 +17,18 @@ This document defines the supported Docker Compose deployment, initialization bo
 
 媒体目录以只读方式挂载到 `/media`。Mova 会写入 `data/postgres/` 和 `data/cache/`，不会修改原始媒体文件。
 
+#### 使用外部 PostgreSQL
+
+如需连接已有的 PostgreSQL：
+
+1. 将 `app.environment.MOVA_DATABASE_URL` 改为容器可访问的数据库地址。
+2. 删除 `app.depends_on.database`。
+3. 删除整个 `database` 服务。
+
+外部数据库必须提前创建，连接账号需要拥有建表、修改表结构和执行迁移的权限。容器中的 `localhost` 指向 Mova 容器自身，应填写数据库的实际 IP 或域名，并按数据库要求在连接 URL 中配置 TLS。Mova 启动时自动执行迁移。
+
+本文后续使用 `docker compose exec database` 的备份与恢复命令只适用于 Compose 内置 PostgreSQL。使用外部数据库时，应改用数据库提供方支持的备份、恢复和回滚流程。
+
 ### 2. 首次初始化安全
 
 数据库中还没有系统管理员时，初始化接口允许创建首个系统管理员。完成初始化前：
@@ -35,7 +47,7 @@ MOVA_SESSION_COOKIE_SECURE: "true"
 
 ### 3. Preview 到 1.0 的一次性重建
 
-1.0 将最终表结构压缩为 `migrations/0001_init.sql`。任何 Preview 数据库都不能作为 1.0 的迁移起点；第一次启动 1.0 前必须执行最后一次数据库重建并重新扫描媒体库。
+1.0 将最终表结构冻结在 `migrations/0001_init.sql`。Preview 数据库使用的是开发期表结构，不能作为 1.0 的迁移起点；第一次启动 1.0 前必须执行最后一次数据库重建并重新扫描媒体库。
 
 先停止 Preview 服务：
 
@@ -146,6 +158,18 @@ The official Compose stack runs:
 
 The media directory is mounted read-only at `/media`. Mova writes to `data/postgres/` and `data/cache/` and does not modify original media files.
 
+#### Using external PostgreSQL
+
+To connect an existing PostgreSQL database:
+
+1. Replace `app.environment.MOVA_DATABASE_URL` with an address reachable from the container.
+2. Remove `app.depends_on.database`.
+3. Remove the entire `database` service.
+
+Create the external database first and grant the connection account permission to create and alter tables and run migrations. `localhost` inside the container refers to the Mova container itself, so use the database's actual IP address or DNS name and configure TLS in the connection URL when required. Mova runs migrations automatically during startup.
+
+The backup and restore commands later in this document that use `docker compose exec database` apply only to the bundled PostgreSQL service. For an external database, follow the provider-supported backup, restore, and rollback procedure.
+
 ### 2. Initial bootstrap security
 
 While no system administrator exists, the bootstrap endpoint can create the first system administrator. Before completing bootstrap:
@@ -164,7 +188,7 @@ Port `36080` serves Web/API traffic; it is not a database port. The deployment n
 
 ### 3. One-time Preview-to-1.0 rebuild
 
-The final 1.0 schema is squashed into `migrations/0001_init.sql`. Preview databases are not a supported 1.0 migration source. Before starting 1.0 for the first time, perform one final database rebuild and rescan all libraries.
+Version 1.0 freezes its final schema in `migrations/0001_init.sql`. Preview databases use development-era schemas and are not supported as a 1.0 migration source. Before starting 1.0 for the first time, perform one final database rebuild and rescan all libraries.
 
 Stop the Preview stack:
 

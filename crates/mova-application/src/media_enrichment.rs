@@ -113,10 +113,12 @@ pub(crate) enum MetadataEnrichmentStage {
     Completed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MetadataEnrichmentOutcome {
     pub remote_lookup_performed: bool,
     pub remote_metadata_applied: bool,
+    pub tmdb_remote_snapshot_json: Option<String>,
+    pub tmdb_remote_snapshot_renews_retention: bool,
 }
 
 impl MetadataEnrichmentContext {
@@ -177,6 +179,8 @@ impl MetadataEnrichmentContext {
             return Ok(MetadataEnrichmentOutcome {
                 remote_lookup_performed: false,
                 remote_metadata_applied: false,
+                tmdb_remote_snapshot_json: None,
+                tmdb_remote_snapshot_renews_retention: false,
             });
         }
 
@@ -221,24 +225,67 @@ impl MetadataEnrichmentContext {
 
         on_progress(MetadataEnrichmentStage::Artwork, &files[0]);
 
-        let allow_remote_outline = resolved_remote_metadata.is_some();
-        for file in files.iter_mut() {
-            if lookup_type.eq_ignore_ascii_case("series") {
-                self.enrich_episode_like_artwork(
-                    &episode_outline_lookup,
-                    file,
-                    allow_remote_outline,
-                )
-                .await?;
+        let mut resolved_remote_outline = if lookup_type.eq_ignore_ascii_case("series")
+            && resolved_remote_metadata.is_some()
+        {
+            match self
+                .metadata_provider
+                .lookup_complete_series_episode_outline(&episode_outline_lookup)
+                .await
+            {
+                Ok(Some(outline)) => {
+                    self.series_outline_cache.insert(
+                        canonical_metadata_request_key(&episode_outline_lookup),
+                        Some(outline.clone()),
+                    );
+                    Some(outline)
+                }
+                Ok(None) => None,
+                Err(error) => {
+                    tracing::warn!(
+                        title = %episode_outline_lookup.title,
+                        year = episode_outline_lookup.year,
+                        provider_item_id = episode_outline_lookup.provider_item_id,
+                        error = ?error,
+                        "complete remote series outline was unavailable; retaining partial scan enrichment without renewing TMDB ownership"
+                    );
+                    self.lookup_series_outline_cached(&episode_outline_lookup)
+                        .await?
+                }
             }
+        } else {
+            None
+        };
+        for file in files.iter_mut() {
+            apply_remote_episode_outline_to_file(resolved_remote_outline.as_ref(), file);
 
             self.cache_file_artwork(file).await;
         }
+
+        let mut snapshot_metadata = resolved_remote_metadata.clone();
+        if let Some(metadata) = snapshot_metadata.as_mut() {
+            self.cache_remote_metadata_artwork(metadata).await;
+        }
+        if let Some(outline) = resolved_remote_outline.as_mut() {
+            self.cache_remote_series_outline_artwork(outline).await;
+        }
+        let tmdb_remote_snapshot_json = match snapshot_metadata.as_ref() {
+            Some(metadata) => Some(crate::tmdb_revalidation::serialize_tmdb_remote_snapshot(
+                metadata,
+                resolved_remote_outline.clone(),
+            )?),
+            None => None,
+        };
 
         on_progress(MetadataEnrichmentStage::Completed, &files[0]);
         Ok(MetadataEnrichmentOutcome {
             remote_lookup_performed,
             remote_metadata_applied: resolved_remote_metadata.is_some(),
+            tmdb_remote_snapshot_json,
+            // Only the dedicated direct-ID compliance revalidation may move
+            // the 150/180-day clocks. Normal enrichment records ownership but
+            // remains due for strict verification.
+            tmdb_remote_snapshot_renews_retention: false,
         })
     }
 
@@ -334,73 +381,20 @@ impl MetadataEnrichmentContext {
         Ok(outline)
     }
 
+    #[cfg(test)]
     async fn enrich_episode_like_artwork(
         &mut self,
         lookup: &MetadataLookup,
         file: &mut DiscoveredMediaFile,
         allow_remote_outline: bool,
     ) -> anyhow::Result<()> {
-        let Some(season_number) = file.season_number else {
-            return Ok(());
-        };
-        let Some(episode_number) = file.episode_number else {
-            return Ok(());
-        };
-
         if allow_remote_outline && self.metadata_provider.is_enabled() {
-            if let Some(outline) = self.lookup_series_outline_cached(lookup).await? {
-                if let Some(remote_season) = outline
-                    .seasons
-                    .iter()
-                    .find(|season| season.season_number == season_number)
-                {
-                    if file.season_title.is_none() {
-                        file.season_title = remote_season.title.clone();
-                    }
-                    if file.season_overview.is_none() {
-                        file.season_overview = remote_season.overview.clone();
-                    }
-                    if file.season_poster_path.is_none() {
-                        file.season_poster_path = remote_season.poster_path.clone();
-                    }
-                    if file.season_backdrop_path.is_none() {
-                        file.season_backdrop_path = remote_season.backdrop_path.clone();
-                    }
-
-                    if let Some(remote_episode) = remote_season
-                        .episodes
-                        .iter()
-                        .find(|episode| episode.episode_number == episode_number)
-                    {
-                        if file.episode_title.is_none() {
-                            file.episode_title = remote_episode.title.clone();
-                        }
-                        if file.overview.is_none() {
-                            file.overview = remote_episode.overview.clone();
-                        }
-                        if remote_episode.poster_path.is_some()
-                            && should_replace_episode_artwork(
-                                file.poster_path.as_deref(),
-                                is_generic_poster_artwork_path,
-                            )
-                        {
-                            file.poster_path = remote_episode.poster_path.clone();
-                        }
-                        if remote_episode.backdrop_path.is_some()
-                            && should_replace_episode_artwork(
-                                file.backdrop_path.as_deref(),
-                                is_generic_backdrop_artwork_path,
-                            )
-                        {
-                            file.backdrop_path = remote_episode.backdrop_path.clone();
-                        }
-                    }
-                }
-            }
+            let outline = self.lookup_series_outline_cached(lookup).await?;
+            apply_remote_episode_outline_to_file(outline.as_ref(), file);
         }
-
         Ok(())
     }
+
     async fn cache_file_artwork(&mut self, file: &mut DiscoveredMediaFile) {
         file.series_logo_path = self
             .cache_artwork_source(file.series_logo_path.take(), "logo")
@@ -866,6 +860,67 @@ fn apply_remote_metadata_to_file(
 
     if metadata.logo_path.is_some() || is_missing_or_external_url(file.logo_path.as_deref()) {
         file.logo_path = metadata.logo_path.clone();
+    }
+}
+
+fn apply_remote_episode_outline_to_file(
+    outline: Option<&RemoteSeriesEpisodeOutline>,
+    file: &mut DiscoveredMediaFile,
+) {
+    let (Some(outline), Some(season_number), Some(episode_number)) =
+        (outline, file.season_number, file.episode_number)
+    else {
+        return;
+    };
+    let Some(remote_season) = outline
+        .seasons
+        .iter()
+        .find(|season| season.season_number == season_number)
+    else {
+        return;
+    };
+
+    if file.season_title.is_none() {
+        file.season_title = remote_season.title.clone();
+    }
+    if file.season_overview.is_none() {
+        file.season_overview = remote_season.overview.clone();
+    }
+    if file.season_poster_path.is_none() {
+        file.season_poster_path = remote_season.poster_path.clone();
+    }
+    if file.season_backdrop_path.is_none() {
+        file.season_backdrop_path = remote_season.backdrop_path.clone();
+    }
+
+    let Some(remote_episode) = remote_season
+        .episodes
+        .iter()
+        .find(|episode| episode.episode_number == episode_number)
+    else {
+        return;
+    };
+    if file.episode_title.is_none() {
+        file.episode_title = remote_episode.title.clone();
+    }
+    if file.overview.is_none() {
+        file.overview = remote_episode.overview.clone();
+    }
+    if remote_episode.poster_path.is_some()
+        && should_replace_episode_artwork(
+            file.poster_path.as_deref(),
+            is_generic_poster_artwork_path,
+        )
+    {
+        file.poster_path = remote_episode.poster_path.clone();
+    }
+    if remote_episode.backdrop_path.is_some()
+        && should_replace_episode_artwork(
+            file.backdrop_path.as_deref(),
+            is_generic_backdrop_artwork_path,
+        )
+    {
+        file.backdrop_path = remote_episode.backdrop_path.clone();
     }
 }
 
@@ -2154,6 +2209,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn partial_series_outline_enriches_scan_without_renewing_retention() {
+        let provider = Arc::new(PartialOutlineMetadataProvider {
+            complete_lookup_count: AtomicUsize::new(0),
+            partial_lookup_count: AtomicUsize::new(0),
+        });
+        let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
+        let mut context = MetadataEnrichmentContext::new(
+            std::env::temp_dir().join("mova-partial-outline-scan-test"),
+            1,
+            provider_for_context,
+            "zh-CN".to_string(),
+        );
+        let mut files = vec![build_discovered_episode()];
+
+        let outcome = context
+            .enrich_group_with_progress("series", &mut files, None, |_, _| {})
+            .await
+            .expect("a partial outline must not fail normal scan enrichment");
+
+        assert!(outcome.remote_metadata_applied);
+        assert!(outcome.tmdb_remote_snapshot_json.is_some());
+        assert!(!outcome.tmdb_remote_snapshot_renews_retention);
+        assert_eq!(
+            files[0].season_title.as_deref(),
+            Some("Partially available season")
+        );
+        assert_eq!(
+            files[0].episode_title.as_deref(),
+            Some("Partially available episode")
+        );
+        assert_eq!(provider.complete_lookup_count.load(Ordering::SeqCst), 1);
+        assert_eq!(provider.partial_lookup_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn enrich_group_uses_container_tmdb_hint_without_title_search_fallback() {
         let provider = Arc::new(RecordingMetadataProvider {
             lookups: Mutex::new(Vec::new()),
@@ -2439,6 +2529,50 @@ mod tests {
                 backdrop_path: Some("/cache/series-backdrop.jpg".to_string()),
                 ..RemoteMetadata::default()
             }))
+        }
+    }
+
+    #[derive(Debug)]
+    struct PartialOutlineMetadataProvider {
+        complete_lookup_count: AtomicUsize,
+        partial_lookup_count: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl MetadataProvider for PartialOutlineMetadataProvider {
+        async fn lookup(&self, _lookup: &MetadataLookup) -> anyhow::Result<Option<RemoteMetadata>> {
+            Ok(Some(RemoteMetadata {
+                provider_item_id: Some("123".to_string()),
+                title: Some("Show".to_string()),
+                ..RemoteMetadata::default()
+            }))
+        }
+
+        async fn lookup_series_episode_outline(
+            &self,
+            _lookup: &MetadataLookup,
+        ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
+            self.partial_lookup_count.fetch_add(1, Ordering::SeqCst);
+            Ok(Some(RemoteSeriesEpisodeOutline {
+                seasons: vec![RemoteSeriesSeason {
+                    season_number: 1,
+                    title: Some("Partially available season".to_string()),
+                    episodes: vec![RemoteSeriesEpisode {
+                        episode_number: 1,
+                        title: Some("Partially available episode".to_string()),
+                        ..RemoteSeriesEpisode::default()
+                    }],
+                    ..RemoteSeriesSeason::default()
+                }],
+            }))
+        }
+
+        async fn lookup_complete_series_episode_outline(
+            &self,
+            _lookup: &MetadataLookup,
+        ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
+            self.complete_lookup_count.fetch_add(1, Ordering::SeqCst);
+            anyhow::bail!("one TMDB season request failed")
         }
     }
 

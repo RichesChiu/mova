@@ -15,6 +15,7 @@ mod notifications;
 mod playback_header;
 mod playback_progress;
 mod scan_jobs;
+mod tmdb_revalidation;
 mod users;
 
 pub use access::{
@@ -74,6 +75,11 @@ pub use scan_jobs::{
     enqueue_library_scan, execute_scan_job_with_cancellation, get_scan_job_for_library,
     list_scan_jobs_for_library, EnqueueLibraryScanResult, ExecuteScanJobOutcome, ScanJobEvent,
     ScanJobItemProgressUpdate, ScanJobProgressUpdate,
+};
+pub use tmdb_revalidation::{
+    execute_tmdb_artwork_cleanup, execute_tmdb_artwork_orphan_sweep,
+    execute_tmdb_metadata_revalidation, TmdbMetadataRevalidationInput,
+    TmdbMetadataRevalidationOutcome,
 };
 pub use users::{
     bootstrap_admin, bootstrap_required, change_own_password, create_user, delete_user,

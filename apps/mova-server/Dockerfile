@@ -2,7 +2,7 @@
 
 ARG MOVA_WEB_BUILD_BASE=richeschiu/mova-web-build-base:node24-pnpm11
 ARG MOVA_RUST_BUILD_BASE=richeschiu/mova-rust-build-base:1-bookworm
-ARG MOVA_RUNTIME_BASE=richeschiu/mova-runtime-base:bookworm-ffmpeg-python3
+ARG MOVA_RUNTIME_BASE=richeschiu/mova-runtime-base:trixie-ffmpeg7-python3
 
 FROM ${MOVA_WEB_BUILD_BASE} AS web-builder
 ARG TARGETARCH
@@ -47,19 +47,22 @@ RUN --mount=type=cache,id=mova-cargo-registry-${TARGETOS}-${TARGETARCH},target=/
 
 FROM ${MOVA_RUNTIME_BASE} AS runtime
 ARG MOVA_BUILD_VERSION=development
+ARG MOVA_BUILD_REVISION=unknown
 ENV MOVA_WEB_DIST_DIR=/app/web \
     MOVA_CACHE_DIR=/app/data/cache \
     MOVA_BUILD_VERSION=$MOVA_BUILD_VERSION
 LABEL org.opencontainers.image.title="Mova" \
     org.opencontainers.image.description="Open-source media server built with Rust" \
     org.opencontainers.image.version=$MOVA_BUILD_VERSION \
+    org.opencontainers.image.revision=$MOVA_BUILD_REVISION \
     org.opencontainers.image.source="https://github.com/RichesChiu/mova" \
+    org.opencontainers.image.documentation="https://github.com/RichesChiu/mova/blob/master/docs/THIRD_PARTY_SOFTWARE.md" \
     org.opencontainers.image.licenses="AGPL-3.0-only"
 WORKDIR /app
 
 COPY --from=builder /app/target/release/mova-server /usr/local/bin/mova-server
 COPY --from=web-builder /app/apps/mova-web/dist /app/web
-COPY scripts /app/scripts
+COPY scripts/detect_intro.py /app/scripts/detect_intro.py
 
 EXPOSE 36080
 

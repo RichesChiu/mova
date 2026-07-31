@@ -145,5 +145,15 @@ jobs:
           --build-arg MOVA_RUST_BUILD_BASE=mova-rust-build-base:ci
           --build-arg MOVA_RUNTIME_BASE=mova-runtime-base:ci
           --build-arg MOVA_BUILD_VERSION=ci-${{ github.sha }}
+          --build-arg MOVA_BUILD_REVISION=${{ github.sha }}
           --tag mova:ci
           .
+
+      - name: Verify image revision
+        run: >-
+          test "$(docker image inspect mova:ci
+          --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+          = "${{ github.sha }}"
+
+      - name: Test runtime tools
+        run: ./scripts/smoke-test-runtime-image.sh mova:ci linux/amd64

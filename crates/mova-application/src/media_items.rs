@@ -1,8 +1,8 @@
 use crate::{
     ensure_media_item_cast,
     error::{ApplicationError, ApplicationResult},
-    invalidate_media_item_cast_cache,
     libraries::get_library,
+    media_cast::validated_tmdb_binding,
     media_classification::{apply_root_aware_media_identity, metadata_lookup_type_for_media_type},
     media_enrichment::MetadataEnrichmentContext,
     metadata::{MetadataLookup, MetadataProvider, RemoteSeriesEpisodeOutline},
@@ -386,6 +386,12 @@ pub async fn series_episode_outline_for_media_item(
     let local_inventory = load_local_series_inventory(pool, media_item_id).await?;
     let playback_progress_by_media_item =
         load_series_episode_playback_progress(pool, user_id, &local_inventory).await?;
+    let Some(provider_item_id) = validated_tmdb_binding(&media_item).map(str::to_string) else {
+        return Ok(build_local_outline(
+            &local_inventory,
+            &playback_progress_by_media_item,
+        ));
+    };
     let cached_remote_outline = load_cached_remote_outline(pool, media_item_id).await?;
     if let Some(cached_remote_outline) = cached_remote_outline.as_ref() {
         if cached_remote_outline.is_fresh {
@@ -410,7 +416,7 @@ pub async fn series_episode_outline_for_media_item(
         season_air_year: None,
         library_type: "series".to_string(),
         language: Some(library.metadata_language.clone()),
-        provider_item_id: media_item.metadata_provider_item_id,
+        provider_item_id: Some(provider_item_id),
     };
 
     let remote_outline = match metadata_provider
@@ -419,7 +425,11 @@ pub async fn series_episode_outline_for_media_item(
     {
         Ok(remote_outline) => {
             if let Some(remote_outline) = remote_outline.as_ref() {
-                cache_remote_outline(pool, media_item_id, remote_outline).await?;
+                if !cache_remote_outline(pool, &media_item, remote_outline).await? {
+                    return Err(ApplicationError::Conflict(
+                        "series metadata changed while its TMDB outline was loading".to_string(),
+                    ));
+                }
             }
 
             remote_outline
@@ -513,9 +523,13 @@ async fn load_cached_remote_outline(
 
 pub(crate) async fn cache_remote_outline(
     pool: &PgPool,
-    media_item_id: i64,
+    media_item: &MediaItem,
     remote_outline: &RemoteSeriesEpisodeOutline,
-) -> ApplicationResult<()> {
+) -> ApplicationResult<bool> {
+    let Some(provider_item_id) = validated_tmdb_binding(media_item) else {
+        return Ok(false);
+    };
+    let media_item_id = media_item.id;
     let outline_json = serde_json::to_string(remote_outline).map_err(|error| {
         ApplicationError::Unexpected(anyhow::anyhow!(
             "failed to serialize series episode outline cache payload for media item {}: {}",
@@ -533,6 +547,8 @@ pub(crate) async fn cache_remote_outline(
         pool,
         mova_db::UpsertSeriesEpisodeOutlineCacheParams {
             series_media_item_id: media_item_id,
+            expected_provider_item_id: provider_item_id.to_string(),
+            expected_media_item_updated_at: media_item.updated_at,
             outline_json,
             fetched_at,
             expires_at,
@@ -540,7 +556,8 @@ pub(crate) async fn cache_remote_outline(
     )
     .await
     {
-        Ok(_) => {}
+        Ok(Some(_)) => return Ok(true),
+        Ok(None) => return Ok(false),
         Err(error) if is_missing_series_outline_cache_table_error(&error) => {
             tracing::warn!(
                 media_item_id,
@@ -550,25 +567,7 @@ pub(crate) async fn cache_remote_outline(
         Err(error) => return Err(ApplicationError::from(error)),
     }
 
-    Ok(())
-}
-
-async fn invalidate_series_episode_outline_cache(
-    pool: &PgPool,
-    media_item_id: i64,
-) -> ApplicationResult<()> {
-    match mova_db::delete_series_episode_outline_cache(pool, media_item_id).await {
-        Ok(()) => {}
-        Err(error) if is_missing_series_outline_cache_table_error(&error) => {
-            tracing::warn!(
-                media_item_id,
-                "series episode outline cache table does not exist yet, skipping cache delete"
-            );
-        }
-        Err(error) => return Err(ApplicationError::from(error)),
-    }
-
-    Ok(())
+    Ok(false)
 }
 
 fn is_missing_series_outline_cache_table_error(error: &anyhow::Error) -> bool {
@@ -894,12 +893,15 @@ pub async fn refresh_media_item_metadata(
     let metadata_provider_for_cast = metadata_provider.clone();
     let metadata_provider_enabled = metadata_provider.is_enabled();
     let mut enrichment = MetadataEnrichmentContext::new(
-        artwork_cache_dir,
+        artwork_cache_dir.clone(),
         library.id,
         metadata_provider,
         library.metadata_language,
     );
-    enrichment
+    let artwork_publication = mova_db::TmdbArtworkPublicationGuard::acquire(pool, library.id)
+        .await
+        .map_err(ApplicationError::from)?;
+    let enrichment_result = enrichment
         .enrich_group_with_lookup_hint_and_progress(
             lookup_type,
             std::slice::from_mut(&mut discovered_file),
@@ -908,98 +910,132 @@ pub async fn refresh_media_item_metadata(
             |_, _| {},
         )
         .await
-        .map_err(ApplicationError::Unexpected)?;
-    finalize_refreshed_file_metadata_status(
-        &mut discovered_file,
-        metadata_provider_enabled,
-        remote_media_type_for_lookup_type(lookup_type),
+        .map_err(ApplicationError::Unexpected);
+    let materialized_artwork = crate::tmdb_revalidation::materialized_tmdb_artwork_paths_from_files(
+        std::slice::from_ref(&discovered_file),
+        &artwork_cache_dir,
+        library.id,
     );
-    let metadata_status = discovered_file
-        .metadata_status
-        .clone()
-        .unwrap_or_else(|| media_item.metadata_status.clone());
-    let replace_remote_data = metadata_status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED)
-        || metadata_status.eq_ignore_ascii_case(METADATA_STATUS_UNMATCHED);
+    let enrichment_outcome = match enrichment_result {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            return crate::tmdb_revalidation::finish_tmdb_artwork_publication(
+                artwork_publication,
+                Err(error),
+                pool,
+                &artwork_cache_dir,
+                library.id,
+                materialized_artwork,
+                true,
+            )
+            .await;
+        }
+    };
 
-    mova_db::update_media_file_metadata(
-        pool,
-        source_file.id,
-        mova_db::UpdateMediaFileMetadataParams {
-            file_path: source_file.file_path.clone(),
-            container: discovered_file.container.clone(),
-            file_size,
-            duration_seconds: discovered_file.duration_seconds,
-            video_title: discovered_file.video_title.clone(),
-            video_codec: discovered_file.video_codec.clone(),
-            video_profile: discovered_file.video_profile.clone(),
-            video_level: discovered_file.video_level.clone(),
-            audio_codec: discovered_file.audio_codec.clone(),
-            width: discovered_file.width,
-            height: discovered_file.height,
-            bitrate: discovered_file.bitrate,
-            video_bitrate: discovered_file.video_bitrate,
-            video_frame_rate: discovered_file.video_frame_rate,
-            video_aspect_ratio: discovered_file.video_aspect_ratio.clone(),
-            video_scan_type: discovered_file.video_scan_type.clone(),
-            video_color_primaries: discovered_file.video_color_primaries.clone(),
-            video_color_space: discovered_file.video_color_space.clone(),
-            video_color_transfer: discovered_file.video_color_transfer.clone(),
-            video_bit_depth: discovered_file.video_bit_depth,
-            video_pixel_format: discovered_file.video_pixel_format.clone(),
-            video_reference_frames: discovered_file.video_reference_frames,
-            technical_tags: discovered_file.technical_tags.clone(),
-        },
-    )
-    .await
-    .map_err(ApplicationError::from)?
-    .ok_or_else(|| {
-        ApplicationError::NotFound(format!("media file not found: {}", source_file.id))
-    })?;
+    let refresh_result: ApplicationResult<MediaItem> = async {
+        finalize_refreshed_file_metadata_status(
+            &mut discovered_file,
+            metadata_provider_enabled,
+            remote_media_type_for_lookup_type(lookup_type),
+        );
+        let metadata_status = discovered_file
+            .metadata_status
+            .clone()
+            .unwrap_or_else(|| media_item.metadata_status.clone());
+        let replace_remote_data = metadata_status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED)
+            || metadata_status.eq_ignore_ascii_case(METADATA_STATUS_UNMATCHED);
 
-    let refreshed_media_item = mova_db::update_media_item_metadata(
-        pool,
-        media_item_id,
-        mova_db::UpdateMediaItemMetadataParams {
-            title: discovered_file.title,
-            source_title: discovered_file.source_title,
-            original_title: discovered_file.original_title,
-            sort_title: discovered_file.sort_title,
-            metadata_provider: discovered_file
-                .metadata_provider
-                .or(media_item.metadata_provider.clone()),
-            metadata_provider_item_id: discovered_file
-                .metadata_provider_item_id
-                .or(media_item.metadata_provider_item_id),
-            metadata_status,
-            metadata_failure_reason: discovered_file
-                .metadata_failure_reason
-                .or(media_item.metadata_failure_reason),
-            replace_remote_data,
-            remote_media_type: discovered_file
-                .remote_media_type
-                .or(media_item.remote_media_type),
-            year: discovered_file.year,
-            external_ids: discovered_file.external_ids,
-            ratings: discovered_file.ratings,
-            country: discovered_file.country,
-            genres: discovered_file.genres,
-            studio: discovered_file.studio,
-            overview: discovered_file.overview,
-            poster_path: discovered_file.poster_path,
-            backdrop_path: discovered_file.backdrop_path,
-            logo_path: discovered_file.logo_path,
-        },
-    )
-    .await
-    .map_err(ApplicationError::from)?
-    .ok_or_else(|| {
-        ApplicationError::NotFound(format!("media item not found: {}", media_item_id))
-    })?;
+        mova_db::update_media_file_metadata(
+            pool,
+            source_file.id,
+            mova_db::UpdateMediaFileMetadataParams {
+                file_path: source_file.file_path.clone(),
+                container: discovered_file.container.clone(),
+                file_size,
+                duration_seconds: discovered_file.duration_seconds,
+                video_title: discovered_file.video_title.clone(),
+                video_codec: discovered_file.video_codec.clone(),
+                video_profile: discovered_file.video_profile.clone(),
+                video_level: discovered_file.video_level.clone(),
+                audio_codec: discovered_file.audio_codec.clone(),
+                width: discovered_file.width,
+                height: discovered_file.height,
+                bitrate: discovered_file.bitrate,
+                video_bitrate: discovered_file.video_bitrate,
+                video_frame_rate: discovered_file.video_frame_rate,
+                video_aspect_ratio: discovered_file.video_aspect_ratio.clone(),
+                video_scan_type: discovered_file.video_scan_type.clone(),
+                video_color_primaries: discovered_file.video_color_primaries.clone(),
+                video_color_space: discovered_file.video_color_space.clone(),
+                video_color_transfer: discovered_file.video_color_transfer.clone(),
+                video_bit_depth: discovered_file.video_bit_depth,
+                video_pixel_format: discovered_file.video_pixel_format.clone(),
+                video_reference_frames: discovered_file.video_reference_frames,
+                technical_tags: discovered_file.technical_tags.clone(),
+            },
+        )
+        .await
+        .map_err(ApplicationError::from)?
+        .ok_or_else(|| {
+            ApplicationError::NotFound(format!("media file not found: {}", source_file.id))
+        })?;
 
-    if media_item.media_type.eq_ignore_ascii_case("series") {
-        invalidate_series_episode_outline_cache(pool, media_item_id).await?;
+        mova_db::update_media_item_metadata(
+            pool,
+            media_item_id,
+            mova_db::UpdateMediaItemMetadataParams {
+                expected_updated_at: media_item.updated_at,
+                title: discovered_file.title,
+                source_title: discovered_file.source_title,
+                original_title: discovered_file.original_title,
+                sort_title: discovered_file.sort_title,
+                metadata_provider: discovered_file
+                    .metadata_provider
+                    .or(media_item.metadata_provider.clone()),
+                metadata_provider_item_id: discovered_file
+                    .metadata_provider_item_id
+                    .or(media_item.metadata_provider_item_id),
+                metadata_status,
+                metadata_failure_reason: discovered_file
+                    .metadata_failure_reason
+                    .or(media_item.metadata_failure_reason),
+                replace_remote_data,
+                tmdb_remote_snapshot_json: enrichment_outcome.tmdb_remote_snapshot_json,
+                tmdb_remote_snapshot_renews_retention: enrichment_outcome
+                    .tmdb_remote_snapshot_renews_retention,
+                remote_media_type: discovered_file
+                    .remote_media_type
+                    .or(media_item.remote_media_type),
+                year: discovered_file.year,
+                external_ids: discovered_file.external_ids,
+                ratings: discovered_file.ratings,
+                country: discovered_file.country,
+                genres: discovered_file.genres,
+                studio: discovered_file.studio,
+                overview: discovered_file.overview,
+                poster_path: discovered_file.poster_path,
+                backdrop_path: discovered_file.backdrop_path,
+                logo_path: discovered_file.logo_path,
+            },
+        )
+        .await
+        .map_err(ApplicationError::from)?
+        .ok_or_else(|| {
+            ApplicationError::NotFound(format!("media item not found: {}", media_item_id))
+        })
     }
-    invalidate_media_item_cast_cache(pool, media_item_id).await?;
+    .await;
+    let refreshed_media_item = crate::tmdb_revalidation::finish_tmdb_artwork_publication(
+        artwork_publication,
+        refresh_result,
+        pool,
+        &artwork_cache_dir,
+        library.id,
+        materialized_artwork,
+        true,
+    )
+    .await?;
+
     ensure_media_item_cast(pool, &refreshed_media_item, metadata_provider_for_cast).await?;
 
     Ok(refreshed_media_item)
