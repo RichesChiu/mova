@@ -11,6 +11,7 @@ import {
   buildFullscreenWarningMessage,
   buildPlaybackInteractionWarningMessage,
   isAutoplayBlockedError,
+  isPlaybackAbortError,
 } from '../../lib/player-feedback'
 import { isInteractiveKeyboardTarget } from './player-utils'
 
@@ -20,6 +21,7 @@ interface UsePlayerInteractionsOptions {
   arePlayerControlsPinned: boolean
   isAutoplayBlocked: boolean
   isImmersive: boolean
+  playbackRequestPendingRef: RefObject<boolean>
   seekMax: number
   setInteractionWarning: Dispatch<SetStateAction<string | null>>
   setIsAutoplayBlocked: Dispatch<SetStateAction<boolean>>
@@ -27,6 +29,7 @@ interface UsePlayerInteractionsOptions {
   setPlaybackRate: Dispatch<SetStateAction<number>>
   setPositionSeconds: Dispatch<SetStateAction<number>>
   stageRef: RefObject<HTMLDivElement | null>
+  shouldPlayRef: RefObject<boolean>
   syncPlaybackProgressRef: RefObject<(force?: boolean, isFinished?: boolean) => void>
   videoRef: RefObject<HTMLVideoElement | null>
 }
@@ -35,6 +38,7 @@ export const usePlayerInteractions = ({
   arePlayerControlsPinned,
   isAutoplayBlocked,
   isImmersive,
+  playbackRequestPendingRef,
   seekMax,
   setInteractionWarning,
   setIsAutoplayBlocked,
@@ -42,6 +46,7 @@ export const usePlayerInteractions = ({
   setPlaybackRate,
   setPositionSeconds,
   stageRef,
+  shouldPlayRef,
   syncPlaybackProgressRef,
   videoRef,
 }: UsePlayerInteractionsOptions) => {
@@ -118,19 +123,41 @@ export const usePlayerInteractions = ({
     async (hideControlsAfterToggle = false) => {
       const video = videoRef.current
       if (!video) {
+        shouldPlayRef.current = !shouldPlayRef.current
         return
       }
 
-      if (video.paused) {
+      const shouldPause =
+        !video.paused ||
+        playbackRequestPendingRef.current ||
+        (video.readyState === HTMLMediaElement.HAVE_NOTHING && shouldPlayRef.current)
+
+      if (!shouldPause) {
         const wasAutoplayBlocked = isAutoplayBlocked
+        shouldPlayRef.current = true
+        playbackRequestPendingRef.current = true
         setIsAutoplayBlocked(false)
         try {
           await video.play()
+          playbackRequestPendingRef.current = false
+
+          if (!shouldPlayRef.current) {
+            video.pause()
+            return
+          }
+
           if (wasAutoplayBlocked || hideControlsAfterToggle) {
             clearPlayerControlsHideTimeout()
             setArePlayerControlsVisible(false)
           }
         } catch (error) {
+          playbackRequestPendingRef.current = false
+
+          if (!shouldPlayRef.current && isPlaybackAbortError(error)) {
+            return
+          }
+
+          shouldPlayRef.current = false
           if (isAutoplayBlockedError(error)) {
             setIsAutoplayBlocked(true)
             setInteractionWarning(null)
@@ -142,6 +169,8 @@ export const usePlayerInteractions = ({
         return
       }
 
+      shouldPlayRef.current = false
+      playbackRequestPendingRef.current = false
       video.pause()
       if (hideControlsAfterToggle) {
         clearPlayerControlsHideTimeout()
@@ -151,8 +180,10 @@ export const usePlayerInteractions = ({
     [
       clearPlayerControlsHideTimeout,
       isAutoplayBlocked,
+      playbackRequestPendingRef,
       setInteractionWarning,
       setIsAutoplayBlocked,
+      shouldPlayRef,
       videoRef,
     ],
   )

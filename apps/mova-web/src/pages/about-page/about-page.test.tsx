@@ -48,7 +48,7 @@ const renderAboutPage = (language: 'en-US' | 'zh-CN') => {
   )
 }
 
-describe('AboutPage TMDB attribution', () => {
+describe('AboutPage', () => {
   beforeEach(() => {
     window.localStorage.clear()
   })
@@ -70,5 +70,10 @@ describe('AboutPage TMDB attribution', () => {
     expect(
       screen.getByText('MOVA 使用 TMDB 提供媒体元数据和图片。TMDB 不认可、认证或赞助 MOVA。'),
     ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '支持作者' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '微信赞赏二维码' })).toHaveAttribute(
+      'src',
+      '/assets/support/wechat-donation-qr.png',
+    )
   })
 })

@@ -208,6 +208,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       'metadata_status 使用 matched / unmatched / failed / skipped 表达元数据处理状态。',
       '剧集可通过 seasons、episodes、episode-outline 获取本地可用集和远端大纲合并结果。',
       'episode-outline 的播放快照包含 last_media_file_id；同一集有多个文件版本时，客户端应恢复最近播放的具体版本。',
+      'playback-header 会先返回播放器头部；缺少片头区间时，服务端在后台按需检测，不阻塞首次播放。',
       'poster/backdrop/logo 返回经过媒体库边界、大小和图片内容校验的本地图片流；详情只透出可信的 TMDB 官方远程图片地址。',
     ],
     endpoints: [

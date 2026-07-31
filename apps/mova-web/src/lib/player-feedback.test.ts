@@ -3,6 +3,7 @@ import {
   buildFullscreenWarningMessage,
   buildPlaybackInteractionWarningMessage,
   isAutoplayBlockedError,
+  isPlaybackAbortError,
 } from './player-feedback'
 
 describe('player-feedback helpers', () => {
@@ -25,6 +26,11 @@ describe('player-feedback helpers', () => {
         name: 'AbortError',
       }),
     ).toBe('Playback was interrupted before it could start. Click play again to continue.')
+  })
+
+  it('identifies an aborted pending playback request', () => {
+    expect(isPlaybackAbortError({ name: 'AbortError' })).toBe(true)
+    expect(isPlaybackAbortError({ name: 'NotAllowedError' })).toBe(false)
   })
 
   it('returns a stable fullscreen warning when the API is unavailable', () => {

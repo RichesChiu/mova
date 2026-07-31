@@ -52,7 +52,7 @@ export const LibrariesSection = ({
         <div className="catalog-block__title-row">
           <h3>{l('Your Libraries')}</h3>
           {shouldShowAllHomeLibraries(totalLibraryCount) ? (
-            <Link className="libraries-section__title-action" to="/libraries">
+            <Link className="catalog-block__title-action" to="/libraries">
               {l('View all')}
             </Link>
           ) : null}
