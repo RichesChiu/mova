@@ -19,6 +19,7 @@ import { shouldMarkPlaybackFinished } from '../../lib/playback'
 import {
   buildPlaybackInteractionWarningMessage,
   isAutoplayBlockedError,
+  isPlaybackAbortError,
 } from '../../lib/player-feedback'
 import { PlayerPanelView } from './player-panel-view'
 import {
@@ -94,7 +95,8 @@ export const MediaPlayerPanel = ({
   const durationSecondsRef = useRef<number | null>(null)
   const restoredForFileRef = useRef<number | null>(null)
   const shouldHonorStartModeRef = useRef(startMode === 'from-start')
-  const shouldAutoplayOnLoadRef = useRef(true)
+  const shouldPlayRef = useRef(true)
+  const playbackRequestPendingRef = useRef(false)
   const pendingPlaybackRestoreRef = useRef<PendingPlaybackRestore | null>(null)
   const continueRegistrationKeyRef = useRef<string | null>(null)
   const lastReportedSecondsRef = useRef(-1)
@@ -301,7 +303,8 @@ export const MediaPlayerPanel = ({
     if (mediaItemChanged) {
       pendingPlaybackRestoreRef.current = null
       pendingAudioTrackSwitchRef.current = null
-      shouldAutoplayOnLoadRef.current = true
+      shouldPlayRef.current = true
+      playbackRequestPendingRef.current = false
 
       if (audioTrackNoticeTimeoutRef.current !== null) {
         window.clearTimeout(audioTrackNoticeTimeoutRef.current)
@@ -347,6 +350,7 @@ export const MediaPlayerPanel = ({
 
   useEffect(() => {
     restoredForFileRef.current = null
+    playbackRequestPendingRef.current = false
     lastReportedSecondsRef.current = -1
     setPlayerError(null)
     setInteractionWarning(null)
@@ -458,6 +462,14 @@ export const MediaPlayerPanel = ({
     }
 
     const handlePlay = () => {
+      playbackRequestPendingRef.current = false
+
+      if (!shouldPlayRef.current) {
+        video.pause()
+        setIsPlaying(false)
+        return
+      }
+
       setIsPlaying(true)
       setIsAutoplayBlocked(false)
       setInteractionWarning(null)
@@ -709,6 +721,13 @@ export const MediaPlayerPanel = ({
     video.playbackRate = playbackRate
 
     const handleAutomaticPlaybackFailure = (error: unknown) => {
+      playbackRequestPendingRef.current = false
+
+      if (!shouldPlayRef.current && isPlaybackAbortError(error)) {
+        return
+      }
+
+      shouldPlayRef.current = false
       if (isAutoplayBlockedError(error)) {
         setIsAutoplayBlocked(true)
         setIsBuffering(false)
@@ -719,13 +738,22 @@ export const MediaPlayerPanel = ({
       setInteractionWarning(buildPlaybackInteractionWarningMessage(error))
     }
 
-    const attemptAutoplay = () => {
-      if (!shouldAutoplayOnLoadRef.current) {
+    const applyPlaybackIntent = () => {
+      if (!shouldPlayRef.current) {
         return
       }
 
-      shouldAutoplayOnLoadRef.current = false
-      void video.play().catch(handleAutomaticPlaybackFailure)
+      playbackRequestPendingRef.current = true
+      void video
+        .play()
+        .then(() => {
+          playbackRequestPendingRef.current = false
+
+          if (!shouldPlayRef.current) {
+            video.pause()
+          }
+        })
+        .catch(handleAutomaticPlaybackFailure)
     }
 
     if (Number.isFinite(video.duration) && video.duration > 0) {
@@ -759,9 +787,7 @@ export const MediaPlayerPanel = ({
         syncPlaybackProgressRef.current(true, false)
       }
 
-      if (pendingPlaybackRestore.shouldAutoplay) {
-        void video.play().catch(handleAutomaticPlaybackFailure)
-      }
+      applyPlaybackIntent()
 
       return
     }
@@ -774,7 +800,7 @@ export const MediaPlayerPanel = ({
       setPositionSeconds(0)
       lastReportedSecondsRef.current = 0
       restoredForFileRef.current = selectedMediaFile.id
-      attemptAutoplay()
+      applyPlaybackIntent()
       return
     }
 
@@ -785,7 +811,7 @@ export const MediaPlayerPanel = ({
       playbackProgress.last_media_file_id !== selectedMediaFile.id ||
       playbackProgress.position_seconds <= 0
     ) {
-      attemptAutoplay()
+      applyPlaybackIntent()
       return
     }
 
@@ -796,7 +822,7 @@ export const MediaPlayerPanel = ({
     setPositionSeconds(Math.round(resumePosition))
     lastReportedSecondsRef.current = playbackProgress.position_seconds
     restoredForFileRef.current = selectedMediaFile.id
-    attemptAutoplay()
+    applyPlaybackIntent()
   }
 
   const handleTimeUpdate = () => {
@@ -822,11 +848,15 @@ export const MediaPlayerPanel = ({
       Number.isFinite(video.duration) && video.duration > 0
         ? Math.round(video.duration)
         : (durationSeconds ?? 0)
+    shouldPlayRef.current = false
+    playbackRequestPendingRef.current = false
     setPositionSeconds(endedDuration)
     syncPlaybackProgressRef.current(true, true)
   }
 
   const handlePlayerError = () => {
+    shouldPlayRef.current = false
+    playbackRequestPendingRef.current = false
     setIsBuffering(false)
     const fallbackMessage = buildPlaybackSourceErrorMessage(videoRef.current)
 
@@ -857,6 +887,8 @@ export const MediaPlayerPanel = ({
   }
 
   const queuePlaybackRestore = (input: PendingPlaybackRestore) => {
+    shouldPlayRef.current = input.shouldAutoplay
+    playbackRequestPendingRef.current = false
     pendingPlaybackRestoreRef.current = input
   }
 
@@ -868,7 +900,7 @@ export const MediaPlayerPanel = ({
 
     queuePlaybackRestore({
       positionSeconds: Math.max(0, video.currentTime || positionSeconds),
-      shouldAutoplay: !video.paused,
+      shouldAutoplay: shouldPlayRef.current,
       shouldPersistSelection: false,
     })
     resetTransientPlayerFeedback({ keepBuffering: true })
@@ -886,7 +918,7 @@ export const MediaPlayerPanel = ({
     // 避免先补旧文件、再写新文件时被网络乱序覆盖回旧源选择。
     queuePlaybackRestore({
       positionSeconds: Math.max(0, video.currentTime || positionSeconds),
-      shouldAutoplay: !video.paused,
+      shouldAutoplay: shouldPlayRef.current,
       shouldPersistSelection: true,
     })
     resetTransientPlayerFeedback({ keepBuffering: true })
@@ -909,7 +941,7 @@ export const MediaPlayerPanel = ({
     persistProgressBeforeSwitch()
     queuePlaybackRestore({
       positionSeconds: Math.max(0, video.currentTime || positionSeconds),
-      shouldAutoplay: !video.paused,
+      shouldAutoplay: shouldPlayRef.current,
       shouldPersistSelection: false,
     })
     resetTransientPlayerFeedback({ keepBuffering: true })
@@ -964,6 +996,7 @@ export const MediaPlayerPanel = ({
     arePlayerControlsPinned,
     isAutoplayBlocked,
     isImmersive,
+    playbackRequestPendingRef,
     seekMax,
     setInteractionWarning,
     setIsAutoplayBlocked,
@@ -971,6 +1004,7 @@ export const MediaPlayerPanel = ({
     setPlaybackRate,
     setPositionSeconds,
     stageRef,
+    shouldPlayRef,
     syncPlaybackProgressRef,
     videoRef,
   })

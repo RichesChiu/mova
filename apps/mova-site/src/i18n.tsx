@@ -274,6 +274,8 @@ const translations: Record<string, string> = {
     'Series use seasons, episodes, and episode-outline to merge locally available episodes with remote outlines.',
   'episode-outline 的播放快照包含 last_media_file_id；同一集有多个文件版本时，客户端应恢复最近播放的具体版本。':
     'episode-outline playback snapshots include last_media_file_id so clients can restore the exact last-used file when an episode has multiple variants.',
+  'playback-header 会先返回播放器头部；缺少片头区间时，服务端在后台按需检测，不阻塞首次播放。':
+    'playback-header returns player header data first; when intro markers are missing, the server detects them on demand in the background without blocking first playback.',
   'poster/backdrop 返回图片流；若详情字段是远程 URL，前端可直接使用远程地址。':
     'poster/backdrop return image streams; when a detail field is a remote URL, clients may use it directly.',
   'poster/backdrop/logo 返回经过媒体库边界、大小和图片内容校验的本地图片流；详情只透出可信的 TMDB 官方远程图片地址。':

@@ -1,14 +1,15 @@
 use crate::error::{ApplicationError, ApplicationResult};
 use sqlx::postgres::PgPool;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     process::Stdio,
     sync::{Mutex, OnceLock},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     process::Command,
+    task::JoinHandle,
     time,
 };
 
@@ -20,6 +21,7 @@ const INTRO_FFMPEG_TIMEOUT_SECONDS: u64 = 90;
 const INTRO_DETECTOR_STDOUT_LIMIT_BYTES: usize = 1024 * 1024;
 const INTRO_DETECTOR_STDERR_LIMIT_BYTES: usize = 64 * 1024;
 const INTRO_DETECTOR_READ_CHUNK_BYTES: usize = 8 * 1024;
+const INTRO_DETECTION_RETRY_COOLDOWN: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[derive(Debug, serde::Serialize)]
 struct IntroDetectorRequest {
@@ -55,6 +57,23 @@ struct SeasonIntroDetectionCandidate {
 fn intro_detection_inflight() -> &'static Mutex<HashSet<i64>> {
     static INFLIGHT: OnceLock<Mutex<HashSet<i64>>> = OnceLock::new();
     INFLIGHT.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn intro_detection_recent_attempts() -> &'static Mutex<HashMap<i64, Instant>> {
+    static RECENT_ATTEMPTS: OnceLock<Mutex<HashMap<i64, Instant>>> = OnceLock::new();
+    RECENT_ATTEMPTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+struct IntroDetectionInflightGuard {
+    season_id: i64,
+}
+
+impl Drop for IntroDetectionInflightGuard {
+    fn drop(&mut self) {
+        if let Ok(mut inflight) = intro_detection_inflight().lock() {
+            inflight.remove(&self.season_id);
+        }
+    }
 }
 
 fn has_complete_intro_markers(
@@ -93,6 +112,22 @@ pub(crate) async fn ensure_intro_markers_for_playback(
     };
 
     {
+        let mut recent_attempts = intro_detection_recent_attempts()
+            .lock()
+            .map_err(|error| ApplicationError::Unexpected(anyhow::Error::msg(error.to_string())))?;
+        recent_attempts
+            .retain(|_, attempted_at| attempted_at.elapsed() < INTRO_DETECTION_RETRY_COOLDOWN);
+        if recent_attempts.get(&season_id).is_some() {
+            tracing::debug!(
+                season_id,
+                media_item_id = header.media_item_id,
+                "on-demand intro detection is in retry cooldown"
+            );
+            return Ok(());
+        }
+    }
+
+    {
         let mut inflight = intro_detection_inflight()
             .lock()
             .map_err(|error| ApplicationError::Unexpected(anyhow::Error::msg(error.to_string())))?;
@@ -105,14 +140,40 @@ pub(crate) async fn ensure_intro_markers_for_playback(
             return Ok(());
         }
     }
+    let _inflight_guard = IntroDetectionInflightGuard { season_id };
 
     let result = ensure_intro_markers_for_season(pool, season_id, header.season_number).await;
 
-    if let Ok(mut inflight) = intro_detection_inflight().lock() {
-        inflight.remove(&season_id);
+    if let Ok(mut recent_attempts) = intro_detection_recent_attempts().lock() {
+        recent_attempts.insert(season_id, Instant::now());
     }
 
     result
+}
+
+/// Schedule on-demand intro detection without holding the playback-header response open.
+///
+/// Detection can run ffmpeg across several episodes and is intentionally best-effort. The
+/// per-season in-flight guard inside `ensure_intro_markers_for_playback` keeps concurrent player
+/// requests from starting duplicate work for the same season.
+pub(crate) fn schedule_intro_markers_for_playback(
+    pool: PgPool,
+    header: mova_db::MediaItemPlaybackHeader,
+) -> Option<JoinHandle<()>> {
+    if !needs_intro_detection(&header) {
+        return None;
+    }
+
+    Some(tokio::spawn(async move {
+        if let Err(error) = ensure_intro_markers_for_playback(&pool, &header).await {
+            tracing::warn!(
+                media_item_id = header.media_item_id,
+                season_id = header.season_id,
+                error = ?error,
+                "background intro detection failed; playback remains available"
+            );
+        }
+    }))
 }
 
 async fn ensure_intro_markers_for_season(
@@ -432,11 +493,12 @@ impl Drop for IntroDetectorProcessGuard {
 #[cfg(test)]
 mod tests {
     use super::{
-        needs_intro_detection, run_intro_detector_process, IntroDetectorEpisodeInput,
-        IntroDetectorRequest, IntroDetectorResponse, INTRO_DETECTION_MIN_DURATION_SECONDS,
-        INTRO_DETECTOR_STDERR_LIMIT_BYTES, INTRO_DETECTOR_STDOUT_LIMIT_BYTES,
-        INTRO_FFMPEG_TIMEOUT_SECONDS,
+        needs_intro_detection, run_intro_detector_process, schedule_intro_markers_for_playback,
+        IntroDetectorEpisodeInput, IntroDetectorRequest, IntroDetectorResponse,
+        INTRO_DETECTION_MIN_DURATION_SECONDS, INTRO_DETECTOR_STDERR_LIMIT_BYTES,
+        INTRO_DETECTOR_STDOUT_LIMIT_BYTES, INTRO_FFMPEG_TIMEOUT_SECONDS,
     };
+    use sqlx::postgres::PgPoolOptions;
     use std::{path::PathBuf, time::Duration};
 
     fn build_header() -> mova_db::MediaItemPlaybackHeader {
@@ -492,6 +554,19 @@ mod tests {
         header.episode_number = None;
         header.episode_title = None;
         assert!(!needs_intro_detection(&header));
+    }
+
+    #[tokio::test]
+    async fn schedules_detection_without_waiting_for_database_or_ffmpeg() {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgres://mova:mova@127.0.0.1:9/mova")
+            .expect("test database URL should parse");
+
+        let task = schedule_intro_markers_for_playback(pool, build_header())
+            .expect("episode without intro markers should schedule background detection");
+
+        task.abort();
+        let _ = task.await;
     }
 
     #[test]

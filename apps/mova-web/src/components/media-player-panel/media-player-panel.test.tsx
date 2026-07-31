@@ -61,6 +61,7 @@ const installVideoTestState = (video: HTMLVideoElement) => {
   let muted = false
   let volume = 1
   let playbackRate = 1
+  let readyState: number = HTMLMediaElement.HAVE_NOTHING
 
   Object.defineProperty(video, 'currentTime', {
     configurable: true,
@@ -98,6 +99,10 @@ const installVideoTestState = (video: HTMLVideoElement) => {
       playbackRate = Number(value)
     },
   })
+  Object.defineProperty(video, 'readyState', {
+    configurable: true,
+    get: () => readyState,
+  })
   Object.defineProperty(video, 'buffered', {
     configurable: true,
     get: () => ({
@@ -134,6 +139,9 @@ const installVideoTestState = (video: HTMLVideoElement) => {
     },
     setDuration: (value: number) => {
       duration = value
+    },
+    setReadyState: (value: number) => {
+      readyState = value
     },
   }
 }
@@ -224,6 +232,23 @@ describe('MediaPlayerPanel', () => {
     fireEvent.loadedMetadata(video)
 
     expect(videoState.getCurrentTime()).toBe(320)
+  })
+
+  it('opens the first media file when playback progress does not exist yet', async () => {
+    clientMocks.getMediaItemPlaybackProgress.mockResolvedValue(null)
+
+    const { container } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel mediaItemId={31} title="Interstellar" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('video')?.getAttribute('src')).toContain(
+        '/api/media-files/401/stream',
+      )
+    })
+    expect(screen.queryByText('Loading player…')).not.toBeInTheDocument()
   })
 
   it('honors from-start over a stored resume point', async () => {
@@ -365,6 +390,90 @@ describe('MediaPlayerPanel', () => {
     })
   })
 
+  it('lets space cancel an automatic play request that has not settled yet', async () => {
+    const { container } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel mediaItemId={31} title="Interstellar" variant="immersive" />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
+    const video = container.querySelector('video') as HTMLVideoElement
+    const videoState = installVideoTestState(video)
+    const playRequest = createDeferred<void>()
+    videoState.setReadyState(HTMLMediaElement.HAVE_METADATA)
+    video.play = vi.fn().mockReturnValue(playRequest.promise)
+
+    fireEvent.loadedMetadata(video)
+    expect(video.play).toHaveBeenCalledTimes(1)
+
+    fireEvent.keyDown(window, { code: 'Space', key: ' ' })
+    expect(video.pause).toHaveBeenCalledTimes(1)
+
+    playRequest.resolve()
+
+    await waitFor(() => {
+      expect(video.pause).toHaveBeenCalledTimes(2)
+    })
+    expect(
+      screen.queryByText(
+        'Playback was interrupted before it could start. Click play again to continue.',
+      ),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps the first space-key pause intent while a continue-watching source loads', async () => {
+    const playbackProgress = createDeferred<PlaybackProgress>()
+    clientMocks.getMediaItemPlaybackProgress.mockReturnValue(playbackProgress.promise)
+
+    const { container } = render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MediaPlayerPanel
+          mediaItemId={31}
+          preferredMediaFileId={401}
+          title="Interstellar"
+          variant="immersive"
+        />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(clientMocks.listMediaItemFiles).toHaveBeenCalledWith(31)
+    })
+    expect(container.querySelector('video')).toBeNull()
+
+    fireEvent.keyDown(window, { code: 'Space', key: ' ' })
+
+    playbackProgress.resolve({
+      id: 71,
+      media_item_id: 31,
+      last_media_file_id: 401,
+      position_seconds: 320,
+      duration_seconds: 7200,
+      last_watched_at: '2026-04-07T00:00:00Z',
+      is_finished: false,
+    })
+
+    await waitFor(() => {
+      expect(container.querySelector('video')).not.toBeNull()
+    })
+
+    const video = container.querySelector('video') as HTMLVideoElement
+    installVideoTestState(video)
+    fireEvent.loadedMetadata(video)
+
+    expect(video.play).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(window, { code: 'Space', key: ' ' })
+
+    await waitFor(() => {
+      expect(video.play).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('toggles playback when pressing the space key', async () => {
     const { container } = render(
       <QueryClientProvider client={createTestQueryClient()}>
@@ -457,7 +566,8 @@ describe('MediaPlayerPanel', () => {
     })
 
     const video = container.querySelector('video') as HTMLVideoElement
-    installVideoTestState(video)
+    const videoState = installVideoTestState(video)
+    videoState.setReadyState(HTMLMediaElement.HAVE_METADATA)
     const fullscreenButton = screen.getByRole('button', { name: 'Enter fullscreen' })
 
     fullscreenButton.focus()

@@ -1,6 +1,6 @@
 use crate::{
     error::{ApplicationError, ApplicationResult},
-    intro_detection::ensure_intro_markers_for_playback,
+    intro_detection::schedule_intro_markers_for_playback,
 };
 use sqlx::postgres::PgPool;
 use time::OffsetDateTime;
@@ -38,13 +38,9 @@ pub async fn get_media_item_playback_header(
         ApplicationError::NotFound(format!("media item not found: {}", media_item_id))
     })?;
 
-    if let Err(error) = ensure_intro_markers_for_playback(pool, &header).await {
-        tracing::warn!(
-            media_item_id,
-            error = ?error,
-            "on-demand intro detection failed; continuing without intro markers"
-        );
-    }
+    // Intro detection can invoke ffmpeg for multiple episodes. Keep it off the playback-header
+    // critical path so a first-time play never waits for analysis to finish.
+    let _intro_detection_task = schedule_intro_markers_for_playback(pool.clone(), header.clone());
 
     Ok(MediaItemPlaybackHeader {
         media_item_id: header.media_item_id,
