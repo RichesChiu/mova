@@ -7,6 +7,7 @@ export type HomeIconName =
   | 'clock'
   | 'edit'
   | 'home'
+  | 'info'
   | 'libraries'
   | 'logout'
   | 'play'
@@ -62,6 +63,13 @@ const iconPaths: Record<HomeIconName, ReactNode> = {
       <path d="m4.5 11 7.5-6 7.5 6" />
       <path d="M6.5 10.2v8.3h11v-8.3" />
       <path d="M10 18.5v-5h4v5" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 10.5v6" />
+      <path d="M12 7.4h.01" />
     </>
   ),
   libraries: (

@@ -7,7 +7,12 @@ use super::{
     UpdateSeriesEpisodeMetadataParams, UpdateSeriesSeasonMetadataParams,
     UpsertSeriesEpisodeOutlineCacheParams,
 };
-use crate::VisibilityResult;
+use crate::{
+    tmdb_revalidation::{
+        lock_library_tmdb_artwork_reference_write, record_authoritative_tmdb_snapshot_tx,
+    },
+    VisibilityResult,
+};
 use anyhow::{Context, Result};
 use mova_domain::{AudioTrack, Episode, Library, MediaFile, MediaItem, Season, SubtitleFile};
 use sqlx::{
@@ -648,6 +653,49 @@ pub async fn update_media_item_metadata(
         .begin()
         .await
         .context("failed to start media metadata update transaction")?;
+    let previous_identity = sqlx::query(
+        r#"
+        select
+            library_id,
+            media_type,
+            metadata_provider,
+            metadata_provider_item_id
+        from media_items
+        where id = $1
+        "#,
+    )
+    .bind(media_item_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("failed to resolve media item identity before metadata update")?;
+    let Some(previous_identity) = previous_identity else {
+        tx.rollback()
+            .await
+            .context("failed to roll back missing media metadata update")?;
+        return Ok(None);
+    };
+    let library_id = previous_identity.get::<i64, _>("library_id");
+    let previous_media_type = previous_identity.get::<String, _>("media_type");
+    let previous_metadata_provider =
+        previous_identity.get::<Option<String>, _>("metadata_provider");
+    let previous_metadata_provider_item_id =
+        previous_identity.get::<Option<String>, _>("metadata_provider_item_id");
+    let superseded_tmdb_series_id = previous_metadata_provider_item_id.filter(|previous_id| {
+        previous_media_type.eq_ignore_ascii_case("series")
+            && previous_metadata_provider
+                .as_deref()
+                .is_some_and(|provider| provider.eq_ignore_ascii_case("tmdb"))
+            && params
+                .metadata_provider
+                .as_deref()
+                .is_some_and(|provider| provider.eq_ignore_ascii_case("tmdb"))
+            && params.metadata_status.eq_ignore_ascii_case("matched")
+            && params
+                .metadata_provider_item_id
+                .as_deref()
+                .is_some_and(|provider_item_id| provider_item_id != previous_id)
+    });
+    lock_library_tmdb_artwork_reference_write(&mut tx, library_id).await?;
     sqlx::query("select set_config('mova.defer_catalog_revision', 'on', true)")
         .fetch_one(&mut *tx)
         .await
@@ -675,6 +723,8 @@ pub async fn update_media_item_metadata(
             logo_path = $18,
             updated_at = now()
         where id = $1
+          and library_id = $19
+          and updated_at = $20
         returning
             id,
             library_id,
@@ -718,6 +768,8 @@ pub async fn update_media_item_metadata(
     .bind(&params.poster_path)
     .bind(&params.backdrop_path)
     .bind(&params.logo_path)
+    .bind(library_id)
+    .bind(params.expected_updated_at)
     .fetch_optional(&mut *tx)
     .await
     .context("failed to update media item metadata")?;
@@ -731,6 +783,25 @@ pub async fn update_media_item_metadata(
             &params.ratings,
         )
         .await?;
+        record_authoritative_tmdb_snapshot_tx(
+            &mut tx,
+            media_item_id,
+            params.metadata_provider.as_deref(),
+            params.tmdb_remote_snapshot_json.as_deref(),
+            params.tmdb_remote_snapshot_renews_retention,
+        )
+        .await?;
+    }
+
+    if row.is_some() {
+        if let Some(superseded_tmdb_series_id) = superseded_tmdb_series_id.as_deref() {
+            clear_superseded_tmdb_series_episode_identity_tx(
+                &mut tx,
+                media_item_id,
+                superseded_tmdb_series_id,
+            )
+            .await?;
+        }
     }
 
     if let Some(row) = row.as_ref() {
@@ -751,6 +822,74 @@ pub async fn update_media_item_metadata(
         attach_media_item_ratings(pool, std::slice::from_mut(media_item)).await?;
     }
     Ok(media_item)
+}
+
+async fn clear_superseded_tmdb_series_episode_identity_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    series_id: i64,
+    superseded_provider_item_id: &str,
+) -> Result<()> {
+    let episode_ids = sqlx::query_scalar::<_, i64>(
+        r#"
+        select item.id
+        from media_items item
+        join episodes episode on episode.media_item_id = item.id
+        join seasons season on season.id = episode.season_id
+        where season.series_id = $1
+          and item.media_type = 'episode'
+          and item.metadata_provider = 'tmdb'
+          and item.metadata_provider_item_id = $2
+        order by item.id
+        for update of item
+        "#,
+    )
+    .bind(series_id)
+    .bind(superseded_provider_item_id)
+    .fetch_all(&mut **tx)
+    .await
+    .context("failed to lock episodes owned by the superseded TMDB series binding")?;
+    if episode_ids.is_empty() {
+        return Ok(());
+    }
+
+    sqlx::query("delete from media_item_external_ids where media_item_id = any($1)")
+        .bind(&episode_ids)
+        .execute(&mut **tx)
+        .await
+        .context("failed to clear external ids owned by the superseded TMDB series binding")?;
+    sqlx::query(
+        r#"
+        delete from media_item_ratings
+        where media_item_id = any($1)
+          and source = 'tmdb'
+        "#,
+    )
+    .bind(&episode_ids)
+    .execute(&mut **tx)
+    .await
+    .context("failed to clear ratings owned by the superseded TMDB series binding")?;
+
+    let cleared = sqlx::query(
+        r#"
+        update media_items
+        set metadata_provider = null,
+            metadata_provider_item_id = null,
+            updated_at = now()
+        where id = any($1)
+          and metadata_provider = 'tmdb'
+          and metadata_provider_item_id = $2
+        "#,
+    )
+    .bind(&episode_ids)
+    .bind(superseded_provider_item_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to clear episode identities owned by the superseded TMDB series binding")?;
+    if cleared.rows_affected() != episode_ids.len() as u64 {
+        anyhow::bail!("superseded TMDB episode identity changed while replacing series metadata");
+    }
+
+    Ok(())
 }
 
 /// 按主键读取单个媒体文件。
@@ -1492,7 +1631,50 @@ pub async fn update_season_intro_markers(
 pub async fn update_series_season_metadata(
     pool: &PgPool,
     params: UpdateSeriesSeasonMetadataParams,
-) -> Result<u64> {
+) -> Result<Option<u64>> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start series season metadata update transaction")?;
+    let library_id = sqlx::query_scalar::<_, i64>(
+        "select library_id from media_items where id = $1 and media_type = 'series'",
+    )
+    .bind(params.series_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("failed to resolve series library before season metadata update")?;
+    let Some(library_id) = library_id else {
+        tx.rollback()
+            .await
+            .context("failed to roll back missing series season metadata update")?;
+        return Ok(None);
+    };
+    lock_library_tmdb_artwork_reference_write(&mut tx, library_id).await?;
+    let current = sqlx::query_scalar::<_, i64>(
+        r#"
+        select id
+        from media_items
+        where id = $1
+          and media_type = 'series'
+          and metadata_provider = 'tmdb'
+          and metadata_provider_item_id = $2
+          and metadata_status = 'matched'
+          and updated_at = $3
+        for update
+        "#,
+    )
+    .bind(params.series_id)
+    .bind(&params.expected_provider_item_id)
+    .bind(params.expected_media_item_updated_at)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("failed to lock the current TMDB series binding for season metadata")?;
+    if current.is_none() {
+        tx.rollback()
+            .await
+            .context("failed to roll back stale series season metadata")?;
+        return Ok(None);
+    }
     let result = sqlx::query(
         r#"
         update seasons
@@ -1512,21 +1694,63 @@ pub async fn update_series_season_metadata(
     .bind(&params.overview)
     .bind(&params.poster_path)
     .bind(&params.backdrop_path)
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .context("failed to update series season metadata")?;
+    tx.commit()
+        .await
+        .context("failed to commit series season metadata update")?;
 
-    Ok(result.rows_affected())
+    Ok(Some(result.rows_affected()))
 }
 
 pub async fn update_series_episode_metadata(
     pool: &PgPool,
     params: UpdateSeriesEpisodeMetadataParams,
-) -> Result<u64> {
+) -> Result<Option<u64>> {
     let mut tx = pool
         .begin()
         .await
         .context("failed to start series episode metadata update transaction")?;
+    let library_id = sqlx::query_scalar::<_, i64>(
+        "select library_id from media_items where id = $1 and media_type = 'series'",
+    )
+    .bind(params.series_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("failed to resolve series library before episode metadata update")?;
+    let Some(library_id) = library_id else {
+        tx.rollback()
+            .await
+            .context("failed to roll back missing series episode metadata update")?;
+        return Ok(None);
+    };
+    lock_library_tmdb_artwork_reference_write(&mut tx, library_id).await?;
+    let current = sqlx::query_scalar::<_, i64>(
+        r#"
+        select id
+        from media_items
+        where id = $1
+          and media_type = 'series'
+          and metadata_provider = 'tmdb'
+          and metadata_provider_item_id = $2
+          and metadata_status = 'matched'
+          and updated_at = $3
+        for update
+        "#,
+    )
+    .bind(params.series_id)
+    .bind(&params.expected_provider_item_id)
+    .bind(params.expected_media_item_updated_at)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("failed to lock the current TMDB series binding for episode metadata")?;
+    if current.is_none() {
+        tx.rollback()
+            .await
+            .context("failed to roll back stale series episode metadata")?;
+        return Ok(None);
+    }
 
     let media_item_result = sqlx::query(
         r#"
@@ -1564,7 +1788,7 @@ pub async fn update_series_episode_metadata(
         .await
         .context("failed to commit series episode metadata update transaction")?;
 
-    Ok(media_item_result.rows_affected())
+    Ok(Some(media_item_result.rows_affected()))
 }
 
 pub async fn get_season(pool: &PgPool, season_id: i64) -> Result<Option<Season>> {
@@ -1671,13 +1895,20 @@ pub async fn get_series_episode_outline_cache(
     let row = sqlx::query(
         r#"
         select
-            series_media_item_id,
-            outline_json,
-            fetched_at,
-            expires_at,
-            updated_at
-        from series_episode_outline_cache
-        where series_media_item_id = $1
+            cache.series_media_item_id,
+            cache.outline_json,
+            cache.fetched_at,
+            cache.expires_at,
+            cache.updated_at
+        from series_episode_outline_cache cache
+        join media_items item on item.id = cache.series_media_item_id
+        where cache.series_media_item_id = $1
+          and cache.metadata_provider = 'tmdb'
+          and cache.provider_item_id = item.metadata_provider_item_id
+          and cache.source_media_item_updated_at = item.updated_at
+          and item.media_type = 'series'
+          and item.metadata_provider = 'tmdb'
+          and item.metadata_status = 'matched'
         "#,
     )
     .bind(series_media_item_id)
@@ -1691,12 +1922,55 @@ pub async fn get_series_episode_outline_cache(
 pub async fn upsert_series_episode_outline_cache(
     pool: &PgPool,
     params: UpsertSeriesEpisodeOutlineCacheParams,
-) -> Result<SeriesEpisodeOutlineCacheEntry> {
+) -> Result<Option<SeriesEpisodeOutlineCacheEntry>> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start series episode outline cache transaction")?;
+    let library_id = sqlx::query_scalar::<_, i64>(
+        "select library_id from media_items where id = $1 and media_type = 'series'",
+    )
+    .bind(params.series_media_item_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("failed to resolve series library before outline cache update")?
+    .context("series outline cache target is missing")?;
+    lock_library_tmdb_artwork_reference_write(&mut tx, library_id).await?;
+    let current = sqlx::query_scalar::<_, i64>(
+        r#"
+        select id
+        from media_items
+        where id = $1
+          and library_id = $2
+          and media_type = 'series'
+          and metadata_provider = 'tmdb'
+          and metadata_provider_item_id = $3
+          and metadata_status = 'matched'
+          and updated_at = $4
+        for update
+        "#,
+    )
+    .bind(params.series_media_item_id)
+    .bind(library_id)
+    .bind(&params.expected_provider_item_id)
+    .bind(params.expected_media_item_updated_at)
+    .fetch_optional(&mut *tx)
+    .await
+    .context("failed to lock the current TMDB series binding for outline cache")?;
+    if current.is_none() {
+        tx.rollback()
+            .await
+            .context("failed to roll back stale series outline cache update")?;
+        return Ok(None);
+    }
     let row = sqlx::query(
         r#"
         insert into series_episode_outline_cache (
             series_media_item_id,
             library_id,
+            metadata_provider,
+            provider_item_id,
+            source_media_item_updated_at,
             outline_json,
             fetched_at,
             expires_at
@@ -1704,15 +1978,21 @@ pub async fn upsert_series_episode_outline_cache(
         select
             media_item.id,
             media_item.library_id,
+            'tmdb',
             $2,
             $3,
-            $4
+            $4,
+            $5,
+            $6
         from media_items media_item
         where media_item.id = $1
           and media_item.media_type = 'series'
         on conflict (series_media_item_id)
         do update set
             library_id = excluded.library_id,
+            metadata_provider = excluded.metadata_provider,
+            provider_item_id = excluded.provider_item_id,
+            source_media_item_updated_at = excluded.source_media_item_updated_at,
             outline_json = excluded.outline_json,
             fetched_at = excluded.fetched_at,
             expires_at = excluded.expires_at,
@@ -1726,14 +2006,19 @@ pub async fn upsert_series_episode_outline_cache(
         "#,
     )
     .bind(params.series_media_item_id)
+    .bind(&params.expected_provider_item_id)
+    .bind(params.expected_media_item_updated_at)
     .bind(params.outline_json)
     .bind(params.fetched_at)
     .bind(params.expires_at)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await
     .context("failed to upsert series episode outline cache")?;
+    tx.commit()
+        .await
+        .context("failed to commit series episode outline cache")?;
 
-    Ok(map_series_episode_outline_cache_entry_row(row))
+    Ok(Some(map_series_episode_outline_cache_entry_row(row)))
 }
 
 pub async fn delete_series_episode_outline_cache(
@@ -2230,5 +2515,391 @@ fn map_series_episode_outline_cache_entry_row(row: PgRow) -> SeriesEpisodeOutlin
         fetched_at: row.get::<OffsetDateTime, _>("fetched_at"),
         expires_at: row.get::<OffsetDateTime, _>("expires_at"),
         updated_at: row.get::<OffsetDateTime, _>("updated_at"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        get_series_episode_outline_cache, update_media_item_metadata,
+        upsert_series_episode_outline_cache,
+    };
+    use crate::{UpdateMediaItemMetadataParams, UpsertSeriesEpisodeOutlineCacheParams};
+    use time::{Duration, OffsetDateTime};
+
+    async fn seed_bound_series_episode(
+        pool: &sqlx::PgPool,
+        episode_provider: &str,
+        episode_provider_item_id: &str,
+    ) -> (i64, i64, OffsetDateTime) {
+        let library_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into libraries (name, root_path)
+            values ('Manual Match', '/manual-match')
+            returning id
+            "#,
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        let (series_id, series_updated_at) = sqlx::query_as::<_, (i64, OffsetDateTime)>(
+            r#"
+                insert into media_items (
+                    library_id,
+                    media_type,
+                    title,
+                    source_title,
+                    metadata_provider,
+                    metadata_provider_item_id,
+                    metadata_status,
+                    remote_media_type
+                )
+                values (
+                    $1,
+                    'series',
+                    'Old Remote Series',
+                    'Local Series',
+                    'tmdb',
+                    'old-series',
+                    'matched',
+                    'series'
+                )
+                returning id, updated_at
+                "#,
+        )
+        .bind(library_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        let season_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into seasons (library_id, series_id, season_number, title)
+            values ($1, $2, 1, 'Local Season')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(series_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        let episode_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_items (
+                library_id,
+                media_type,
+                title,
+                source_title,
+                metadata_provider,
+                metadata_provider_item_id,
+                metadata_status,
+                remote_media_type,
+                overview
+            )
+            values (
+                $1,
+                'episode',
+                'Local Episode',
+                'Local Episode Source',
+                $2,
+                $3,
+                'matched',
+                'series',
+                'Local episode overview'
+            )
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(episode_provider)
+        .bind(episode_provider_item_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into episodes (media_item_id, library_id, season_id, episode_number)
+            values ($1, $2, $3, 1)
+            "#,
+        )
+        .bind(episode_id)
+        .bind(library_id)
+        .bind(season_id)
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into media_item_external_ids (media_item_id, provider, external_id)
+            values
+                ($1, 'tmdb', 'old-episode'),
+                ($1, 'imdb', 'tt-old-episode')
+            "#,
+        )
+        .bind(episode_id)
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into media_item_ratings (
+                media_item_id,
+                source,
+                kind,
+                score,
+                scale,
+                retrieved_via,
+                fetched_at
+            )
+            values
+                ($1, 'tmdb', 'audience', 8, 10, 'tmdb', now()),
+                ($1, 'nfo', 'audience', 4, 5, 'nfo', now())
+            "#,
+        )
+        .bind(episode_id)
+        .execute(pool)
+        .await
+        .unwrap();
+
+        (series_id, episode_id, series_updated_at)
+    }
+
+    fn replacement_params(expected_updated_at: OffsetDateTime) -> UpdateMediaItemMetadataParams {
+        UpdateMediaItemMetadataParams {
+            expected_updated_at,
+            title: "New Remote Series".to_string(),
+            source_title: "Local Series".to_string(),
+            original_title: None,
+            sort_title: None,
+            metadata_provider: Some("tmdb".to_string()),
+            metadata_provider_item_id: Some("new-series".to_string()),
+            metadata_status: "matched".to_string(),
+            metadata_failure_reason: None,
+            replace_remote_data: true,
+            tmdb_remote_snapshot_json: None,
+            tmdb_remote_snapshot_renews_retention: false,
+            remote_media_type: Some("series".to_string()),
+            year: None,
+            external_ids: Vec::new(),
+            ratings: Vec::new(),
+            country: None,
+            genres: None,
+            studio: None,
+            overview: Some("New series overview".to_string()),
+            poster_path: None,
+            backdrop_path: None,
+            logo_path: None,
+        }
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn manual_series_binding_change_clears_old_tmdb_owned_episode_identity(
+        pool: sqlx::PgPool,
+    ) {
+        let (series_id, episode_id, expected_updated_at) =
+            seed_bound_series_episode(&pool, "tmdb", "old-series").await;
+
+        let updated =
+            update_media_item_metadata(&pool, series_id, replacement_params(expected_updated_at))
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            updated.metadata_provider_item_id.as_deref(),
+            Some("new-series")
+        );
+
+        let episode = sqlx::query_as::<
+            _,
+            (
+                Option<String>,
+                Option<String>,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+            ),
+        >(
+            r#"
+            select
+                metadata_provider,
+                metadata_provider_item_id,
+                metadata_status,
+                title,
+                overview,
+                remote_media_type
+            from media_items
+            where id = $1
+            "#,
+        )
+        .bind(episode_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(episode.0, None);
+        assert_eq!(episode.1, None);
+        assert_ne!(episode.1.as_deref(), Some("new-series"));
+        assert_eq!(episode.2, "matched");
+        assert_eq!(episode.3, "Local Episode");
+        assert_eq!(episode.4.as_deref(), Some("Local episode overview"));
+        assert_eq!(episode.5.as_deref(), Some("series"));
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from media_item_external_ids where media_item_id = $1",
+            )
+            .bind(episode_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, Vec<String>>(
+                r#"
+                select coalesce(array_agg(source order by source), array[]::varchar[])
+                from media_item_ratings
+                where media_item_id = $1
+                "#,
+            )
+            .bind(episode_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            vec!["nfo".to_string()]
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn manual_series_binding_change_preserves_nfo_owned_episode(pool: sqlx::PgPool) {
+        let (series_id, episode_id, expected_updated_at) =
+            seed_bound_series_episode(&pool, "nfo", "nfo-episode").await;
+
+        update_media_item_metadata(&pool, series_id, replacement_params(expected_updated_at))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let episode =
+            sqlx::query_as::<_, (Option<String>, Option<String>, String, Option<String>)>(
+                r#"
+            select metadata_provider, metadata_provider_item_id, title, overview
+            from media_items
+            where id = $1
+            "#,
+            )
+            .bind(episode_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(episode.0.as_deref(), Some("nfo"));
+        assert_eq!(episode.1.as_deref(), Some("nfo-episode"));
+        assert_ne!(episode.1.as_deref(), Some("new-series"));
+        assert_eq!(episode.2, "Local Episode");
+        assert_eq!(episode.3.as_deref(), Some("Local episode overview"));
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from media_item_external_ids where media_item_id = $1",
+            )
+            .bind(episode_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            2
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from media_item_ratings where media_item_id = $1",
+            )
+            .bind(episode_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            2
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn outline_cache_is_hidden_and_stale_write_is_rejected_after_binding_change(
+        pool: sqlx::PgPool,
+    ) {
+        let library_id = sqlx::query_scalar::<_, i64>(
+            "insert into libraries (name, root_path) values ('Outline', '/outline') returning id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let (series_id, observed_updated_at) = sqlx::query_as::<_, (i64, OffsetDateTime)>(
+            r#"
+            insert into media_items (
+                library_id,
+                media_type,
+                title,
+                source_title,
+                metadata_provider,
+                metadata_provider_item_id,
+                metadata_status
+            )
+            values ($1, 'series', 'Series', 'Series', 'tmdb', '42', 'matched')
+            returning id, updated_at
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let fetched_at = OffsetDateTime::now_utc();
+        let inserted = upsert_series_episode_outline_cache(
+            &pool,
+            UpsertSeriesEpisodeOutlineCacheParams {
+                series_media_item_id: series_id,
+                expected_provider_item_id: "42".to_string(),
+                expected_media_item_updated_at: observed_updated_at,
+                outline_json: r#"{"seasons":[]}"#.to_string(),
+                fetched_at,
+                expires_at: fetched_at + Duration::days(1),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(inserted.is_some());
+        assert!(get_series_episode_outline_cache(&pool, series_id)
+            .await
+            .unwrap()
+            .is_some());
+
+        sqlx::query(
+            r#"
+            update media_items
+            set metadata_provider_item_id = '84',
+                updated_at = clock_timestamp()
+            where id = $1
+            "#,
+        )
+        .bind(series_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(get_series_episode_outline_cache(&pool, series_id)
+            .await
+            .unwrap()
+            .is_none());
+
+        let stale_write = upsert_series_episode_outline_cache(
+            &pool,
+            UpsertSeriesEpisodeOutlineCacheParams {
+                series_media_item_id: series_id,
+                expected_provider_item_id: "42".to_string(),
+                expected_media_item_updated_at: observed_updated_at,
+                outline_json: r#"{"seasons":[{"season_number":1}]}"#.to_string(),
+                fetched_at,
+                expires_at: fetched_at + Duration::days(1),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(stale_write.is_none());
     }
 }

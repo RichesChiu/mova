@@ -78,6 +78,16 @@ export interface CacheCleanupFailureNotificationPayload {
   diagnostic_message: string | null
 }
 
+export interface TmdbRetentionExpiryNotificationPayload {
+  media_item_id: number
+  library_id: number
+  title: string
+  provider: 'tmdb'
+  reason_code: 'tmdb_retention_expired'
+  reason_params: Record<string, unknown>
+  diagnostic_message: string | null
+}
+
 export interface NotificationItem {
   id: number
   category: NotificationCategory

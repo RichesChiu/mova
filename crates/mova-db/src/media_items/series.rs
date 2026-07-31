@@ -14,7 +14,10 @@ use anyhow::{Context, Result};
 use mova_domain::METADATA_STATUS_MATCHED;
 use sqlx::{Postgres, Row, Transaction};
 
-use crate::playback_progress::merge_media_item_user_state;
+use crate::{
+    playback_progress::merge_media_item_user_state,
+    tmdb_revalidation::record_authoritative_tmdb_snapshot_tx,
+};
 
 pub(super) async fn upsert_episode_media_entry(
     tx: &mut Transaction<'_, Postgres>,
@@ -544,6 +547,14 @@ async fn insert_series_item_from_entry(
             &entry.ratings,
         )
         .await?;
+        record_authoritative_tmdb_snapshot_tx(
+            tx,
+            series_id,
+            entry.metadata_provider.as_deref(),
+            entry.tmdb_remote_snapshot_json.as_deref(),
+            entry.tmdb_remote_snapshot_renews_retention,
+        )
+        .await?;
     }
 
     Ok(series_id)
@@ -624,6 +635,14 @@ async fn update_series_item_from_entry(
             entry.metadata_provider.as_deref(),
             &entry.external_ids,
             &entry.ratings,
+        )
+        .await?;
+        record_authoritative_tmdb_snapshot_tx(
+            tx,
+            series_id,
+            entry.metadata_provider.as_deref(),
+            entry.tmdb_remote_snapshot_json.as_deref(),
+            entry.tmdb_remote_snapshot_renews_retention,
         )
         .await?;
     }

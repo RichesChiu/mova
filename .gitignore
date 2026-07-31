@@ -6,6 +6,7 @@ dist/
 
 # Logs and local tool caches.
 logs/
+.pnpm-store/
 *.log
 npm-debug.log*
 yarn-debug.log*

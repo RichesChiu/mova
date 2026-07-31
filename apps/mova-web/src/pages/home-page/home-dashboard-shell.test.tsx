@@ -64,6 +64,7 @@ describe('HomeDashboardShell account menu', () => {
 
     expect(screen.getByRole('menuitem', { name: 'Server Settings' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Personal Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'About & Credits' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Log out' })).toBeInTheDocument()
   })
 
@@ -74,6 +75,7 @@ describe('HomeDashboardShell account menu', () => {
 
     expect(screen.queryByRole('menuitem', { name: 'Server Settings' })).not.toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Personal Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'About & Credits' })).toBeInTheDocument()
   })
 
   it('clears the authenticated view and returns to login after logout', async () => {

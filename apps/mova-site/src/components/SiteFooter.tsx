@@ -2,9 +2,11 @@ import { useI18n } from '../i18n-context'
 import './SiteFooter.css'
 
 export function SiteFooter({
+  onOpenCredits,
   onOpenHome,
   onOpenPrivacy,
 }: {
+  onOpenCredits: () => void
   onOpenHome: () => void
   onOpenPrivacy: () => void
 }) {
@@ -22,6 +24,9 @@ export function SiteFooter({
           </button>
           <button type="button" onClick={onOpenPrivacy}>
             {isChinese ? '隐私政策' : 'Privacy'}
+          </button>
+          <button type="button" onClick={onOpenCredits}>
+            {isChinese ? '鸣谢与数据来源' : 'Credits & Data Sources'}
           </button>
         </nav>
       </div>

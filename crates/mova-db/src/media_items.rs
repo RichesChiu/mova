@@ -22,6 +22,7 @@ pub use query::{
     upsert_series_episode_outline_cache,
 };
 pub use ratings::list_media_item_ratings;
+pub(crate) use ratings::replace_media_item_remote_data;
 pub use sync::{
     delete_library_media_by_file_path, delete_library_media_by_path_prefix,
     patch_library_media_entries_remote_by_file_path, sync_library_media,
@@ -68,6 +69,8 @@ pub struct CreateMediaEntryParams {
     pub metadata_failure_reason: Option<String>,
     pub allow_artwork_clear: bool,
     pub replace_remote_data: bool,
+    pub tmdb_remote_snapshot_json: Option<String>,
+    pub tmdb_remote_snapshot_renews_retention: bool,
     pub remote_media_type: Option<String>,
     pub title: String,
     pub source_title: String,
@@ -125,6 +128,7 @@ pub struct CreateMediaEntryParams {
 /// 手动刷新单个媒体条目时允许更新的 metadata 字段。
 #[derive(Debug, Clone)]
 pub struct UpdateMediaItemMetadataParams {
+    pub expected_updated_at: OffsetDateTime,
     pub title: String,
     pub source_title: String,
     pub original_title: Option<String>,
@@ -134,6 +138,8 @@ pub struct UpdateMediaItemMetadataParams {
     pub metadata_status: String,
     pub metadata_failure_reason: Option<String>,
     pub replace_remote_data: bool,
+    pub tmdb_remote_snapshot_json: Option<String>,
+    pub tmdb_remote_snapshot_renews_retention: bool,
     pub remote_media_type: Option<String>,
     pub year: Option<i32>,
     pub external_ids: Vec<MediaExternalId>,
@@ -151,6 +157,8 @@ pub struct UpdateMediaItemMetadataParams {
 #[derive(Debug, Clone)]
 pub struct UpdateSeriesSeasonMetadataParams {
     pub series_id: i64,
+    pub expected_provider_item_id: String,
+    pub expected_media_item_updated_at: OffsetDateTime,
     pub season_number: i32,
     pub title: Option<String>,
     pub overview: Option<String>,
@@ -162,6 +170,8 @@ pub struct UpdateSeriesSeasonMetadataParams {
 #[derive(Debug, Clone)]
 pub struct UpdateSeriesEpisodeMetadataParams {
     pub series_id: i64,
+    pub expected_provider_item_id: String,
+    pub expected_media_item_updated_at: OffsetDateTime,
     pub season_number: i32,
     pub episode_number: i32,
     pub title: Option<String>,
@@ -357,6 +367,8 @@ pub struct SeriesEpisodeOutlineCacheEntry {
 #[derive(Debug, Clone)]
 pub struct UpsertSeriesEpisodeOutlineCacheParams {
     pub series_media_item_id: i64,
+    pub expected_provider_item_id: String,
+    pub expected_media_item_updated_at: OffsetDateTime,
     pub outline_json: String,
     pub fetched_at: OffsetDateTime,
     pub expires_at: OffsetDateTime,

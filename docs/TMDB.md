@@ -66,9 +66,9 @@ Mova 的类型路由、严格匹配、字段覆盖、图片、缓存和失败策
 
 | Method | Path | 能力 | Mova 状态 |
 | --- | --- | --- | --- |
-| `GET` | `/3/movie/{movie_id}` | 电影完整详情 | `当前` |
+| `GET` | `/3/movie/{movie_id}` | 电影完整详情 | `当前`，匹配及已绑定 ID 的后台复核 |
 | `GET` | `/3/movie/{movie_id}/alternative_titles` | 各地区别名 | `当前`，仅用于严格名称验证 |
-| `GET` | `/3/movie/{movie_id}/credits` | 电影 cast/crew | `当前`，演员按需获取 |
+| `GET` | `/3/movie/{movie_id}/credits` | 电影 cast/crew | `当前`，演员首次按需获取、已有缓存随作品复核 |
 | `GET` | `/3/movie/{movie_id}/external_ids` | IMDb、Wikidata、社交 ID | `当前`，通过 details append |
 | `GET` | `/3/movie/{movie_id}/images` | posters、backdrops、logos | `当前`，通过 details append |
 | `GET` | `/3/movie/{movie_id}/release_dates` | 地区发行日期和分级 | `规划` |
@@ -94,9 +94,9 @@ Mova 的类型路由、严格匹配、字段覆盖、图片、缓存和失败策
 
 | Method | Path | 能力 | Mova 状态 |
 | --- | --- | --- | --- |
-| `GET` | `/3/tv/{series_id}` | TV 完整详情和 season summaries | `当前` |
+| `GET` | `/3/tv/{series_id}` | TV 完整详情和 season summaries | `当前`，匹配及已绑定 ID 的后台复核 |
 | `GET` | `/3/tv/{series_id}/alternative_titles` | TV 别名 | `当前`，仅用于严格名称验证 |
-| `GET` | `/3/tv/{series_id}/aggregate_credits` | 全部季集聚合 cast/crew | `当前`，演员按需获取 |
+| `GET` | `/3/tv/{series_id}/aggregate_credits` | 全部季集聚合 cast/crew | `当前`，演员首次按需获取、已有缓存随作品复核 |
 | `GET` | `/3/tv/{series_id}/credits` | 最新一季 cast/crew | `预留` |
 | `GET` | `/3/tv/{series_id}/external_ids` | IMDb、TVDB、Wikidata、社交 ID | `当前`，通过 details append |
 | `GET` | `/3/tv/{series_id}/images` | posters、backdrops、logos | `当前`，通过 details append |

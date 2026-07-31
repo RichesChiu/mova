@@ -696,6 +696,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `diagnostic_message` 与 `probe_warning_diagnostic` 仅供日志和排障使用。客户端不得把这些英文诊断信息直接作为通知主文案；未知原因码才允许将其作为次级兜底。
 - 扫描摘要由 worker 在远端组成功提交后累计，并在任务终态直接写入通知；服务端不提供第二套扫描报告接口。更底层的网络、provider 与 `ffprobe` 排障信息由运维侧查看服务日志。
 - `cache.cleanup.failed` 是仅管理员可见的 `system / error` 通知。它表示媒体库权威数据已经删除，但 `MOVA_CACHE_DIR/libraries/{library_id}` 在 10 次尝试后仍无法移除；payload 包含 `background_job_id`、`library_id`、删除前的 `library_name`、`attempt_count`、`max_attempts`、`reason_code=cache_cleanup_failed`、`reason_params` 和可选 `diagnostic_message`。
+- `metadata.tmdb.retention_expired` 是媒体库可见的 `library / warning` 通知。它表示某个条目的 TMDB 元数据在最长 180 天保留期内未能重新验证，provider-owned 元数据与缓存已经清除，条目可重新匹配；payload 仅保留本地定位与展示所需的 `media_item_id`、`library_id`、当前 `title`、`provider=tmdb`、`reason_code=tmdb_retention_expired`、`reason_params` 和可选 `diagnostic_message`，不会保留原 TMDB 条目 ID。
 
 ### `PUT /api/notifications/{id}/read`
 

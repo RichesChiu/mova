@@ -7,6 +7,11 @@ import { useI18n } from './i18n'
 import { loadLazyRoute, resetLazyRouteRecovery } from './lib/lazy-route'
 import { queryClient } from './lib/query-client'
 
+const AboutPage = lazy(() =>
+  loadLazyRoute(() =>
+    import('./pages/about-page').then((module) => ({ default: module.AboutPage })),
+  ),
+)
 const ContinuePage = lazy(() =>
   loadLazyRoute(() =>
     import('./pages/continue-page').then((module) => ({ default: module.ContinuePage })),
@@ -91,6 +96,7 @@ const AppRoutes = () => {
           <Route path="/media-items/:mediaItemId/play" element={<MediaPlayerPage />} />
           <Route element={<AppShell />}>
             <Route index element={<HomePage />} />
+            <Route path="/about" element={<AboutPage />} />
             <Route path="/libraries" element={<LibrariesPage />} />
             <Route path="/libraries/:libraryId" element={<LibraryPage />} />
             <Route path="/media-items/:mediaItemId" element={<MediaItemPage />} />

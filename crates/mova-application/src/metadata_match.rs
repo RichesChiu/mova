@@ -1,7 +1,6 @@
 use crate::{
     ensure_media_item_cast,
     error::{ApplicationError, ApplicationResult},
-    invalidate_media_item_cast_cache,
     libraries::get_library,
     media_classification::metadata_lookup_type_for_media_type,
     media_enrichment::MetadataEnrichmentContext,
@@ -109,8 +108,16 @@ pub async fn apply_media_item_metadata_match(
             input.provider_item_id
         ))
     })?;
+    crate::tmdb_revalidation::validate_tmdb_remote_identity(
+        &remote_metadata,
+        &input.provider_item_id,
+    )
+    .map_err(ApplicationError::Unexpected)?;
+    let artwork_publication = mova_db::TmdbArtworkPublicationGuard::acquire(pool, library.id)
+        .await
+        .map_err(ApplicationError::from)?;
     let mut enrichment = MetadataEnrichmentContext::new(
-        artwork_cache_dir,
+        artwork_cache_dir.clone(),
         library.id,
         metadata_provider.clone(),
         library.metadata_language.clone(),
@@ -118,52 +125,121 @@ pub async fn apply_media_item_metadata_match(
     enrichment
         .cache_remote_metadata_artwork(&mut remote_metadata)
         .await;
-
-    let updated_media_item = mova_db::update_media_item_metadata(
-        pool,
-        media_item_id,
-        mova_db::UpdateMediaItemMetadataParams {
-            title: remote_metadata.title.unwrap_or(media_item.title),
-            source_title: media_item.source_title,
-            original_title: remote_metadata.original_title.or(media_item.original_title),
-            // 手动匹配目前不会单独生成 sort title，因此保留现有值避免意外清空。
-            sort_title: media_item.sort_title,
-            metadata_provider: Some(TMDB_PROVIDER_NAME.to_string()),
-            metadata_provider_item_id: Some(input.provider_item_id.clone()),
-            metadata_status: METADATA_STATUS_MATCHED.to_string(),
-            metadata_failure_reason: None,
-            replace_remote_data: true,
-            remote_media_type: remote_media_type_for_media_type(&media_item.media_type)
-                .map(str::to_string),
-            year: remote_metadata.year.or(media_item.year),
-            external_ids: remote_metadata.external_ids,
-            ratings: remote_metadata.ratings,
-            country: remote_metadata.country.or(media_item.country),
-            genres: remote_metadata.genres.or(media_item.genres),
-            studio: remote_metadata.studio.or(media_item.studio),
-            overview: remote_metadata.overview.or(media_item.overview),
-            poster_path: remote_metadata.poster_path,
-            backdrop_path: remote_metadata.backdrop_path,
-            logo_path: remote_metadata.logo_path,
-        },
-    )
-    .await
-    .map_err(ApplicationError::from)?
-    .ok_or_else(|| {
-        ApplicationError::NotFound(format!("media item not found: {}", media_item_id))
-    })?;
-
-    if media_item.media_type.eq_ignore_ascii_case("series") {
-        apply_selected_series_episode_metadata(
-            pool,
-            media_item.id,
-            &lookup,
-            metadata_provider.as_ref(),
-            &mut enrichment,
-        )
-        .await?;
+    let remote_outline_result = if media_item.media_type.eq_ignore_ascii_case("series") {
+        metadata_provider
+            .lookup_complete_series_episode_outline(&lookup)
+            .await
+            .map_err(|error| {
+                ApplicationError::Unexpected(anyhow::anyhow!(
+                    "failed to fetch the complete selected series outline for media item {}: {}",
+                    media_item_id,
+                    error
+                ))
+            })
+            .and_then(|outline| {
+                outline.map(Some).ok_or_else(|| {
+                    ApplicationError::Unexpected(anyhow::anyhow!(
+                        "selected series {} omitted its complete season and episode outline",
+                        input.provider_item_id
+                    ))
+                })
+            })
+    } else {
+        Ok(None)
+    };
+    let mut remote_outline = match remote_outline_result {
+        Ok(remote_outline) => remote_outline,
+        Err(error) => {
+            let materialized_artwork = crate::tmdb_revalidation::materialized_tmdb_artwork_paths(
+                &remote_metadata,
+                None,
+                &artwork_cache_dir,
+                library.id,
+            );
+            return crate::tmdb_revalidation::finish_tmdb_artwork_publication(
+                artwork_publication,
+                Err(error),
+                pool,
+                &artwork_cache_dir,
+                library.id,
+                materialized_artwork,
+                true,
+            )
+            .await;
+        }
+    };
+    if let Some(remote_outline) = remote_outline.as_mut() {
+        enrichment
+            .cache_remote_series_outline_artwork(remote_outline)
+            .await;
     }
-    invalidate_media_item_cast_cache(pool, media_item.id).await?;
+    let materialized_artwork = crate::tmdb_revalidation::materialized_tmdb_artwork_paths(
+        &remote_metadata,
+        remote_outline.as_ref(),
+        &artwork_cache_dir,
+        library.id,
+    );
+    let update_result: ApplicationResult<MediaItem> = async {
+        let tmdb_remote_snapshot_json = crate::tmdb_revalidation::serialize_tmdb_remote_snapshot(
+            &remote_metadata,
+            remote_outline.clone(),
+        )
+        .map_err(ApplicationError::Unexpected)?;
+
+        let updated_media_item = mova_db::update_media_item_metadata(
+            pool,
+            media_item_id,
+            mova_db::UpdateMediaItemMetadataParams {
+                expected_updated_at: media_item.updated_at,
+                title: remote_metadata.title.unwrap_or(media_item.title),
+                source_title: media_item.source_title,
+                original_title: remote_metadata.original_title.or(media_item.original_title),
+                // 手动匹配目前不会单独生成 sort title，因此保留现有值避免意外清空。
+                sort_title: media_item.sort_title,
+                metadata_provider: Some(TMDB_PROVIDER_NAME.to_string()),
+                metadata_provider_item_id: Some(input.provider_item_id.clone()),
+                metadata_status: METADATA_STATUS_MATCHED.to_string(),
+                metadata_failure_reason: None,
+                replace_remote_data: true,
+                tmdb_remote_snapshot_json: Some(tmdb_remote_snapshot_json),
+                tmdb_remote_snapshot_renews_retention: false,
+                remote_media_type: remote_media_type_for_media_type(&media_item.media_type)
+                    .map(str::to_string),
+                year: remote_metadata.year.or(media_item.year),
+                external_ids: remote_metadata.external_ids,
+                ratings: remote_metadata.ratings,
+                country: remote_metadata.country.or(media_item.country),
+                genres: remote_metadata.genres.or(media_item.genres),
+                studio: remote_metadata.studio.or(media_item.studio),
+                overview: remote_metadata.overview.or(media_item.overview),
+                poster_path: remote_metadata.poster_path,
+                backdrop_path: remote_metadata.backdrop_path,
+                logo_path: remote_metadata.logo_path,
+            },
+        )
+        .await
+        .map_err(ApplicationError::from)?
+        .ok_or_else(|| {
+            ApplicationError::NotFound(format!("media item not found: {}", media_item_id))
+        })?;
+
+        if let Some(remote_outline) = remote_outline.as_ref() {
+            apply_selected_series_episode_metadata(pool, &updated_media_item, remote_outline)
+                .await?;
+        }
+        Ok(updated_media_item)
+    }
+    .await;
+    let updated_media_item = crate::tmdb_revalidation::finish_tmdb_artwork_publication(
+        artwork_publication,
+        update_result,
+        pool,
+        &artwork_cache_dir,
+        library.id,
+        materialized_artwork,
+        true,
+    )
+    .await?;
     ensure_media_item_cast(pool, &updated_media_item, metadata_provider).await?;
 
     Ok(updated_media_item)
@@ -183,58 +259,38 @@ fn remote_media_type_for_media_type(media_type: &str) -> Option<&'static str> {
 
 async fn apply_selected_series_episode_metadata(
     pool: &PgPool,
-    series_media_item_id: i64,
-    lookup: &MetadataLookup,
-    metadata_provider: &dyn MetadataProvider,
-    enrichment: &mut MetadataEnrichmentContext,
+    series_media_item: &MediaItem,
+    remote_outline: &RemoteSeriesEpisodeOutline,
 ) -> ApplicationResult<()> {
-    let mut remote_outline = match metadata_provider
-        .lookup_series_episode_outline(lookup)
-        .await
-    {
-        Ok(Some(remote_outline)) => remote_outline,
-        Ok(None) => {
-            crate::media_items::cache_remote_outline(
-                pool,
-                series_media_item_id,
-                &RemoteSeriesEpisodeOutline { seasons: vec![] },
-            )
-            .await?;
-            return Ok(());
-        }
-        Err(error) => {
-            tracing::warn!(
-                media_item_id = series_media_item_id,
-                provider_item_id = lookup.provider_item_id,
-                error = ?error,
-                "failed to fetch selected series episode outline after metadata replacement"
-            );
-            mova_db::delete_series_episode_outline_cache(pool, series_media_item_id)
-                .await
-                .map_err(ApplicationError::from)?;
-            return Ok(());
-        }
-    };
-
-    enrichment
-        .cache_remote_series_outline_artwork(&mut remote_outline)
-        .await;
-    persist_selected_series_episode_metadata(pool, series_media_item_id, &remote_outline).await?;
-    crate::media_items::cache_remote_outline(pool, series_media_item_id, &remote_outline).await
+    persist_selected_series_episode_metadata(pool, series_media_item, remote_outline).await?;
+    if !crate::media_items::cache_remote_outline(pool, series_media_item, remote_outline).await? {
+        return Err(ApplicationError::Conflict(
+            "series metadata changed while applying the selected TMDB outline".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 async fn persist_selected_series_episode_metadata(
     pool: &PgPool,
-    series_media_item_id: i64,
+    series_media_item: &MediaItem,
     remote_outline: &RemoteSeriesEpisodeOutline,
 ) -> ApplicationResult<()> {
+    let provider_item_id = series_media_item
+        .metadata_provider_item_id
+        .as_deref()
+        .ok_or_else(|| {
+            ApplicationError::Conflict("selected series no longer has a TMDB binding".to_string())
+        })?;
     // Keep these writes strictly serial: one successful season or episode update must finish
     // before the next one starts, so a failed artwork write never races with later updates.
     for season in &remote_outline.seasons {
         mova_db::update_series_season_metadata(
             pool,
             mova_db::UpdateSeriesSeasonMetadataParams {
-                series_id: series_media_item_id,
+                series_id: series_media_item.id,
+                expected_provider_item_id: provider_item_id.to_string(),
+                expected_media_item_updated_at: series_media_item.updated_at,
                 season_number: season.season_number,
                 title: season.title.clone(),
                 overview: season.overview.clone(),
@@ -243,13 +299,20 @@ async fn persist_selected_series_episode_metadata(
             },
         )
         .await
-        .map_err(ApplicationError::from)?;
+        .map_err(ApplicationError::from)?
+        .ok_or_else(|| {
+            ApplicationError::Conflict(
+                "series metadata changed while applying the selected TMDB season".to_string(),
+            )
+        })?;
 
         for episode in &season.episodes {
             mova_db::update_series_episode_metadata(
                 pool,
                 mova_db::UpdateSeriesEpisodeMetadataParams {
-                    series_id: series_media_item_id,
+                    series_id: series_media_item.id,
+                    expected_provider_item_id: provider_item_id.to_string(),
+                    expected_media_item_updated_at: series_media_item.updated_at,
                     season_number: season.season_number,
                     episode_number: episode.episode_number,
                     title: episode.title.clone(),
@@ -259,7 +322,12 @@ async fn persist_selected_series_episode_metadata(
                 },
             )
             .await
-            .map_err(ApplicationError::from)?;
+            .map_err(ApplicationError::from)?
+            .ok_or_else(|| {
+                ApplicationError::Conflict(
+                    "series metadata changed while applying the selected TMDB episode".to_string(),
+                )
+            })?;
         }
     }
 

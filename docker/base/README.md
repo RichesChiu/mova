@@ -5,7 +5,7 @@ These Dockerfiles provide the reusable layers consumed by
 
 - `web-build.Dockerfile`: Node.js and pnpm Web build environment
 - `rust-build.Dockerfile`: Rust build environment
-- `runtime.Dockerfile`: runtime system, FFmpeg, and Python
+- `runtime.Dockerfile`: Debian 13 runtime system, FFmpeg 7, and Python 3
 
 Publish application images through the repository script. It verifies the
 required `linux/amd64` and `linux/arm64` base-image platforms and publishes
@@ -13,6 +13,17 @@ missing base images automatically:
 
 ```sh
 MOVA_DOCKER_IMAGE_TAG=richeschiu/mova:<immutable-tag> ./scripts/publish-docker-images.sh
+```
+
+Formal publishes require an immutable SemVer image tag, a clean Git worktree
+and index, and an annotated `v<version>` Git tag pointing to `HEAD`. For a
+deliberate development-only publish that does not meet those release
+conditions, opt in explicitly:
+
+```sh
+MOVA_ALLOW_UNRELEASED=1 \
+MOVA_DOCKER_IMAGE_TAG=richeschiu/mova:development \
+./scripts/publish-docker-images.sh
 ```
 
 Force rebuilding all base images only after intentionally changing their
@@ -23,3 +34,18 @@ MOVA_PUBLISH_BASE_IMAGES=1 \
 MOVA_DOCKER_IMAGE_TAG=richeschiu/mova:<immutable-tag> \
 ./scripts/publish-docker-images.sh
 ```
+
+The runtime image installs FFmpeg and Python from the supported Debian 13
+repositories, then removes `perl-base`. Perl is present only for Debian package
+maintenance and is not invoked by Mova, FFmpeg, FFprobe, or the Python intro
+detector. Runtime images are immutable: rebuild the base image to apply package
+updates instead of installing packages in a running container.
+
+Publishing requires Docker Scout and local support for running every requested
+platform. The script first pushes a uniquely tagged multi-platform candidate,
+pins its manifest digest, smoke-tests and scans that immutable digest on every
+requested platform, and only then promotes the same digest to the release tag.
+Promotion succeeds only when Docker Scout reports no critical or high
+vulnerabilities at publish time. A failed smoke test, scan, or digest
+resolution leaves the existing release tag unchanged; the script also verifies
+that the promoted release tag resolves to the approved candidate digest.

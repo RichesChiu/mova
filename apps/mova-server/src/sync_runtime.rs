@@ -1,5 +1,7 @@
 use crate::state::{AppState, RegisterScanError};
-use mova_application::{ExecuteScanJobOutcome, ScanJobEvent, ScanJobProgressUpdate};
+use mova_application::{
+    ExecuteScanJobOutcome, ScanJobEvent, ScanJobProgressUpdate, TmdbMetadataRevalidationOutcome,
+};
 use serde::Deserialize;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::watch;
@@ -9,6 +11,7 @@ const BACKGROUND_JOB_LEASE_SECONDS: i64 = 60;
 const BACKGROUND_JOB_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 const BACKGROUND_JOB_LEASE_SAFETY_WINDOW: Duration = Duration::from_secs(45);
 const BACKGROUND_JOB_IDLE_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const TMDB_REVALIDATION_SCHEDULER_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Deserialize)]
 struct LibraryScanJobPayload {
@@ -19,6 +22,25 @@ struct LibraryScanJobPayload {
 #[derive(Debug, Deserialize)]
 struct LibraryCacheCleanupJobPayload {
     library_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbMetadataRevalidationJobPayload {
+    media_item_id: i64,
+    library_id: i64,
+    provider_item_id: String,
+    retention_expired: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct TmdbArtworkCleanupJobPayload {
+    library_id: i64,
+    #[serde(default)]
+    media_item_id: Option<i64>,
+    #[serde(default)]
+    artwork_paths: Vec<String>,
+    #[serde(default)]
+    maintenance: Option<String>,
 }
 
 pub fn start_background_workers(state: AppState, concurrency: usize) {
@@ -33,6 +55,47 @@ pub fn start_background_workers(state: AppState, concurrency: usize) {
         tokio::spawn(async move {
             run_background_worker(worker_state, worker_id).await;
         });
+    }
+
+    // Retention enforcement is local and must continue even when no provider
+    // token is configured. The scheduler receives the provider state so it
+    // only enqueues network revalidation work when requests are possible.
+    tokio::spawn(run_tmdb_revalidation_scheduler(state));
+}
+
+async fn run_tmdb_revalidation_scheduler(state: AppState) {
+    loop {
+        let mut scheduled_work = false;
+        match mova_db::enqueue_due_tmdb_metadata_revalidation(
+            &state.db,
+            state.metadata_provider.is_enabled(),
+        )
+        .await
+        {
+            Ok(true) => scheduled_work = true,
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(
+                    error = ?error,
+                    "failed to schedule due TMDB metadata revalidation"
+                );
+            }
+        }
+        match mova_db::enqueue_due_tmdb_artwork_orphan_sweeps(&state.db).await {
+            Ok(inserted) if inserted > 0 => scheduled_work = true,
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(
+                    error = ?error,
+                    "failed to schedule TMDB artwork orphan sweep"
+                );
+            }
+        }
+        if scheduled_work {
+            state.background_jobs.wake();
+        }
+
+        tokio::time::sleep(TMDB_REVALIDATION_SCHEDULER_INTERVAL).await;
     }
 }
 
@@ -76,6 +139,12 @@ async fn run_background_worker(state: AppState, worker_id: String) {
             "library.cache.cleanup" => {
                 execute_library_cache_cleanup_background_job(&state, &job, &fence).await
             }
+            mova_db::TMDB_REVALIDATION_JOB_TYPE => {
+                execute_tmdb_revalidation_background_job(&state, &job, &fence).await
+            }
+            mova_db::TMDB_ARTWORK_CLEANUP_JOB_TYPE => {
+                execute_tmdb_artwork_cleanup_background_job(&state, &job, &fence).await
+            }
             unsupported => Err(anyhow::anyhow!(
                 "unsupported background job type: {unsupported}"
             )),
@@ -101,8 +170,38 @@ async fn run_background_worker(state: AppState, worker_id: String) {
                 }
             },
             Err(error) => {
-                let retry_delay_seconds = i64::from(job.attempt_count.max(1)).pow(2) * 2;
+                let retry_delay_seconds = background_job_retry_delay_seconds(&job);
                 let error_message = error.to_string();
+                if job.job_type == mova_db::TMDB_REVALIDATION_JOB_TYPE {
+                    match serde_json::from_str::<TmdbMetadataRevalidationJobPayload>(
+                        &job.payload_json,
+                    ) {
+                        Ok(payload) => {
+                            if let Err(state_error) =
+                                mova_db::record_tmdb_metadata_revalidation_failure(
+                                    &state.db,
+                                    &fence,
+                                    payload.media_item_id,
+                                    &payload.provider_item_id,
+                                )
+                                .await
+                            {
+                                tracing::warn!(
+                                    job_id = job.id,
+                                    error = ?state_error,
+                                    "failed to persist TMDB revalidation backoff"
+                                );
+                            }
+                        }
+                        Err(payload_error) => {
+                            tracing::warn!(
+                                job_id = job.id,
+                                error = ?payload_error,
+                                "failed to parse TMDB revalidation payload for backoff"
+                            );
+                        }
+                    }
+                }
                 match mova_db::retry_or_fail_background_job(
                     &state.db,
                     &fence,
@@ -221,6 +320,194 @@ fn publish_abandoned_background_job_outcomes(
                 }));
         }
     }
+}
+
+async fn execute_tmdb_revalidation_background_job(
+    state: &AppState,
+    job: &mova_db::BackgroundJob,
+    fence: &mova_db::BackgroundJobFence,
+) -> anyhow::Result<()> {
+    let payload: TmdbMetadataRevalidationJobPayload = serde_json::from_str(&job.payload_json)?;
+    if job.scope_type != "media_item"
+        || job.scope_id != payload.media_item_id
+        || payload.media_item_id <= 0
+        || payload.library_id <= 0
+        || payload.provider_item_id.trim().is_empty()
+    {
+        return Err(anyhow::anyhow!(
+            "invalid TMDB metadata revalidation job scope for job {}",
+            job.id
+        ));
+    }
+
+    let cancellation_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (stop_heartbeat, heartbeat_stop) = watch::channel(false);
+    let heartbeat_pool = state.db.clone();
+    let heartbeat_fence = fence.clone();
+    let heartbeat_cancellation_flag = cancellation_flag.clone();
+    let heartbeat = tokio::spawn(async move {
+        run_lease_heartbeat(
+            heartbeat_pool,
+            heartbeat_fence,
+            heartbeat_stop,
+            heartbeat_cancellation_flag,
+        )
+        .await;
+    });
+
+    let result = mova_application::execute_tmdb_metadata_revalidation(
+        &state.db,
+        mova_application::TmdbMetadataRevalidationInput {
+            media_item_id: payload.media_item_id,
+            expected_library_id: payload.library_id,
+            expected_provider_item_id: payload.provider_item_id.clone(),
+            scheduled_retention_expired: payload.retention_expired,
+            artwork_cache_dir: state.cache_dir.clone(),
+        },
+        fence,
+        state.metadata_provider.clone(),
+    )
+    .await;
+
+    let _ = stop_heartbeat.send(true);
+    let _ = heartbeat.await;
+
+    match result? {
+        TmdbMetadataRevalidationOutcome::Revalidated => {
+            tracing::debug!(
+                job_id = job.id,
+                media_item_id = payload.media_item_id,
+                library_id = payload.library_id,
+                provider_item_id = payload.provider_item_id,
+                "TMDB metadata silently revalidated"
+            );
+        }
+        TmdbMetadataRevalidationOutcome::NoLongerEligible => {
+            tracing::debug!(
+                job_id = job.id,
+                media_item_id = payload.media_item_id,
+                "discarded obsolete TMDB metadata revalidation"
+            );
+        }
+        TmdbMetadataRevalidationOutcome::DeferredUntilRetention => {
+            tracing::debug!(
+                job_id = job.id,
+                media_item_id = payload.media_item_id,
+                "TMDB provider is disabled; deferred network work until local retention deadline"
+            );
+        }
+        TmdbMetadataRevalidationOutcome::RetentionExpired => {
+            tracing::warn!(
+                job_id = job.id,
+                media_item_id = payload.media_item_id,
+                library_id = payload.library_id,
+                "expired TMDB metadata after the local retention deadline"
+            );
+        }
+        TmdbMetadataRevalidationOutcome::Superseded => {
+            tracing::debug!(
+                job_id = job.id,
+                media_item_id = payload.media_item_id,
+                "discarded a superseded TMDB metadata revalidation job"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn background_job_retry_delay_seconds(job: &mova_db::BackgroundJob) -> i64 {
+    if job.job_type == mova_db::TMDB_ARTWORK_CLEANUP_JOB_TYPE {
+        let exponent = u32::try_from(job.attempt_count.saturating_sub(1))
+            .unwrap_or(u32::MAX)
+            .min(12);
+        return 30_i64
+            .saturating_mul(2_i64.saturating_pow(exponent))
+            .min(86_400);
+    }
+
+    let attempt = i64::from(job.attempt_count.max(1));
+    attempt
+        .saturating_mul(attempt)
+        .saturating_mul(2)
+        .min(86_400)
+}
+
+async fn execute_tmdb_artwork_cleanup_background_job(
+    state: &AppState,
+    job: &mova_db::BackgroundJob,
+    fence: &mova_db::BackgroundJobFence,
+) -> anyhow::Result<()> {
+    let payload: TmdbArtworkCleanupJobPayload = serde_json::from_str(&job.payload_json)?;
+    if job.scope_type != "library" || job.scope_id != payload.library_id || payload.library_id <= 0
+    {
+        return Err(anyhow::anyhow!(
+            "invalid TMDB artwork cleanup job scope for job {}",
+            job.id
+        ));
+    }
+    let orphan_sweep = payload.maintenance.as_deref() == Some("orphan_sweep");
+    if orphan_sweep {
+        if payload.media_item_id.is_some() || !payload.artwork_paths.is_empty() {
+            return Err(anyhow::anyhow!(
+                "invalid TMDB artwork orphan sweep payload for job {}",
+                job.id
+            ));
+        }
+    } else if payload.maintenance.is_some()
+        || payload
+            .media_item_id
+            .is_none_or(|media_item_id| media_item_id <= 0)
+    {
+        return Err(anyhow::anyhow!(
+            "invalid TMDB artwork cleanup payload for job {}",
+            job.id
+        ));
+    }
+
+    let cancellation_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (stop_heartbeat, heartbeat_stop) = watch::channel(false);
+    let heartbeat_pool = state.db.clone();
+    let heartbeat_fence = fence.clone();
+    let heartbeat_cancellation_flag = cancellation_flag.clone();
+    let heartbeat = tokio::spawn(async move {
+        run_lease_heartbeat(
+            heartbeat_pool,
+            heartbeat_fence,
+            heartbeat_stop,
+            heartbeat_cancellation_flag,
+        )
+        .await;
+    });
+
+    let result = if orphan_sweep {
+        mova_application::execute_tmdb_artwork_orphan_sweep(
+            &state.db,
+            &state.cache_dir,
+            payload.library_id,
+        )
+        .await
+        .map(|reviewed| {
+            tracing::debug!(
+                job_id = job.id,
+                library_id = payload.library_id,
+                reviewed,
+                "completed TMDB artwork orphan sweep"
+            );
+        })
+    } else {
+        mova_application::execute_tmdb_artwork_cleanup(
+            &state.db,
+            &state.cache_dir,
+            payload.library_id,
+            payload.artwork_paths,
+        )
+        .await
+    };
+
+    let _ = stop_heartbeat.send(true);
+    let _ = heartbeat.await;
+    result
 }
 
 async fn execute_library_cache_cleanup_background_job(
@@ -391,5 +678,43 @@ async fn wait_for_work(state: &AppState) {
     tokio::select! {
         _ = state.background_jobs.wait() => {}
         _ = tokio::time::sleep(BACKGROUND_JOB_IDLE_POLL_INTERVAL) => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::background_job_retry_delay_seconds;
+    use time::OffsetDateTime;
+
+    fn job(job_type: &str, attempt_count: i32) -> mova_db::BackgroundJob {
+        mova_db::BackgroundJob {
+            id: 1,
+            job_type: job_type.to_string(),
+            scope_type: "library".to_string(),
+            scope_id: 1,
+            related_scan_job_id: None,
+            payload_json: "{}".to_string(),
+            status: "running".to_string(),
+            attempt_count,
+            max_attempts: i32::MAX,
+            run_after: OffsetDateTime::UNIX_EPOCH,
+            locked_by: Some("worker".to_string()),
+            lease_expires_at: None,
+        }
+    }
+
+    #[test]
+    fn tmdb_artwork_cleanup_retry_delay_is_exponential_and_capped() {
+        assert_eq!(
+            background_job_retry_delay_seconds(&job(mova_db::TMDB_ARTWORK_CLEANUP_JOB_TYPE, 1,)),
+            30
+        );
+        assert_eq!(
+            background_job_retry_delay_seconds(&job(
+                mova_db::TMDB_ARTWORK_CLEANUP_JOB_TYPE,
+                i32::MAX,
+            )),
+            86_400
+        );
     }
 }

@@ -1,6 +1,8 @@
 services:
   app:
     image: richeschiu/mova:latest
+    # External PostgreSQL: replace MOVA_DATABASE_URL below, remove this
+    # depends_on block, and remove the database service at the end of this file.
     depends_on:
       database:
         condition: service_healthy
@@ -24,6 +26,7 @@ services:
     restart: unless-stopped
 
   database:
+    # Delete this entire service when MOVA_DATABASE_URL points to external PostgreSQL.
     image: postgres:18
     environment:
       POSTGRES_USER: mova

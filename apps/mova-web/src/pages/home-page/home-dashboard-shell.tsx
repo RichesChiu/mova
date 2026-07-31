@@ -85,7 +85,10 @@ export const HomeDashboardShell = ({
   const displayName = getUserDisplayName(currentUser)
   const userInitial = getUserInitial(currentUser)
   const isAdmin = canManageServer(currentUser)
-  const isAccountRoute = location.pathname === '/profile' || location.pathname === '/settings'
+  const isAccountRoute =
+    location.pathname === '/about' ||
+    location.pathname === '/profile' ||
+    location.pathname === '/settings'
 
   const logoutMutation = useMutation({
     mutationFn: logout,
@@ -230,6 +233,20 @@ export const HomeDashboardShell = ({
               >
                 <HomeIcon name="user" />
                 <span>{l('Personal Settings')}</span>
+              </Link>
+
+              <Link
+                className={
+                  location.pathname === '/about'
+                    ? 'home-sidebar__account-action home-sidebar__account-action--active'
+                    : 'home-sidebar__account-action'
+                }
+                onClick={closeMenu}
+                role="menuitem"
+                to="/about"
+              >
+                <HomeIcon name="info" />
+                <span>{l('About & Credits')}</span>
               </Link>
 
               <button

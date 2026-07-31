@@ -57,7 +57,7 @@ pub async fn list_media_item_ratings(
     Ok(ratings)
 }
 
-pub(super) async fn replace_media_item_remote_data(
+pub(crate) async fn replace_media_item_remote_data(
     tx: &mut Transaction<'_, Postgres>,
     media_item_id: i64,
     metadata_provider: Option<&str>,

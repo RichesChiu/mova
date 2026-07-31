@@ -7,6 +7,8 @@ import './DeploymentPage.css'
 const composeExampleZh = `services:
   app:
     image: richeschiu/mova:latest
+    # 使用外部 PostgreSQL 时：修改下方 MOVA_DATABASE_URL，
+    # 并删除这个 depends_on 块与文件末尾的 database 服务
     depends_on:
       database:
         condition: service_healthy
@@ -30,6 +32,7 @@ const composeExampleZh = `services:
     restart: unless-stopped
 
   database:
+    # MOVA_DATABASE_URL 指向外部 PostgreSQL 时，删除整个 database 服务
     image: postgres:18
     environment:
       POSTGRES_USER: mova
@@ -48,6 +51,8 @@ const composeExampleZh = `services:
 const composeExampleEn = `services:
   app:
     image: richeschiu/mova:latest
+    # External PostgreSQL: replace MOVA_DATABASE_URL below, then remove this
+    # depends_on block and the database service at the end of the file
     depends_on:
       database:
         condition: service_healthy
@@ -71,6 +76,7 @@ const composeExampleEn = `services:
     restart: unless-stopped
 
   database:
+    # Delete this entire service when MOVA_DATABASE_URL points to external PostgreSQL
     image: postgres:18
     environment:
       POSTGRES_USER: mova
@@ -112,7 +118,7 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
     <div className="deploy-page">
       <section className="deploy-hero" aria-labelledby="deploy-title">
         <div className="deploy-hero-copy">
-          <p className="eyebrow">Mova 1.0 Preview · Docker Deployment</p>
+          <p className="eyebrow">Mova 1.0 · Docker Deployment</p>
           <h1 id="deploy-title">{isChinese ? '用 Docker 运行 MOVA' : 'Run MOVA with Docker'}</h1>
           <p>
             {isChinese
@@ -125,7 +131,7 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
               <MovaIcon name="arrow-right" />
             </a>
             <a href={dockerUrl} target="_blank" rel="noreferrer">
-              {isChinese ? 'Preview 镜像' : 'Preview image'}
+              {isChinese ? '稳定版镜像' : 'Stable image'}
               <MovaIcon name="arrow-right" />
             </a>
             <button type="button" onClick={() => onNavigate('api')}>
@@ -175,18 +181,18 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
           />
           <div className="deploy-release-note">
             <div>
-              <strong>{isChinese ? '发布前验证通道' : 'Pre-release validation channel'}</strong>
+              <strong>{isChinese ? '稳定发布通道' : 'Stable release channel'}</strong>
               <code>richeschiu/mova:latest</code>
             </div>
             <p>
               {isChinese
-                ? '1.0 正式发布前，latest 与 preview 指向同一个最新 Preview 镜像。任何 Preview 数据库首次升级到 1.0 时，需要完成最后一次数据库重建并重新扫描；1.0 之后通过顺序迁移原地升级。'
-                : 'Before the final 1.0 release, latest and preview point to the same current Preview image. Moving any Preview database to 1.0 requires one final database rebuild and library rescan; releases after 1.0 upgrade in place through sequential migrations.'}
+                ? 'latest 指向当前稳定版本，preview 仅用于后续预发布验证。从任何 Preview 版本首次升级到 1.0，都需要完成最后一次数据库重建并重新扫描。'
+                : 'latest points to the current stable release, while preview is reserved for future pre-release validation. Moving from any Preview release to 1.0 requires one final database rebuild and library rescan.'}
             </p>
           </div>
           <div className="deploy-compose-block">
             <div className="deploy-compose-toolbar">
-              <span>docker-compose.yml · Mova 1.0 Preview</span>
+              <span>docker-compose.yml · Mova 1.0</span>
               <button type="button" onClick={() => void copyCompose()}>
                 {copyState === 'idle' ? (isChinese ? '复制配置' : 'Copy configuration') : copyLabel}
               </button>
@@ -225,6 +231,11 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
               ? '36080 是 Web/API 端口；PostgreSQL 不向宿主机发布端口，只能由 Compose 内的应用访问。MOVA_DATABASE_URL 与 POSTGRES_PASSWORD 必须使用同一密码。'
               : 'Port 36080 serves Web/API traffic. PostgreSQL publishes no host port and is reachable only by the app inside Compose. MOVA_DATABASE_URL and POSTGRES_PASSWORD must use the same password.'}
           </p>
+          <p className="deploy-compose-guidance">
+            {isChinese
+              ? '使用外部 PostgreSQL 时，将 MOVA_DATABASE_URL 改为容器可访问的数据库地址，并删除 app.depends_on.database 与整个 database 服务。外部数据库需提前创建，连接账号需要拥有建表、修改表结构和执行迁移的权限；容器内的 localhost 指向 MOVA 容器自身。'
+              : 'To use external PostgreSQL, replace MOVA_DATABASE_URL with an address reachable from the container, then remove app.depends_on.database and the entire database service. Create the database first and grant the account permission to create and alter tables and run migrations; localhost inside the container refers to the Mova container itself.'}
+          </p>
         </section>
 
         <section className="deploy-section" id="deploy-after">
@@ -261,12 +272,12 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
               <strong>{isChinese ? '一次重建并重扫' : 'One rebuild and rescan'}</strong>
             </article>
             <article>
-              <span>{isChinese ? '1.0 后续升级' : 'Upgrades after 1.0'}</span>
-              <strong>{isChinese ? '顺序迁移' : 'Sequential migrations'}</strong>
+              <span>{isChinese ? '1.0 数据库基线' : '1.0 database baseline'}</span>
+              <strong>{isChinese ? '正式冻结 0001' : 'Freeze migration 0001'}</strong>
             </article>
             <article>
-              <span>{isChinese ? '可靠回滚点' : 'Reliable rollback point'}</span>
-              <strong>{isChinese ? '升级前数据库备份' : 'Pre-upgrade database backup'}</strong>
+              <span>{isChinese ? '1.0 后续升级' : 'Upgrades after 1.0'}</span>
+              <strong>{isChinese ? '顺序迁移' : 'Sequential migrations'}</strong>
             </article>
           </div>
           <p className="deploy-compose-guidance">

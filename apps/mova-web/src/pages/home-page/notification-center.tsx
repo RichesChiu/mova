@@ -6,6 +6,7 @@ import type {
   NotificationItem,
   ScanNotificationIssue,
   ScanNotificationPayload,
+  TmdbRetentionExpiryNotificationPayload,
 } from '../../api/types'
 import { type Translate, useI18n } from '../../i18n'
 import { localizeApiError } from '../../lib/api-error'
@@ -44,6 +45,18 @@ const isCacheCleanupFailurePayload = (
   typeof value.max_attempts === 'number' &&
   typeof value.reason_code === 'string'
 
+const isTmdbRetentionExpiryPayload = (
+  value: unknown,
+): value is TmdbRetentionExpiryNotificationPayload =>
+  isRecord(value) &&
+  typeof value.media_item_id === 'number' &&
+  typeof value.library_id === 'number' &&
+  typeof value.title === 'string' &&
+  value.provider === 'tmdb' &&
+  value.reason_code === 'tmdb_retention_expired' &&
+  isRecord(value.reason_params) &&
+  (value.diagnostic_message === null || typeof value.diagnostic_message === 'string')
+
 const getCategoryLabel = (category: string, l: Translate) => {
   switch (category) {
     case 'all':
@@ -73,6 +86,8 @@ const getNotificationTitle = (notification: NotificationItem, l: Translate) => {
       return l('Library scan cancelled')
     case 'cache.cleanup.failed':
       return l('Library cache cleanup failed')
+    case 'metadata.tmdb.retention_expired':
+      return l('TMDB metadata retention expired')
     default:
       return l('New notification')
   }
@@ -311,6 +326,35 @@ const CacheCleanupFailureContent = ({
   return <NotificationLog rows={rows} />
 }
 
+const TmdbRetentionExpiryContent = ({
+  createdAt,
+  payload,
+}: {
+  createdAt: string
+  payload: TmdbRetentionExpiryNotificationPayload
+}) => {
+  const { formatDateTime, l } = useI18n()
+
+  return (
+    <NotificationLog
+      rows={[
+        { label: l('Type'), value: l('Library') },
+        { label: l('Result'), value: l('Warning'), tone: 'warning' },
+        {
+          label: l('Time'),
+          value: <time dateTime={createdAt}>{formatDateTime(createdAt)}</time>,
+        },
+        { label: l('Media item'), value: payload.title },
+        {
+          label: l('Reason'),
+          value: localizeApiError(payload.reason_code, payload.reason_params),
+          tone: 'warning',
+        },
+      ]}
+    />
+  )
+}
+
 const NotificationCard = ({
   notification,
   onRead,
@@ -321,6 +365,9 @@ const NotificationCard = ({
   const { formatDateTime, l } = useI18n()
   const scanPayload = isScanPayload(notification.payload) ? notification.payload : null
   const cacheCleanupFailurePayload = isCacheCleanupFailurePayload(notification.payload)
+    ? notification.payload
+    : null
+  const tmdbRetentionExpiryPayload = isTmdbRetentionExpiryPayload(notification.payload)
     ? notification.payload
     : null
   const result = resolveNotificationResult(notification.notification_type, notification.severity)
@@ -355,6 +402,12 @@ const NotificationCard = ({
         <CacheCleanupFailureContent
           createdAt={notification.created_at}
           payload={cacheCleanupFailurePayload}
+        />
+      ) : notification.notification_type === 'metadata.tmdb.retention_expired' &&
+        tmdbRetentionExpiryPayload ? (
+        <TmdbRetentionExpiryContent
+          createdAt={notification.created_at}
+          payload={tmdbRetentionExpiryPayload}
         />
       ) : (
         <NotificationLog
