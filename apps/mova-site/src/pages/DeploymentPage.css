@@ -175,7 +175,7 @@
     background: #11192c;
   }
 
-  .deploy-preview-note {
+  .deploy-release-note {
     display: grid;
     grid-template-columns: minmax(230px, 0.7fr) minmax(0, 1.3fr);
     gap: 20px;
@@ -187,23 +187,23 @@
     background: rgba(103, 75, 226, 0.045);
   }
 
-  .deploy-preview-note div {
+  .deploy-release-note div {
     display: grid;
     gap: 5px;
   }
 
-  .deploy-preview-note strong {
+  .deploy-release-note strong {
     color: var(--ink);
     font-size: 13px;
   }
 
-  .deploy-preview-note code {
+  .deploy-release-note code {
     color: #5545cc;
     font-size: 12px;
     font-weight: 800;
   }
 
-  .deploy-preview-note p {
+  .deploy-release-note p {
     margin: 0;
     color: var(--muted);
     font-size: 12px;
@@ -283,6 +283,12 @@
     color: #5545cc;
   }
 
+  .deploy-compose-guidance a {
+    color: #4f46c7;
+    font-weight: 800;
+    text-underline-offset: 3px;
+  }
+
   .deploy-after-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -357,7 +363,7 @@
       grid-template-columns: 1fr;
     }
 
-    .deploy-preview-note {
+    .deploy-release-note {
       grid-template-columns: 1fr;
       gap: 10px;
     }

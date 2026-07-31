@@ -47,9 +47,9 @@ build_and_push() {
 }
 
 base_images=(
-  "docker/base/web-build.Dockerfile|richeschiu/mova-web-build-base:node24-pnpm11"
-  "docker/base/rust-build.Dockerfile|richeschiu/mova-rust-build-base:1-bookworm"
-  "docker/base/runtime.Dockerfile|richeschiu/mova-runtime-base:bookworm-ffmpeg-python3"
+  "docker/base/web-build.Dockerfile|richeschiu/mova-web-build-base:node24-pnpm11-v2"
+  "docker/base/rust-build.Dockerfile|richeschiu/mova-rust-build-base:1-bookworm-v2"
+  "docker/base/runtime.Dockerfile|richeschiu/mova-runtime-base:bookworm-ffmpeg-python3-v2"
 )
 
 image_has_required_platforms() {

@@ -60,12 +60,14 @@ describe('media file detail helpers', () => {
   it('builds source badges and video facts for the details view', () => {
     expect(buildMediaFileTechnicalBadges(sampleFile)).toEqual([
       {
-        iconSrc: '/media-tech/dolby-vision.svg',
         label: 'Dolby Vision',
+        text: 'DV',
+        tone: 'picture',
       },
       {
-        iconSrc: '/media-tech/dolby-atmos.svg',
-        label: 'Atmos',
+        label: 'Dolby Atmos',
+        text: 'ATMOS',
+        tone: 'audio',
       },
     ])
 
@@ -95,6 +97,35 @@ describe('media file detail helpers', () => {
       value: '10-bit',
     })
     expect(buildVideoCardFacts(sampleFile).some((fact) => fact.label === 'Bitrate')).toBe(false)
+  })
+
+  it('uses MOVA-owned text presentations and preserves unknown technical tags', () => {
+    expect(
+      buildMediaFileTechnicalBadges({
+        technical_tags: ['HDR10+', 'DTS-HD', '4K', 'Custom Format', 'custom format'],
+      }),
+    ).toEqual([
+      {
+        label: 'HDR10+',
+        text: 'HDR10+',
+        tone: 'picture',
+      },
+      {
+        label: 'DTS-HD',
+        text: 'DTS-HD',
+        tone: 'audio',
+      },
+      {
+        label: '4K',
+        text: '4K',
+        tone: 'resolution',
+      },
+      {
+        label: 'Custom Format',
+        text: 'Custom Format',
+        tone: 'neutral',
+      },
+    ])
   })
 
   it('builds audio track summaries and facts', () => {

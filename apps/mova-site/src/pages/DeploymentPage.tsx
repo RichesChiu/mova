@@ -6,13 +6,15 @@ import './DeploymentPage.css'
 
 const composeExampleZh = `services:
   app:
-    image: richeschiu/mova:preview
+    image: richeschiu/mova:latest
     depends_on:
       database:
         condition: service_healthy
     ports:
       - "36080:36080"
     environment:
+      # Compose 内部数据库连接；需要修改凭据时同时修改 database.POSTGRES_PASSWORD
+      MOVA_DATABASE_URL: "postgres://mova:postgres@database:5432/mova"
       # TMDB API Read Access Token；留空时会跳过远端元数据刮削
       MOVA_TMDB_ACCESS_TOKEN: ""
       # 宿主机代理地址；不需要代理时保持为空
@@ -45,13 +47,15 @@ const composeExampleZh = `services:
 
 const composeExampleEn = `services:
   app:
-    image: richeschiu/mova:preview
+    image: richeschiu/mova:latest
     depends_on:
       database:
         condition: service_healthy
     ports:
       - "36080:36080"
     environment:
+      # Internal database connection; keep the password in sync with database.POSTGRES_PASSWORD
+      MOVA_DATABASE_URL: "postgres://mova:postgres@database:5432/mova"
       # TMDB API Read Access Token; remote metadata scraping is skipped when empty
       MOVA_TMDB_ACCESS_TOKEN: ""
       # Proxy on the Docker host; leave empty when no proxy is needed
@@ -108,12 +112,12 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
     <div className="deploy-page">
       <section className="deploy-hero" aria-labelledby="deploy-title">
         <div className="deploy-hero-copy">
-          <p className="eyebrow">1.0.0 Preview · Docker Deployment</p>
+          <p className="eyebrow">Mova 1.0 Preview · Docker Deployment</p>
           <h1 id="deploy-title">{isChinese ? '用 Docker 运行 MOVA' : 'Run MOVA with Docker'}</h1>
           <p>
             {isChinese
-              ? '当前公开版本为 1.0.0 Preview。准备 Docker 和一个可读取的媒体目录，再使用 Compose 同时运行 MOVA 与 PostgreSQL。'
-              : 'The current public release is 1.0.0 Preview. Prepare Docker and a readable media directory, then use Compose to run MOVA with PostgreSQL.'}
+              ? '准备 Docker 和一个可读取的媒体目录，再使用一份 Compose 配置同时运行 MOVA 与 PostgreSQL。'
+              : 'Prepare Docker and a readable media directory, then use one Compose configuration to run MOVA with PostgreSQL.'}
           </p>
           <div className="deploy-actions">
             <a href="#deploy-compose">
@@ -169,20 +173,20 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
               ? '复制并保存为 docker-compose.yml，在同一份文件中填写媒体目录、TMDB Token 和可选代理，然后直接启动。'
               : 'Copy and save as docker-compose.yml, set the media path, TMDB token, and optional proxy in this one file, then start the stack.'}
           />
-          <div className="deploy-preview-note">
+          <div className="deploy-release-note">
             <div>
-              <strong>{isChinese ? '当前公开体验通道' : 'Current public preview channel'}</strong>
-              <code>richeschiu/mova:preview</code>
+              <strong>{isChinese ? '发布前验证通道' : 'Pre-release validation channel'}</strong>
+              <code>richeschiu/mova:latest</code>
             </div>
             <p>
               {isChinese
-                ? 'preview 始终指向最新预览镜像。Preview 阶段的 schema 仍可能变化，升级后如不兼容，需要重建数据库并重新扫描媒体库。'
-                : 'preview always points to the latest preview image. The schema may still change during Preview; incompatible upgrades require rebuilding the database and rescanning libraries.'}
+                ? '1.0 正式发布前，latest 与 preview 指向同一个最新 Preview 镜像。任何 Preview 数据库首次升级到 1.0 时，需要完成最后一次数据库重建并重新扫描；1.0 之后通过顺序迁移原地升级。'
+                : 'Before the final 1.0 release, latest and preview point to the same current Preview image. Moving any Preview database to 1.0 requires one final database rebuild and library rescan; releases after 1.0 upgrade in place through sequential migrations.'}
             </p>
           </div>
           <div className="deploy-compose-block">
             <div className="deploy-compose-toolbar">
-              <span>docker-compose.yml · 1.0.0 Preview</span>
+              <span>docker-compose.yml · Mova 1.0 Preview</span>
               <button type="button" onClick={() => void copyCompose()}>
                 {copyState === 'idle' ? (isChinese ? '复制配置' : 'Copy configuration') : copyLabel}
               </button>
@@ -216,6 +220,11 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
               ? '通过 HTTPS 反向代理公开 Web 页面时，在 app.environment 中额外设置 MOVA_SESSION_COOKIE_SECURE: "true"。本地纯 HTTP 部署保持默认值即可。'
               : 'When exposing the Web app through an HTTPS reverse proxy, add MOVA_SESSION_COOKIE_SECURE: "true" to app.environment. Keep the default for local HTTP deployments.'}
           </p>
+          <p className="deploy-compose-guidance">
+            {isChinese
+              ? '36080 是 Web/API 端口；PostgreSQL 不向宿主机发布端口，只能由 Compose 内的应用访问。MOVA_DATABASE_URL 与 POSTGRES_PASSWORD 必须使用同一密码。'
+              : 'Port 36080 serves Web/API traffic. PostgreSQL publishes no host port and is reachable only by the app inside Compose. MOVA_DATABASE_URL and POSTGRES_PASSWORD must use the same password.'}
+          </p>
         </section>
 
         <section className="deploy-section" id="deploy-after">
@@ -223,14 +232,52 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
             eyebrow="After Deployment"
             title={isChinese ? '部署完成后' : 'After deployment'}
             text={isChinese
-              ? '打开网页端创建管理员，再从容器内的 /media 目录建立媒体库。'
-              : 'Open the Web app to create an administrator, then create a library from /media inside the container.'}
+              ? '只从可信本机或受控局域网打开网页端并创建管理员，再从容器内的 /media 目录建立媒体库。'
+              : 'Open the Web app from a trusted local machine or controlled LAN to create the administrator, then create a library from /media inside the container.'}
           />
           <div className="deploy-after-grid">
             <article><span>Web</span><strong>http://127.0.0.1:36080</strong></article>
             <article><span>{isChinese ? '健康检查' : 'Health check'}</span><strong>/api/health</strong></article>
             <article><span>{isChinese ? '容器媒体目录' : 'Container media path'}</span><strong>/media</strong></article>
           </div>
+          <p className="deploy-compose-guidance">
+            {isChinese
+              ? '首个系统管理员创建完成前，不要将未初始化的服务暴露到公网。初始化完成后再配置 HTTPS 反向代理。'
+              : 'Do not expose an uninitialized service to the Internet. Configure an HTTPS reverse proxy only after creating the first system administrator.'}
+          </p>
+        </section>
+
+        <section className="deploy-section" id="deploy-maintenance">
+          <SectionHeading
+            eyebrow="Data Maintenance"
+            title={isChinese ? '升级与数据维护' : 'Upgrades and data maintenance'}
+            text={isChinese
+              ? '稳定升级前先备份 PostgreSQL；数据库是权威状态，图片与媒体派生缓存可以按需重建。'
+              : 'Back up PostgreSQL before stable upgrades. The database is authoritative; artwork and derived media caches can be rebuilt on demand.'}
+          />
+          <div className="deploy-after-grid">
+            <article>
+              <span>{isChinese ? 'Preview → 1.0' : 'Preview → 1.0'}</span>
+              <strong>{isChinese ? '一次重建并重扫' : 'One rebuild and rescan'}</strong>
+            </article>
+            <article>
+              <span>{isChinese ? '1.0 后续升级' : 'Upgrades after 1.0'}</span>
+              <strong>{isChinese ? '顺序迁移' : 'Sequential migrations'}</strong>
+            </article>
+            <article>
+              <span>{isChinese ? '可靠回滚点' : 'Reliable rollback point'}</span>
+              <strong>{isChinese ? '升级前数据库备份' : 'Pre-upgrade database backup'}</strong>
+            </article>
+          </div>
+          <p className="deploy-compose-guidance">
+            <a
+              href="https://github.com/RichesChiu/mova/blob/master/docs/DEPLOYMENT.md"
+              target="_blank"
+              rel="noreferrer"
+            >
+              {isChinese ? '查看完整的升级、备份、恢复与回滚步骤' : 'Read the complete upgrade, backup, restore, and rollback guide'}
+            </a>
+          </p>
         </section>
       </div>
     </div>

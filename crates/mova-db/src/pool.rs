@@ -1,14 +1,24 @@
 use anyhow::{Context, Result};
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use std::env;
+use std::{env, fmt};
 
 // 把 migrations 编译进二进制，服务启动时就能自动把数据库升级到期望版本。
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DatabaseSettings {
     pub url: String,
     pub max_connections: u32,
+}
+
+impl fmt::Debug for DatabaseSettings {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DatabaseSettings")
+            .field("url", &"[REDACTED]")
+            .field("max_connections", &self.max_connections)
+            .finish()
+    }
 }
 
 impl DatabaseSettings {
@@ -35,7 +45,7 @@ pub async fn connect(settings: &DatabaseSettings) -> Result<PgPool> {
         .max_connections(settings.max_connections)
         .connect(&settings.url)
         .await
-        .with_context(|| format!("failed to connect to database at {}", settings.url))?;
+        .context("failed to connect to database")?;
 
     Ok(pool)
 }
@@ -58,4 +68,23 @@ pub async fn migrate(pool: &PgPool) -> Result<()> {
         .context("failed to run database migrations")?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DatabaseSettings;
+
+    #[test]
+    fn database_settings_debug_output_redacts_credentials() {
+        let settings = DatabaseSettings {
+            url: "postgres://mova:secret@database:5432/mova".to_string(),
+            max_connections: 10,
+        };
+
+        let debug_output = format!("{settings:?}");
+
+        assert!(debug_output.contains("[REDACTED]"));
+        assert!(!debug_output.contains("secret"));
+        assert!(!debug_output.contains("postgres://"));
+    }
 }

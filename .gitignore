@@ -58,6 +58,7 @@ $RECYCLE.BIN/
 # Local runtime state for Docker-based development.
 /data/
 /media/
+/backups/
 
 # Local design drafts and exported mockups.
 design/

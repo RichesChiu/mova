@@ -13,18 +13,47 @@ export type MediaFileTrackOption = {
 }
 
 export type MediaFileTechnicalBadge = {
-  iconSrc: string | null
   label: string
+  text: string
+  tone: 'audio' | 'picture' | 'resolution' | 'neutral'
 }
 
-const TECHNICAL_TAG_ICONS: Record<string, string> = {
-  Atmos: '/media-tech/dolby-atmos.svg',
-  DTS: '/media-tech/dts.svg',
-  'DTS-HD': '/media-tech/dts-hd.svg',
-  'Dolby Vision': '/media-tech/dolby-vision.svg',
-  HDR10: '/media-tech/hdr10.svg',
-  'HDR10+': '/media-tech/hdr10-plus.svg',
-  HLG: '/media-tech/hlg.svg',
+const TECHNICAL_TAG_PRESENTATIONS: Record<string, MediaFileTechnicalBadge> = {
+  atmos: {
+    label: 'Dolby Atmos',
+    text: 'ATMOS',
+    tone: 'audio',
+  },
+  dts: {
+    label: 'DTS',
+    text: 'DTS',
+    tone: 'audio',
+  },
+  'dts-hd': {
+    label: 'DTS-HD',
+    text: 'DTS-HD',
+    tone: 'audio',
+  },
+  'dolby vision': {
+    label: 'Dolby Vision',
+    text: 'DV',
+    tone: 'picture',
+  },
+  hdr10: {
+    label: 'HDR10',
+    text: 'HDR10',
+    tone: 'picture',
+  },
+  'hdr10+': {
+    label: 'HDR10+',
+    text: 'HDR10+',
+    tone: 'picture',
+  },
+  hlg: {
+    label: 'HLG',
+    text: 'HLG',
+    tone: 'picture',
+  },
 }
 
 const CODEC_LABELS: Record<string, string> = {
@@ -201,17 +230,28 @@ export const buildMediaFileTechnicalBadges = (
   return file.technical_tags
     .map((tag) => tag.trim())
     .filter((tag) => {
-      if (!tag || seen.has(tag)) {
+      const normalizedTag = tag.toLowerCase()
+
+      if (!tag || seen.has(normalizedTag)) {
         return false
       }
 
-      seen.add(tag)
+      seen.add(normalizedTag)
       return true
     })
-    .map((tag) => ({
-      iconSrc: TECHNICAL_TAG_ICONS[tag] ?? null,
-      label: tag,
-    }))
+    .map((tag) => {
+      const presentation = TECHNICAL_TAG_PRESENTATIONS[tag.toLowerCase()]
+
+      if (presentation) {
+        return presentation
+      }
+
+      return {
+        label: tag,
+        text: tag,
+        tone: /^\d{3,4}p$|^[48]K$/i.test(tag) ? 'resolution' : 'neutral',
+      }
+    })
 }
 
 export const buildVideoCardFacts = (file: MediaFile): MediaFileFact[] => [

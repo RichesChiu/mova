@@ -12,7 +12,7 @@
 
 Mova 是一个用于整理、浏览和播放本地电影与剧集的自托管媒体服务器。服务端使用 Rust 构建，这是一门强调内存安全、稳定性能和资源效率的现代系统语言。
 
-项目希望把媒体服务器体验保持得足够简单可靠：挂载媒体目录，扫描媒体库，按需补齐元数据，然后通过 Web、macOS 和 iOS 客户端浏览与播放。当前公开版本为 `1.0.0 Preview`，适合本机、家用服务器和私人媒体库体验。
+项目希望把媒体服务器体验保持得足够简单可靠：挂载媒体目录，扫描媒体库，按需补齐元数据，然后通过 Web、macOS 和 iOS 客户端浏览与播放。当前公开版本为 1.0 Preview，用于正式发布前的完整部署验证，适合部署在本机、家用服务器和私人媒体库环境。
 
 核心能力包括：
 
@@ -46,13 +46,15 @@ cd mova
 ```yaml
 services:
   app:
-    image: richeschiu/mova:preview
+    image: richeschiu/mova:latest
     depends_on:
       database:
         condition: service_healthy
     ports:
       - "36080:36080"
     environment:
+      # Compose 内部数据库连接；需要修改凭据时同时修改 database.POSTGRES_PASSWORD
+      MOVA_DATABASE_URL: "postgres://mova:postgres@database:5432/mova"
       # TMDB API Read Access Token；留空时会跳过远端元数据刮削
       MOVA_TMDB_ACCESS_TOKEN: ""
       # 宿主机代理地址；不需要代理时保持为空
@@ -85,6 +87,8 @@ services:
 ```
 
 媒体目录、TMDB Token 和代理地址都直接在这一份 `docker-compose.yml` 中配置。无需创建 `.env`，也无需合并额外配置片段。默认不使用代理；需要代理时，将 `HTTP_PROXY` 和 `HTTPS_PROXY` 填为容器可以访问的实际 IP 地址，例如 `http://192.168.1.10:7890`。容器内的 `127.0.0.1` 指向容器自身，不能用于访问宿主机代理。
+
+`36080` 是 Mova Web 服务端口。PostgreSQL 不向宿主机发布端口，只能由同一 Compose 项目内的应用容器访问。示例中的数据库密码仅用于这个隔离的内部网络；如需修改，请同时更新 `MOVA_DATABASE_URL` 与 `POSTGRES_PASSWORD`。
 
 这些代理变量只控制 MOVA 运行时请求；如果 `docker compose pull` 无法访问 Docker Hub，需要在 Docker Desktop 或 Docker Engine 中单独配置代理。
 
@@ -121,17 +125,19 @@ docker compose up -d
 - `data/postgres/`：PostgreSQL 数据库文件，用于保存媒体库、用户、元数据、播放进度、持久化通知与已读状态、后台任务和实时资源 revision。
 - `data/cache/`：缓存海报、背景图和生成的媒体资源。删除媒体库时，也会清理该库独占引用的 TMDB 图片缓存。
 
-当前仍处于 `1.0.0 Preview` 阶段。本次 `1.0` 数据库基线冻结需要按对应发布说明完成最后一次旧 Preview 数据库重建；基线合并后，后续数据库变更将通过顺序迁移原地升级，只有发布说明明确要求时才需要重新扫描媒体库或重建缓存。
+从任何 Preview 版本首次升级到 1.0 都需要执行最后一次数据库重建并重新扫描媒体库；原始媒体文件不会被修改。完成 1.0 初始化后，后续版本通过顺序迁移原地升级，不再要求例行重建。升级、备份、恢复和回滚步骤见 [部署与数据维护](docs/DEPLOYMENT.md)。
 
 媒体目录只读挂载，Mova 不会修改你的原始媒体文件。
 
-默认 Compose 文件会直接运行公开体验通道 `richeschiu/mova:preview`，不在部署机器上从源码构建。本地没有镜像时，`docker compose up -d` 会自动拉取；如果你想主动升级到最新预览版本，先执行 `docker compose pull`，再执行 `docker compose up -d`。`preview` 始终指向最新预览镜像。
+默认 Compose 文件直接运行 `richeschiu/mova:latest`，不在部署机器上从源码构建。1.0 正式发布前，`latest` 与 `preview` 指向同一个最新 Preview 镜像；正式发布后，`latest` 只指向稳定版本。主动升级时先备份数据库，再执行 `docker compose pull` 和 `docker compose up -d`。
 
 已发布镜像覆盖 `linux/amd64` 和 `linux/arm64`。Windows 和 macOS 宿主机通过 Docker Desktop 运行同一个 Linux 镜像，Linux 宿主机通过 Docker Engine 或 Docker Desktop 运行，Docker 会自动选择匹配的架构。
 
 应用服务名是 `app`；查看服务日志时使用 `docker compose logs -f app`。
 
 ### 首次使用
+
+首次系统管理员创建完成前，只应从可信本机或受控局域网访问 `36080`，不要将未初始化的服务直接暴露到公网。初始化完成后，再配置 HTTPS 反向代理；公网部署同时启用 `MOVA_SESSION_COOKIE_SECURE: "true"`。
 
 1. 容器启动后打开 Web 页面。
 2. 在初始化页面创建第一个管理员。
@@ -147,6 +153,7 @@ docker compose up -d
 - TMDB 服务端接入契约: [docs/TMDB_INTEGRATION.md](docs/TMDB_INTEGRATION.md)
 - TMDB v3 API 参考: [docs/TMDB.md](docs/TMDB.md)
 - 媒体库缓存生命周期: [docs/LIBRARY_CACHE_LIFECYCLE.md](docs/LIBRARY_CACHE_LIFECYCLE.md)
+- 部署、升级、备份与恢复: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 - 前端: [apps/mova-web/README.md](apps/mova-web/README.md)
 - 官方网站: [apps/mova-site/README.md](apps/mova-site/README.md)
 - 后端: [apps/mova-server/README.md](apps/mova-server/README.md)

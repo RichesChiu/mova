@@ -1,6 +1,6 @@
 # Contributing to Mova
 
-Thank you for helping improve Mova. This guide keeps contributions focused, reviewable, and safe to merge while the project is moving quickly toward `1.0`.
+Thank you for helping improve Mova. This guide keeps contributions focused, reviewable, and safe to merge as the project evolves.
 
 ## Before you start
 
