@@ -72,5 +72,5 @@ pnpm -C apps/mova-web test
 pnpm -C apps/mova-web build
 ```
 
-Docker 部署、源码镜像构建和发布通道统一见根目录
-[`../../README.md`](../../README.md)。
+Docker 部署见根目录 [`../../README.md`](../../README.md)；源码构建与贡献验证见
+[`../../CONTRIBUTING.md`](../../CONTRIBUTING.md)。

@@ -289,6 +289,92 @@
     text-underline-offset: 3px;
   }
 
+  .deploy-proxy-guide strong {
+    display: block;
+    margin-bottom: 10px;
+    color: var(--ink);
+    font-size: 14px;
+  }
+
+  .deploy-proxy-guide p,
+  .deploy-token-note p {
+    margin: 8px 0 0;
+  }
+
+  .deploy-proxy-guide pre,
+  .deploy-token-steps pre {
+    margin: 12px 0 0;
+    padding: 13px 14px;
+    border: 1px solid rgba(103, 75, 226, 0.12);
+    border-radius: 8px;
+    color: #4338a8;
+    background: rgba(103, 75, 226, 0.05);
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .deploy-token-steps {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: token-step;
+  }
+
+  .deploy-token-steps li {
+    position: relative;
+    min-width: 0;
+    padding: 18px 18px 18px 54px;
+    border: 1px solid #e7e9f0;
+    border-radius: 12px;
+    background: #fafbfc;
+    counter-increment: token-step;
+  }
+
+  .deploy-token-steps li::before {
+    position: absolute;
+    top: 16px;
+    left: 18px;
+    display: grid;
+    width: 24px;
+    height: 24px;
+    place-items: center;
+    border-radius: 7px;
+    color: #fff;
+    background: #674be2;
+    font-size: 11px;
+    font-weight: 850;
+    content: counter(token-step);
+  }
+
+  .deploy-token-steps strong {
+    color: var(--ink);
+    font-size: 13px;
+  }
+
+  .deploy-token-steps p {
+    margin: 7px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.75;
+  }
+
+  .deploy-token-steps a,
+  .deploy-token-note a {
+    color: #4f46c7;
+    font-weight: 800;
+    text-underline-offset: 3px;
+  }
+
+  .deploy-token-note {
+    margin-top: 12px;
+  }
+
   .deploy-after-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -359,7 +445,8 @@
 
     .deploy-requirement-grid,
     .deploy-compose-meta,
-    .deploy-after-grid {
+    .deploy-after-grid,
+    .deploy-token-steps {
       grid-template-columns: 1fr;
     }
 

@@ -29,7 +29,7 @@ services:
       MOVA_DATABASE_URL: "postgres://mova:postgres@database:5432/mova"
       # TMDB API Read Access Token；留空时跳过远端元数据刮削
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # 宿主机代理地址；不使用代理时保持为空
+      # 中国大陆访问 TMDB 时可选；例如 http://192.168.1.1:7890
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
     volumes:
@@ -64,7 +64,7 @@ services:
 - `MOVA_DATABASE_URL`：连接 Compose 内部的 PostgreSQL，密码必须与 `database.POSTGRES_PASSWORD` 一致。数据库不向宿主机发布端口。
 - 外部 PostgreSQL：将 `MOVA_DATABASE_URL` 改为容器可访问的实际地址，同时删除 `app.depends_on.database` 和整个 `database` 服务。外部数据库需提前创建，连接账号需要拥有建表与执行迁移的权限。
 - `MOVA_TMDB_ACCESS_TOKEN`：登录 [TMDB API 设置](https://www.themoviedb.org/settings/api)申请并复制 **API Read Access Token**。留空时服务仍可启动和扫描本地媒体，但会跳过 TMDB 元数据和图片刮削。
-- `HTTP_PROXY` / `HTTPS_PROXY`：填写容器可以访问的宿主机代理 IP，例如 `http://192.168.1.10:7890`；不能使用容器自身的 `127.0.0.1`。不需要代理时保持为空。
+- `HTTP_PROXY` / `HTTPS_PROXY`：填写容器可以访问的宿主机代理 IP，例如 `http://192.168.1.1:7890`；不能使用容器自身的 `127.0.0.1`。容器可以直接访问 TMDB 时保持为空。
 - `source`：替换为宿主机媒体目录的绝对路径；媒体目录会只读挂载到容器内 `/media`。
 - 通过 HTTPS 反向代理公开 Web 页面时，在 `app.environment` 中增加 `MOVA_SESSION_COOKIE_SECURE: "true"`。
 
@@ -128,7 +128,7 @@ services:
       MOVA_DATABASE_URL: "postgres://mova:postgres@database:5432/mova"
       # TMDB API Read Access Token; leave empty to skip remote metadata scraping
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # Proxy on the Docker host; leave empty when no proxy is needed
+      # Optional proxy for reaching TMDB; for example http://192.168.1.1:7890
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
     volumes:
@@ -163,7 +163,7 @@ Configure the media directory, TMDB token, and proxy directly in this Compose fi
 - `MOVA_DATABASE_URL`: connects to PostgreSQL inside the Compose network. Its password must match `database.POSTGRES_PASSWORD`. No database port is published to the host.
 - External PostgreSQL: replace `MOVA_DATABASE_URL` with an address reachable from the container, then remove `app.depends_on.database` and the entire `database` service. Create the database first and grant the account permission to create tables and run migrations.
 - `MOVA_TMDB_ACCESS_TOKEN`: request an **API Read Access Token** from [TMDB API settings](https://www.themoviedb.org/settings/api). Mova still starts and scans local media without it, but skips TMDB metadata and artwork.
-- `HTTP_PROXY` / `HTTPS_PROXY`: use a host IP reachable from the container, such as `http://192.168.1.10:7890`, not the container's own `127.0.0.1`. Leave both values empty when no proxy is needed.
+- `HTTP_PROXY` / `HTTPS_PROXY`: use a host IP reachable from the container, such as `http://192.168.1.1:7890`, not the container's own `127.0.0.1`. Leave both values empty when the container can reach TMDB directly.
 - `source`: replace it with the absolute path to the host media directory. It is mounted read-only at `/media`.
 - When exposing the Web app through an HTTPS reverse proxy, add `MOVA_SESSION_COOKIE_SECURE: "true"` to `app.environment`.
 

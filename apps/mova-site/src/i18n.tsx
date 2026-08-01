@@ -51,6 +51,39 @@ const translations: Record<string, string> = {
   '按文件名归组电影与剧集，通过 TMDB 补齐海报、背景图、标题 Logo 和评分。':
     'Group movies and series by filename, then use TMDB to enrich posters, backdrops, title logos, and ratings.',
   'macOS 客户端': 'macOS client',
+  代理填写规则: 'Proxy configuration',
+  'HTTP_PROXY 和 HTTPS_PROXY 主要用于中国大陆网络访问 TMDB 元数据与图片。代理值必须是容器能够访问的完整 URL，格式为“协议://宿主机实际地址:代理端口”。':
+    'HTTP_PROXY and HTTPS_PROXY are primarily intended for reaching TMDB metadata and artwork from mainland China. Each value must be a complete URL reachable from the container, in the format protocol://actual-host-address:proxy-port.',
+  '假设宿主机的局域网地址是 192.168.1.1，HTTP 代理端口是 7890，应按下面的方式填写；请根据自己的实际地址和端口替换示例值。':
+    'If the Docker host LAN address is 192.168.1.1 and the HTTP proxy port is 7890, use the values below. Replace the example address and port with your own.',
+  '代理程序必须允许来自 Docker 网络或局域网的连接。不要使用 127.0.0.1 或 localhost，它们在容器内指向 MOVA 容器自身。':
+    'The proxy must accept connections from the Docker network or LAN. Do not use 127.0.0.1 or localhost; inside the container they refer to the MOVA container itself.',
+  '如果 MOVA 容器已经能直接访问 TMDB，例如透明代理、TUN 或路由器代理已经对 Docker 生效，则两个变量可以留空。仅在宿主机启动普通代理程序不会自动让容器继承代理。':
+    'Leave both variables empty when the MOVA container can already reach TMDB, for example through a transparent proxy, TUN, or router proxy that also covers Docker. Merely starting a regular proxy on the host does not make the container inherit it.',
+  '这里的代理只影响 MOVA 运行时请求；Docker Hub 镜像拉取代理仍需在 Docker Desktop 或 Docker Engine 中配置。':
+    'These variables affect only MOVA runtime requests. Configure image-pull proxy access separately in Docker Desktop or Docker Engine.',
+  '获取 TMDB Access Token': 'Get a TMDB Access Token',
+  'TMDB Token 用于获取影片与剧集的元数据、海报、背景图、标题 Logo 和评分。':
+    'The TMDB token enables movie and series metadata, posters, backdrops, title logos, and ratings.',
+  注册并验证账户: 'Register and verify your account',
+  '打开 TMDB，注册或登录账户并完成邮箱验证。':
+    'Open TMDB, register or sign in, and complete email verification.',
+  '申请 API 访问权限': 'Request API access',
+  '建议使用桌面浏览器打开账户设置中的 API 页面，按页面要求提交申请并接受 TMDB 条款。':
+    'Use a desktop browser to open the API page in account settings, submit the requested information, and accept the TMDB terms.',
+  '打开 TMDB API 设置': 'Open TMDB API settings',
+  '复制正确的 Token': 'Copy the correct token',
+  '申请通过后，在同一页面复制 API Read Access Token。MOVA 使用的是这段较长的 Bearer Token，不是 API Key (v3 auth)。':
+    'After approval, copy the API Read Access Token from the same page. MOVA uses this longer Bearer token, not the API Key (v3 auth).',
+  '写入 Compose 并重启': 'Add it to Compose and restart',
+  '将 Token 填入 docker-compose.yml 的 MOVA_TMDB_ACCESS_TOKEN，然后执行 docker compose up -d。':
+    'Set MOVA_TMDB_ACCESS_TOKEN in docker-compose.yml, then run docker compose up -d.',
+  '你的_API_Read_Access_Token': 'YOUR_API_READ_ACCESS_TOKEN',
+  'Token 属于敏感凭据，不要提交到 Git 仓库或写入公开日志。':
+    'The token is a sensitive credential. Do not commit it to Git or include it in public logs.',
+  '不配置 Token 时，MOVA 仍可启动、扫描本地文件并完成入库，但会跳过 TMDB 元数据与图片刮削。后续补上 Token 并重启服务后，重新扫描媒体库即可补齐远端元数据，无需重建数据库。':
+    'Without a token, MOVA still starts, scans local files, and stores them, but skips TMDB metadata and artwork. Add the token later, restart the service, and rescan the library to enrich remote metadata without rebuilding the database.',
+  '查看 TMDB 官方认证说明': 'Read the official TMDB authentication guide',
   'macOS 平台说明': 'macOS platform details',
   'MOVA macOS 原生客户端详情界面': 'MOVA native macOS client detail screen',
   '专为 macOS 打造的': 'Designed for macOS',

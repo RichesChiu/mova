@@ -1,0 +1,44 @@
+# Build and run the current source checkout. Copy .env.example to .env first.
+# This stack is intentionally separate from the published-image deployment.
+services:
+  app:
+    image: mova:source
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: apps/mova-server/Dockerfile
+      args:
+        MOVA_BUILD_VERSION: development
+        HTTP_PROXY: "${HTTP_PROXY:-}"
+        HTTPS_PROXY: "${HTTPS_PROXY:-}"
+    depends_on:
+      database:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:36080:36080"
+    environment:
+      MOVA_DATABASE_URL: "postgres://mova:postgres@database:5432/mova"
+      MOVA_TMDB_ACCESS_TOKEN: "${MOVA_TMDB_ACCESS_TOKEN:-}"
+      HTTP_PROXY: "${HTTP_PROXY:-}"
+      HTTPS_PROXY: "${HTTPS_PROXY:-}"
+    volumes:
+      - ./data/cache:/app/data/cache
+      - type: bind
+        source: "${MOVA_MEDIA_PATH:?Set MOVA_MEDIA_PATH in .env}"
+        target: /media
+        read_only: true
+
+  database:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: mova
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mova
+    volumes:
+      - ./data/postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mova -d mova"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    shm_size: 256mb

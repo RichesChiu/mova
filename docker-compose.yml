@@ -1,3 +1,5 @@
+# Published-image deployment for self-hosted installations.
+# Contributors building the current checkout should use compose.source.yaml.
 services:
   app:
     image: richeschiu/mova:latest
@@ -13,7 +15,8 @@ services:
       MOVA_DATABASE_URL: "postgres://mova:postgres@database:5432/mova"
       # Optional: TMDB API Read Access Token. Leave empty to skip remote metadata scraping.
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # Optional: proxy address reachable from the container, for example http://192.168.1.10:7890.
+      # Optional for reaching TMDB through a proxy on the Docker host.
+      # Use the host's actual address and port, for example http://192.168.1.1:7890.
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
     volumes:

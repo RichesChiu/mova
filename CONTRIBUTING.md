@@ -56,6 +56,33 @@ Common types are `feat`, `fix`, `refactor`, `docs`, `test`, `ci`, and `chore`.
 
 ## Development and verification
 
+### Run the current source checkout with Docker
+
+The default `docker-compose.yml` is the published-image deployment used by self-hosted users. To
+build and run the current checkout instead, prepare the ignored local environment file and use the
+standalone source Compose file:
+
+```bash
+cp .env.example .env
+# Set MOVA_MEDIA_PATH and, optionally, the TMDB token and proxy in .env.
+docker compose -f compose.source.yaml up -d --build
+```
+
+The source stack listens only on `http://127.0.0.1:36080`, stores PostgreSQL data and rebuildable
+cache files under `data/`, and mounts the configured media directory read-only. Inspect and stop it
+with:
+
+```bash
+docker compose -f compose.source.yaml logs -f app
+docker compose -f compose.source.yaml down
+```
+
+The actual `.env`, runtime data, media, credentials, and caches are ignored by Git. Do not combine
+`docker-compose.yml` and `compose.source.yaml`; each file is a complete stack for a distinct use
+case.
+
+### Run targeted checks
+
 Run checks proportional to the change and report only commands that completed successfully.
 
 For frontend changes, run:
