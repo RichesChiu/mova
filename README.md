@@ -59,7 +59,9 @@ services:
       MOVA_DATABASE_URL: "postgres://mova:postgres@database:5432/mova"
       # TMDB API Read Access Token；留空时会跳过远端元数据刮削
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # 宿主机代理地址；不需要代理时保持为空
+      # 中国大陆访问 TMDB 时可选；填写宿主机实际 IP 和代理端口
+      # 例如宿主机为 192.168.1.1、HTTP 代理端口为 7890：
+      # http://192.168.1.1:7890
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
     volumes:
@@ -89,13 +91,26 @@ services:
     restart: unless-stopped
 ```
 
-媒体目录、TMDB Token 和代理地址都直接在这一份 `docker-compose.yml` 中配置。无需创建 `.env`，也无需合并额外配置片段。默认不使用代理；需要代理时，将 `HTTP_PROXY` 和 `HTTPS_PROXY` 填为容器可以访问的实际 IP 地址，例如 `http://192.168.1.10:7890`。容器内的 `127.0.0.1` 指向容器自身，不能用于访问宿主机代理。
+媒体目录、TMDB Token 和代理地址都直接在这一份 `docker-compose.yml` 中配置。无需创建 `.env`，也无需合并额外配置片段。
+
+#### 代理填写规则
+
+`HTTP_PROXY` 和 `HTTPS_PROXY` 主要用于中国大陆网络访问 TMDB 元数据与图片。代理值必须是容器能够访问的完整 URL，格式为 `协议://宿主机实际地址:代理端口`。例如宿主机的局域网地址是 `192.168.1.1`，HTTP 代理端口是 `7890`，应填写：
+
+```yaml
+HTTP_PROXY: "http://192.168.1.1:7890"
+HTTPS_PROXY: "http://192.168.1.1:7890"
+```
+
+请根据自己的宿主机地址和代理端口替换示例值，并确保代理程序允许来自 Docker 网络或局域网的连接。不要填写 `127.0.0.1` 或 `localhost`，它们在容器内指向 MOVA 容器自身，而不是宿主机。
+
+如果 MOVA 容器已经可以直接访问 `api.themoviedb.org` 和 `image.tmdb.org`，例如宿主机、路由器或网络环境使用了对 Docker 生效的透明代理/TUN，则两个变量可以保持为空。仅在宿主机启动普通代理程序不会自动让容器继承代理；这种情况下仍需按上面的格式填写实际地址和端口。
 
 `36080` 是 Mova Web 服务端口。PostgreSQL 不向宿主机发布端口，只能由同一 Compose 项目内的应用容器访问。示例中的数据库密码仅用于这个隔离的内部网络；如需修改，请同时更新 `MOVA_DATABASE_URL` 与 `POSTGRES_PASSWORD`。
 
 如需使用已有的外部 PostgreSQL，将 `MOVA_DATABASE_URL` 改为容器可访问的数据库地址，同时删除 `app.depends_on.database` 和整个 `database` 服务。数据库需提前创建，连接账号需要拥有建表与执行迁移的权限；容器中的 `localhost` 指向 MOVA 容器自身，应填写数据库的实际 IP 或域名。Mova 启动时会自动执行数据库迁移。
 
-这些代理变量只控制 MOVA 运行时请求；如果 `docker compose pull` 无法访问 Docker Hub，需要在 Docker Desktop 或 Docker Engine 中单独配置代理。
+这些代理变量只控制 MOVA 运行时对 TMDB 等外部服务的请求；如果 `docker compose pull` 无法访问 Docker Hub，需要在 Docker Desktop 或 Docker Engine 中单独配置代理。
 
 如果通过 HTTPS 反向代理公开 Web 页面，请在 `app.environment` 中额外设置 `MOVA_SESSION_COOKIE_SECURE: "true"`，让浏览器只通过 HTTPS 发送登录 Cookie。本地纯 HTTP 部署保持默认值即可，否则浏览器不会回传 Cookie。
 

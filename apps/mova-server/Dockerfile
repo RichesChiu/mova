@@ -56,7 +56,7 @@ LABEL org.opencontainers.image.title="Mova" \
     org.opencontainers.image.version=$MOVA_BUILD_VERSION \
     org.opencontainers.image.revision=$MOVA_BUILD_REVISION \
     org.opencontainers.image.source="https://github.com/RichesChiu/mova" \
-    org.opencontainers.image.documentation="https://github.com/RichesChiu/mova/blob/master/docs/THIRD_PARTY_SOFTWARE.md" \
+    org.opencontainers.image.documentation="https://github.com/RichesChiu/mova/blob/master/docs/DEPLOYMENT.md" \
     org.opencontainers.image.licenses="AGPL-3.0-only"
 WORKDIR /app
 

@@ -19,7 +19,7 @@ const composeExampleZh = `services:
       MOVA_DATABASE_URL: "postgres://mova:postgres@database:5432/mova"
       # TMDB API Read Access Token；留空时会跳过远端元数据刮削
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # 宿主机代理地址；不需要代理时保持为空
+      # 中国大陆访问 TMDB 时可选；例如 http://192.168.1.1:7890
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
     volumes:
@@ -63,7 +63,7 @@ const composeExampleEn = `services:
       MOVA_DATABASE_URL: "postgres://mova:postgres@database:5432/mova"
       # TMDB API Read Access Token; remote metadata scraping is skipped when empty
       MOVA_TMDB_ACCESS_TOKEN: ""
-      # Proxy on the Docker host; leave empty when no proxy is needed
+      # Optional for reaching TMDB; for example http://192.168.1.1:7890
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
     volumes:
@@ -93,7 +93,7 @@ const composeExampleEn = `services:
     restart: unless-stopped`
 
 export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string) => void }) {
-  const { language } = useI18n()
+  const { language, t } = useI18n()
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const isChinese = language === 'zh'
   const composeExample = isChinese ? composeExampleZh : composeExampleEn
@@ -216,11 +216,15 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
               <p><code>./data/postgres</code><br /><code>./data/cache</code></p>
             </article>
           </div>
-          <p className="deploy-compose-guidance">
-            {isChinese
-              ? '不需要代理时保持 HTTP_PROXY 和 HTTPS_PROXY 为空；需要代理时填写容器可以访问的实际 IP 地址，例如 http://192.168.1.10:7890。容器内不能使用 127.0.0.1 访问宿主机。Docker 拉取镜像所需的代理仍应在 Docker Desktop 或 Docker Engine 中配置。'
-              : 'Leave HTTP_PROXY and HTTPS_PROXY empty when no proxy is needed. Otherwise, enter an actual proxy IP reachable from the container, such as http://192.168.1.10:7890. The container cannot use 127.0.0.1 to reach the host. Proxy access for image pulls must still be configured in Docker Desktop or Docker Engine.'}
-          </p>
+          <div className="deploy-compose-guidance deploy-proxy-guide">
+            <strong>{t('代理填写规则')}</strong>
+            <p>{t('HTTP_PROXY 和 HTTPS_PROXY 主要用于中国大陆网络访问 TMDB 元数据与图片。代理值必须是容器能够访问的完整 URL，格式为“协议://宿主机实际地址:代理端口”。')}</p>
+            <p>{t('假设宿主机的局域网地址是 192.168.1.1，HTTP 代理端口是 7890，应按下面的方式填写；请根据自己的实际地址和端口替换示例值。')}</p>
+            <pre><code>{`HTTP_PROXY: "http://192.168.1.1:7890"\nHTTPS_PROXY: "http://192.168.1.1:7890"`}</code></pre>
+            <p>{t('代理程序必须允许来自 Docker 网络或局域网的连接。不要使用 127.0.0.1 或 localhost，它们在容器内指向 MOVA 容器自身。')}</p>
+            <p>{t('如果 MOVA 容器已经能直接访问 TMDB，例如透明代理、TUN 或路由器代理已经对 Docker 生效，则两个变量可以留空。仅在宿主机启动普通代理程序不会自动让容器继承代理。')}</p>
+            <p>{t('这里的代理只影响 MOVA 运行时请求；Docker Hub 镜像拉取代理仍需在 Docker Desktop 或 Docker Engine 中配置。')}</p>
+          </div>
           <p className="deploy-compose-guidance">
             {isChinese
               ? '通过 HTTPS 反向代理公开 Web 页面时，在 app.environment 中额外设置 MOVA_SESSION_COOKIE_SECURE: "true"。本地纯 HTTP 部署保持默认值即可。'
@@ -236,6 +240,46 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
               ? '使用外部 PostgreSQL 时，将 MOVA_DATABASE_URL 改为容器可访问的数据库地址，并删除 app.depends_on.database 与整个 database 服务。外部数据库需提前创建，连接账号需要拥有建表、修改表结构和执行迁移的权限；容器内的 localhost 指向 MOVA 容器自身。'
               : 'To use external PostgreSQL, replace MOVA_DATABASE_URL with an address reachable from the container, then remove app.depends_on.database and the entire database service. Create the database first and grant the account permission to create and alter tables and run migrations; localhost inside the container refers to the Mova container itself.'}
           </p>
+        </section>
+
+        <section className="deploy-section" id="deploy-tmdb">
+          <SectionHeading
+            eyebrow="TMDB Metadata"
+            title={t('获取 TMDB Access Token')}
+            text={t('TMDB Token 用于获取影片与剧集的元数据、海报、背景图、标题 Logo 和评分。')}
+          />
+          <ol className="deploy-token-steps">
+            <li>
+              <strong>{t('注册并验证账户')}</strong>
+              <p>
+                {t('打开 TMDB，注册或登录账户并完成邮箱验证。')}{' '}
+                <a href="https://www.themoviedb.org/" target="_blank" rel="noreferrer">TMDB</a>
+              </p>
+            </li>
+            <li>
+              <strong>{t('申请 API 访问权限')}</strong>
+              <p>
+                {t('建议使用桌面浏览器打开账户设置中的 API 页面，按页面要求提交申请并接受 TMDB 条款。')}{' '}
+                <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noreferrer">{t('打开 TMDB API 设置')}</a>
+              </p>
+            </li>
+            <li>
+              <strong>{t('复制正确的 Token')}</strong>
+              <p>{t('申请通过后，在同一页面复制 API Read Access Token。MOVA 使用的是这段较长的 Bearer Token，不是 API Key (v3 auth)。')}</p>
+            </li>
+            <li>
+              <strong>{t('写入 Compose 并重启')}</strong>
+              <p>{t('将 Token 填入 docker-compose.yml 的 MOVA_TMDB_ACCESS_TOKEN，然后执行 docker compose up -d。')}</p>
+              <pre><code>{`MOVA_TMDB_ACCESS_TOKEN: "${t('你的_API_Read_Access_Token')}"`}</code></pre>
+            </li>
+          </ol>
+          <div className="deploy-compose-guidance deploy-token-note">
+            <p>{t('Token 属于敏感凭据，不要提交到 Git 仓库或写入公开日志。')}</p>
+            <p>{t('不配置 Token 时，MOVA 仍可启动、扫描本地文件并完成入库，但会跳过 TMDB 元数据与图片刮削。后续补上 Token 并重启服务后，重新扫描媒体库即可补齐远端元数据，无需重建数据库。')}</p>
+            <a href="https://developer.themoviedb.org/docs/authentication-application" target="_blank" rel="noreferrer">
+              {t('查看 TMDB 官方认证说明')}
+            </a>
+          </div>
         </section>
 
         <section className="deploy-section" id="deploy-after">

@@ -116,6 +116,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
+      - name: Validate Compose configurations
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose --env-file .env.example -f compose.source.yaml config --quiet
+
       - name: Build Web base image
         run: >-
           docker build
