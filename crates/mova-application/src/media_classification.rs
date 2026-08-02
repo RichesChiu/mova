@@ -31,6 +31,7 @@ pub(crate) fn apply_root_aware_media_identity(
         let has_file_title = has_meaningful_file_title(&file.file_path);
         let container_identity = infer_series_container_identity(&file.file_path, root_path);
         let sidecar = infer_series_sidecar_metadata_within_root(&file.file_path, root_path);
+        file.series_local_nfo = sidecar.as_ref().map(|metadata| metadata.local_nfo.clone());
 
         if let Some(title) = sidecar
             .as_ref()

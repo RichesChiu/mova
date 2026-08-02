@@ -47,7 +47,7 @@ MOVA_SESSION_COOKIE_SECURE: "true"
 
 ### 3. Preview 到 1.0 的一次性重建
 
-1.0 将最终表结构冻结在 `migrations/0001_init.sql`。Preview 数据库使用的是开发期表结构，不能作为 1.0 的迁移起点；第一次启动 1.0 前必须执行最后一次数据库重建并重新扫描媒体库。
+`migrations/0001_init.sql` 是冻结的 1.0 表结构基线；1.0 之后的结构变化使用后续顺序迁移，新安装会按编号运行完整迁移集合。Preview 数据库使用的是开发期表结构，不能作为 1.0 的迁移起点；第一次启动 1.0 前必须执行最后一次数据库重建并重新扫描媒体库。
 
 先停止 Preview 服务：
 
@@ -188,7 +188,7 @@ Port `36080` serves Web/API traffic; it is not a database port. The deployment n
 
 ### 3. One-time Preview-to-1.0 rebuild
 
-Version 1.0 freezes its final schema in `migrations/0001_init.sql`. Preview databases use development-era schemas and are not supported as a 1.0 migration source. Before starting 1.0 for the first time, perform one final database rebuild and rescan all libraries.
+`migrations/0001_init.sql` is the frozen 1.0 schema baseline. Post-1.0 schema changes use later sequential migrations, and new installations run the complete migration set in order. Preview databases use development-era schemas and are not supported as a 1.0 migration source. Before starting 1.0 for the first time, perform one final database rebuild and rescan all libraries.
 
 Stop the Preview stack:
 

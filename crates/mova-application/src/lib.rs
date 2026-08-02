@@ -1,10 +1,10 @@
 mod access;
 mod cache;
 mod error;
-mod file_sync;
 mod home;
 mod intro_detection;
 mod libraries;
+mod local_metadata;
 mod media_cast;
 mod media_classification;
 mod media_enrichment;
@@ -31,7 +31,6 @@ pub use error::{
     ApplicationError, ApplicationResult, AuthTokenErrorCode, BusinessError, BusinessErrorKind,
     BusinessErrorParams,
 };
-pub use file_sync::{reconcile_library_inventory, sync_library_filesystem_changes};
 pub use home::{get_home_snapshot, HomeLibrarySnapshot, HomeSnapshot};
 pub use libraries::{
     create_library, delete_library, get_library, get_library_detail,
@@ -43,14 +42,15 @@ pub use media_cast::{
 };
 pub use media_classification::{LIBRARY_TYPE_MOVIE, LIBRARY_TYPE_SERIES};
 pub use media_items::{
-    get_audio_track, get_media_file, get_media_item, get_season, get_subtitle_file, global_search,
+    get_audio_track, get_media_file, get_media_item, get_media_item_metadata_source,
+    get_media_item_metadata_sources, get_season, get_subtitle_file, global_search,
     list_audio_tracks_for_media_file, list_media_files_for_media_item,
     list_media_items_for_library, list_recently_added_media_items_by_library,
     list_subtitle_files_for_media_file, refresh_media_item_metadata,
     series_episode_outline_for_media_item, GlobalSearchInput, GlobalSearchResult,
     ListMediaItemsForLibraryInput, ListMediaItemsForLibraryOutput, ListRecentlyAddedByLibraryInput,
-    RecentlyAddedLibraryMediaItems, SeriesEpisodeOutline, SeriesEpisodeOutlineEpisode,
-    SeriesEpisodeOutlineSeason,
+    LocalMetadataSourceInspection, MediaItemMetadataSources, RecentlyAddedLibraryMediaItems,
+    SeriesEpisodeOutline, SeriesEpisodeOutlineEpisode, SeriesEpisodeOutlineSeason,
 };
 pub use metadata::{
     apply_remote_metadata, build_metadata_provider, normalize_base_url,

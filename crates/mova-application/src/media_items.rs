@@ -5,13 +5,14 @@ use crate::{
     media_cast::validated_tmdb_binding,
     media_classification::{apply_root_aware_media_identity, metadata_lookup_type_for_media_type},
     media_enrichment::MetadataEnrichmentContext,
-    metadata::{MetadataLookup, MetadataProvider, RemoteSeriesEpisodeOutline},
+    metadata::{MetadataLookup, MetadataProvider, RemoteSeriesEpisodeOutline, TMDB_PROVIDER_NAME},
 };
 use mova_domain::{
-    AudioTrack, Library, MediaFile, MediaItem, MediaRating, PlaybackProgress, Season, SubtitleFile,
-    METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED, METADATA_STATUS_MATCHED,
-    METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE,
-    REMOTE_MEDIA_TYPE_SERIES,
+    AudioTrack, Library, MediaExternalIdRecord, MediaFile, MediaItem, MediaItemCredit,
+    MediaLocalMetadataSource, MediaLocalMetadataSourceSummary, MediaRating, PlaybackProgress,
+    Season, SubtitleFile, METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED,
+    METADATA_STATUS_MATCHED, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
+    REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
 };
 use sqlx::postgres::PgPool;
 use std::{
@@ -46,6 +47,24 @@ pub struct ListMediaItemsForLibraryOutput {
     pub total: i64,
     pub page: i64,
     pub page_size: i64,
+}
+
+/// Source-aware metadata attached to one media item.
+///
+/// Local metadata payloads are already normalized by the scan/persistence
+/// boundary. Raw NFO XML never crosses into this application contract.
+#[derive(Debug, Clone)]
+pub struct MediaItemMetadataSources {
+    pub external_ids: Vec<MediaExternalIdRecord>,
+    pub credits: Vec<MediaItemCredit>,
+    pub local_metadata_sources: Vec<MediaLocalMetadataSourceSummary>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LocalMetadataSourceInspection {
+    pub source: MediaLocalMetadataSource,
+    pub observation_status: String,
+    pub observation_error_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -287,6 +306,110 @@ pub async fn get_media_item(pool: &PgPool, media_item_id: i64) -> ApplicationRes
     media_item.ok_or_else(|| {
         ApplicationError::NotFound(format!("media item not found: {}", media_item_id))
     })
+}
+
+/// Load source-aware metadata headers after the transport layer has authorized
+/// access. The collection deliberately avoids both JSON payload reads and live
+/// filesystem inspection; those are deferred to one selected source.
+pub async fn get_media_item_metadata_sources(
+    pool: &PgPool,
+    media_item_id: i64,
+) -> ApplicationResult<MediaItemMetadataSources> {
+    get_media_item(pool, media_item_id).await?;
+    let (external_ids, credits, local_metadata_sources) = tokio::try_join!(
+        mova_db::list_media_item_external_ids(pool, media_item_id),
+        mova_db::list_media_item_credits(pool, media_item_id),
+        mova_db::list_media_local_metadata_source_summaries_for_item(pool, media_item_id),
+    )
+    .map_err(ApplicationError::from)?;
+
+    Ok(MediaItemMetadataSources {
+        external_ids,
+        credits,
+        local_metadata_sources,
+    })
+}
+
+/// Load and observe one persisted local metadata source after the transport
+/// layer has authorized administrative access to the media item.
+pub async fn get_media_item_metadata_source(
+    pool: &PgPool,
+    media_item_id: i64,
+    source_id: i64,
+) -> ApplicationResult<LocalMetadataSourceInspection> {
+    let media_item = get_media_item(pool, media_item_id).await?;
+    let library = get_library(pool, media_item.library_id).await?;
+    let source = mova_db::get_media_local_metadata_source_for_item(pool, media_item_id, source_id)
+        .await
+        .map_err(ApplicationError::from)?
+        .ok_or_else(|| {
+            ApplicationError::NotFound(format!(
+                "local metadata source not found for media item {media_item_id}: {source_id}"
+            ))
+        })?;
+
+    inspect_local_metadata_source(source, PathBuf::from(library.root_path)).await
+}
+
+async fn inspect_local_metadata_source(
+    source: MediaLocalMetadataSource,
+    library_root: PathBuf,
+) -> ApplicationResult<LocalMetadataSourceInspection> {
+    let path = source.source_path.clone();
+    let document_type = source.document_type.clone();
+    let observation = tokio::task::spawn_blocking(move || {
+        let expected_kind = match document_type.as_str() {
+            "movie" => Some(mova_scan::LocalNfoKind::Movie),
+            "tvshow" => Some(mova_scan::LocalNfoKind::TvShow),
+            "episodedetails" => Some(mova_scan::LocalNfoKind::Episode),
+            _ => None,
+        };
+        expected_kind.map(|kind| {
+            mova_scan::observe_nfo_file_within_root(Path::new(&path), kind, &library_root)
+        })
+    })
+    .await
+    .map_err(|error| {
+        ApplicationError::Unexpected(anyhow::anyhow!(
+            "local metadata inspection worker failed: {error}"
+        ))
+    })?;
+
+    let (observation_status, observation_error_code) = match observation {
+        Some(mova_scan::LocalNfoObservation::Valid(_)) => ("valid", None),
+        Some(mova_scan::LocalNfoObservation::Invalid { error_code, .. }) => {
+            ("invalid", Some(local_nfo_error_code(error_code)))
+        }
+        Some(mova_scan::LocalNfoObservation::Absent { .. }) => ("missing", None),
+        None => ("invalid", Some("unsupported_document_type".to_string())),
+    };
+
+    Ok(LocalMetadataSourceInspection {
+        source,
+        observation_status: observation_status.to_string(),
+        observation_error_code,
+    })
+}
+
+fn local_nfo_error_code(error: mova_scan::LocalNfoErrorCode) -> String {
+    match error {
+        mova_scan::LocalNfoErrorCode::OpenFailed => "open_failed",
+        mova_scan::LocalNfoErrorCode::InspectFailed => "inspect_failed",
+        mova_scan::LocalNfoErrorCode::NotRegularFile => "not_regular_file",
+        mova_scan::LocalNfoErrorCode::TooLarge => "too_large",
+        mova_scan::LocalNfoErrorCode::ReadFailed => "read_failed",
+        mova_scan::LocalNfoErrorCode::GrewBeyondLimit => "grew_beyond_limit",
+        mova_scan::LocalNfoErrorCode::InvalidUtf8 => "invalid_utf8",
+        mova_scan::LocalNfoErrorCode::ForbiddenXmlDeclaration => "forbidden_xml_declaration",
+        mova_scan::LocalNfoErrorCode::MalformedXml => "malformed_xml",
+        mova_scan::LocalNfoErrorCode::UnsupportedRoot => "unsupported_root",
+        mova_scan::LocalNfoErrorCode::UnexpectedRootKind => "unexpected_root_kind",
+        mova_scan::LocalNfoErrorCode::OutsideLibraryRoot => "outside_library_root",
+        mova_scan::LocalNfoErrorCode::SymlinkNotAllowed => "symlink_not_allowed",
+        mova_scan::LocalNfoErrorCode::SecureOpenUnavailable => "secure_open_unavailable",
+        mova_scan::LocalNfoErrorCode::ResourceLimitExceeded => "resource_limit_exceeded",
+    }
+    .to_string()
 }
 
 /// 按 id 读取单个媒体文件。
@@ -863,33 +986,183 @@ pub async fn refresh_media_item_metadata(
     metadata_provider: Arc<dyn MetadataProvider>,
 ) -> ApplicationResult<MediaItem> {
     let media_item = get_media_item(pool, media_item_id).await?;
-    let source_file = mova_db::list_media_files_for_media_item(pool, media_item_id)
+    let library = get_library(pool, media_item.library_id).await?;
+    let source_files = mova_db::list_media_item_metadata_refresh_source_files(pool, media_item_id)
+        .await
+        .map_err(ApplicationError::from)?;
+    if source_files.is_empty() {
+        return Err(ApplicationError::Conflict(format!(
+            "media item {} has no source file to refresh from",
+            media_item_id
+        )));
+    }
+
+    let mut library_file_paths = mova_db::list_library_media_file_memberships(pool, library.id)
         .await
         .map_err(ApplicationError::from)?
         .into_iter()
-        .next()
-        .ok_or_else(|| {
-            ApplicationError::Conflict(format!(
-                "media item {} has no source file to refresh from",
-                media_item_id
-            ))
+        .map(|membership| membership.file_path)
+        .collect::<BTreeSet<_>>();
+    library_file_paths.extend(
+        source_files
+            .iter()
+            .map(|source_file| source_file.file_path.clone()),
+    );
+    let shallow_library_files = library_file_paths
+        .into_iter()
+        .filter_map(|file_path| {
+            mova_scan::inspect_media_file_inventory_shallow(
+                mova_scan::DiscoveredMediaFileInventory {
+                    file_path: PathBuf::from(file_path),
+                    file_size: 0,
+                    file_modified_at_ms: None,
+                    sidecar_fingerprint: String::new(),
+                },
+            )
+            .ok()
+        })
+        .collect::<Vec<_>>();
+    let refresh_nfo_observations = crate::scan_jobs::eligible_local_nfo_observations_for_refresh(
+        &shallow_library_files,
+        Path::new(&library.root_path),
+    );
+    let mut refresh_nfo_observations_by_path = shallow_library_files
+        .iter()
+        .map(|file| file.file_path.clone())
+        .zip(refresh_nfo_observations)
+        .collect::<HashMap<_, _>>();
+
+    let mut discovered_files = Vec::with_capacity(source_files.len());
+    let mut invalid_local_nfo_paths = BTreeSet::new();
+    for (index, source_file) in source_files.iter().enumerate() {
+        let (media_nfo_observation, series_nfo_observation) = refresh_nfo_observations_by_path
+            .remove(Path::new(&source_file.file_path))
+            .unwrap_or((None, None));
+        let allow_generic_movie_nfo = media_nfo_observation
+            .as_ref()
+            .and_then(local_nfo_observation_source_path)
+            .is_some_and(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("movie.nfo"))
+            });
+        let inspection = if index == 0 {
+            inspect_media_file_path(
+                &source_file.file_path,
+                &library.root_path,
+                allow_generic_movie_nfo,
+            )
+            .await
+        } else {
+            inspect_media_file_sidecar_only_path(
+                &source_file.file_path,
+                &library.root_path,
+                allow_generic_movie_nfo,
+            )
+            .await
+        };
+        let mut discovered_file = inspection.map_err(|error| {
+            map_refresh_source_error(media_item_id, &source_file.file_path, error)
         })?;
-
-    let mut discovered_file = inspect_media_file_path(&source_file.file_path)
-        .await
-        .map_err(|error| map_refresh_source_error(media_item_id, &source_file.file_path, error))?;
-
-    let file_size = i64::try_from(discovered_file.file_size).map_err(|_| {
-        ApplicationError::Unexpected(anyhow::anyhow!(
-            "file is too large to store in database: {}",
-            source_file.file_path
-        ))
-    })?;
+        apply_explicit_nfo_observation_for_refresh(
+            &mut discovered_file,
+            media_item.media_type.as_str(),
+            media_nfo_observation,
+            series_nfo_observation,
+            &mut invalid_local_nfo_paths,
+        );
+        discovered_files.push(discovered_file);
+    }
 
     let lookup_type = metadata_lookup_type_for_media_type(&media_item.media_type);
-    let library = get_library(pool, media_item.library_id).await?;
-    let metadata_lookup_hint =
-        apply_root_aware_media_identity(&mut discovered_file, Path::new(&library.root_path));
+    let existing_local_sources =
+        mova_db::list_media_local_metadata_sources_for_item(pool, media_item_id)
+            .await
+            .map_err(ApplicationError::from)?;
+    let mut root_metadata_lookup_hints = BTreeSet::new();
+    for discovered_file in &mut discovered_files {
+        if let Some(hint) =
+            apply_root_aware_media_identity(discovered_file, Path::new(&library.root_path))
+        {
+            root_metadata_lookup_hints.insert(hint);
+        }
+    }
+    let source_paths = source_files
+        .iter()
+        .map(|source_file| source_file.file_path.clone())
+        .collect::<Vec<_>>();
+    let existing_by_path =
+        mova_db::list_existing_media_metadata_for_file_paths(pool, library.id, &source_paths)
+            .await
+            .map_err(ApplicationError::from)?
+            .into_iter()
+            .map(|summary| (summary.file_path.clone(), summary))
+            .collect::<HashMap<_, _>>();
+    let is_episode = media_item.media_type.eq_ignore_ascii_case("episode");
+    let media_item_binding_hint = if is_episode {
+        let series_bindings = existing_by_path
+            .values()
+            .filter(|summary| {
+                summary
+                    .series_metadata_provider
+                    .as_deref()
+                    .is_some_and(|provider| provider.eq_ignore_ascii_case(TMDB_PROVIDER_NAME))
+            })
+            .filter_map(|summary| summary.series_metadata_provider_item_id.clone())
+            .collect::<BTreeSet<_>>();
+        (series_bindings.len() == 1)
+            .then(|| series_bindings.first().cloned())
+            .flatten()
+    } else {
+        accepted_tmdb_lookup_hint_for_identity(
+            media_item.metadata_status.as_str(),
+            media_item.metadata_provider.as_deref(),
+            media_item.metadata_provider_item_id.as_deref(),
+        )
+    };
+    for discovered_file in &mut discovered_files {
+        if is_episode {
+            if let Some(series_provider_item_id) = media_item_binding_hint.as_ref() {
+                discovered_file.metadata_provider = Some(TMDB_PROVIDER_NAME.to_string());
+                discovered_file.metadata_provider_item_id = Some(series_provider_item_id.clone());
+            }
+        } else {
+            seed_accepted_tmdb_binding(discovered_file, &media_item);
+        }
+        if let Some(existing_metadata) =
+            existing_by_path.get(discovered_file.file_path.to_string_lossy().as_ref())
+        {
+            crate::scan_jobs::apply_existing_media_metadata_for_refresh(
+                discovered_file,
+                existing_metadata,
+            );
+        }
+        if media_item_binding_hint.is_some() {
+            if is_episode {
+                discovered_file.metadata_provider = Some(TMDB_PROVIDER_NAME.to_string());
+                discovered_file
+                    .metadata_provider_item_id
+                    .clone_from(&media_item_binding_hint);
+            } else {
+                seed_accepted_tmdb_binding(discovered_file, &media_item);
+            }
+        }
+    }
+    let accepted_metadata_lookup_hint = media_item_binding_hint
+        .or_else(|| unique_accepted_tmdb_lookup_hint(discovered_files.as_slice()));
+    let local_selection = crate::local_metadata::apply_group_local_metadata(
+        discovered_files.as_mut_slice(),
+        lookup_type,
+    );
+    let metadata_lookup_hint = accepted_metadata_lookup_hint.or_else(|| {
+        let root_hint = (root_metadata_lookup_hints.len() == 1)
+            .then(|| root_metadata_lookup_hints.first().cloned())
+            .flatten();
+        if root_metadata_lookup_hints.len() > 1 {
+            None
+        } else {
+            crate::local_metadata::merge_lookup_hints(root_hint, &local_selection)
+        }
+    });
     let metadata_provider_for_cast = metadata_provider.clone();
     let metadata_provider_enabled = metadata_provider.is_enabled();
     let mut enrichment = MetadataEnrichmentContext::new(
@@ -898,80 +1171,109 @@ pub async fn refresh_media_item_metadata(
         metadata_provider,
         library.metadata_language,
     );
+    // Remote enrichment may mutate fields before a later request fails (for
+    // example, series details can succeed before the complete outline times
+    // out). Preserve the fully inspected local/NFO state and restore it with
+    // the same trusted-binding policy used by a full scan.
+    let mut files_before_enrichment = discovered_files.clone();
+    for file in &mut files_before_enrichment {
+        enrichment.sanitize_file_artwork_sources(file);
+    }
     let artwork_publication = mova_db::TmdbArtworkPublicationGuard::acquire(pool, library.id)
         .await
         .map_err(ApplicationError::from)?;
     let enrichment_result = enrichment
-        .enrich_group_with_lookup_hint_and_progress(
+        .refresh_group_with_lookup_hint_and_progress(
             lookup_type,
-            std::slice::from_mut(&mut discovered_file),
+            discovered_files.as_mut_slice(),
             None,
             metadata_lookup_hint.as_deref(),
             |_, _| {},
         )
-        .await
-        .map_err(ApplicationError::Unexpected);
+        .await;
     let materialized_artwork = crate::tmdb_revalidation::materialized_tmdb_artwork_paths_from_files(
-        std::slice::from_ref(&discovered_file),
+        discovered_files.as_slice(),
         &artwork_cache_dir,
         library.id,
     );
     let enrichment_outcome = match enrichment_result {
-        Ok(outcome) => outcome,
+        Ok(outcome) => Some(outcome),
         Err(error) => {
-            return crate::tmdb_revalidation::finish_tmdb_artwork_publication(
-                artwork_publication,
-                Err(error),
-                pool,
-                &artwork_cache_dir,
-                library.id,
-                materialized_artwork,
-                true,
-            )
-            .await;
+            tracing::warn!(
+                media_item_id,
+                library_id = library.id,
+                title = %media_item.title,
+                media_type = %media_item.media_type,
+                error = ?error,
+                "metadata enrichment failed during manual refresh; committing local changes with the trusted remote fallback"
+            );
+            crate::scan_jobs::restore_group_after_provider_error(
+                &mut discovered_files,
+                files_before_enrichment,
+                remote_media_type_for_lookup_type(lookup_type),
+            );
+            None
         }
     };
+    let remote_metadata_applied = enrichment_outcome
+        .as_ref()
+        .is_some_and(|outcome| outcome.remote_metadata_applied);
 
     let refresh_result: ApplicationResult<MediaItem> = async {
-        finalize_refreshed_file_metadata_status(
-            &mut discovered_file,
-            metadata_provider_enabled,
-            remote_media_type_for_lookup_type(lookup_type),
+        if enrichment_outcome.is_some() {
+            for discovered_file in &mut discovered_files {
+                finalize_refreshed_file_metadata_status(
+                    discovered_file,
+                    metadata_provider_enabled,
+                    remote_media_type_for_lookup_type(lookup_type),
+                );
+            }
+        }
+        crate::local_metadata::apply_group_local_metadata(
+            discovered_files.as_mut_slice(),
+            lookup_type,
         );
-        let metadata_status = discovered_file
+        let metadata_status = discovered_files[0]
             .metadata_status
             .clone()
             .unwrap_or_else(|| media_item.metadata_status.clone());
-        let replace_remote_data = metadata_status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED)
-            || metadata_status.eq_ignore_ascii_case(METADATA_STATUS_UNMATCHED);
+        let replace_remote_data = should_replace_remote_data(remote_metadata_applied, is_episode);
 
+        let source_file = &source_files[0];
+        let representative_file = &discovered_files[0];
+        let file_size = i64::try_from(representative_file.file_size).map_err(|_| {
+            ApplicationError::Unexpected(anyhow::anyhow!(
+                "file is too large to store in database: {}",
+                source_file.file_path
+            ))
+        })?;
         mova_db::update_media_file_metadata(
             pool,
             source_file.id,
             mova_db::UpdateMediaFileMetadataParams {
                 file_path: source_file.file_path.clone(),
-                container: discovered_file.container.clone(),
+                container: representative_file.container.clone(),
                 file_size,
-                duration_seconds: discovered_file.duration_seconds,
-                video_title: discovered_file.video_title.clone(),
-                video_codec: discovered_file.video_codec.clone(),
-                video_profile: discovered_file.video_profile.clone(),
-                video_level: discovered_file.video_level.clone(),
-                audio_codec: discovered_file.audio_codec.clone(),
-                width: discovered_file.width,
-                height: discovered_file.height,
-                bitrate: discovered_file.bitrate,
-                video_bitrate: discovered_file.video_bitrate,
-                video_frame_rate: discovered_file.video_frame_rate,
-                video_aspect_ratio: discovered_file.video_aspect_ratio.clone(),
-                video_scan_type: discovered_file.video_scan_type.clone(),
-                video_color_primaries: discovered_file.video_color_primaries.clone(),
-                video_color_space: discovered_file.video_color_space.clone(),
-                video_color_transfer: discovered_file.video_color_transfer.clone(),
-                video_bit_depth: discovered_file.video_bit_depth,
-                video_pixel_format: discovered_file.video_pixel_format.clone(),
-                video_reference_frames: discovered_file.video_reference_frames,
-                technical_tags: discovered_file.technical_tags.clone(),
+                duration_seconds: representative_file.duration_seconds,
+                video_title: representative_file.video_title.clone(),
+                video_codec: representative_file.video_codec.clone(),
+                video_profile: representative_file.video_profile.clone(),
+                video_level: representative_file.video_level.clone(),
+                audio_codec: representative_file.audio_codec.clone(),
+                width: representative_file.width,
+                height: representative_file.height,
+                bitrate: representative_file.bitrate,
+                video_bitrate: representative_file.video_bitrate,
+                video_frame_rate: representative_file.video_frame_rate,
+                video_aspect_ratio: representative_file.video_aspect_ratio.clone(),
+                video_scan_type: representative_file.video_scan_type.clone(),
+                video_color_primaries: representative_file.video_color_primaries.clone(),
+                video_color_space: representative_file.video_color_space.clone(),
+                video_color_transfer: representative_file.video_color_transfer.clone(),
+                video_bit_depth: representative_file.video_bit_depth,
+                video_pixel_format: representative_file.video_pixel_format.clone(),
+                video_reference_frames: representative_file.video_reference_frames,
+                technical_tags: representative_file.technical_tags.clone(),
             },
         )
         .await
@@ -980,42 +1282,211 @@ pub async fn refresh_media_item_metadata(
             ApplicationError::NotFound(format!("media file not found: {}", source_file.id))
         })?;
 
+        let local_nfos = local_metadata_snapshots_for_refresh(
+            media_item.media_type.as_str(),
+            discovered_files.as_slice(),
+        );
+        let current_source_paths = local_nfos
+            .iter()
+            .map(|snapshot| snapshot.source_path.clone())
+            .collect::<BTreeSet<_>>();
+        let removed_local_nfo_source_paths = existing_local_sources
+            .iter()
+            .filter(|source| {
+                !current_source_paths
+                    .iter()
+                    .any(|current| local_metadata_source_paths_equal(&source.source_path, current))
+                    && !invalid_local_nfo_paths.iter().any(|invalid| {
+                        local_metadata_source_paths_equal(&source.source_path, invalid)
+                    })
+            })
+            .map(|source| source.source_path.clone())
+            .collect::<Vec<_>>();
+        let is_series = media_item.media_type.eq_ignore_ascii_case("series");
+        let refreshed_seasons = if is_series {
+            discovered_files
+                .iter()
+                .filter_map(|file| {
+                    let season_number = file.season_number?;
+                    Some((
+                        season_number,
+                        mova_db::UpdateSeasonMetadataParams {
+                            season_number,
+                            title: file
+                                .season_title
+                                .clone()
+                                .unwrap_or_else(|| format!("Season {season_number:02}")),
+                            overview: file.season_overview.clone(),
+                            poster_path: file.season_poster_path.clone(),
+                            backdrop_path: file.season_backdrop_path.clone(),
+                        },
+                    ))
+                })
+                .fold(BTreeMap::new(), |mut seasons, (season_number, season)| {
+                    seasons.entry(season_number).or_insert(season);
+                    seasons
+                })
+                .into_values()
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let discovered_file = discovered_files
+            .into_iter()
+            .next()
+            .expect("metadata refresh requires at least one discovered file");
+
+        let refreshed_title = if is_episode {
+            discovered_file
+                .episode_title
+                .clone()
+                .unwrap_or_else(|| media_item.title.clone())
+        } else {
+            discovered_file.title.clone()
+        };
+        let refreshed_source_title = if is_episode {
+            discovered_file
+                .episode_title
+                .clone()
+                .unwrap_or_else(|| media_item.source_title.clone())
+        } else {
+            discovered_file.source_title.clone()
+        };
+        let refreshed_original_title = if is_episode {
+            discovered_file.episode_original_title.clone()
+        } else {
+            discovered_file.original_title.clone()
+        };
+        let refreshed_sort_title = if is_episode {
+            discovered_file.episode_sort_title.clone()
+        } else {
+            discovered_file.sort_title.clone()
+        };
+        let refreshed_year = if is_episode {
+            discovered_file.episode_year
+        } else {
+            discovered_file.year
+        };
+        let refreshed_tagline = if is_episode {
+            discovered_file.episode_tagline.clone()
+        } else {
+            discovered_file.tagline.clone()
+        };
+        let refreshed_premiere_date = crate::local_metadata::parse_nfo_date(if is_episode {
+            discovered_file.episode_premiere_date.as_deref()
+        } else {
+            discovered_file.premiere_date.as_deref()
+        });
+        let refreshed_content_rating = if is_episode {
+            discovered_file.episode_content_rating.clone()
+        } else {
+            discovered_file.content_rating.clone()
+        };
+        let refreshed_overview = if is_episode {
+            discovered_file.episode_overview.clone()
+        } else {
+            discovered_file.overview.clone()
+        };
+        let refreshed_metadata_provider = if is_episode {
+            media_item.metadata_provider.clone()
+        } else {
+            discovered_file
+                .metadata_provider
+                .clone()
+                .or_else(|| media_item.metadata_provider.clone())
+        };
+        let refreshed_metadata_provider_item_id = if is_episode {
+            media_item.metadata_provider_item_id.clone()
+        } else {
+            discovered_file
+                .metadata_provider_item_id
+                .clone()
+                .or_else(|| media_item.metadata_provider_item_id.clone())
+        };
+        let refreshed_poster_path = if is_series {
+            discovered_file.series_poster_path.clone()
+        } else {
+            discovered_file.poster_path.clone()
+        };
+        let refreshed_backdrop_path = if is_series {
+            discovered_file.series_backdrop_path.clone()
+        } else {
+            discovered_file.backdrop_path.clone()
+        };
+        let refreshed_logo_path = if is_series {
+            discovered_file.series_logo_path.clone()
+        } else {
+            discovered_file.logo_path.clone()
+        };
+        let refreshed_metadata_failure_reason = resolve_refreshed_metadata_failure_reason(
+            &metadata_status,
+            discovered_file.metadata_failure_reason,
+            media_item.metadata_failure_reason.clone(),
+        );
         mova_db::update_media_item_metadata(
             pool,
             media_item_id,
             mova_db::UpdateMediaItemMetadataParams {
                 expected_updated_at: media_item.updated_at,
-                title: discovered_file.title,
-                source_title: discovered_file.source_title,
-                original_title: discovered_file.original_title,
-                sort_title: discovered_file.sort_title,
-                metadata_provider: discovered_file
-                    .metadata_provider
-                    .or(media_item.metadata_provider.clone()),
-                metadata_provider_item_id: discovered_file
-                    .metadata_provider_item_id
-                    .or(media_item.metadata_provider_item_id),
+                title: refreshed_title,
+                source_title: refreshed_source_title,
+                original_title: refreshed_original_title,
+                sort_title: refreshed_sort_title,
+                metadata_provider: refreshed_metadata_provider,
+                metadata_provider_item_id: refreshed_metadata_provider_item_id,
                 metadata_status,
-                metadata_failure_reason: discovered_file
-                    .metadata_failure_reason
-                    .or(media_item.metadata_failure_reason),
+                metadata_failure_reason: refreshed_metadata_failure_reason,
                 replace_remote_data,
-                tmdb_remote_snapshot_json: enrichment_outcome.tmdb_remote_snapshot_json,
-                tmdb_remote_snapshot_renews_retention: enrichment_outcome
-                    .tmdb_remote_snapshot_renews_retention,
+                tmdb_remote_snapshot_json: replace_remote_data
+                    .then(|| {
+                        enrichment_outcome
+                            .as_ref()
+                            .and_then(|outcome| outcome.tmdb_remote_snapshot_json.clone())
+                    })
+                    .flatten(),
+                tmdb_remote_snapshot_renews_retention: replace_remote_data
+                    && enrichment_outcome
+                        .as_ref()
+                        .is_some_and(|outcome| outcome.tmdb_remote_snapshot_renews_retention),
                 remote_media_type: discovered_file
                     .remote_media_type
                     .or(media_item.remote_media_type),
-                year: discovered_file.year,
-                external_ids: discovered_file.external_ids,
-                ratings: discovered_file.ratings,
-                country: discovered_file.country,
-                genres: discovered_file.genres,
-                studio: discovered_file.studio,
-                overview: discovered_file.overview,
-                poster_path: discovered_file.poster_path,
-                backdrop_path: discovered_file.backdrop_path,
-                logo_path: discovered_file.logo_path,
+                year: refreshed_year,
+                tagline: refreshed_tagline,
+                premiere_date: refreshed_premiere_date,
+                content_rating: refreshed_content_rating,
+                seasons: refreshed_seasons,
+                local_nfos,
+                removed_local_nfo_source_paths,
+                external_ids: if is_episode {
+                    Vec::new()
+                } else {
+                    discovered_file.external_ids
+                },
+                ratings: if is_episode {
+                    Vec::new()
+                } else {
+                    discovered_file.ratings
+                },
+                country: if is_episode {
+                    media_item.country.clone()
+                } else {
+                    discovered_file.country
+                },
+                genres: if is_episode {
+                    media_item.genres.clone()
+                } else {
+                    discovered_file.genres
+                },
+                studio: if is_episode {
+                    media_item.studio.clone()
+                } else {
+                    discovered_file.studio
+                },
+                overview: refreshed_overview,
+                poster_path: refreshed_poster_path,
+                backdrop_path: refreshed_backdrop_path,
+                logo_path: refreshed_logo_path,
             },
         )
         .await
@@ -1032,7 +1503,7 @@ pub async fn refresh_media_item_metadata(
         &artwork_cache_dir,
         library.id,
         materialized_artwork,
-        true,
+        remote_metadata_applied,
     )
     .await?;
 
@@ -1041,17 +1512,122 @@ pub async fn refresh_media_item_metadata(
     Ok(refreshed_media_item)
 }
 
-async fn inspect_media_file_path(path: &str) -> io::Result<mova_scan::DiscoveredMediaFile> {
+async fn inspect_media_file_path(
+    path: &str,
+    library_root: &str,
+    allow_generic_movie_nfo: bool,
+) -> io::Result<mova_scan::DiscoveredMediaFile> {
     let path_string = path.to_string();
+    let root_path = PathBuf::from(library_root);
     let join_path = path_string.clone();
-    tokio::task::spawn_blocking(move || mova_scan::inspect_media_file(Path::new(&path_string)))
-        .await
-        .map_err(|error| {
-            io::Error::other(format!(
-                "metadata refresh worker failed to join for {}: {}",
-                join_path, error
-            ))
-        })?
+    tokio::task::spawn_blocking(move || {
+        mova_scan::inspect_media_file_within_root_and_nfo_policy(
+            Path::new(&path_string),
+            &root_path,
+            allow_generic_movie_nfo,
+        )
+    })
+    .await
+    .map_err(|error| {
+        io::Error::other(format!(
+            "metadata refresh worker failed to join for {}: {}",
+            join_path, error
+        ))
+    })?
+}
+
+async fn inspect_media_file_sidecar_only_path(
+    path: &str,
+    library_root: &str,
+    allow_generic_movie_nfo: bool,
+) -> io::Result<mova_scan::DiscoveredMediaFile> {
+    let path_string = path.to_string();
+    let root_path = PathBuf::from(library_root);
+    let join_path = path_string.clone();
+    tokio::task::spawn_blocking(move || {
+        mova_scan::inspect_media_file_sidecar_only_within_root_and_nfo_policy(
+            Path::new(&path_string),
+            &root_path,
+            allow_generic_movie_nfo,
+        )
+    })
+    .await
+    .map_err(|error| {
+        io::Error::other(format!(
+            "sidecar metadata refresh worker failed to join for {}: {}",
+            join_path, error
+        ))
+    })?
+}
+
+fn apply_explicit_nfo_observation_for_refresh(
+    file: &mut mova_scan::DiscoveredMediaFile,
+    media_type: &str,
+    media_observation: Option<mova_scan::LocalNfoObservation>,
+    series_observation: Option<mova_scan::LocalNfoObservation>,
+    invalid_paths: &mut BTreeSet<String>,
+) {
+    let observation = if media_type.eq_ignore_ascii_case("series") {
+        series_observation
+    } else {
+        media_observation
+    };
+
+    match observation {
+        Some(mova_scan::LocalNfoObservation::Valid(metadata)) => {
+            if media_type.eq_ignore_ascii_case("series") {
+                file.series_local_nfo = Some(*metadata);
+                file.invalid_series_local_nfo_source_path = None;
+            } else {
+                file.local_nfo = Some(*metadata);
+                file.invalid_local_nfo_source_path = None;
+            }
+        }
+        Some(mova_scan::LocalNfoObservation::Invalid { candidate_path, .. }) => {
+            if media_type.eq_ignore_ascii_case("series") {
+                file.series_local_nfo = None;
+                file.invalid_series_local_nfo_source_path = Some(candidate_path.clone());
+            } else {
+                file.local_nfo = None;
+                file.invalid_local_nfo_source_path = Some(candidate_path.clone());
+            }
+            invalid_paths.insert(candidate_path.to_string_lossy().to_string());
+        }
+        Some(mova_scan::LocalNfoObservation::Absent { .. }) | None => {
+            if media_type.eq_ignore_ascii_case("series") {
+                file.series_local_nfo = None;
+                file.invalid_series_local_nfo_source_path = None;
+            } else {
+                file.local_nfo = None;
+                file.invalid_local_nfo_source_path = None;
+            }
+        }
+    }
+}
+
+fn local_nfo_observation_source_path(
+    observation: &mova_scan::LocalNfoObservation,
+) -> Option<&Path> {
+    match observation {
+        mova_scan::LocalNfoObservation::Valid(metadata) => Some(metadata.source_path.as_path()),
+        mova_scan::LocalNfoObservation::Invalid { candidate_path, .. } => {
+            Some(candidate_path.as_path())
+        }
+        mova_scan::LocalNfoObservation::Absent { .. } => None,
+    }
+}
+
+fn local_metadata_source_paths_equal(left: &str, right: &str) -> bool {
+    if left == right {
+        return true;
+    }
+    let Ok(left) = std::fs::canonicalize(left) else {
+        return false;
+    };
+    let Ok(right) = std::fs::canonicalize(right) else {
+        return false;
+    };
+    left == right
 }
 
 fn finalize_refreshed_file_metadata_status(
@@ -1059,22 +1635,153 @@ fn finalize_refreshed_file_metadata_status(
     metadata_provider_enabled: bool,
     remote_media_type: Option<&'static str>,
 ) {
-    file.remote_media_type = remote_media_type.map(str::to_string);
-
     if !metadata_provider_enabled {
+        if file.metadata_provider_item_id.is_some() {
+            file.metadata_status = Some(METADATA_STATUS_MATCHED.to_string());
+            // A disabled provider did not observe a new failure. Keep the
+            // accepted binding and its persisted remote rows, but do not carry
+            // an unrelated historical failure into this refresh result.
+            file.metadata_failure_reason = None;
+            return;
+        }
+
+        file.remote_media_type = None;
         file.metadata_status = Some(METADATA_STATUS_SKIPPED.to_string());
         file.metadata_failure_reason = Some(METADATA_FAILURE_PROVIDER_DISABLED.to_string());
         return;
     }
 
     if file.metadata_provider_item_id.is_some() {
+        file.remote_media_type = remote_media_type.map(str::to_string);
         file.metadata_status = Some(METADATA_STATUS_MATCHED.to_string());
         file.metadata_failure_reason = None;
         return;
     }
 
+    file.remote_media_type = None;
     file.metadata_status = Some(METADATA_STATUS_UNMATCHED.to_string());
     file.metadata_failure_reason = Some(METADATA_FAILURE_NO_REMOTE_MATCH.to_string());
+}
+
+fn resolve_refreshed_metadata_failure_reason(
+    metadata_status: &str,
+    observed_failure_reason: Option<String>,
+    previous_failure_reason: Option<String>,
+) -> Option<String> {
+    if observed_failure_reason.is_some() {
+        return observed_failure_reason;
+    }
+
+    if metadata_status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED) {
+        return None;
+    }
+
+    previous_failure_reason
+}
+
+fn should_replace_remote_data(remote_metadata_applied: bool, is_episode: bool) -> bool {
+    remote_metadata_applied && !is_episode
+}
+
+fn seed_accepted_tmdb_binding(
+    file: &mut mova_scan::DiscoveredMediaFile,
+    media_item: &MediaItem,
+) -> Option<String> {
+    let provider_item_id = accepted_tmdb_lookup_hint_for_identity(
+        media_item.metadata_status.as_str(),
+        media_item.metadata_provider.as_deref(),
+        media_item.metadata_provider_item_id.as_deref(),
+    )?;
+    file.metadata_provider = Some(TMDB_PROVIDER_NAME.to_string());
+    file.metadata_provider_item_id = Some(provider_item_id.clone());
+    file.metadata_status = Some(METADATA_STATUS_MATCHED.to_string());
+    if file.remote_media_type.is_none() {
+        file.remote_media_type
+            .clone_from(&media_item.remote_media_type);
+    }
+    Some(provider_item_id)
+}
+
+fn accepted_tmdb_lookup_hint_for_file(file: &mova_scan::DiscoveredMediaFile) -> Option<String> {
+    accepted_tmdb_lookup_hint_for_identity(
+        file.metadata_status.as_deref().unwrap_or_default(),
+        file.metadata_provider.as_deref(),
+        file.metadata_provider_item_id.as_deref(),
+    )
+}
+
+fn unique_accepted_tmdb_lookup_hint(files: &[mova_scan::DiscoveredMediaFile]) -> Option<String> {
+    let hints = files
+        .iter()
+        .filter_map(accepted_tmdb_lookup_hint_for_file)
+        .collect::<BTreeSet<_>>();
+    (hints.len() == 1)
+        .then(|| hints.into_iter().next())
+        .flatten()
+}
+
+fn local_metadata_snapshots_for_refresh(
+    media_type: &str,
+    files: &[mova_scan::DiscoveredMediaFile],
+) -> Vec<mova_db::CreateLocalMetadataSnapshotParams> {
+    let is_series = media_type.eq_ignore_ascii_case("series");
+    let mut snapshots = BTreeMap::new();
+
+    for file in files {
+        let (metadata, is_selected) = if is_series {
+            (
+                file.series_local_nfo.as_ref(),
+                file.series_local_nfo_is_selected,
+            )
+        } else {
+            (file.local_nfo.as_ref(), file.local_nfo_is_selected)
+        };
+        let Some(snapshot) = metadata.and_then(|metadata| {
+            crate::local_metadata::build_local_metadata_snapshot_for_file(
+                metadata,
+                is_selected,
+                file,
+            )
+        }) else {
+            continue;
+        };
+
+        match snapshots.entry(snapshot.source_path.clone()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(snapshot);
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry)
+                if snapshot.is_selected && !entry.get().is_selected =>
+            {
+                entry.insert(snapshot);
+            }
+            std::collections::btree_map::Entry::Occupied(_) => {}
+        }
+    }
+
+    snapshots.into_values().collect()
+}
+
+fn accepted_tmdb_lookup_hint_for_identity(
+    metadata_status: &str,
+    metadata_provider: Option<&str>,
+    metadata_provider_item_id: Option<&str>,
+) -> Option<String> {
+    if !metadata_status.eq_ignore_ascii_case(METADATA_STATUS_MATCHED)
+        || !metadata_provider
+            .is_some_and(|provider| provider.eq_ignore_ascii_case(TMDB_PROVIDER_NAME))
+    {
+        return None;
+    }
+
+    normalized_provider_item_id(metadata_provider_item_id)
+}
+
+fn normalized_provider_item_id(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn remote_media_type_for_lookup_type(lookup_type: &str) -> Option<&'static str> {
@@ -1184,13 +1891,85 @@ fn normalize_global_search_limit(limit: Option<i64>) -> ApplicationResult<i64> {
 #[cfg(test)]
 mod tests {
     use super::{
+        accepted_tmdb_lookup_hint_for_identity, local_metadata_snapshots_for_refresh,
         merge_remote_outline_with_local, normalize_global_search_limit, normalize_page,
         normalize_page_size, normalize_query, normalize_recently_added_days,
-        normalize_recently_added_limit, normalize_year, LocalSeriesEpisode, LocalSeriesSeason,
+        normalize_recently_added_limit, normalize_year, resolve_refreshed_metadata_failure_reason,
+        should_replace_remote_data, LocalSeriesEpisode, LocalSeriesSeason,
     };
     use crate::ApplicationError;
     use crate::{RemoteSeriesEpisode, RemoteSeriesEpisodeOutline, RemoteSeriesSeason};
+    use mova_scan::{
+        inspect_media_file_inventory_shallow, DiscoveredMediaFile, DiscoveredMediaFileInventory,
+        LocalNfoArtwork, LocalNfoCollection, LocalNfoCredits, LocalNfoKind, LocalNfoMetadata,
+    };
     use std::collections::{BTreeMap, HashMap};
+    use std::path::PathBuf;
+
+    fn discovered_file(path: &str) -> DiscoveredMediaFile {
+        inspect_media_file_inventory_shallow(DiscoveredMediaFileInventory {
+            file_path: PathBuf::from(path),
+            file_size: 1,
+            file_modified_at_ms: Some(1),
+            sidecar_fingerprint: String::new(),
+        })
+        .expect("shallow discovered media file")
+    }
+
+    fn movie_nfo(source_path: &str, title: &str) -> LocalNfoMetadata {
+        LocalNfoMetadata {
+            kind: LocalNfoKind::Movie,
+            source_path: PathBuf::from(source_path),
+            suppress_tmdb_identity_projection: false,
+            title: Some(title.to_string()),
+            original_title: None,
+            sort_title: None,
+            year: Some(2026),
+            overview: None,
+            outline: None,
+            tagline: None,
+            status: None,
+            premiered: None,
+            aired: None,
+            date_added: None,
+            runtime_minutes: None,
+            content_rating: None,
+            original_language: None,
+            preferred_metadata_language: None,
+            preferred_metadata_country_code: None,
+            show_title: None,
+            end_date: None,
+            display_order: None,
+            air_days: Vec::new(),
+            air_time: None,
+            custom_rating: None,
+            trailers: Vec::new(),
+            aspect_ratio: None,
+            top_250: None,
+            season_number: None,
+            episode_number: None,
+            season_count: None,
+            episode_count: None,
+            display_episode_number: None,
+            display_season_number: None,
+            display_after_season_number: None,
+            show_link: None,
+            genres: Vec::new(),
+            countries: Vec::new(),
+            studios: Vec::new(),
+            tags: Vec::new(),
+            styles: Vec::new(),
+            named_seasons: Vec::new(),
+            unique_ids: Vec::new(),
+            episode_guide_ids: Vec::new(),
+            ratings: Vec::new(),
+            credits: LocalNfoCredits::default(),
+            artwork: LocalNfoArtwork::default(),
+            collection: None::<LocalNfoCollection>,
+            lock_data: false,
+            locked_fields: Vec::new(),
+        }
+    }
 
     #[test]
     fn normalize_query_discards_blank_strings() {
@@ -1198,6 +1977,133 @@ mod tests {
         assert_eq!(
             normalize_query(Some(" dragon ".to_string())),
             Some("dragon".to_string())
+        );
+    }
+
+    #[test]
+    fn automatic_refresh_uses_only_an_accepted_tmdb_binding_as_direct_hint() {
+        assert_eq!(
+            accepted_tmdb_lookup_hint_for_identity("matched", Some("TMDB"), Some(" 12345 ")),
+            Some("12345".to_string())
+        );
+        assert_eq!(
+            accepted_tmdb_lookup_hint_for_identity("unmatched", Some("tmdb"), Some("12345")),
+            None
+        );
+        assert_eq!(
+            accepted_tmdb_lookup_hint_for_identity("matched", Some("other"), Some("12345")),
+            None
+        );
+        assert_eq!(
+            accepted_tmdb_lookup_hint_for_identity("matched", Some("tmdb"), Some("   ")),
+            None
+        );
+    }
+
+    #[test]
+    fn successful_refresh_does_not_restore_a_stale_failure_reason() {
+        assert_eq!(
+            resolve_refreshed_metadata_failure_reason(
+                mova_domain::METADATA_STATUS_MATCHED,
+                None,
+                Some(mova_domain::METADATA_FAILURE_PROVIDER_ERROR.to_string()),
+            ),
+            None
+        );
+        assert_eq!(
+            resolve_refreshed_metadata_failure_reason(
+                mova_domain::METADATA_STATUS_MATCHED,
+                Some(mova_domain::METADATA_FAILURE_PROVIDER_ERROR.to_string()),
+                None,
+            )
+            .as_deref(),
+            Some(mova_domain::METADATA_FAILURE_PROVIDER_ERROR)
+        );
+    }
+
+    #[test]
+    fn refresh_replaces_remote_rows_only_after_remote_metadata_was_applied() {
+        assert!(should_replace_remote_data(true, false));
+        assert!(!should_replace_remote_data(false, false));
+        assert!(!should_replace_remote_data(false, true));
+        assert!(!should_replace_remote_data(true, true));
+    }
+
+    #[test]
+    fn manual_refresh_provider_error_restores_trusted_local_state_for_commit() {
+        let mut trusted = discovered_file("/media/Movie/Movie.mkv");
+        trusted.metadata_provider = Some("tmdb".to_string());
+        trusted.metadata_provider_item_id = Some("123".to_string());
+        trusted.metadata_status = Some(mova_domain::METADATA_STATUS_MATCHED.to_string());
+        trusted.title = "Local NFO title".to_string();
+        trusted.overview = Some("Local NFO overview".to_string());
+        trusted.poster_path = Some("/media/Movie/poster.jpg".to_string());
+
+        let mut partially_enriched = trusted.clone();
+        partially_enriched.title = "Partial remote title".to_string();
+        partially_enriched.overview = None;
+        partially_enriched.poster_path = None;
+        partially_enriched.metadata_provider_item_id = Some("999".to_string());
+        let mut files = vec![partially_enriched];
+
+        crate::scan_jobs::restore_group_after_provider_error(
+            &mut files,
+            vec![trusted],
+            Some(mova_domain::REMOTE_MEDIA_TYPE_MOVIE),
+        );
+
+        assert_eq!(files[0].title, "Local NFO title");
+        assert_eq!(files[0].overview.as_deref(), Some("Local NFO overview"));
+        assert_eq!(
+            files[0].poster_path.as_deref(),
+            Some("/media/Movie/poster.jpg")
+        );
+        assert_eq!(files[0].metadata_provider_item_id.as_deref(), Some("123"));
+        assert_eq!(
+            files[0].metadata_status.as_deref(),
+            Some(mova_domain::METADATA_STATUS_MATCHED)
+        );
+        assert_eq!(
+            files[0].metadata_failure_reason.as_deref(),
+            Some(mova_domain::METADATA_FAILURE_PROVIDER_ERROR)
+        );
+    }
+
+    #[test]
+    fn metadata_refresh_keeps_every_version_nfo_and_selects_exactly_one() {
+        let mut files = vec![
+            discovered_file("/media/Movie/Movie.1080p.mkv"),
+            discovered_file("/media/Movie/Movie.2160p.mkv"),
+        ];
+        files[0].local_nfo = Some(movie_nfo(
+            "/media/Movie/Movie.1080p.nfo",
+            "Movie 1080p metadata",
+        ));
+        files[1].local_nfo = Some(movie_nfo(
+            "/media/Movie/Movie.2160p.nfo",
+            "Movie 2160p metadata",
+        ));
+
+        crate::local_metadata::apply_group_local_metadata(&mut files, "movie");
+        let snapshots = local_metadata_snapshots_for_refresh("movie", &files);
+
+        assert_eq!(snapshots.len(), 2);
+        assert_eq!(
+            snapshots
+                .iter()
+                .map(|snapshot| snapshot.source_path.as_str())
+                .collect::<std::collections::BTreeSet<_>>(),
+            std::collections::BTreeSet::from([
+                "/media/Movie/Movie.1080p.nfo",
+                "/media/Movie/Movie.2160p.nfo",
+            ])
+        );
+        assert_eq!(
+            snapshots
+                .iter()
+                .filter(|snapshot| snapshot.is_selected)
+                .count(),
+            1
         );
     }
 

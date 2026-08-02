@@ -7,8 +7,9 @@ use super::{
 use crate::{
     claim_background_job, create_library, delete_library, enqueue_scan_job, finalize_scan_job,
     get_scan_job, initialize_scan_job_work, mark_scan_group_analyzed, mark_scan_job_running,
-    BackgroundJobFence, CreateAudioTrackParams, CreateLibraryParams, CreateMediaEntryParams,
-    CreateScanJobParams, CreateSubtitleTrackParams, BACKGROUND_JOB_FENCE_LOST_MESSAGE,
+    BackgroundJobFence, CreateAudioTrackParams, CreateLibraryParams,
+    CreateLocalMetadataSnapshotParams, CreateMediaEntryParams, CreateScanJobParams,
+    CreateSubtitleTrackParams, BACKGROUND_JOB_FENCE_LOST_MESSAGE,
 };
 use mova_domain::{
     ScanNotificationSummary, METADATA_FAILURE_PROVIDER_DISABLED, METADATA_FAILURE_PROVIDER_ERROR,
@@ -34,6 +35,9 @@ fn build_movie_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams
         original_title: Some("刺杀小说家".to_string()),
         sort_title: None,
         year: Some(2025),
+        tagline: None,
+        premiere_date: None,
+        content_rating: None,
         external_ids: Vec::new(),
         ratings: Vec::new(),
         country: Some("China".to_string()),
@@ -46,10 +50,21 @@ fn build_movie_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams
         season_backdrop_path: None,
         episode_number: None,
         episode_title: None,
+        episode_original_title: None,
+        episode_sort_title: None,
+        episode_year: None,
+        episode_overview: None,
+        episode_tagline: None,
+        episode_premiere_date: None,
+        episode_content_rating: None,
         overview: Some("A fantasy adventure.".to_string()),
         series_poster_path: None,
         series_backdrop_path: None,
         series_logo_path: None,
+        local_nfo: None,
+        series_local_nfo: None,
+        removed_local_nfo_source_path: None,
+        removed_series_local_nfo_source_path: None,
         poster_path: None,
         backdrop_path: None,
         logo_path: None,
@@ -101,6 +116,9 @@ fn build_episode_entry(library_id: i64, file_path: &str) -> CreateMediaEntryPara
         original_title: Some("Interstellar Classroom".to_string()),
         sort_title: None,
         year: Some(2024),
+        tagline: None,
+        premiere_date: None,
+        content_rating: None,
         external_ids: Vec::new(),
         ratings: Vec::new(),
         country: Some("Japan".to_string()),
@@ -113,10 +131,21 @@ fn build_episode_entry(library_id: i64, file_path: &str) -> CreateMediaEntryPara
         season_backdrop_path: None,
         episode_number: Some(1),
         episode_title: Some("Pilot".to_string()),
-        overview: Some("Pilot episode".to_string()),
+        episode_original_title: None,
+        episode_sort_title: None,
+        episode_year: Some(2024),
+        episode_overview: Some("Pilot episode".to_string()),
+        episode_tagline: None,
+        episode_premiere_date: None,
+        episode_content_rating: None,
+        overview: Some("Series overview".to_string()),
         series_poster_path: None,
         series_backdrop_path: None,
         series_logo_path: None,
+        local_nfo: None,
+        series_local_nfo: None,
+        removed_local_nfo_source_path: None,
+        removed_series_local_nfo_source_path: None,
         poster_path: None,
         backdrop_path: None,
         logo_path: None,
@@ -286,7 +315,7 @@ async fn authoritative_empty_discovery_preserves_existing_media(pool: sqlx::post
         .unwrap()
         .unwrap();
 
-    let error = sync_library_media_changes(&pool, library.id, scan_job.id, &[], &[], &fence)
+    let error = sync_library_media_changes(&pool, library.id, scan_job.id, &[], &[], &[], &fence)
         .await
         .unwrap_err();
     assert!(error
@@ -914,6 +943,13 @@ async fn remote_patch_uses_committed_parent_without_reinterpreting_episode_coord
     remote.season_number = Some(1);
     remote.episode_number = Some(1);
     remote.episode_title = Some("Remote Pilot".to_string());
+    remote.episode_original_title = Some("Original Remote Pilot".to_string());
+    remote.episode_sort_title = Some("Pilot, Remote".to_string());
+    remote.episode_year = Some(2024);
+    remote.episode_overview = Some("Remote episode overview".to_string());
+    remote.episode_tagline = Some("Remote episode tagline".to_string());
+    remote.episode_premiere_date = Some(time::Date::from_ordinal_date(2024, 42).unwrap());
+    remote.episode_content_rating = Some("TV-14".to_string());
     patch_library_media_entries_remote_by_file_path(
         &pool,
         scan_job_id,
@@ -976,6 +1012,51 @@ async fn remote_patch_uses_committed_parent_without_reinterpreting_episode_coord
             Some("202".to_string()),
             1,
             true,
+        )
+    );
+
+    let episode_metadata = sqlx::query_as::<
+        _,
+        (
+            Option<String>,
+            Option<String>,
+            Option<i32>,
+            Option<String>,
+            Option<String>,
+            Option<time::Date>,
+            Option<String>,
+        ),
+    >(
+        r#"
+        select
+            episode.original_title,
+            episode.sort_title,
+            episode.year,
+            episode.overview,
+            episode.tagline,
+            episode.premiere_date,
+            episode.content_rating
+        from media_files mf
+        join media_items episode on episode.id = mf.media_item_id
+        where mf.library_id = $1
+          and mf.file_path = $2
+        "#,
+    )
+    .bind(library_id)
+    .bind(file_path)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        episode_metadata,
+        (
+            Some("Original Remote Pilot".to_string()),
+            Some("Pilot, Remote".to_string()),
+            Some(2024),
+            Some("Remote episode overview".to_string()),
+            Some("Remote episode tagline".to_string()),
+            Some(time::Date::from_ordinal_date(2024, 42).unwrap()),
+            Some("TV-14".to_string()),
         )
     );
 }
@@ -1061,7 +1142,7 @@ async fn remote_patch_updates_every_episode_without_replacing_local_file_state(
     first_remote.remote_media_type = Some(REMOTE_MEDIA_TYPE_SERIES.to_string());
     first_remote.replace_remote_data = true;
     first_remote.episode_title = Some("Remote episode one".to_string());
-    first_remote.overview = Some("Remote overview one".to_string());
+    first_remote.episode_overview = Some("Remote overview one".to_string());
     first_remote.poster_path = Some("/cache/episode-one.jpg".to_string());
     first_remote.file_size = 9_001;
     first_remote.video_codec = Some("must-not-replace".to_string());
@@ -1077,7 +1158,7 @@ async fn remote_patch_updates_every_episode_without_replacing_local_file_state(
     // external IDs and ratings. Episode-owned fields must still be applied.
     second_remote.replace_remote_data = false;
     second_remote.episode_title = Some("Remote episode two".to_string());
-    second_remote.overview = Some("Remote overview two".to_string());
+    second_remote.episode_overview = Some("Remote overview two".to_string());
     second_remote.poster_path = Some("/cache/episode-two.jpg".to_string());
     second_remote.file_size = 9_002;
     second_remote.video_codec = Some("must-not-replace".to_string());
@@ -1512,6 +1593,90 @@ async fn local_and_provider_error_movie_writes_preserve_existing_parent(
 
 #[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn selected_nfo_updates_a_bound_movie_without_replacing_remote_identity(
+    pool: sqlx::postgres::PgPool,
+) {
+    let library = create_library(
+        &pool,
+        CreateLibraryParams {
+            name: "Movies".to_string(),
+            description: None,
+            metadata_language: "en-US".to_string(),
+            root_path: "/media/movies".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let file_path = "/media/movies/Bound/Bound.mkv";
+    let mut trusted = build_movie_entry(library.id, file_path);
+    trusted.title = "Remote title".to_string();
+    trusted.overview = Some("Remote overview".to_string());
+    sync_library_media(&pool, library.id, std::slice::from_ref(&trusted))
+        .await
+        .unwrap();
+
+    let mut refreshed = trusted.clone();
+    refreshed.metadata_status = METADATA_STATUS_PENDING.to_string();
+    refreshed.metadata_failure_reason = None;
+    refreshed.replace_remote_data = false;
+    refreshed.title = "Local NFO title".to_string();
+    refreshed.source_title = "Local NFO title".to_string();
+    refreshed.overview = Some("Local NFO overview".to_string());
+    refreshed.local_nfo = Some(CreateLocalMetadataSnapshotParams {
+        source_path: "/media/movies/Bound/Bound.nfo".to_string(),
+        document_type: "movie".to_string(),
+        is_locked: false,
+        is_selected: true,
+        payload: serde_json::json!({
+            "schema_version": 1,
+            "metadata": {
+                "title": "Local NFO title",
+                "overview": "Local NFO overview",
+                "artwork": {}
+            }
+        }),
+        external_ids: Vec::new(),
+        ratings: Vec::new(),
+        credits: Vec::new(),
+    });
+
+    let mut tx = pool.begin().await.unwrap();
+    let existing = get_existing_library_media_file_by_path(&mut tx, library.id, file_path)
+        .await
+        .unwrap();
+    upsert_media_entry_with_policy(&mut tx, &refreshed, existing, true)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let row = sqlx::query_as::<_, (String, String, String, String, String)>(
+        r#"
+        select metadata_provider, metadata_provider_item_id, metadata_status, title, overview
+        from media_items
+        where library_id = $1 and media_type = 'movie'
+        "#,
+    )
+    .bind(library.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let selected_sources = sqlx::query_scalar::<_, i64>(
+        "select count(*) from media_local_metadata_sources where is_selected",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(row.0, "tmdb");
+    assert_eq!(row.1, "101");
+    assert_eq!(row.2, METADATA_STATUS_MATCHED);
+    assert_eq!(row.3, "Local NFO title");
+    assert_eq!(row.4, "Local NFO overview");
+    assert_eq!(selected_sources, 1);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
 async fn provider_error_keeps_new_local_fields_for_an_unbound_movie(pool: sqlx::postgres::PgPool) {
     let library = create_library(
         &pool,
@@ -1720,7 +1885,7 @@ async fn provider_error_preserves_existing_episode_when_adding_a_second_version(
     .unwrap();
     let mut trusted = build_episode_entry(library.id, "/media/series/Show/Show.S01E01.1080p.mkv");
     trusted.episode_title = Some("Trusted Episode Title".to_string());
-    trusted.overview = Some("Trusted episode overview".to_string());
+    trusted.episode_overview = Some("Trusted episode overview".to_string());
     trusted.poster_path = Some("/cache/trusted-episode-poster.jpg".to_string());
     sync_library_media(&pool, library.id, std::slice::from_ref(&trusted))
         .await
@@ -1734,7 +1899,7 @@ async fn provider_error_preserves_existing_episode_when_adding_a_second_version(
     second_version.replace_remote_data = false;
     second_version.allow_artwork_clear = false;
     second_version.episode_title = Some("Local Episode Title".to_string());
-    second_version.overview = Some("Local episode overview".to_string());
+    second_version.episode_overview = Some("Local episode overview".to_string());
     second_version.poster_path = None;
     let mut tx = pool.begin().await.unwrap();
     let existing =
@@ -1865,6 +2030,139 @@ async fn provider_error_keeps_new_local_season_fields_for_an_unbound_series(
         season.2.as_deref(),
         Some("/media/series/Local/new-season.jpg")
     );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn selected_named_season_converges_during_provider_outages(pool: sqlx::postgres::PgPool) {
+    let library = create_library(
+        &pool,
+        CreateLibraryParams {
+            name: "Series".to_string(),
+            description: None,
+            metadata_language: "en-US".to_string(),
+            root_path: "/media/series".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let file_path = "/media/series/Bound/Bound.S01E01.mkv";
+    let nfo_path = "/media/series/Bound/tvshow.nfo";
+    let mut entry = build_episode_entry(library.id, file_path);
+    entry.season_title = Some("Remote season".to_string());
+    entry.season_overview = Some("Remote overview".to_string());
+    entry.season_poster_path = Some("/cache/remote-poster.jpg".to_string());
+    entry.season_backdrop_path = Some("/cache/remote-backdrop.jpg".to_string());
+    sync_library_media(&pool, library.id, std::slice::from_ref(&entry))
+        .await
+        .unwrap();
+
+    let named_season_snapshot = |title: &str, suffix: &str| CreateLocalMetadataSnapshotParams {
+        source_path: nfo_path.to_string(),
+        document_type: "tvshow".to_string(),
+        is_locked: false,
+        is_selected: true,
+        payload: serde_json::json!({
+            "schema_version": 1,
+            "metadata": {
+                "named_seasons": [{
+                    "season_number": 1,
+                    "title": title,
+                    "overview": format!("Local overview {suffix}"),
+                    "artwork": {
+                        "posters": [format!("/media/series/Bound/poster-{suffix}.jpg")],
+                        "backdrops": [format!("/media/series/Bound/backdrop-{suffix}.jpg")]
+                    }
+                }]
+            }
+        }),
+        external_ids: Vec::new(),
+        ratings: Vec::new(),
+        credits: Vec::new(),
+    };
+
+    entry.replace_remote_data = false;
+    entry.metadata_status = METADATA_STATUS_FAILED.to_string();
+    entry.metadata_failure_reason = Some(METADATA_FAILURE_PROVIDER_DISABLED.to_string());
+    entry.season_title = Some("Local season one".to_string());
+    entry.season_overview = Some("Local overview one".to_string());
+    entry.season_poster_path = Some("/media/series/Bound/poster-one.jpg".to_string());
+    entry.season_backdrop_path = Some("/media/series/Bound/backdrop-one.jpg".to_string());
+    entry.series_local_nfo = Some(named_season_snapshot("Local season one", "one"));
+    let mut tx = pool.begin().await.unwrap();
+    let existing = get_existing_library_media_file_by_path(&mut tx, library.id, file_path)
+        .await
+        .unwrap();
+    upsert_media_entry_with_policy(&mut tx, &entry, existing, true)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    entry.metadata_failure_reason = Some(METADATA_FAILURE_PROVIDER_ERROR.to_string());
+    entry.season_title = Some("Local season two".to_string());
+    entry.season_overview = Some("Local overview two".to_string());
+    entry.season_poster_path = Some("/media/series/Bound/poster-two.jpg".to_string());
+    entry.season_backdrop_path = Some("/media/series/Bound/backdrop-two.jpg".to_string());
+    entry.series_local_nfo = Some(named_season_snapshot("Local season two", "two"));
+    let mut tx = pool.begin().await.unwrap();
+    let existing = get_existing_library_media_file_by_path(&mut tx, library.id, file_path)
+        .await
+        .unwrap();
+    upsert_media_entry_with_policy(&mut tx, &entry, existing, true)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let changed = sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>)>(
+        "select title, overview, poster_path, backdrop_path from seasons",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(changed.0, "Local season two");
+    assert_eq!(changed.1.as_deref(), Some("Local overview two"));
+    assert_eq!(
+        changed.2.as_deref(),
+        Some("/media/series/Bound/poster-two.jpg")
+    );
+    assert_eq!(
+        changed.3.as_deref(),
+        Some("/media/series/Bound/backdrop-two.jpg")
+    );
+
+    entry.season_title = Some("Remote season".to_string());
+    entry.season_overview = Some("Remote overview".to_string());
+    entry.season_poster_path = Some("/cache/remote-poster.jpg".to_string());
+    entry.season_backdrop_path = Some("/cache/remote-backdrop.jpg".to_string());
+    entry.series_local_nfo = None;
+    entry.removed_series_local_nfo_source_path = Some(nfo_path.to_string());
+    let mut tx = pool.begin().await.unwrap();
+    let existing = get_existing_library_media_file_by_path(&mut tx, library.id, file_path)
+        .await
+        .unwrap();
+    upsert_media_entry_with_policy(&mut tx, &entry, existing, true)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+
+    let restored = sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>)>(
+        "select title, overview, poster_path, backdrop_path from seasons",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(restored.0, "Remote season");
+    assert_eq!(restored.1.as_deref(), Some("Remote overview"));
+    assert_eq!(restored.2.as_deref(), Some("/cache/remote-poster.jpg"));
+    assert_eq!(restored.3.as_deref(), Some("/cache/remote-backdrop.jpg"));
+    let source_count = sqlx::query_scalar::<_, i64>(
+        "select count(*) from media_local_metadata_sources where library_id = $1",
+    )
+    .bind(library.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(source_count, 0);
 }
 
 #[sqlx::test(migrations = "../../migrations")]

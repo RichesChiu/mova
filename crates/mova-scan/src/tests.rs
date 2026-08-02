@@ -4,6 +4,8 @@ use super::{
         discover_media_files_with_progress_and_cancel,
         discover_media_files_with_progress_item_and_cancel, discover_media_paths,
         inspect_media_file, inspect_media_file_inventory_with_cancel,
+        inspect_media_file_inventory_within_root_with_cancel_and_subtitle_index_and_nfo_policy,
+        inspect_media_file_sidecar_only,
     },
     discovered_media_file_inventory_scan_hash, has_meaningful_file_title,
     infer_movie_container_identity, infer_series_container_identity, infer_series_file_metadata,
@@ -11,7 +13,13 @@ use super::{
     is_likely_episode_path,
     parse::{humanize_file_stem, parse_media_metadata, ParsedMediaMetadata},
     probe::{parse_ffprobe_output, MediaProbe},
-    sidecar::{parse_nfo_metadata, ParsedSidecarMetadata},
+    sidecar::{
+        observe_media_nfo, observe_media_nfo_for_kind, observe_media_nfo_for_kind_within_root,
+        observe_nfo_file_within_root, observe_series_nfo_within_root, parse_nfo_metadata,
+        LocalNfoErrorCode, LocalNfoImageKind, LocalNfoKind, LocalNfoObservation,
+        LocalNfoRatingKind, MediaNfoKind,
+    },
+    SubtitleDirectoryIndex,
 };
 use std::{cell::Cell, env, fs, io::ErrorKind, path::Path, path::PathBuf};
 use uuid::Uuid;
@@ -53,11 +61,13 @@ fn parse_media_metadata_extracts_movie_title_and_year() {
             season_backdrop_path: None,
             episode_number: None,
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -81,11 +91,13 @@ fn parse_media_metadata_extracts_parenthesized_year() {
             season_backdrop_path: None,
             episode_number: None,
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -109,11 +121,13 @@ fn parse_media_metadata_decodes_basic_html_entities_in_file_names() {
             season_backdrop_path: None,
             episode_number: None,
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -139,11 +153,13 @@ fn parse_media_metadata_keeps_noisy_movie_file_title_without_folder_guessing() {
             season_backdrop_path: None,
             episode_number: None,
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -169,11 +185,13 @@ fn parse_media_metadata_extracts_movie_title_and_year_before_release_suffix() {
             season_backdrop_path: None,
             episode_number: None,
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -199,11 +217,13 @@ fn parse_media_metadata_does_not_collapse_collection_folder_into_one_movie_title
             season_backdrop_path: None,
             episode_number: None,
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -238,11 +258,13 @@ fn parse_media_metadata_trims_trailing_separator_before_year() {
             season_backdrop_path: None,
             episode_number: None,
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -266,11 +288,13 @@ fn parse_media_metadata_stops_before_series_token() {
             season_backdrop_path: None,
             episode_number: Some(2),
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -294,11 +318,13 @@ fn parse_media_metadata_extracts_dotted_series_file_title() {
             season_backdrop_path: None,
             episode_number: Some(1),
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -334,11 +360,13 @@ fn parse_media_metadata_extracts_space_separated_series_title_before_episode_mar
             season_backdrop_path: None,
             episode_number: Some(1),
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -374,11 +402,13 @@ fn parse_media_metadata_extracts_episode_numbers_and_title() {
             season_backdrop_path: None,
             episode_number: Some(2),
             episode_title: Some("Some Mysteries Are Better Left Unsolved".to_string()),
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -441,11 +471,13 @@ fn parse_media_metadata_extracts_embedded_series_token_suffix() {
             season_backdrop_path: None,
             episode_number: Some(1),
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -484,11 +516,13 @@ fn parse_media_metadata_keeps_episode_number_only_file_as_local_file() {
             season_backdrop_path: None,
             episode_number: None,
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -512,11 +546,13 @@ fn parse_media_metadata_keeps_ep_prefixed_file_without_series_token_as_local_fil
             season_backdrop_path: None,
             episode_number: None,
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -540,11 +576,13 @@ fn parse_media_metadata_keeps_chinese_episode_file_without_series_token_as_local
             season_backdrop_path: None,
             episode_number: None,
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -568,11 +606,13 @@ fn parse_media_metadata_does_not_extract_year_from_series_folder_name() {
             season_backdrop_path: None,
             episode_number: Some(1),
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -596,11 +636,13 @@ fn parse_media_metadata_uses_file_title_for_named_season_folders() {
             season_backdrop_path: None,
             episode_number: Some(1),
             episode_title: None,
+            episode_overview: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,
             poster_path: None,
             backdrop_path: None,
+            local_nfo: None,
         }
     );
 }
@@ -722,7 +764,12 @@ fn infer_series_sidecar_metadata_has_priority_fields_without_using_directories()
         fs::write(&video_path, b"video").unwrap();
         fs::write(
             video_path.parent().unwrap().join("tvshow.nfo"),
-            "<tvshow><title>Authoritative Show</title><year>2021</year></tvshow>",
+            r#"<tvshow>
+                <title>Authoritative Show</title>
+                <year>2021</year>
+                <genre>Drama</genre>
+                <uniqueid type="tmdb" default="true">31415</uniqueid>
+            </tvshow>"#,
         )
         .unwrap();
 
@@ -734,6 +781,10 @@ fn infer_series_sidecar_metadata_has_priority_fields_without_using_directories()
     let metadata = result.expect("sidecar identity should be inferred");
     assert_eq!(metadata.title.as_deref(), Some("Authoritative Show"));
     assert_eq!(metadata.year, Some(2021));
+    assert_eq!(metadata.local_nfo.kind, LocalNfoKind::TvShow);
+    assert_eq!(metadata.local_nfo.genres, vec!["Drama"]);
+    assert_eq!(metadata.local_nfo.unique_ids[0].provider, "tmdb");
+    assert!(metadata.local_nfo.source_path.ends_with("tvshow.nfo"));
 }
 
 #[test]
@@ -766,6 +817,287 @@ fn infer_series_sidecar_metadata_within_root_never_reads_parent_library_nfo() {
     let _ = fs::remove_dir_all(&outer);
     assert_eq!(metadata.title.as_deref(), Some("Inside Root"));
     assert_eq!(metadata.year, Some(2026));
+}
+
+#[test]
+fn media_nfo_observation_does_not_fall_back_after_invalid_specific_candidate() {
+    for (file_name, invalid_root, valid_generic_root) in [
+        (
+            "Example.Movie.2026.mkv",
+            "<movie><title>broken",
+            "<movie><title>Generic movie</title></movie>",
+        ),
+        (
+            "Example.Show.S01E01.mkv",
+            "<episodedetails><title>broken",
+            "<episodedetails><title>Generic episode</title></episodedetails>",
+        ),
+    ] {
+        let root = unique_temp_path("nfo-specific-invalid");
+        let video_path = root.join(file_name);
+        let specific_path = video_path.with_extension("nfo");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&specific_path, invalid_root).unwrap();
+        fs::write(root.join("movie.nfo"), valid_generic_root).unwrap();
+
+        let observation = observe_media_nfo(&video_path);
+
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(
+            observation,
+            LocalNfoObservation::Invalid {
+                candidate_path: specific_path,
+                error_code: LocalNfoErrorCode::MalformedXml,
+            }
+        );
+    }
+}
+
+#[test]
+fn absent_media_nfo_reports_candidates_in_lookup_order() {
+    let root = unique_temp_path("nfo-absent-candidates");
+    let video_path = root.join("Example.Movie.2026.mkv");
+
+    assert_eq!(
+        observe_media_nfo(&video_path),
+        LocalNfoObservation::Absent {
+            candidate_paths: vec![video_path.with_extension("nfo"), root.join("movie.nfo"),],
+        }
+    );
+}
+
+#[test]
+fn episode_nfo_observation_never_uses_generic_movie_nfo() {
+    let root = unique_temp_path("episode-nfo-no-generic-fallback");
+    let video_path = root.join("Example.Show.S01E01.mkv");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("movie.nfo"),
+        "<episodedetails><title>Must not be selected</title></episodedetails>",
+    )
+    .unwrap();
+
+    let observation = observe_media_nfo(&video_path);
+
+    let _ = fs::remove_dir_all(&root);
+    assert_eq!(
+        observation,
+        LocalNfoObservation::Absent {
+            candidate_paths: vec![video_path.with_extension("nfo")],
+        }
+    );
+}
+
+#[test]
+fn explicit_episode_nfo_scope_does_not_depend_on_filename_shape() {
+    let root = unique_temp_path("episode-nfo-explicit-kind");
+    let video_path = root.join("Unexpected.Name.mkv");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("movie.nfo"),
+        "<movie><title>Must not be selected</title></movie>",
+    )
+    .unwrap();
+
+    assert_eq!(
+        observe_media_nfo_for_kind(&video_path, MediaNfoKind::Episode),
+        LocalNfoObservation::Absent {
+            candidate_paths: vec![video_path.with_extension("nfo")],
+        }
+    );
+
+    fs::write(
+        video_path.with_extension("nfo"),
+        "<episodedetails><title>Explicit episode</title></episodedetails>",
+    )
+    .unwrap();
+    let observation = observe_media_nfo_for_kind(&video_path, MediaNfoKind::Episode);
+
+    let _ = fs::remove_dir_all(&root);
+    let LocalNfoObservation::Valid(metadata) = observation else {
+        panic!("expected explicit episode NFO to be selected");
+    };
+    assert_eq!(metadata.kind, LocalNfoKind::Episode);
+    assert_eq!(metadata.title.as_deref(), Some("Explicit episode"));
+}
+
+#[test]
+fn non_regular_higher_priority_nfo_is_invalid_instead_of_falling_back() {
+    let root = unique_temp_path("nfo-non-regular-candidate");
+    let video_path = root.join("Example.Movie.2026.mkv");
+    let specific_path = video_path.with_extension("nfo");
+    fs::create_dir_all(&specific_path).unwrap();
+    fs::write(
+        root.join("movie.nfo"),
+        "<movie><title>Must not be selected</title></movie>",
+    )
+    .unwrap();
+
+    let observation = observe_media_nfo(&video_path);
+
+    let _ = fs::remove_dir_all(&root);
+    assert_eq!(
+        observation,
+        LocalNfoObservation::Invalid {
+            candidate_path: specific_path,
+            error_code: LocalNfoErrorCode::NotRegularFile,
+        }
+    );
+}
+
+#[test]
+fn series_nfo_observation_reports_nearest_invalid_candidate_without_fallback() {
+    let outer = unique_temp_path("series-nfo-invalid-nearest");
+    let library_root = outer.join("library");
+    let series_root = library_root.join("Example Show");
+    let season_root = series_root.join("Season 01");
+    let video_path = season_root.join("Example.Show.S01E01.mkv");
+    let nearest_path = season_root.join("tvshow.nfo");
+    fs::create_dir_all(&season_root).unwrap();
+    fs::write(&nearest_path, "<tvshow><title>broken").unwrap();
+    fs::write(
+        series_root.join("tvshow.nfo"),
+        "<tvshow><title>Valid but lower priority</title></tvshow>",
+    )
+    .unwrap();
+    fs::write(
+        outer.join("tvshow.nfo"),
+        "<tvshow><title>Outside root</title></tvshow>",
+    )
+    .unwrap();
+
+    let observation = observe_series_nfo_within_root(&video_path, &library_root);
+
+    let _ = fs::remove_dir_all(&outer);
+    assert_eq!(
+        observation,
+        LocalNfoObservation::Invalid {
+            candidate_path: nearest_path,
+            error_code: LocalNfoErrorCode::MalformedXml,
+        }
+    );
+}
+
+#[test]
+fn series_nfo_absence_stays_within_library_root() {
+    let outer = unique_temp_path("series-nfo-absent-boundary");
+    let library_root = outer.join("library");
+    let video_path = library_root
+        .join("Example Show")
+        .join("Season 01")
+        .join("Example.Show.S01E01.mkv");
+    fs::create_dir_all(video_path.parent().unwrap()).unwrap();
+
+    let observation = observe_series_nfo_within_root(&video_path, &library_root);
+
+    let _ = fs::remove_dir_all(&outer);
+    let LocalNfoObservation::Absent { candidate_paths } = observation else {
+        panic!("expected absent series NFO observation");
+    };
+    assert_eq!(
+        candidate_paths.last(),
+        Some(&library_root.join("tvshow.nfo"))
+    );
+    assert!(candidate_paths
+        .iter()
+        .all(|candidate| candidate.starts_with(&library_root)));
+    assert!(!candidate_paths.contains(&outer.join("tvshow.nfo")));
+}
+
+#[cfg(unix)]
+#[test]
+fn root_aware_media_nfo_observation_rejects_symlink_to_outside_library() {
+    use std::os::unix::fs::symlink;
+
+    let outer = unique_temp_path("nfo-symlink-outside-library");
+    let library_root = outer.join("library");
+    let video_path = library_root.join("Example.Movie.2026.mkv");
+    let nfo_path = video_path.with_extension("nfo");
+    let outside_nfo_path = outer.join("outside.nfo");
+    fs::create_dir_all(&library_root).unwrap();
+    fs::write(&outside_nfo_path, "<movie><title>Outside</title></movie>").unwrap();
+    symlink(&outside_nfo_path, &nfo_path).unwrap();
+
+    let observation =
+        observe_media_nfo_for_kind_within_root(&video_path, MediaNfoKind::Movie, &library_root);
+
+    let _ = fs::remove_dir_all(&outer);
+    assert_eq!(
+        observation,
+        LocalNfoObservation::Invalid {
+            candidate_path: nfo_path,
+            error_code: LocalNfoErrorCode::SymlinkNotAllowed,
+        }
+    );
+}
+
+#[test]
+fn persisted_nfo_observation_rejects_a_path_outside_its_library_root() {
+    let outer = unique_temp_path("persisted-nfo-outside-library");
+    let library_root = outer.join("library");
+    let outside_nfo_path = outer.join("outside.nfo");
+    fs::create_dir_all(&library_root).unwrap();
+    fs::write(&outside_nfo_path, "<movie><title>Outside</title></movie>").unwrap();
+
+    let observation =
+        observe_nfo_file_within_root(&outside_nfo_path, LocalNfoKind::Movie, &library_root);
+
+    let _ = fs::remove_dir_all(&outer);
+    assert_eq!(
+        observation,
+        LocalNfoObservation::Invalid {
+            candidate_path: outside_nfo_path,
+            error_code: LocalNfoErrorCode::OutsideLibraryRoot,
+        }
+    );
+}
+
+#[test]
+fn root_aware_series_nfo_observation_searches_at_most_five_ancestors() {
+    let outer = unique_temp_path("series-nfo-five-ancestor-limit");
+    let library_root = outer.join("library");
+    let fifth_candidate_dir = library_root.join("level-5");
+    let video_path = fifth_candidate_dir
+        .join("level-4")
+        .join("level-3")
+        .join("level-2")
+        .join("level-1")
+        .join("Example.Show.S01E01.mkv");
+    let fifth_candidate_path = fifth_candidate_dir.join("tvshow.nfo");
+    let sixth_candidate_path = library_root.join("tvshow.nfo");
+    fs::create_dir_all(video_path.parent().unwrap()).unwrap();
+    fs::write(
+        &fifth_candidate_path,
+        "<tvshow><title>Fifth candidate</title></tvshow>",
+    )
+    .unwrap();
+    let canonical_fifth_candidate_path = fs::canonicalize(&fifth_candidate_path).unwrap();
+
+    let fifth_observation = observe_series_nfo_within_root(&video_path, &library_root);
+    assert!(
+        matches!(
+        &fifth_observation,
+        LocalNfoObservation::Valid(metadata)
+            if metadata.source_path == canonical_fifth_candidate_path
+                && metadata.title.as_deref() == Some("Fifth candidate")
+        ),
+        "unexpected fifth-candidate observation: {fifth_observation:?}"
+    );
+
+    fs::remove_file(&fifth_candidate_path).unwrap();
+    fs::write(
+        &sixth_candidate_path,
+        "<tvshow><title>Sixth candidate</title></tvshow>",
+    )
+    .unwrap();
+    let sixth_observation = observe_series_nfo_within_root(&video_path, &library_root);
+
+    let _ = fs::remove_dir_all(&outer);
+    let LocalNfoObservation::Absent { candidate_paths } = sixth_observation else {
+        panic!("a tvshow.nfo beyond the five-candidate boundary must not be observed");
+    };
+    assert_eq!(candidate_paths.len(), 5);
+    assert!(!candidate_paths.contains(&sixth_candidate_path));
 }
 
 #[test]
@@ -951,31 +1283,573 @@ fn parse_nfo_metadata_extracts_common_media_fields() {
         </movie>
         "#,
         &root,
-    );
+    )
+    .expect("valid movie NFO should parse");
     let canonical_root = root.canonicalize().unwrap();
 
+    assert_eq!(metadata.kind, LocalNfoKind::Movie);
+    assert_eq!(metadata.title.as_deref(), Some("Spirited Away"));
     assert_eq!(
-        metadata,
-        ParsedSidecarMetadata {
-            title: Some("Spirited Away".to_string()),
-            original_title: Some("Sen to Chihiro no Kamikakushi".to_string()),
-            sort_title: Some("Spirited Away".to_string()),
-            year: Some(2001),
-            overview: Some("Chihiro enters the spirit world.".to_string()),
-            poster_path: Some(
-                canonical_root
-                    .join("poster.jpg")
-                    .to_string_lossy()
-                    .to_string(),
-            ),
-            backdrop_path: Some(
-                canonical_root
-                    .join("fanart.png")
-                    .to_string_lossy()
-                    .to_string(),
-            ),
-        }
+        metadata.original_title.as_deref(),
+        Some("Sen to Chihiro no Kamikakushi")
     );
+    assert_eq!(metadata.sort_title.as_deref(), Some("Spirited Away"));
+    assert_eq!(metadata.year, Some(2001));
+    assert_eq!(
+        metadata.overview.as_deref(),
+        Some("Chihiro enters the spirit world.")
+    );
+    assert_eq!(
+        metadata.artwork.posters,
+        vec![canonical_root
+            .join("poster.jpg")
+            .to_string_lossy()
+            .to_string()]
+    );
+    assert_eq!(
+        metadata.artwork.backdrops,
+        vec![canonical_root
+            .join("fanart.png")
+            .to_string_lossy()
+            .to_string()]
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn parse_nfo_metadata_extracts_emby_kodi_structured_fields() {
+    let root = unique_temp_path("nfo-structured");
+    fs::create_dir_all(&root).unwrap();
+
+    let metadata = parse_nfo_metadata(
+        r#"
+        <movie>
+          <title>Example Movie</title>
+          <originaltitle>Original Example</originaltitle>
+          <sorttitle>Example, The</sorttitle>
+          <year>2026</year>
+          <plot>Full plot.</plot>
+          <outline>Short outline.</outline>
+          <tagline>A local-first story.</tagline>
+          <status>Released</status>
+          <premiered>2026-05-06</premiered>
+          <runtime>123.4</runtime>
+          <mpaa>PG-13</mpaa>
+          <original_language>zh</original_language>
+          <genre>Drama</genre>
+          <genre>Science Fiction</genre>
+          <country>China</country>
+          <country>United States</country>
+          <studio>Studio One</studio>
+          <tag>Featured</tag>
+          <director>Director One</director>
+          <credits>Writer One</credits>
+          <writer>Writer Two</writer>
+          <actor>
+            <name>Actor One</name>
+            <role>Lead</role>
+            <order>2</order>
+            <thumb>https://image.tmdb.org/t/p/original/actor.jpg</thumb>
+          </actor>
+          <uniqueid type="themoviedb" default="true">12345</uniqueid>
+          <uniqueid type="imdb">tt1234567</uniqueid>
+          <tvdbid>9876</tvdbid>
+          <ratings>
+            <rating name="themoviedb" max="10" default="true">
+              <value>8.4</value>
+              <votes>12,345</votes>
+            </rating>
+          </ratings>
+          <thumb aspect="poster">https://image.tmdb.org/t/p/original/poster.jpg</thumb>
+          <fanart><thumb>https://image.tmdb.org/t/p/original/backdrop.jpg</thumb></fanart>
+          <clearlogo>https://image.tmdb.org/t/p/original/logo.png</clearlogo>
+          <set>
+            <name>Example Collection</name>
+            <overview>Collection overview.</overview>
+            <uniqueid type="tmdb">77</uniqueid>
+          </set>
+          <lockdata>true</lockdata>
+          <lockedfields>title | plot</lockedfields>
+        </movie>
+        "#,
+        &root,
+    )
+    .expect("structured movie NFO should parse");
+
+    assert_eq!(metadata.kind, LocalNfoKind::Movie);
+    assert_eq!(metadata.title.as_deref(), Some("Example Movie"));
+    assert_eq!(metadata.overview.as_deref(), Some("Full plot."));
+    assert_eq!(metadata.outline.as_deref(), Some("Short outline."));
+    assert_eq!(metadata.tagline.as_deref(), Some("A local-first story."));
+    assert_eq!(metadata.status.as_deref(), Some("Released"));
+    assert_eq!(metadata.premiered.as_deref(), Some("2026-05-06"));
+    assert_eq!(metadata.runtime_minutes, Some(123));
+    assert_eq!(metadata.content_rating.as_deref(), Some("PG-13"));
+    assert_eq!(metadata.original_language.as_deref(), Some("zh"));
+    assert_eq!(metadata.genres, vec!["Drama", "Science Fiction"]);
+    assert_eq!(metadata.countries, vec!["China", "United States"]);
+    assert_eq!(metadata.studios, vec!["Studio One"]);
+    assert_eq!(metadata.tags, vec!["Featured"]);
+    assert_eq!(metadata.credits.directors, vec!["Director One"]);
+    assert_eq!(metadata.credits.writers, vec!["Writer One", "Writer Two"]);
+    assert_eq!(metadata.credits.actors.len(), 1);
+    assert_eq!(metadata.credits.actors[0].name, "Actor One");
+    assert_eq!(metadata.credits.actors[0].role.as_deref(), Some("Lead"));
+    assert_eq!(metadata.credits.actors[0].order, Some(2));
+    assert_eq!(metadata.unique_ids.len(), 3);
+    assert_eq!(metadata.unique_ids[0].provider, "tmdb");
+    assert!(metadata.unique_ids[0].is_default);
+    assert_eq!(metadata.ratings.len(), 1);
+    assert_eq!(metadata.ratings[0].source, "tmdb");
+    assert_eq!(metadata.ratings[0].kind, LocalNfoRatingKind::Audience);
+    assert_eq!(metadata.ratings[0].value, 8.4);
+    assert_eq!(metadata.ratings[0].votes, Some(12_345));
+    assert_eq!(metadata.artwork.posters.len(), 1);
+    assert_eq!(metadata.artwork.backdrops.len(), 1);
+    assert_eq!(metadata.artwork.logos.len(), 1);
+    assert_eq!(
+        metadata
+            .collection
+            .as_ref()
+            .and_then(|collection| collection.name.as_deref()),
+        Some("Example Collection")
+    );
+    assert!(metadata.lock_data);
+    assert_eq!(metadata.locked_fields, vec!["title", "plot"]);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn parse_nfo_metadata_keeps_legacy_ids_and_separates_language_and_rating_semantics() {
+    let metadata = parse_nfo_metadata(
+        r#"
+        <movie>
+          <customrating>Family profile</customrating>
+          <language>zh-CN</language>
+          <originallanguage>ja</originallanguage>
+          <dateadded>2026-08-01 12:34:56</dateadded>
+          <id TMDB="101" TVDB="202" IMDB="tt303">tt303</id>
+          <trailer>https://example.invalid/one</trailer>
+          <trailer>https://example.invalid/two</trailer>
+          <showlink>Example Show</showlink>
+          <ratings>
+            <rating name="tomatometerallcritics" max="100"><value>91</value></rating>
+            <rating name="tomatometerallaudience" max="100"><value>87</value></rating>
+            <rating name="metacritic" max="100"><value>72</value></rating>
+            <rating name="imdb" max="10"><value>8.1</value></rating>
+          </ratings>
+          <set tmdbcolid="404"><name>Example Collection</name></set>
+        </movie>
+        "#,
+        Path::new("/media"),
+    )
+    .expect("legacy Emby-compatible NFO fields should parse");
+
+    assert_eq!(metadata.content_rating, None);
+    assert_eq!(metadata.custom_rating.as_deref(), Some("Family profile"));
+    assert_eq!(metadata.original_language.as_deref(), Some("ja"));
+    assert_eq!(
+        metadata.preferred_metadata_language.as_deref(),
+        Some("zh-CN")
+    );
+    assert_eq!(metadata.date_added.as_deref(), Some("2026-08-01 12:34:56"));
+    assert_eq!(metadata.trailers.len(), 2);
+    assert_eq!(metadata.show_link.as_deref(), Some("Example Show"));
+    assert!(metadata
+        .unique_ids
+        .iter()
+        .any(|id| id.provider == "tmdb" && id.value == "101"));
+    assert!(metadata
+        .unique_ids
+        .iter()
+        .any(|id| id.provider == "tvdb" && id.value == "202"));
+    assert!(metadata
+        .unique_ids
+        .iter()
+        .any(|id| id.provider == "imdb" && id.value == "tt303"));
+    assert_eq!(
+        metadata
+            .ratings
+            .iter()
+            .find(|rating| rating.source == "tomatometerallcritics")
+            .map(|rating| rating.kind),
+        Some(LocalNfoRatingKind::Critic)
+    );
+    assert_eq!(
+        metadata
+            .ratings
+            .iter()
+            .find(|rating| rating.source == "tomatometerallaudience")
+            .map(|rating| rating.kind),
+        Some(LocalNfoRatingKind::Audience)
+    );
+    assert_eq!(
+        metadata
+            .ratings
+            .iter()
+            .find(|rating| rating.source == "metacritic")
+            .map(|rating| rating.kind),
+        Some(LocalNfoRatingKind::Critic)
+    );
+    assert_eq!(
+        metadata
+            .ratings
+            .iter()
+            .find(|rating| rating.source == "imdb")
+            .map(|rating| rating.kind),
+        Some(LocalNfoRatingKind::Audience)
+    );
+    assert!(metadata
+        .collection
+        .as_ref()
+        .expect("collection")
+        .unique_ids
+        .iter()
+        .any(|id| id.provider == "tmdb_collection" && id.value == "404"));
+}
+
+#[test]
+fn parse_tvshow_nfo_scopes_counts_season_metadata_and_artwork() {
+    let root = unique_temp_path("nfo-tvshow-seasons");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("series.jpg"), b"\xff\xd8\xffseries").unwrap();
+    fs::write(root.join("season-2.jpg"), b"\xff\xd8\xffseason").unwrap();
+    fs::write(
+        root.join("season-2-landscape.jpg"),
+        b"\xff\xd8\xfflandscape",
+    )
+    .unwrap();
+
+    let metadata = parse_nfo_metadata(
+        r#"
+        <tvshow>
+          <title>Example Show</title>
+          <season>3</season>
+          <episode>24</episode>
+          <episodeguide>{"tmdb":"123", "tvdb":456}</episodeguide>
+          <namedseason number="2">The Second Chapter</namedseason>
+          <seasonplot number="2">Second-season overview.</seasonplot>
+          <thumb aspect="poster">series.jpg</thumb>
+          <thumb aspect="poster" type="season" season="2">season-2.jpg</thumb>
+          <thumb aspect="landscape" type="season" season="2">season-2-landscape.jpg</thumb>
+        </tvshow>
+        "#,
+        &root,
+    )
+    .expect("TV show NFO should parse");
+
+    assert_eq!(metadata.season_count, Some(3));
+    assert_eq!(metadata.episode_count, Some(24));
+    assert_eq!(metadata.season_number, None);
+    assert_eq!(metadata.episode_number, None);
+    assert_eq!(metadata.artwork.posters.len(), 1);
+    assert_eq!(metadata.artwork.images[0].kind, LocalNfoImageKind::Poster);
+    assert!(metadata
+        .episode_guide_ids
+        .iter()
+        .any(|id| id.provider == "tmdb" && id.value == "123"));
+    assert!(metadata
+        .episode_guide_ids
+        .iter()
+        .any(|id| id.provider == "tvdb" && id.value == "456"));
+
+    let season = metadata
+        .named_seasons
+        .iter()
+        .find(|season| season.season_number == 2)
+        .expect("season metadata");
+    assert_eq!(season.title.as_deref(), Some("The Second Chapter"));
+    assert_eq!(season.overview.as_deref(), Some("Second-season overview."));
+    assert_eq!(season.artwork.posters.len(), 1);
+    assert_eq!(season.artwork.thumbnails.len(), 1);
+    assert_eq!(season.artwork.images[1].kind, LocalNfoImageKind::Landscape);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn parse_episode_nfo_keeps_special_display_order_without_multi_episode_projection() {
+    let metadata = parse_nfo_metadata(
+        r#"
+        <episodedetails>
+          <season>0</season>
+          <episode>4</episode>
+          <displayepisode>8</displayepisode>
+          <displayseason>2</displayseason>
+          <airsafter_season>1</airsafter_season>
+          <episodenumberend>5</episodenumberend>
+        </episodedetails>
+        "#,
+        Path::new("/media"),
+    )
+    .expect("episode NFO should parse");
+
+    assert_eq!(metadata.season_number, Some(0));
+    assert_eq!(metadata.episode_number, Some(4));
+    assert_eq!(metadata.display_episode_number, Some(8));
+    assert_eq!(metadata.display_season_number, Some(2));
+    assert_eq!(metadata.display_after_season_number, Some(1));
+    assert!(serde_json::to_value(&metadata)
+        .expect("normalized payload")
+        .get("episode_number_end")
+        .is_none());
+}
+
+#[test]
+fn nfo_root_specific_fields_do_not_leak_between_media_kinds() {
+    let movie = parse_nfo_metadata(
+        r#"
+        <movie>
+          <season>4</season>
+          <episode>20</episode>
+          <displayepisode>8</displayepisode>
+          <airs_dayofweek>Monday</airs_dayofweek>
+          <episodeguide>{"tmdb":"123"}</episodeguide>
+          <namedseason number="2">Must not project</namedseason>
+          <showlink>Allowed movie link</showlink>
+          <showtitle>Must not project</showtitle>
+        </movie>
+        "#,
+        Path::new("/media"),
+    )
+    .expect("movie NFO should parse");
+
+    assert_eq!(movie.season_count, None);
+    assert_eq!(movie.episode_count, None);
+    assert_eq!(movie.display_episode_number, None);
+    assert!(movie.air_days.is_empty());
+    assert!(movie.episode_guide_ids.is_empty());
+    assert!(movie.named_seasons.is_empty());
+    assert_eq!(movie.show_link.as_deref(), Some("Allowed movie link"));
+    assert_eq!(movie.show_title, None);
+
+    let episode = parse_nfo_metadata(
+        r#"
+        <episodedetails>
+          <showlink>Must not project</showlink>
+          <airs_time>20:00</airs_time>
+          <episodeguide>{"tmdb":"123"}</episodeguide>
+          <namedseason number="2">Must not project</namedseason>
+          <showtitle>Allowed episode show title</showtitle>
+        </episodedetails>
+        "#,
+        Path::new("/media"),
+    )
+    .expect("episode NFO should parse");
+
+    assert_eq!(episode.show_link, None);
+    assert_eq!(episode.air_time, None);
+    assert!(episode.episode_guide_ids.is_empty());
+    assert!(episode.named_seasons.is_empty());
+    assert_eq!(
+        episode.show_title.as_deref(),
+        Some("Allowed episode show title")
+    );
+}
+
+#[test]
+fn parse_nfo_metadata_distinguishes_audience_and_critic_ratings() {
+    let metadata = parse_nfo_metadata(
+        r#"
+        <movie>
+          <rating>7.8</rating>
+          <votes>1,234</votes>
+          <criticrating>91</criticrating>
+          <ratings>
+            <rating name="tmdb" max="10"><value>8.2</value></rating>
+          </ratings>
+        </movie>
+        "#,
+        Path::new("/media"),
+    )
+    .expect("rating NFO should parse");
+
+    assert!(metadata.ratings.iter().any(|rating| {
+        rating.source == "default"
+            && rating.kind == LocalNfoRatingKind::Audience
+            && rating.value == 7.8
+    }));
+    assert!(metadata.ratings.iter().any(|rating| {
+        rating.source == "default"
+            && rating.kind == LocalNfoRatingKind::Critic
+            && rating.value == 91.0
+            && rating.scale == 100.0
+    }));
+    assert!(metadata.ratings.iter().any(|rating| {
+        rating.source == "tmdb"
+            && rating.kind == LocalNfoRatingKind::Audience
+            && rating.value == 8.2
+    }));
+}
+
+#[test]
+fn parse_nfo_metadata_ignores_non_finite_and_out_of_range_ratings() {
+    let metadata = parse_nfo_metadata(
+        r#"
+        <movie>
+          <title>Valid title survives invalid ratings</title>
+          <rating>NaN</rating>
+          <communityrating>-1</communityrating>
+          <criticrating>101</criticrating>
+          <ratings>
+            <rating name="infinite" max="10"><value>inf</value></rating>
+            <rating name="negative" max="10"><value>-0.1</value></rating>
+            <rating name="overflow" max="10"><value>10.1</value></rating>
+            <rating name="invalid-scale" max="NaN"><value>8</value></rating>
+            <rating name="valid" max="5"><value>4.5</value></rating>
+          </ratings>
+        </movie>
+        "#,
+        Path::new("/media"),
+    )
+    .expect("invalid ratings must not invalidate the remaining NFO metadata");
+
+    assert_eq!(
+        metadata.title.as_deref(),
+        Some("Valid title survives invalid ratings")
+    );
+    assert_eq!(metadata.ratings.len(), 1);
+    assert_eq!(metadata.ratings[0].source, "valid");
+    assert_eq!(metadata.ratings[0].value, 4.5);
+    assert_eq!(metadata.ratings[0].scale, 5.0);
+    assert!(serde_json::to_value(&metadata).is_ok());
+}
+
+#[test]
+fn normalized_nfo_payload_accepts_future_additive_defaults_without_losing_identity() {
+    let metadata = serde_json::from_value::<super::LocalNfoMetadata>(serde_json::json!({
+        "kind": "movie",
+        "title": "Stored v1 title"
+    }))
+    .expect("missing additive fields in an older normalized payload should use safe defaults");
+
+    assert_eq!(metadata.kind, LocalNfoKind::Movie);
+    assert_eq!(metadata.title.as_deref(), Some("Stored v1 title"));
+    assert!(metadata.ratings.is_empty());
+    assert!(metadata.credits.actors.is_empty());
+    assert!(
+        serde_json::from_value::<super::LocalNfoMetadata>(serde_json::json!({
+            "title": "Identity must remain required"
+        }))
+        .is_err()
+    );
+}
+
+#[test]
+fn parse_nfo_metadata_rejects_dtd_and_unsupported_roots() {
+    let root = unique_temp_path("nfo-security");
+    fs::create_dir_all(&root).unwrap();
+
+    assert!(parse_nfo_metadata(
+        r#"<!DOCTYPE movie [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+        <movie><title>&xxe;</title></movie>"#,
+        &root,
+    )
+    .is_none());
+    assert!(parse_nfo_metadata("<album><title>Not Media</title></album>", &root).is_none());
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn discovery_routes_episode_nfo_fields_and_records_source_path() {
+    let root = unique_temp_path("episode-nfo-discovery");
+    let video_path = root.join("Example.Show.S01E02.mkv");
+    let nfo_path = video_path.with_extension("nfo");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(&video_path, b"not a real video").unwrap();
+    fs::write(
+        &nfo_path,
+        r#"
+        <episodedetails>
+          <title>The Local Episode</title>
+          <plot>Episode-only plot.</plot>
+          <aired>2026-08-01</aired>
+          <season>1</season>
+          <episode>2</episode>
+          <uniqueid type="tmdb">4455</uniqueid>
+        </episodedetails>
+        "#,
+    )
+    .unwrap();
+
+    let files = discover_media_files(&root).expect("discovery should tolerate ffprobe failure");
+    let file = files.first().expect("episode should be discovered");
+    assert_eq!(file.title, "Example Show");
+    assert_eq!(file.episode_title.as_deref(), Some("The Local Episode"));
+    assert_eq!(file.episode_overview.as_deref(), Some("Episode-only plot."));
+    assert_eq!(file.overview, None);
+    assert_eq!(file.season_number, Some(1));
+    assert_eq!(file.episode_number, Some(2));
+    let local_nfo = file
+        .local_nfo
+        .as_ref()
+        .expect("episode NFO should be retained");
+    assert_eq!(local_nfo.kind, LocalNfoKind::Episode);
+    assert_eq!(local_nfo.source_path, nfo_path.canonicalize().unwrap());
+    assert_eq!(local_nfo.aired.as_deref(), Some("2026-08-01"));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn episode_file_coordinates_take_priority_over_conflicting_nfo_coordinates() {
+    let root = unique_temp_path("episode-nfo-coordinate-priority");
+    let video_path = root.join("Example.Show.S02E03.mkv");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(&video_path, b"video").unwrap();
+    fs::write(
+        video_path.with_extension("nfo"),
+        r#"<episodedetails>
+            <title>Episode title</title>
+            <season>9</season>
+            <episode>10</episode>
+        </episodedetails>"#,
+    )
+    .unwrap();
+
+    let metadata = parse_media_metadata(&video_path);
+    assert_eq!(metadata.season_number, Some(2));
+    assert_eq!(metadata.episode_number, Some(3));
+    assert_eq!(metadata.episode_title.as_deref(), Some("Episode title"));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn nfo_root_type_must_match_movie_episode_and_series_use() {
+    let root = unique_temp_path("nfo-root-use");
+    let movie_path = root.join("Example.Movie.2026.mkv");
+    let episode_path = root.join("Show.S01E01.mkv");
+    let series_path = root
+        .join("Series")
+        .join("Season 01")
+        .join("Show.S01E01.mkv");
+    fs::create_dir_all(series_path.parent().unwrap()).unwrap();
+    fs::write(&movie_path, b"movie").unwrap();
+    fs::write(&episode_path, b"episode").unwrap();
+    fs::write(&series_path, b"series episode").unwrap();
+    fs::write(
+        movie_path.with_extension("nfo"),
+        "<episodedetails><title>Wrong episode root</title></episodedetails>",
+    )
+    .unwrap();
+    fs::write(
+        episode_path.with_extension("nfo"),
+        "<movie><title>Wrong movie root</title></movie>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("Series").join("tvshow.nfo"),
+        "<movie><title>Wrong series root</title></movie>",
+    )
+    .unwrap();
+
+    assert!(parse_media_metadata(&movie_path).local_nfo.is_none());
+    assert!(parse_media_metadata(&episode_path).local_nfo.is_none());
+    assert!(infer_series_sidecar_metadata(&series_path).is_none());
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -999,10 +1873,11 @@ fn parse_nfo_metadata_rejects_local_artwork_outside_the_nfo_directory() {
             outside_image.display()
         ),
         &media_dir,
-    );
+    )
+    .expect("valid NFO should still parse when artwork is rejected");
 
-    assert_eq!(metadata.poster_path, None);
-    assert_eq!(metadata.backdrop_path, None);
+    assert!(metadata.artwork.posters.is_empty());
+    assert!(metadata.artwork.backdrops.is_empty());
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -1020,9 +1895,10 @@ fn parse_nfo_metadata_rejects_symlinks_that_escape_the_nfo_directory() {
     fs::write(&outside_image, b"\xff\xd8\xffoutside").unwrap();
     symlink(&outside_image, &linked_image).unwrap();
 
-    let metadata = parse_nfo_metadata("<movie><thumb>poster.jpg</thumb></movie>", &media_dir);
+    let metadata = parse_nfo_metadata("<movie><thumb>poster.jpg</thumb></movie>", &media_dir)
+        .expect("valid NFO should still parse when artwork is rejected");
 
-    assert_eq!(metadata.poster_path, None);
+    assert!(metadata.artwork.posters.is_empty());
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -1033,9 +1909,10 @@ fn parse_nfo_metadata_rejects_non_image_payloads() {
     fs::create_dir_all(&root).unwrap();
     fs::write(root.join("poster.jpg"), b"not an image").unwrap();
 
-    let metadata = parse_nfo_metadata("<movie><thumb>poster.jpg</thumb></movie>", &root);
+    let metadata = parse_nfo_metadata("<movie><thumb>poster.jpg</thumb></movie>", &root)
+        .expect("valid NFO should still parse when artwork is rejected");
 
-    assert_eq!(metadata.poster_path, None);
+    assert!(metadata.artwork.posters.is_empty());
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -1058,10 +1935,11 @@ fn parse_nfo_metadata_ignores_empty_artwork_references() {
         </movie>
         "#,
         &root,
-    );
+    )
+    .expect("valid NFO should still parse when artwork is rejected");
 
-    assert_eq!(metadata.poster_path, None);
-    assert_eq!(metadata.backdrop_path, None);
+    assert!(metadata.artwork.posters.is_empty());
+    assert!(metadata.artwork.backdrops.is_empty());
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -1709,6 +2587,82 @@ fn inspect_media_file_reads_sidecar_metadata_and_artwork() {
 }
 
 #[test]
+fn full_inspection_can_exclude_generic_movie_nfo_without_excluding_file_specific_nfo() {
+    let root = unique_temp_path("generic-movie-nfo-policy");
+    let video_path = root.join("Actual.Movie.2025.mkv");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(&video_path, b"video").unwrap();
+    fs::write(
+        root.join("movie.nfo"),
+        "<movie><title>Shared Wrong Title</title></movie>",
+    )
+    .unwrap();
+
+    let inventory = discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+        .unwrap()
+        .pop()
+        .unwrap();
+    let subtitle_index = SubtitleDirectoryIndex::build([video_path.as_path()]);
+    let without_generic =
+        inspect_media_file_inventory_within_root_with_cancel_and_subtitle_index_and_nfo_policy(
+            inventory.clone(),
+            &root,
+            &subtitle_index,
+            false,
+            || false,
+        )
+        .unwrap();
+    assert_eq!(without_generic.title, "Actual Movie");
+    assert!(without_generic.local_nfo.is_none());
+
+    fs::write(
+        video_path.with_extension("nfo"),
+        "<movie><title>File Specific Title</title></movie>",
+    )
+    .unwrap();
+    let with_specific =
+        inspect_media_file_inventory_within_root_with_cancel_and_subtitle_index_and_nfo_policy(
+            inventory,
+            &root,
+            &subtitle_index,
+            false,
+            || false,
+        )
+        .unwrap();
+    let _ = fs::remove_dir_all(&root);
+
+    assert_eq!(with_specific.title, "File Specific Title");
+    assert!(with_specific.local_nfo.is_some());
+}
+
+#[test]
+fn inspect_media_file_sidecar_only_reads_local_metadata_without_probing_streams() {
+    let root = unique_temp_path("inspect-sidecar-only");
+    let video_path = root.join("Not.A.Real.Video.2026.mkv");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(&video_path, b"not a playable media stream").unwrap();
+    fs::write(
+        video_path.with_extension("nfo"),
+        r#"<movie><title>Local title</title><plot>Local plot</plot></movie>"#,
+    )
+    .unwrap();
+    fs::write(root.join("poster.jpg"), b"\xff\xd8\xffposter").unwrap();
+
+    let file = inspect_media_file_sidecar_only(&video_path)
+        .expect("sidecar-only inspection must not require a valid media stream");
+
+    let _ = fs::remove_dir_all(&root);
+    assert_eq!(file.title, "Local title");
+    assert_eq!(file.overview.as_deref(), Some("Local plot"));
+    assert!(file.local_nfo.is_some());
+    assert_eq!(file.probe_error, None);
+    assert_eq!(file.duration_seconds, None);
+    assert_eq!(file.container.as_deref(), Some("mkv"));
+    assert!(file.audio_tracks.is_empty());
+    assert!(file.subtitle_tracks.is_empty());
+}
+
+#[test]
 fn parse_media_metadata_ignores_empty_local_artwork_files() {
     let root = unique_temp_path("empty-artwork");
     let video_path = root.join("Spirited.Away.2001.mkv");
@@ -1798,6 +2752,128 @@ fn parse_episode_metadata_does_not_use_generic_artwork_as_episode_artwork() {
         result.series_backdrop_path.as_deref(),
         Some(root.join("fanart.jpg").to_string_lossy().as_ref())
     );
+}
+
+#[test]
+fn parse_episode_metadata_supports_exact_thumb_names_without_fuzzy_matching() {
+    let root = unique_temp_path("episode-thumb-names");
+    let exact_video = root.join("Arcane.S01E01.mkv");
+    let spaced_video = root.join("Arcane.S01E02.mkv");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(&exact_video, b"video").unwrap();
+    fs::write(&spaced_video, b"video").unwrap();
+    fs::write(root.join("Arcane.S01E01-thumb.jpg"), b"episode one").unwrap();
+    fs::write(root.join("Arcane.S01E02 - thumb.jpg"), b"episode two").unwrap();
+    fs::write(root.join("Arcane.S01-thumb.jpg"), b"must not match").unwrap();
+
+    let exact = parse_media_metadata(&exact_video);
+    let spaced = parse_media_metadata(&spaced_video);
+    let _ = fs::remove_dir_all(&root);
+
+    assert_eq!(
+        exact.poster_path.as_deref(),
+        Some(
+            root.join("Arcane.S01E01-thumb.jpg")
+                .to_string_lossy()
+                .as_ref()
+        )
+    );
+    assert_eq!(
+        spaced.poster_path.as_deref(),
+        Some(
+            root.join("Arcane.S01E02 - thumb.jpg")
+                .to_string_lossy()
+                .as_ref()
+        )
+    );
+}
+
+#[test]
+fn parse_episode_metadata_prefers_an_explicit_nfo_thumb() {
+    let root = unique_temp_path("episode-nfo-thumb-priority");
+    let video_path = root.join("Arcane.S01E01.mkv");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(&video_path, b"video").unwrap();
+    fs::write(
+        video_path.with_extension("nfo"),
+        "<episodedetails><title>Episode One</title><thumb>nfo-thumb.jpg</thumb></episodedetails>",
+    )
+    .unwrap();
+    fs::write(root.join("nfo-thumb.jpg"), b"\xff\xd8\xffnfo").unwrap();
+    fs::write(
+        root.join("Arcane.S01E01-thumb.jpg"),
+        b"\xff\xd8\xffautomatic",
+    )
+    .unwrap();
+
+    let parsed = parse_media_metadata(&video_path);
+    let expected_nfo_thumb = root.join("nfo-thumb.jpg").canonicalize().unwrap();
+    let _ = fs::remove_dir_all(&root);
+
+    assert_eq!(
+        parsed.poster_path.as_deref(),
+        Some(expected_nfo_thumb.to_string_lossy().as_ref())
+    );
+}
+
+#[test]
+fn parse_episode_metadata_resolves_only_numbered_artwork_in_a_flat_series_directory() {
+    let root = unique_temp_path("flat-season-artwork");
+    let first_season = root.join("S01E01.mkv");
+    let second_season = root.join("S02E01.mkv");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(&first_season, b"video").unwrap();
+    fs::write(&second_season, b"video").unwrap();
+    fs::write(root.join("season01-poster.jpg"), b"season one").unwrap();
+    fs::write(root.join("season-poster.jpg"), b"ambiguous").unwrap();
+
+    let first = parse_media_metadata(&first_season);
+    let second = parse_media_metadata(&second_season);
+    let _ = fs::remove_dir_all(&root);
+
+    assert_eq!(
+        first.season_poster_path.as_deref(),
+        Some(root.join("season01-poster.jpg").to_string_lossy().as_ref())
+    );
+    assert_eq!(second.season_poster_path, None);
+}
+
+#[test]
+fn parse_episode_metadata_scopes_generic_artwork_to_an_explicit_season_directory() {
+    let root = unique_temp_path("explicit-season-artwork");
+    let series_root = root.join("Arcane");
+    let season_root = series_root.join("Season 01");
+    let video_path = season_root.join("S01E01.mkv");
+    fs::create_dir_all(&season_root).unwrap();
+    fs::write(&video_path, b"video").unwrap();
+    fs::write(series_root.join("poster.jpg"), b"series poster").unwrap();
+    fs::write(season_root.join("poster.jpg"), b"season poster").unwrap();
+
+    let parsed = parse_media_metadata(&video_path);
+    let _ = fs::remove_dir_all(&root);
+
+    assert_eq!(parsed.series_poster_path, None);
+    assert_eq!(
+        parsed.season_poster_path.as_deref(),
+        Some(season_root.join("poster.jpg").to_string_lossy().as_ref())
+    );
+}
+
+#[test]
+fn parse_episode_metadata_rejects_generic_artwork_from_a_conflicting_season_directory() {
+    let root = unique_temp_path("conflicting-season-artwork");
+    let season_root = root.join("Season 02");
+    let video_path = season_root.join("S01E01.mkv");
+    fs::create_dir_all(&season_root).unwrap();
+    fs::write(&video_path, b"video").unwrap();
+    fs::write(season_root.join("season01-poster.jpg"), b"wrong season").unwrap();
+    fs::write(season_root.join("season-poster.jpg"), b"wrong season").unwrap();
+
+    let parsed = parse_media_metadata(&video_path);
+    let _ = fs::remove_dir_all(&root);
+
+    assert_eq!(parsed.season_poster_path, None);
+    assert_eq!(parsed.series_poster_path, None);
 }
 
 #[test]

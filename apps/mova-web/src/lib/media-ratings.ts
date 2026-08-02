@@ -29,5 +29,30 @@ export const isDisplayableRating = (rating: MediaRating) =>
   rating.score >= 0 &&
   rating.score <= rating.scale
 
-export const selectDisplayRatings = (ratings: MediaRating[], limit: number) =>
-  ratings.filter(isDisplayableRating).slice(0, Math.max(0, limit))
+const ratingSourcePriority = (retrievedVia: string) => {
+  switch (retrievedVia.trim().toLowerCase()) {
+    case 'manual':
+      return 3
+    case 'nfo':
+      return 2
+    default:
+      return 1
+  }
+}
+
+export const selectDisplayRatings = (ratings: MediaRating[], limit: number) => {
+  const selected = new Map<string, MediaRating>()
+
+  for (const rating of ratings.filter(isDisplayableRating)) {
+    const key = `${rating.source.trim().toLowerCase()}:${rating.kind.trim().toLowerCase()}`
+    const current = selected.get(key)
+    if (
+      !current ||
+      ratingSourcePriority(rating.retrieved_via) > ratingSourcePriority(current.retrieved_via)
+    ) {
+      selected.set(key, rating)
+    }
+  }
+
+  return [...selected.values()].slice(0, Math.max(0, limit))
+}

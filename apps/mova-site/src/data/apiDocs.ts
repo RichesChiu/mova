@@ -46,7 +46,7 @@ export const apiCommonNotes = [
   'code 始终是数字 HTTP 状态码；错误响应使用稳定的 error_code 和 params，message 只作为诊断兜底。',
   '账户与用户管理使用独立业务错误码；客户端应本地化已知错误码，并只在遇到未知错误码时使用 message 兜底。',
   '密码认证失败达到限制时返回 429 和 Retry-After；Web 与原生客户端对同一账户共享失败计数。',
-  'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；当前评分来源仅接入 TMDB，其他外部 ID 只用于跨来源识别。',
+  'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；远端评分目前只主动请求 TMDB，合法 NFO 评分会按其 source 和来源持久化，其他外部 ID 用于跨来源识别。',
 ]
 
 export const apiSourceLinks = {
@@ -175,14 +175,14 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     title: '媒体库与搜索',
     summary: '围绕媒体库配置、最新添加、列表详情、扫描历史、异步扫描和全局搜索展开。',
     highlights: [
-      '媒体库统一自动识别电影和剧集，不再要求用户手动选择库类型。',
+      '媒体库统一自动识别电影和剧集，无需用户手动选择库类型。',
       'metadata_language 支持 zh-CN / en-US，影响扫描和 TMDB 元数据补全语言。',
       '语言变更、缓存失效、catalog revision 和新扫描任务会在同一事务中提交。',
       '仍有活跃扫描时语言变更返回 409，不会提交半更新状态。',
       '创建媒体库后会自动触发一次后台扫描；媒体库不提供启用/禁用状态。',
       '删除媒体库会由数据库级联清理权威数据，并持久化后台任务删除该库独立的图片、字幕和音轨缓存。',
       '搜索会在当前用户可见库内匹配电影、剧集和本地可用的集条目。',
-      '搜索结果会返回条目自身的来源原生 ratings 数组，当前评分来源为 TMDB。',
+      '搜索结果会返回条目自身的来源原生 ratings 数组；远端评分来自 TMDB，本地 NFO 评分保留自身 source。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/libraries', description: '查询媒体库列表' },
@@ -205,7 +205,13 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     highlights: [
       'media_item_id 不是 library_id；详情、文件列表、播放进度都围绕 media_item_id 展开。',
       'metadata_provider_item_id、provider_item_id 和 person_id 都是字符串，客户端不得假设远端 ID 一定是数字。',
-      'metadata_status 使用 matched / unmatched / failed / skipped 表达元数据处理状态。',
+      'metadata_status 使用 pending / matched / unmatched / failed / skipped 表达元数据处理状态。',
+      '条目详情返回 tagline、premiere_date、content_rating 和 ratings 等轻量字段；评分按 source、audience / critic 类型与实际 retrieved_via 来源区分。',
+      'metadata-sources 是管理员诊断接口：集合只返回 external_ids、credits 和不含 payload 的来源摘要，不访问文件系统。',
+      '单个 metadata source 详情才返回标准化 payload，并在媒体库根目录边界内观察一个 NFO；以 valid / invalid / missing 和稳定 error code 表达当前状态，不调用 ffprobe 或 TMDB；超过结构化解析上限时整份来源无效且不截断。',
+      'NFO 标准 payload 区分正式与自定义分级、作品与元数据语言，并支持旧式 ID、结构化评分、actor IDs / profile、季标题/简介/图片及类型不丢失的 artwork；lockdata 仅回显兼容信息，不建立字段锁。',
+      '单条元数据刷新枚举逻辑条目的全部本地载体并统一选择 NFO；series 使用全部本地季集文件定位 tvshow.nfo，只有代表文件执行 ffprobe。',
+      '已有 matched TMDB binding 时按该 ID 刷新；无效 NFO 保留 last-known-good，冲突 NFO 不能静默换绑。',
       '剧集可通过 seasons、episodes、episode-outline 获取本地可用集和远端大纲合并结果。',
       'episode-outline 的播放快照包含 last_media_file_id；同一集有多个文件版本时，客户端应恢复最近播放的具体版本。',
       'playback-header 会先返回播放器头部；缺少片头区间时，服务端在后台按需检测，不阻塞首次播放。',
@@ -213,6 +219,8 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     ],
     endpoints: [
       { method: 'GET', path: '/api/media-items/{id}', description: '查询单个媒体条目详情' },
+      { method: 'GET', path: '/api/media-items/{id}/metadata-sources', description: '查询条目的元数据来源摘要（管理员）' },
+      { method: 'GET', path: '/api/media-items/{id}/metadata-sources/{source_id}', description: '查询并观察单个本地元数据来源（管理员）' },
       { method: 'GET', path: '/api/media-items/{id}/cast', description: '查询单个媒体条目的演员列表' },
       { method: 'GET', path: '/api/media-items/{id}/playback-header', description: '查询播放器页头部信息' },
       { method: 'GET', path: '/api/media-items/{id}/files', description: '查询媒体条目关联文件列表' },

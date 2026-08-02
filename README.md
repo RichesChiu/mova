@@ -170,6 +170,7 @@ docker compose up -d
 - API: [docs/API.md](docs/API.md)
 - SSE 同步协议: [docs/SSE.md](docs/SSE.md)
 - 媒体库扫描与刮削设计: [docs/MEDIA_LIBRARY_SCAN.md](docs/MEDIA_LIBRARY_SCAN.md)
+- NFO 本地元数据契约: [docs/NFO_METADATA.md](docs/NFO_METADATA.md)
 - TMDB 服务端接入契约: [docs/TMDB_INTEGRATION.md](docs/TMDB_INTEGRATION.md)
 - TMDB v3 API 参考: [docs/TMDB.md](docs/TMDB.md)
 - 媒体库缓存生命周期: [docs/LIBRARY_CACHE_LIFECYCLE.md](docs/LIBRARY_CACHE_LIFECYCLE.md)

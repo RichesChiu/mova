@@ -1276,6 +1276,7 @@ pub async fn expire_tmdb_metadata_retention(
           and season.series_id = $1
           and item.metadata_provider = 'tmdb'
           and item.metadata_provider_item_id = $2
+          and external_id.retrieved_via not in ('nfo', 'manual')
         "#,
     )
     .bind(params.media_item_id)
@@ -1293,6 +1294,7 @@ pub async fn expire_tmdb_metadata_retention(
           and season.series_id = $1
           and item.metadata_provider = 'tmdb'
           and item.metadata_provider_item_id = $2
+          and rating.retrieved_via not in ('nfo', 'manual')
         "#,
     )
     .bind(params.media_item_id)
@@ -1424,16 +1426,28 @@ pub async fn expire_tmdb_metadata_retention(
     };
     let retained_title = row.get::<String, _>("title");
 
-    sqlx::query("delete from media_item_external_ids where media_item_id = $1")
-        .bind(params.media_item_id)
-        .execute(&mut *tx)
-        .await
-        .context("failed to clear retained TMDB external ids")?;
-    sqlx::query("delete from media_item_ratings where media_item_id = $1 and source = 'tmdb'")
-        .bind(params.media_item_id)
-        .execute(&mut *tx)
-        .await
-        .context("failed to clear retained TMDB ratings")?;
+    sqlx::query(
+        r#"
+        delete from media_item_external_ids
+        where media_item_id = $1
+          and retrieved_via not in ('nfo', 'manual')
+        "#,
+    )
+    .bind(params.media_item_id)
+    .execute(&mut *tx)
+    .await
+    .context("failed to clear retained TMDB external ids")?;
+    sqlx::query(
+        r#"
+        delete from media_item_ratings
+        where media_item_id = $1
+          and retrieved_via not in ('nfo', 'manual')
+        "#,
+    )
+    .bind(params.media_item_id)
+    .execute(&mut *tx)
+    .await
+    .context("failed to clear retained TMDB ratings")?;
     sqlx::query("delete from media_item_cast_cache where media_item_id = $1")
         .bind(params.media_item_id)
         .execute(&mut *tx)
@@ -1755,7 +1769,7 @@ mod tests {
             values
                 ($1, 'tmdb', $2),
                 ($1, 'imdb', $3)
-            on conflict (media_item_id, provider) do update
+            on conflict (media_item_id, provider, retrieved_via) do update
             set external_id = excluded.external_id,
                 updated_at = now()
             "#,
@@ -1779,7 +1793,7 @@ mod tests {
                 fetched_at
             )
             values ($1, 'tmdb', 'user', 8, 10, 100, 'api', now())
-            on conflict (media_item_id, source, kind) do update
+            on conflict (media_item_id, source, kind, retrieved_via) do update
             set score = excluded.score,
                 scale = excluded.scale,
                 rating_count = excluded.rating_count,
@@ -3089,13 +3103,33 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        let nfo_source_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_local_metadata_sources (
+                library_id, media_item_id, source_path, document_type, is_selected, payload
+            )
+            values (
+                $1, $2, '/media/series/episode-02.nfo', 'episodedetails', true, '{}'
+            )
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(nfo_episode_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         sqlx::query(
             r#"
-            insert into media_item_external_ids (media_item_id, provider, external_id)
-            values ($1, 'tmdb', 'nfo-authored-tmdb-id')
+            insert into media_item_external_ids (
+                media_item_id, provider, external_id, retrieved_via,
+                local_metadata_source_id
+            )
+            values ($1, 'tmdb', 'nfo-authored-tmdb-id', 'nfo', $2)
             "#,
         )
         .bind(nfo_episode_id)
+        .bind(nfo_source_id)
         .execute(&pool)
         .await
         .unwrap();
@@ -3108,12 +3142,14 @@ mod tests {
                 score,
                 scale,
                 retrieved_via,
+                local_metadata_source_id,
                 fetched_at
             )
-            values ($1, 'tmdb', 'user', 9, 10, 'nfo', now())
+            values ($1, 'tmdb', 'user', 9, 10, 'nfo', $2, now())
             "#,
         )
         .bind(nfo_episode_id)
+        .bind(nfo_source_id)
         .execute(&pool)
         .await
         .unwrap();

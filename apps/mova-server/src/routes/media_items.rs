@@ -17,6 +17,14 @@ pub fn router() -> Router<crate::state::AppState> {
             get(handlers::media_items::list_media_item_cast),
         )
         .route(
+            "/media-items/{id}/metadata-sources",
+            get(handlers::media_items::get_media_item_metadata_sources),
+        )
+        .route(
+            "/media-items/{id}/metadata-sources/{source_id}",
+            get(handlers::media_items::get_media_item_metadata_source),
+        )
+        .route(
             "/media-items/{id}/playback-header",
             get(handlers::media_items::get_media_item_playback_header),
         )

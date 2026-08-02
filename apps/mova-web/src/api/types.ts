@@ -129,6 +129,7 @@ export type MetadataStatus = 'matched' | 'unmatched' | 'failed' | 'skipped' | st
 export interface MediaRating {
   source: string
   kind: string
+  retrieved_via: string
   score: number
   scale: number
   rating_count: number | null
@@ -170,7 +171,50 @@ export interface MediaCastMember {
   profile_path: string | null
 }
 
-export interface MediaItemDetail extends MediaItem {}
+export interface MediaExternalId {
+  provider: string
+  external_id: string
+  retrieved_via: string
+}
+
+export interface MediaItemCredit {
+  credit_type: 'actor' | 'director' | 'writer' | string
+  retrieved_via: string
+  sort_order: number
+  person_id: string | null
+  name: string
+  role: string | null
+  profile_path: string | null
+}
+
+export interface MediaLocalMetadataSourceSummary {
+  id: number
+  source_path: string
+  document_type: 'movie' | 'tvshow' | 'episodedetails' | string
+  schema_version: number
+  is_locked: boolean
+  is_selected: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface MediaLocalMetadataSource extends MediaLocalMetadataSourceSummary {
+  observation_status: 'valid' | 'invalid' | 'missing' | string
+  observation_error_code: string | null
+  payload: Record<string, unknown>
+}
+
+export interface MediaItemDetail extends MediaItem {
+  tagline: string | null
+  premiere_date: string | null
+  content_rating: string | null
+}
+
+export interface MediaItemMetadataSources {
+  external_ids: MediaExternalId[]
+  credits: MediaItemCredit[]
+  local_metadata_sources: MediaLocalMetadataSourceSummary[]
+}
 
 export interface MetadataSearchResult {
   provider_item_id: string

@@ -170,6 +170,54 @@ impl MetadataEnrichmentContext {
         files: &mut [DiscoveredMediaFile],
         season_air_year: Option<MetadataSeasonAirYearHint>,
         provider_item_id_hint: Option<&str>,
+        on_progress: F,
+    ) -> anyhow::Result<MetadataEnrichmentOutcome>
+    where
+        F: FnMut(MetadataEnrichmentStage, &DiscoveredMediaFile),
+    {
+        self.enrich_group_with_lookup_hint_and_progress_mode(
+            lookup_type,
+            files,
+            season_air_year,
+            provider_item_id_hint,
+            false,
+            on_progress,
+        )
+        .await
+    }
+
+    /// A user-requested refresh must actually re-read an accepted provider
+    /// identity even when every visible field is already populated. Normal
+    /// scans retain their missing-data optimization through the method above.
+    pub(crate) async fn refresh_group_with_lookup_hint_and_progress<F>(
+        &mut self,
+        lookup_type: &str,
+        files: &mut [DiscoveredMediaFile],
+        season_air_year: Option<MetadataSeasonAirYearHint>,
+        provider_item_id_hint: Option<&str>,
+        on_progress: F,
+    ) -> anyhow::Result<MetadataEnrichmentOutcome>
+    where
+        F: FnMut(MetadataEnrichmentStage, &DiscoveredMediaFile),
+    {
+        self.enrich_group_with_lookup_hint_and_progress_mode(
+            lookup_type,
+            files,
+            season_air_year,
+            provider_item_id_hint,
+            provider_item_id_hint.is_some(),
+            on_progress,
+        )
+        .await
+    }
+
+    async fn enrich_group_with_lookup_hint_and_progress_mode<F>(
+        &mut self,
+        lookup_type: &str,
+        files: &mut [DiscoveredMediaFile],
+        season_air_year: Option<MetadataSeasonAirYearHint>,
+        provider_item_id_hint: Option<&str>,
+        force_remote_lookup: bool,
         mut on_progress: F,
     ) -> anyhow::Result<MetadataEnrichmentOutcome>
     where
@@ -195,8 +243,8 @@ impl MetadataEnrichmentContext {
 
         on_progress(MetadataEnrichmentStage::Metadata, &files[0]);
 
-        let remote_lookup_performed =
-            self.metadata_provider.is_enabled() && group_needs_remote_metadata(files);
+        let remote_lookup_performed = self.metadata_provider.is_enabled()
+            && (force_remote_lookup || group_needs_remote_metadata(files));
         let resolved_remote_metadata = if remote_lookup_performed {
             let metadata = self
                 .lookup_group_remote_metadata(
@@ -903,8 +951,8 @@ fn apply_remote_episode_outline_to_file(
     if file.episode_title.is_none() {
         file.episode_title = remote_episode.title.clone();
     }
-    if file.overview.is_none() {
-        file.overview = remote_episode.overview.clone();
+    if file.episode_overview.is_none() {
+        file.episode_overview = remote_episode.overview.clone();
     }
     if remote_episode.poster_path.is_some()
         && should_replace_episode_artwork(
@@ -2447,6 +2495,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn manual_refresh_forces_direct_lookup_for_a_complete_bound_item() {
+        let provider = Arc::new(CountingMetadataProvider {
+            enabled: true,
+            lookup_count: AtomicUsize::new(0),
+        });
+        let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
+        let mut context = MetadataEnrichmentContext::new(
+            std::env::temp_dir().join("mova-test-manual-refresh-artwork-cache"),
+            1,
+            provider_for_context,
+            "zh-CN".to_string(),
+        );
+        let mut file = build_discovered_episode();
+        file.metadata_provider = Some("tmdb".to_string());
+        file.metadata_provider_item_id = Some("259909".to_string());
+        file.title = "All's Fair".to_string();
+        file.source_title = "All's Fair".to_string();
+        file.original_title = Some("All's Fair".to_string());
+        file.year = Some(2025);
+        file.overview = Some("Complete overview".to_string());
+        file.poster_path = Some("/cache/episode-poster.jpg".to_string());
+        file.backdrop_path = Some("/cache/episode-backdrop.jpg".to_string());
+        file.series_poster_path = Some("/cache/series-poster.jpg".to_string());
+        file.series_backdrop_path = Some("/cache/series-backdrop.jpg".to_string());
+        file.season_poster_path = Some("/cache/season-poster.jpg".to_string());
+        file.season_backdrop_path = Some("/cache/season-backdrop.jpg".to_string());
+        let mut files = vec![file];
+
+        let outcome = context
+            .refresh_group_with_lookup_hint_and_progress(
+                "series",
+                &mut files,
+                None,
+                Some("259909"),
+                |_, _| {},
+            )
+            .await
+            .expect("manual refresh should re-read an accepted direct identity");
+
+        assert_eq!(provider.lookup_count.load(Ordering::SeqCst), 1);
+        assert!(outcome.remote_lookup_performed);
+        assert!(outcome.remote_metadata_applied);
+        assert_eq!(files[0].title, "诉讼女王");
+    }
+
+    #[tokio::test]
     async fn enrich_episode_artwork_keeps_remote_season_artwork() {
         let provider: Arc<dyn MetadataProvider> = Arc::new(SeasonArtworkProvider);
         let mut context = MetadataEnrichmentContext::new(
@@ -2679,8 +2773,19 @@ mod tests {
             source_title: "Show".to_string(),
             original_title: None,
             sort_title: None,
+            tagline: None,
+            premiere_date: None,
+            content_rating: None,
             series_sidecar_title: None,
             series_sidecar_year: None,
+            local_nfo: None,
+            series_local_nfo: None,
+            invalid_local_nfo_source_path: None,
+            invalid_series_local_nfo_source_path: None,
+            local_nfo_is_selected: false,
+            series_local_nfo_is_selected: false,
+            removed_local_nfo_source_path: None,
+            removed_series_local_nfo_source_path: None,
             year: Some(2024),
             external_ids: Vec::new(),
             ratings: Vec::new(),
@@ -2697,6 +2802,13 @@ mod tests {
             season_backdrop_path: None,
             episode_number: Some(1),
             episode_title: None,
+            episode_original_title: None,
+            episode_sort_title: None,
+            episode_year: None,
+            episode_overview: None,
+            episode_tagline: None,
+            episode_premiere_date: None,
+            episode_content_rating: None,
             overview: None,
             series_poster_path: None,
             series_backdrop_path: None,

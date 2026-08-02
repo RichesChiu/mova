@@ -10,6 +10,7 @@ import {
 const rating = (overrides: Partial<MediaRating> = {}): MediaRating => ({
   source: 'tmdb',
   kind: 'audience',
+  retrieved_via: 'tmdb',
   score: 8.4,
   scale: 10,
   rating_count: 12_345,
@@ -36,5 +37,22 @@ describe('media ratings', () => {
         1,
       ),
     ).toHaveLength(1)
+  })
+
+  it('deduplicates the same source and kind by metadata ownership priority', () => {
+    expect(
+      selectDisplayRatings(
+        [
+          rating({ score: 7.5, retrieved_via: 'tmdb' }),
+          rating({ score: 8.1, retrieved_via: 'nfo' }),
+          rating({ score: 9.2, retrieved_via: 'manual' }),
+          rating({ source: 'tmdb', kind: 'critic', score: 81, scale: 100 }),
+        ],
+        4,
+      ),
+    ).toEqual([
+      rating({ score: 9.2, retrieved_via: 'manual' }),
+      rating({ source: 'tmdb', kind: 'critic', score: 81, scale: 100 }),
+    ])
   })
 })

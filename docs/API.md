@@ -43,7 +43,7 @@
 
 其中：
 
-- `code` 始终是数字 HTTP 状态码，不再混用字符串业务码。
+- `code` 始终是数字 HTTP 状态码；业务分类由 `error_code` 表达。
 - `error_code` 是跨 Web、macOS 和 iOS 稳定的机器可读原因码。
 - `params` 是本地化模板参数；没有参数时仍返回空对象。
 - `message` 是英文诊断信息，只用于日志、排障和未知 `error_code` 的兜底，不应直接作为客户端主文案。
@@ -139,6 +139,8 @@
 | `POST` | `/api/libraries/{id}/scan` | 触发异步扫描 |
 | `GET` | `/api/search` | 搜索当前用户可见库下的电影、剧集和集条目 |
 | `GET` | `/api/media-items/{id}` | 查询单个媒体条目详情 |
+| `GET` | `/api/media-items/{id}/metadata-sources` | 查询条目的元数据来源摘要（管理员） |
+| `GET` | `/api/media-items/{id}/metadata-sources/{source_id}` | 查询并观察单个本地元数据来源（管理员） |
 | `GET` | `/api/media-items/{id}/cast` | 查询单个媒体条目的演员列表 |
 | `GET` | `/api/media-items/{id}/playback-header` | 查询播放器页头部信息 |
 | `GET` | `/api/media-items/{id}/files` | 查询媒体条目关联文件列表 |
@@ -1178,9 +1180,12 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `source_title`：文件名解析出的原始资源名，主要用于元数据匹配和问题排查，不建议直接作为前端展示名
 - `metadata_provider` / `metadata_provider_item_id`：远端 metadata binding，表示条目绑定到具体远端条目。提供商 ID 以字符串传输和存储，客户端不得假设它一定是数字
 - `metadata_status`：使用 `pending` / `matched` / `unmatched` / `failed` / `skipped`；`pending` 表示扫描中的远端确认中间态
-- `metadata_failure_reason`：`unmatched` 或 `failed` 的原因，使用 `no_remote_match` 或 `metadata_provider_error`
+- `metadata_failure_reason`：远端处理原因。常见组合为 `unmatched + no_remote_match`、`failed + metadata_provider_error`、`skipped + metadata_provider_disabled`；已有 binding 在临时 provider 故障时可以保留为 `matched + metadata_provider_error`。正常 `pending` 或成功 `matched` 为 `null`
 - `remote_media_type`：使用 `movie` / `series`；没有远端判断或 TMDB 未启用时为 `null`
-- `ratings`：评分数组；`source` 是评分品牌，`kind` 是评分类型，`score` 与 `scale` 保留来源原始量纲，`rating_count` 是投票/评价数量。当前只返回 `source=tmdb`、`kind=audience`；无有效投票时返回空数组
+- `tagline`：可选宣传语；可以来自选中 NFO 或其它已确认来源
+- `premiere_date`：可选首映/首播日期，格式为 `YYYY-MM-DD`；单集优先使用 NFO `aired`
+- `content_rating`：可选内容分级，例如 `PG-13` 或 `TV-14`
+- `ratings`：评分数组；`source` 是评分品牌，`kind` 是 `audience` 或 `critic`，`retrieved_via` 标识实际写入来源（当前自动流程使用 `nfo` 或 `tmdb`），`score` 与 `scale` 保留来源原始量纲，`rating_count` 是投票/评价数量；无有效评分时返回空数组
 - `country`：可选的国家/地区信息；电影会优先使用 TMDB 的 production countries，剧集会优先使用 TMDB 的 origin country；服务端按自由文本存储，不做 255 字符截断
 - `genres`：可选的题材类型字符串；来自 TMDB genres，会按展示顺序拼接；服务端按自由文本存储，不做 255 字符截断
 - `studio`：可选的制作公司字符串；来自 TMDB production companies，会按展示顺序拼接；服务端按自由文本存储，不做 255 字符截断
@@ -1207,10 +1212,14 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
   "metadata_failure_reason": null,
   "remote_media_type": "series",
   "year": 2021,
+  "tagline": "Every legend has a beginning.",
+  "premiere_date": "2021-11-06",
+  "content_rating": "TV-14",
   "ratings": [
     {
       "source": "tmdb",
       "kind": "audience",
+      "retrieved_via": "tmdb",
       "score": 9.0,
       "scale": 10.0,
       "rating_count": 24680,
@@ -1225,6 +1234,118 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
   "poster_path": "/api/media-items/3/poster",
   "backdrop_path": "/api/media-items/3/backdrop",
   "logo_path": "/api/media-items/3/logo",
+  "created_at": "2026-03-24T12:00:00+08:00",
+  "updated_at": "2026-03-24T12:00:00+08:00"
+}
+```
+
+### `GET /api/media-items/{id}/metadata-sources`
+
+作用：
+- 查询一个媒体条目的来源身份、持久化演职员和本地元数据来源摘要
+- 摘要查询不会从数据库读取标准化 `payload`，也不会访问文件系统或解析 NFO
+- 适用于元数据诊断入口和管理界面；普通详情页不需要主动请求
+
+权限：
+- 仅管理员可用
+- 管理员仍必须能访问条目所属媒体库
+
+关键字段：
+- `external_ids`：作品外部身份数组；每项包含 `provider`、`external_id` 和 `retrieved_via`。同一 provider 可以保留不同实际来源，当前自动写入来源为 `nfo` 或 `tmdb`；客户端不得把 episode ID 当作父剧 ID
+- `credits`：持久化演职员数组；`credit_type` 使用 `actor` / `director` / `writer`，并返回 `retrieved_via`、`sort_order`、可选 `person_id`、姓名、角色和头像路径。actor NFO 中的 TMDB ID 可以成为 `person_id`，通过安全校验的远程头像可以成为 `profile_path`；服务端不在持久化层截断 NFO 演职员
+- `local_metadata_sources`：本地元数据来源摘要数组，选中来源排在前面；每项包含稳定的 `id`、`source_path`、`document_type`、`schema_version`、`is_locked`、`is_selected` 和时间
+- `is_locked` 只回显 NFO `lockdata` 兼容标记；当前服务端没有逐字段人工锁，也不依据该值阻止字段刷新
+
+返回示例：
+
+```json
+{
+  "external_ids": [
+    {
+      "provider": "tmdb",
+      "external_id": "94605",
+      "retrieved_via": "tmdb"
+    },
+    {
+      "provider": "imdb",
+      "external_id": "tt11126994",
+      "retrieved_via": "nfo"
+    }
+  ],
+  "credits": [
+    {
+      "credit_type": "actor",
+      "retrieved_via": "nfo",
+      "sort_order": 0,
+      "person_id": "1356210",
+      "name": "Hailee Steinfeld",
+      "role": "Vi",
+      "profile_path": null
+    }
+  ],
+  "local_metadata_sources": [
+    {
+      "id": 17,
+      "source_path": "/media/Arcane/tvshow.nfo",
+      "document_type": "tvshow",
+      "schema_version": 1,
+      "is_locked": false,
+      "is_selected": true,
+      "created_at": "2026-03-24T12:00:00+08:00",
+      "updated_at": "2026-03-24T12:00:00+08:00"
+    }
+  ]
+}
+```
+
+### `GET /api/media-items/{id}/metadata-sources/{source_id}`
+
+作用：
+- 查询一个已持久化本地元数据来源的完整标准化 `payload`
+- 请求时只观察并解析所选的一个 NFO，用于显示当前文件状态
+- 不调用 ffprobe 或 TMDB，也不会创建、更新或删除来源记录
+
+权限：
+- 仅管理员可用
+- 管理员仍必须能访问条目所属媒体库
+- `source_id` 必须属于路径中的 `media_item_id`，否则返回 `404 Not Found`
+
+关键字段：
+- `id`：来源记录稳定 ID，由摘要接口返回
+- `payload`：最近一次成功扫描/刷新后持久化的版本化标准结构，只包含服务端识别字段，不返回原始 XML、未知标签、DTD 或实体
+- 标准 payload 支持标题/排序标题/正式与自定义分级的独立语义、作品语言与元数据语言、旧式 `id`、结构化评分、actor IDs / profile、季标题/简介/图片、类型不丢失的 artwork，以及 `genre` / `country` / writer 的 `/` 分隔写法；完整字段和投影范围见 [`NFO_METADATA.md`](NFO_METADATA.md)
+- `observation_status`：本次请求对 `source_path` 的实时观察，使用 `valid` / `invalid` / `missing`；观察以条目所属媒体库根目录为边界，只读取边界内的非符号链接 NFO
+- `observation_error_code`：仅在 `observation_status = invalid` 时提供，可能值为 `open_failed`、`inspect_failed`、`not_regular_file`、`too_large`、`read_failed`、`grew_beyond_limit`、`invalid_utf8`、`forbidden_xml_declaration`、`malformed_xml`、`unsupported_root`、`unexpected_root_kind`、`outside_library_root`、`symlink_not_allowed`、`secure_open_unavailable`、`resource_limit_exceeded` 或 `unsupported_document_type`。`resource_limit_exceeded` 表示整份 NFO 超过结构化解析上限，服务端不会截断后使用；响应仍可同时携带最近一次有效的 `payload`
+- `invalid` / `missing` 可以与旧 `payload` 同时出现：前者表示当前文件状态，后者表示最近一次成功保存的内容。新放入但尚未扫描或刷新的 NFO 不会因为查询本接口自动建立来源记录
+
+返回示例：
+
+```json
+{
+  "id": 17,
+  "source_path": "/media/Arcane/tvshow.nfo",
+  "document_type": "tvshow",
+  "schema_version": 1,
+  "is_locked": false,
+  "is_selected": true,
+  "observation_status": "valid",
+  "observation_error_code": null,
+  "payload": {
+    "schema_version": 1,
+    "metadata": {
+      "kind": "tv_show",
+      "title": "Arcane",
+      "year": 2021,
+      "genres": ["Animation", "Drama"],
+      "unique_ids": [
+        {
+          "provider": "tmdb",
+          "value": "94605",
+          "is_default": true
+        }
+      ]
+    }
+  },
   "created_at": "2026-03-24T12:00:00+08:00",
   "updated_at": "2026-03-24T12:00:00+08:00"
 }
@@ -1468,13 +1589,16 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 说明：
 - 这个动作会重新读取该媒体条目关联的源文件、本地 sidecar 和本地图片文件
+- 单条刷新会枚举该逻辑条目的全部本地载体：movie / episode 使用自身全部版本，series 使用全部本地季集文件作为 `tvshow.nfo` 查找锚点；NFO 来源去重后统一选源，只有代表文件执行 ffprobe，避免 series 刷新重复探测整剧
+- 已有 `matched` TMDB binding 时直接按该 ID 刷新，NFO 或目录中的冲突 ID 只保留为来源信息，不能静默换绑。只有 `POST /api/media-items/{id}/metadata-match` 可以显式替换 binding
+- 有效、无效和不存在的 NFO 分开处理：无效来源保留 last-known-good；权威载体集合确认来源不存在后才删除旧快照并提升剩余兼容来源
 - 如果 TMDB provider 可用，会保留本地文件结构与 `source_title`，并按自动补全策略应用远端字段；自动扫描与人工替换的不同覆盖强度见 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md)
 - 刷新后会同步更新 `metadata_status`、`metadata_failure_reason` 和 `remote_media_type`
 - 命中远程图片后，服务端先缓存到本地，再写回 `poster_path` / `backdrop_path` / `logo_path`；远端缺失的图片字段保持为空，禁止使用同条目的其他图片字段或其他层级图片补齐
 - 媒体条目通过 `POST /api/media-items/{id}/metadata-match` 绑定精确 TMDB 条目时，演员数据和剧集 outline 使用该 binding
 - 源文件被重命名、移动或删除时返回 `409 Conflict` 并要求重新扫描
 - 所属媒体库正在扫描或删除时返回 `409 Conflict`
-- 接口只刷新单条媒体项，不提供整库级 metadata refresh
+- 接口刷新一个逻辑媒体项及其本地 NFO 来源集合，不提供整库级 metadata refresh
 
 ### `GET /api/media-items/{id}/poster`
 

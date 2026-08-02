@@ -1,6 +1,10 @@
+#[cfg(test)]
+use super::sidecar::read_sidecar_metadata;
 use super::sidecar::{
-    find_local_artwork, find_local_artwork_with_scope, read_series_sidecar_metadata,
-    read_series_sidecar_metadata_within_root, read_sidecar_metadata, ArtworkKind, ArtworkScope,
+    find_local_artwork, find_local_artwork_with_scope, find_local_episode_thumbnail,
+    find_local_season_artwork, find_local_series_artwork, read_series_sidecar_metadata,
+    read_series_sidecar_metadata_within_root, ArtworkKind, ArtworkScope, LocalNfoKind,
+    LocalNfoMetadata,
 };
 use std::path::{Component, Path, PathBuf};
 
@@ -44,7 +48,7 @@ pub(crate) struct EpisodeIdentity {
     pub episode_number: i32,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct ParsedMediaMetadata {
     pub title: String,
     pub source_title: String,
@@ -58,11 +62,13 @@ pub(crate) struct ParsedMediaMetadata {
     pub season_backdrop_path: Option<String>,
     pub episode_number: Option<i32>,
     pub episode_title: Option<String>,
+    pub episode_overview: Option<String>,
     pub overview: Option<String>,
     pub series_poster_path: Option<String>,
     pub series_backdrop_path: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
+    pub local_nfo: Option<LocalNfoMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,10 +82,11 @@ pub struct SeriesFileMetadata {
     pub season_air_year: Option<i32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SeriesSidecarMetadata {
     pub title: Option<String>,
     pub year: Option<i32>,
+    pub local_nfo: LocalNfoMetadata,
 }
 
 /// 从媒体文件所在容器目录解析出的本地作品身份。
@@ -95,65 +102,129 @@ pub struct MediaContainerIdentity {
     pub tmdb_id: Option<String>,
 }
 
+#[cfg(test)]
 pub(crate) fn parse_media_metadata(path: &Path) -> ParsedMediaMetadata {
+    parse_media_metadata_with_sidecar(path, read_sidecar_metadata(path))
+}
+
+pub(crate) fn parse_media_metadata_with_sidecar(
+    path: &Path,
+    sidecar: Option<LocalNfoMetadata>,
+) -> ParsedMediaMetadata {
     let parsed_name = parse_media_name(path);
-    let sidecar = read_sidecar_metadata(path);
     let episode_identity = parse_episode_identity(path);
-    let is_episode = episode_identity.is_some();
+    let is_episode = episode_identity.is_some()
+        || sidecar
+            .as_ref()
+            .is_some_and(|metadata| metadata.kind == LocalNfoKind::Episode);
+    let parsed_season_number = episode_identity
+        .as_ref()
+        .map(|identity| identity.season_number);
     let file_poster_path =
         find_local_artwork_with_scope(path, ArtworkKind::Poster, ArtworkScope::FileSpecific);
     let file_backdrop_path =
         find_local_artwork_with_scope(path, ArtworkKind::Backdrop, ArtworkScope::FileSpecific);
-    let generic_poster_path =
-        find_local_artwork_with_scope(path, ArtworkKind::Poster, ArtworkScope::Generic);
-    let generic_backdrop_path =
-        find_local_artwork_with_scope(path, ArtworkKind::Backdrop, ArtworkScope::Generic);
+    let nfo_poster_path = sidecar.as_ref().and_then(|metadata| {
+        if is_episode {
+            metadata
+                .artwork
+                .thumbnails
+                .first()
+                .or_else(|| metadata.artwork.posters.first())
+                .cloned()
+        } else {
+            metadata.artwork.posters.first().cloned()
+        }
+    });
+    let nfo_backdrop_path = sidecar
+        .as_ref()
+        .and_then(|metadata| metadata.artwork.backdrops.first().cloned());
     let poster_path = if is_episode {
-        file_poster_path
+        nfo_poster_path
+            .or_else(|| find_local_episode_thumbnail(path))
+            .or(file_poster_path)
     } else {
-        find_local_artwork(path, ArtworkKind::Poster).or(sidecar.poster_path)
+        nfo_poster_path.or_else(|| find_local_artwork(path, ArtworkKind::Poster))
     };
     let backdrop_path = if is_episode {
-        file_backdrop_path
+        nfo_backdrop_path.or(file_backdrop_path)
     } else {
-        find_local_artwork(path, ArtworkKind::Backdrop).or(sidecar.backdrop_path)
+        nfo_backdrop_path.or_else(|| find_local_artwork(path, ArtworkKind::Backdrop))
     };
     let series_poster_path = if is_episode {
-        generic_poster_path
+        find_local_series_artwork(path, ArtworkKind::Poster)
     } else {
         poster_path.clone()
     };
     let series_backdrop_path = if is_episode {
-        generic_backdrop_path
+        find_local_series_artwork(path, ArtworkKind::Backdrop)
     } else {
         backdrop_path.clone()
     };
+    let season_poster_path = parsed_season_number
+        .and_then(|season| find_local_season_artwork(path, season, ArtworkKind::Poster));
+    let season_backdrop_path = parsed_season_number
+        .and_then(|season| find_local_season_artwork(path, season, ArtworkKind::Backdrop));
+
+    let nfo_overview = sidecar.as_ref().and_then(|metadata| {
+        metadata
+            .overview
+            .clone()
+            .or_else(|| metadata.outline.clone())
+    });
+    let parsed_episode_number = episode_identity
+        .as_ref()
+        .map(|identity| identity.episode_number);
+    let parsed_episode_title = episode_identity
+        .as_ref()
+        .and_then(|identity| identity.episode_title.clone());
 
     ParsedMediaMetadata {
-        title: sidecar
-            .title
-            .clone()
-            .unwrap_or_else(|| parsed_name.title.clone()),
+        title: if is_episode {
+            parsed_name.title.clone()
+        } else {
+            sidecar
+                .as_ref()
+                .and_then(|metadata| metadata.title.clone())
+                .unwrap_or_else(|| parsed_name.title.clone())
+        },
         source_title: parsed_name.title,
-        original_title: sidecar.original_title,
-        sort_title: sidecar.sort_title,
-        year: sidecar.year.or(parsed_name.year),
-        season_number: episode_identity
+        original_title: sidecar
             .as_ref()
-            .map(|identity| identity.season_number),
+            .and_then(|metadata| metadata.original_title.clone()),
+        sort_title: sidecar
+            .as_ref()
+            .and_then(|metadata| metadata.sort_title.clone()),
+        year: sidecar
+            .as_ref()
+            .and_then(|metadata| metadata.year)
+            .or(parsed_name.year),
+        season_number: parsed_season_number
+            .or_else(|| sidecar.as_ref().and_then(|metadata| metadata.season_number)),
         season_title: None,
         season_overview: None,
-        season_poster_path: None,
-        season_backdrop_path: None,
-        episode_number: episode_identity
-            .as_ref()
-            .map(|identity| identity.episode_number),
-        episode_title: episode_identity.and_then(|identity| identity.episode_title),
-        overview: sidecar.overview,
+        season_poster_path,
+        season_backdrop_path,
+        episode_number: parsed_episode_number.or_else(|| {
+            sidecar
+                .as_ref()
+                .and_then(|metadata| metadata.episode_number)
+        }),
+        episode_title: if is_episode {
+            sidecar
+                .as_ref()
+                .and_then(|metadata| metadata.title.clone())
+                .or(parsed_episode_title)
+        } else {
+            None
+        },
+        episode_overview: is_episode.then_some(nfo_overview.clone()).flatten(),
+        overview: (!is_episode).then_some(nfo_overview).flatten(),
         series_poster_path,
         series_backdrop_path,
         poster_path,
         backdrop_path,
+        local_nfo: sidecar,
     }
 }
 
@@ -178,11 +249,13 @@ pub(crate) fn parse_media_metadata_without_sidecar(path: &Path) -> ParsedMediaMe
             .as_ref()
             .map(|identity| identity.episode_number),
         episode_title: episode_identity.and_then(|identity| identity.episode_title),
+        episode_overview: None,
         overview: None,
         series_poster_path: None,
         series_backdrop_path: None,
         poster_path: None,
         backdrop_path: None,
+        local_nfo: None,
     }
 }
 
@@ -336,13 +409,19 @@ pub fn infer_series_sidecar_metadata_within_root(
 }
 
 fn series_sidecar_metadata_from_parsed(
-    metadata: super::sidecar::ParsedSidecarMetadata,
+    metadata: Option<LocalNfoMetadata>,
 ) -> Option<SeriesSidecarMetadata> {
-    let title = metadata.title.filter(|value| !value.trim().is_empty());
+    let metadata = metadata?;
+    let title = metadata
+        .title
+        .clone()
+        .filter(|value| !value.trim().is_empty());
+    let year = metadata.year;
 
-    (title.is_some() || metadata.year.is_some()).then_some(SeriesSidecarMetadata {
+    Some(SeriesSidecarMetadata {
         title,
-        year: metadata.year,
+        year,
+        local_nfo: metadata,
     })
 }
 

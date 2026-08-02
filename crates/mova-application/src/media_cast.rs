@@ -22,19 +22,18 @@ pub async fn list_media_item_cast(
     media_item: &MediaItem,
     metadata_provider: Arc<dyn MetadataProvider>,
 ) -> ApplicationResult<Vec<MediaCastMember>> {
-    if media_item.media_type.eq_ignore_ascii_case("episode") {
-        return Ok(Vec::new());
-    }
-    if validated_tmdb_binding(media_item).is_none() {
-        return Ok(Vec::new());
-    }
-
     let members = mova_db::list_media_item_cast_members(pool, media_item.id)
         .await
         .map_err(ApplicationError::from)?;
 
     if !members.is_empty() {
         return Ok(members);
+    }
+
+    if media_item.media_type.eq_ignore_ascii_case("episode")
+        || validated_tmdb_binding(media_item).is_none()
+    {
+        return Ok(Vec::new());
     }
 
     let sync_record = mova_db::get_media_item_cast_cache(pool, media_item.id)

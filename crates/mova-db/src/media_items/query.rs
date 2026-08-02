@@ -1,11 +1,11 @@
 use super::{
     ratings::{list_media_item_ratings, replace_media_item_remote_data},
-    CreateAudioTrackParams, CreateSubtitleTrackParams, ExistingMediaMetadataSummary,
-    GlobalSearchParams, GlobalSearchResult, LibraryMediaTypeCounts, ListMediaItemsForLibraryParams,
-    ListMediaItemsForLibraryResult, MediaItemPlaybackHeader, RecentlyAddedLibraryMediaItems,
-    SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams, UpdateMediaItemMetadataParams,
-    UpdateSeriesEpisodeMetadataParams, UpdateSeriesSeasonMetadataParams,
-    UpsertSeriesEpisodeOutlineCacheParams,
+    reconcile_local_metadata_snapshots_tx, CreateAudioTrackParams, CreateSubtitleTrackParams,
+    ExistingMediaMetadataSummary, GlobalSearchParams, GlobalSearchResult, LibraryMediaTypeCounts,
+    ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult, MediaItemPlaybackHeader,
+    RecentlyAddedLibraryMediaItems, SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams,
+    UpdateMediaItemMetadataParams, UpdateSeriesEpisodeMetadataParams,
+    UpdateSeriesSeasonMetadataParams, UpsertSeriesEpisodeOutlineCacheParams,
 };
 use crate::{
     tmdb_revalidation::{
@@ -65,6 +65,9 @@ pub async fn list_media_items_for_library(
             metadata_failure_reason,
             remote_media_type,
             year,
+            tagline,
+            premiere_date,
+            content_rating,
             country,
             genres,
             studio,
@@ -134,6 +137,9 @@ pub async fn list_media_item_previews_by_library(
                 metadata_failure_reason,
                 remote_media_type,
                 year,
+                tagline,
+                premiere_date,
+                content_rating,
                 country,
                 genres,
                 studio,
@@ -165,6 +171,9 @@ pub async fn list_media_item_previews_by_library(
             metadata_failure_reason,
             remote_media_type,
             year,
+            tagline,
+            premiere_date,
+            content_rating,
             country,
             genres,
             studio,
@@ -243,6 +252,9 @@ pub async fn list_recently_added_media_items_by_library(
                 mi.metadata_failure_reason,
                 mi.remote_media_type,
                 mi.year,
+                mi.tagline,
+                mi.premiere_date,
+                mi.content_rating,
                 mi.country,
                 mi.genres,
                 mi.studio,
@@ -293,6 +305,9 @@ pub async fn list_recently_added_media_items_by_library(
             ri.metadata_failure_reason as media_item_metadata_failure_reason,
             ri.remote_media_type as media_item_remote_media_type,
             ri.year as media_item_year,
+            ri.tagline as media_item_tagline,
+            ri.premiere_date as media_item_premiere_date,
+            ri.content_rating as media_item_content_rating,
             ri.country as media_item_country,
             ri.genres as media_item_genres,
             ri.studio as media_item_studio,
@@ -496,6 +511,9 @@ pub async fn get_media_item(pool: &PgPool, media_item_id: i64) -> Result<Option<
             metadata_failure_reason,
             remote_media_type,
             year,
+            tagline,
+            premiere_date,
+            content_rating,
             country,
             genres,
             studio,
@@ -544,6 +562,9 @@ pub async fn get_media_item_with_library_visibility(
             mi.metadata_failure_reason,
             mi.remote_media_type,
             mi.year,
+            mi.tagline,
+            mi.premiere_date,
+            mi.content_rating,
             mi.country,
             mi.genres,
             mi.studio,
@@ -721,10 +742,13 @@ pub async fn update_media_item_metadata(
             poster_path = $16,
             backdrop_path = $17,
             logo_path = $18,
+            tagline = $19,
+            premiere_date = $20,
+            content_rating = $21,
             updated_at = now()
         where id = $1
-          and library_id = $19
-          and updated_at = $20
+          and library_id = $22
+          and updated_at = $23
         returning
             id,
             library_id,
@@ -739,6 +763,9 @@ pub async fn update_media_item_metadata(
             metadata_failure_reason,
             remote_media_type,
             year,
+            tagline,
+            premiere_date,
+            content_rating,
             country,
             genres,
             studio,
@@ -768,6 +795,9 @@ pub async fn update_media_item_metadata(
     .bind(&params.poster_path)
     .bind(&params.backdrop_path)
     .bind(&params.logo_path)
+    .bind(&params.tagline)
+    .bind(params.premiere_date)
+    .bind(&params.content_rating)
     .bind(library_id)
     .bind(params.expected_updated_at)
     .fetch_optional(&mut *tx)
@@ -791,6 +821,43 @@ pub async fn update_media_item_metadata(
             params.tmdb_remote_snapshot_renews_retention,
         )
         .await?;
+    }
+
+    if row.is_some() {
+        reconcile_local_metadata_snapshots_tx(
+            &mut tx,
+            library_id,
+            crate::local_metadata::MediaLocalMetadataTarget::MediaItem(media_item_id),
+            &params.removed_local_nfo_source_paths,
+            &params.local_nfos,
+        )
+        .await?;
+    }
+
+    if row.is_some() && previous_media_type.eq_ignore_ascii_case("series") {
+        for season in &params.seasons {
+            sqlx::query(
+                r#"
+                update seasons
+                set title = $3,
+                    overview = $4,
+                    poster_path = $5,
+                    backdrop_path = $6,
+                    updated_at = now()
+                where series_id = $1
+                  and season_number = $2
+                "#,
+            )
+            .bind(media_item_id)
+            .bind(season.season_number)
+            .bind(&season.title)
+            .bind(&season.overview)
+            .bind(&season.poster_path)
+            .bind(&season.backdrop_path)
+            .execute(&mut *tx)
+            .await
+            .context("failed to update season metadata during parent refresh")?;
+        }
     }
 
     if row.is_some() {
@@ -852,16 +919,22 @@ async fn clear_superseded_tmdb_series_episode_identity_tx(
         return Ok(());
     }
 
-    sqlx::query("delete from media_item_external_ids where media_item_id = any($1)")
-        .bind(&episode_ids)
-        .execute(&mut **tx)
-        .await
-        .context("failed to clear external ids owned by the superseded TMDB series binding")?;
+    sqlx::query(
+        r#"
+        delete from media_item_external_ids
+        where media_item_id = any($1)
+          and retrieved_via not in ('nfo', 'manual')
+        "#,
+    )
+    .bind(&episode_ids)
+    .execute(&mut **tx)
+    .await
+    .context("failed to clear external ids owned by the superseded TMDB series binding")?;
     sqlx::query(
         r#"
         delete from media_item_ratings
         where media_item_id = any($1)
-          and source = 'tmdb'
+          and retrieved_via not in ('nfo', 'manual')
         "#,
     )
     .bind(&episode_ids)
@@ -1150,6 +1223,66 @@ pub async fn list_media_files_for_media_item(
     .fetch_all(pool)
     .await
     .context("failed to list media files for media item")?;
+
+    Ok(rows.into_iter().map(map_media_file_row).collect())
+}
+
+/// List every filesystem carrier that can contribute local metadata to one
+/// logical item. A series parent owns no file directly, so all files below its
+/// seasons and episodes are returned as `tvshow.nfo` lookup anchors.
+pub async fn list_media_item_metadata_refresh_source_files(
+    pool: &PgPool,
+    media_item_id: i64,
+) -> Result<Vec<MediaFile>> {
+    let rows = sqlx::query(
+        r#"
+        select
+            mf.id,
+            mf.media_item_id,
+            mf.library_id,
+            mf.file_path,
+            mf.container,
+            mf.file_size,
+            mf.duration_seconds,
+            mf.video_title,
+            mf.video_codec,
+            mf.video_profile,
+            mf.video_level,
+            mf.audio_codec,
+            mf.width,
+            mf.height,
+            mf.bitrate,
+            mf.video_bitrate,
+            mf.video_frame_rate,
+            mf.video_aspect_ratio,
+            mf.video_scan_type,
+            mf.video_color_primaries,
+            mf.video_color_space,
+            mf.video_color_transfer,
+            mf.video_bit_depth,
+            mf.video_pixel_format,
+            mf.video_reference_frames,
+            mf.technical_tags,
+            mf.scan_hash,
+            mf.created_at,
+            mf.updated_at
+        from media_files mf
+        left join episodes e on e.media_item_id = mf.media_item_id
+        left join seasons s on s.id = e.season_id
+        where mf.media_item_id = $1
+           or s.series_id = $1
+        order by
+            case when mf.media_item_id = $1 then 0 else 1 end,
+            s.season_number asc nulls first,
+            e.episode_number asc nulls first,
+            mf.file_path asc,
+            mf.id asc
+        "#,
+    )
+    .bind(media_item_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to list media item metadata refresh source files")?;
 
     Ok(rows.into_iter().map(map_media_file_row).collect())
 }
@@ -2103,6 +2236,38 @@ pub async fn list_library_media_file_paths(pool: &PgPool, library_id: i64) -> Re
         .collect())
 }
 
+pub async fn list_library_media_file_memberships(
+    pool: &PgPool,
+    library_id: i64,
+) -> Result<Vec<super::LibraryMediaFileMembership>> {
+    let rows = sqlx::query(
+        r#"
+        select
+            mf.media_item_id,
+            coalesce(season.series_id, mf.media_item_id) as logical_metadata_owner_id,
+            mf.file_path
+        from media_files mf
+        left join episodes episode on episode.media_item_id = mf.media_item_id
+        left join seasons season on season.id = episode.season_id
+        where mf.library_id = $1
+        order by mf.file_path
+        "#,
+    )
+    .bind(library_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to list library media file memberships")?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| super::LibraryMediaFileMembership {
+            media_item_id: row.get("media_item_id"),
+            logical_metadata_owner_id: row.get("logical_metadata_owner_id"),
+            file_path: row.get("file_path"),
+        })
+        .collect())
+}
+
 pub async fn list_existing_media_metadata_for_file_paths(
     pool: &PgPool,
     library_id: i64,
@@ -2115,6 +2280,8 @@ pub async fn list_existing_media_metadata_for_file_paths(
     let rows = sqlx::query(
         r#"
         select
+            mi.id as media_item_id,
+            coalesce(s.series_id, mi.id) as logical_metadata_owner_id,
             mf.id as media_file_id,
             mf.file_path,
             mi.media_type,
@@ -2123,11 +2290,41 @@ pub async fn list_existing_media_metadata_for_file_paths(
             mi.metadata_status,
             mi.metadata_failure_reason,
             mi.remote_media_type,
+            exists (
+                select 1
+                from media_local_metadata_sources local_source
+                where local_source.media_item_id = mi.id
+            ) as has_local_nfo,
+            (
+                select selected_source.source_path
+                from media_local_metadata_sources selected_source
+                where selected_source.media_item_id = mi.id
+                  and selected_source.is_selected
+                order by selected_source.id
+                limit 1
+            ) as local_nfo_source_path,
+            (
+                select selected_source.payload
+                from media_local_metadata_sources selected_source
+                where selected_source.media_item_id = mi.id
+                  and selected_source.is_selected
+                order by selected_source.id
+                limit 1
+            ) as local_nfo_payload,
+            (
+                select revalidation.remote_snapshot
+                from tmdb_metadata_revalidations revalidation
+                where revalidation.media_item_id = mi.id
+                limit 1
+            ) as tmdb_remote_snapshot,
             mi.title,
             mi.source_title,
             mi.original_title,
             mi.sort_title,
             mi.year,
+            mi.tagline,
+            mi.premiere_date,
+            mi.content_rating,
             mi.country,
             mi.genres,
             mi.studio,
@@ -2162,10 +2359,40 @@ pub async fn list_existing_media_metadata_for_file_paths(
             series_mi.title as series_title,
             series_mi.metadata_provider as series_metadata_provider,
             series_mi.metadata_provider_item_id as series_metadata_provider_item_id,
+            exists (
+                select 1
+                from media_local_metadata_sources series_local_source
+                where series_local_source.media_item_id = series_mi.id
+            ) as series_has_local_nfo,
+            (
+                select selected_series_source.source_path
+                from media_local_metadata_sources selected_series_source
+                where selected_series_source.media_item_id = series_mi.id
+                  and selected_series_source.is_selected
+                order by selected_series_source.id
+                limit 1
+            ) as series_local_nfo_source_path,
+            (
+                select selected_series_source.payload
+                from media_local_metadata_sources selected_series_source
+                where selected_series_source.media_item_id = series_mi.id
+                  and selected_series_source.is_selected
+                order by selected_series_source.id
+                limit 1
+            ) as series_local_nfo_payload,
+            (
+                select series_revalidation.remote_snapshot
+                from tmdb_metadata_revalidations series_revalidation
+                where series_revalidation.media_item_id = series_mi.id
+                limit 1
+            ) as series_tmdb_remote_snapshot,
             series_mi.source_title as series_source_title,
             series_mi.original_title as series_original_title,
             series_mi.sort_title as series_sort_title,
             series_mi.year as series_year,
+            series_mi.tagline as series_tagline,
+            series_mi.premiere_date as series_premiere_date,
+            series_mi.content_rating as series_content_rating,
             series_mi.country as series_country,
             series_mi.genres as series_genres,
             series_mi.studio as series_studio,
@@ -2217,6 +2444,9 @@ fn map_media_item_row(row: PgRow) -> MediaItem {
         metadata_failure_reason: row.get("metadata_failure_reason"),
         remote_media_type: row.get("remote_media_type"),
         year: row.get("year"),
+        tagline: row.get("tagline"),
+        premiere_date: row.get("premiere_date"),
+        content_rating: row.get("content_rating"),
         ratings: Vec::new(),
         country: row.get("country"),
         genres: row.get("genres"),
@@ -2269,6 +2499,9 @@ fn map_recently_added_media_item_row(row: &PgRow) -> MediaItem {
         metadata_failure_reason: row.get("media_item_metadata_failure_reason"),
         remote_media_type: row.get("media_item_remote_media_type"),
         year: row.get("media_item_year"),
+        tagline: row.get("media_item_tagline"),
+        premiere_date: row.get("media_item_premiere_date"),
+        content_rating: row.get("media_item_content_rating"),
         ratings: Vec::new(),
         country: row.get("media_item_country"),
         genres: row.get("media_item_genres"),
@@ -2402,6 +2635,8 @@ fn map_media_file_row(row: PgRow) -> MediaFile {
 
 fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataSummary {
     ExistingMediaMetadataSummary {
+        media_item_id: row.get("media_item_id"),
+        logical_metadata_owner_id: row.get("logical_metadata_owner_id"),
         media_file_id: row.get("media_file_id"),
         file_path: row.get("file_path"),
         media_type: row.get("media_type"),
@@ -2410,11 +2645,18 @@ fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataS
         metadata_status: row.get("metadata_status"),
         metadata_failure_reason: row.get("metadata_failure_reason"),
         remote_media_type: row.get("remote_media_type"),
+        has_local_nfo: row.get("has_local_nfo"),
+        local_nfo_source_path: row.get("local_nfo_source_path"),
+        local_nfo_payload: row.get("local_nfo_payload"),
+        tmdb_remote_snapshot: row.get("tmdb_remote_snapshot"),
         title: row.get("title"),
         source_title: row.get("source_title"),
         original_title: row.get("original_title"),
         sort_title: row.get("sort_title"),
         year: row.get("year"),
+        tagline: row.get("tagline"),
+        premiere_date: row.get("premiere_date"),
+        content_rating: row.get("content_rating"),
         country: row.get("country"),
         genres: row.get("genres"),
         studio: row.get("studio"),
@@ -2451,10 +2693,17 @@ fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataS
         series_title: row.get("series_title"),
         series_metadata_provider: row.get("series_metadata_provider"),
         series_metadata_provider_item_id: row.get("series_metadata_provider_item_id"),
+        series_has_local_nfo: row.get("series_has_local_nfo"),
+        series_local_nfo_source_path: row.get("series_local_nfo_source_path"),
+        series_local_nfo_payload: row.get("series_local_nfo_payload"),
+        series_tmdb_remote_snapshot: row.get("series_tmdb_remote_snapshot"),
         series_source_title: row.get("series_source_title"),
         series_original_title: row.get("series_original_title"),
         series_sort_title: row.get("series_sort_title"),
         series_year: row.get("series_year"),
+        series_tagline: row.get("series_tagline"),
+        series_premiere_date: row.get("series_premiere_date"),
+        series_content_rating: row.get("series_content_rating"),
         series_country: row.get("series_country"),
         series_genres: row.get("series_genres"),
         series_studio: row.get("series_studio"),
@@ -2521,8 +2770,8 @@ fn map_series_episode_outline_cache_entry_row(row: PgRow) -> SeriesEpisodeOutlin
 #[cfg(test)]
 mod tests {
     use super::{
-        get_series_episode_outline_cache, update_media_item_metadata,
-        upsert_series_episode_outline_cache,
+        get_series_episode_outline_cache, list_media_item_metadata_refresh_source_files,
+        update_media_item_metadata, upsert_series_episode_outline_cache,
     };
     use crate::{UpdateMediaItemMetadataParams, UpsertSeriesEpisodeOutlineCacheParams};
     use time::{Duration, OffsetDateTime};
@@ -2628,6 +2877,20 @@ mod tests {
         .execute(pool)
         .await
         .unwrap();
+        let local_metadata_source_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_local_metadata_sources (
+                library_id, media_item_id, source_path, document_type, is_selected, payload
+            )
+            values ($1, $2, '/manual-match/episode.nfo', 'episodedetails', true, '{}')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(episode_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
         sqlx::query(
             r#"
             insert into media_item_external_ids (media_item_id, provider, external_id)
@@ -2649,14 +2912,16 @@ mod tests {
                 score,
                 scale,
                 retrieved_via,
+                local_metadata_source_id,
                 fetched_at
             )
             values
-                ($1, 'tmdb', 'audience', 8, 10, 'tmdb', now()),
-                ($1, 'nfo', 'audience', 4, 5, 'nfo', now())
+                ($1, 'tmdb', 'audience', 8, 10, 'tmdb', null, now()),
+                ($1, 'nfo', 'audience', 4, 5, 'nfo', $2, now())
             "#,
         )
         .bind(episode_id)
+        .bind(local_metadata_source_id)
         .execute(pool)
         .await
         .unwrap();
@@ -2680,6 +2945,18 @@ mod tests {
             tmdb_remote_snapshot_renews_retention: false,
             remote_media_type: Some("series".to_string()),
             year: None,
+            tagline: None,
+            premiere_date: None,
+            content_rating: None,
+            seasons: vec![super::super::UpdateSeasonMetadataParams {
+                season_number: 1,
+                title: "Remote Season 1".to_string(),
+                overview: Some("Remote season overview".to_string()),
+                poster_path: Some("/cache/season-1-poster.jpg".to_string()),
+                backdrop_path: None,
+            }],
+            local_nfos: Vec::new(),
+            removed_local_nfo_source_paths: Vec::new(),
             external_ids: Vec::new(),
             ratings: Vec::new(),
             country: None,
@@ -2690,6 +2967,122 @@ mod tests {
             backdrop_path: None,
             logo_path: None,
         }
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn metadata_refresh_source_files_for_series_include_only_descendant_carriers(
+        pool: sqlx::PgPool,
+    ) {
+        let library_id = sqlx::query_scalar::<_, i64>(
+            "insert into libraries (name, root_path) values ('Series carriers', '/series-carriers') returning id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let series_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_items (library_id, media_type, title, source_title)
+            values ($1, 'series', 'Target Series', 'Target Series')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let season_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into seasons (library_id, series_id, season_number, title)
+            values ($1, $2, 1, 'Season 1')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(series_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let episode_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_items (library_id, media_type, title, source_title)
+            values ($1, 'episode', 'Episode 1', 'Target.Series.S01E01')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into episodes (media_item_id, library_id, season_id, episode_number)
+            values ($1, $2, $3, 1)
+            "#,
+        )
+        .bind(episode_id)
+        .bind(library_id)
+        .bind(season_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        for path in [
+            "/series-carriers/Target/Target.S01E01.1080p.mkv",
+            "/series-carriers/Target/Target.S01E01.2160p.mkv",
+        ] {
+            sqlx::query(
+                r#"
+                insert into media_files (library_id, media_item_id, file_path, file_size)
+                values ($1, $2, $3, 1)
+                "#,
+            )
+            .bind(library_id)
+            .bind(episode_id)
+            .bind(path)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let unrelated_movie_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_items (library_id, media_type, title, source_title)
+            values ($1, 'movie', 'Unrelated', 'Unrelated')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into media_files (library_id, media_item_id, file_path, file_size)
+            values ($1, $2, '/series-carriers/Unrelated.mkv', 1)
+            "#,
+        )
+        .bind(library_id)
+        .bind(unrelated_movie_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let source_files = list_media_item_metadata_refresh_source_files(&pool, series_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            source_files
+                .iter()
+                .map(|file| file.file_path.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "/series-carriers/Target/Target.S01E01.1080p.mkv",
+                "/series-carriers/Target/Target.S01E01.2160p.mkv",
+            ]
+        );
+        assert!(source_files
+            .iter()
+            .all(|file| file.media_item_id == episode_id));
     }
 
     #[sqlx::test(migrations = "../../migrations")]
@@ -2768,6 +3161,16 @@ mod tests {
             .unwrap(),
             vec!["nfo".to_string()]
         );
+        let season = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
+            "select title, overview, poster_path from seasons where series_id = $1 and season_number = 1",
+        )
+        .bind(series_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(season.0, "Remote Season 1");
+        assert_eq!(season.1.as_deref(), Some("Remote season overview"));
+        assert_eq!(season.2.as_deref(), Some("/cache/season-1-poster.jpg"));
     }
 
     #[sqlx::test(migrations = "../../migrations")]

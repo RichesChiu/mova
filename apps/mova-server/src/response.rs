@@ -1,12 +1,14 @@
 use axum::{http::StatusCode, Json};
 use mova_application::{
-    GlobalSearchResult, MediaItemPlaybackHeader, MetadataMatchCandidate, ScanJobItemProgressUpdate,
-    SeriesEpisodeOutline, SeriesEpisodeOutlineEpisode, SeriesEpisodeOutlineSeason,
+    GlobalSearchResult, MediaItemMetadataSources, MediaItemPlaybackHeader, MetadataMatchCandidate,
+    ScanJobItemProgressUpdate, SeriesEpisodeOutline, SeriesEpisodeOutlineEpisode,
+    SeriesEpisodeOutlineSeason,
 };
 use mova_domain::{
-    AudioTrack, ContinueWatchingItem, Library, LibraryDetail, MediaCastMember, MediaFile,
-    MediaItem, MediaRating, Notification, NotificationFeed, PlaybackProgress, ScanJob,
-    SubtitleFile, UserProfile,
+    AudioTrack, ContinueWatchingItem, Library, LibraryDetail, MediaCastMember,
+    MediaExternalIdRecord, MediaFile, MediaItem, MediaItemCredit, MediaLocalMetadataSourceSummary,
+    MediaRating, Notification, NotificationFeed, PlaybackProgress, ScanJob, SubtitleFile,
+    UserProfile,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -156,6 +158,7 @@ pub struct MediaItemResponse {
 pub struct MediaRatingResponse {
     pub source: String,
     pub kind: String,
+    pub retrieved_via: String,
     pub score: f64,
     pub scale: f64,
     pub rating_count: Option<i64>,
@@ -173,6 +176,58 @@ pub struct MediaCastMemberResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct MediaExternalIdResponse {
+    pub provider: String,
+    pub external_id: String,
+    pub retrieved_via: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MediaItemCreditResponse {
+    pub credit_type: String,
+    pub retrieved_via: String,
+    pub sort_order: i32,
+    pub person_id: Option<String>,
+    pub name: String,
+    pub role: Option<String>,
+    pub profile_path: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MediaLocalMetadataSourceResponse {
+    pub id: i64,
+    pub source_path: String,
+    pub document_type: String,
+    pub schema_version: i32,
+    pub is_locked: bool,
+    pub is_selected: bool,
+    pub observation_status: String,
+    pub observation_error_code: Option<String>,
+    pub payload: serde_json::Value,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MediaLocalMetadataSourceSummaryResponse {
+    pub id: i64,
+    pub source_path: String,
+    pub document_type: String,
+    pub schema_version: i32,
+    pub is_locked: bool,
+    pub is_selected: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MediaItemMetadataSourcesResponse {
+    pub external_ids: Vec<MediaExternalIdResponse>,
+    pub credits: Vec<MediaItemCreditResponse>,
+    pub local_metadata_sources: Vec<MediaLocalMetadataSourceSummaryResponse>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct MediaItemDetailResponse {
     pub id: i64,
     pub library_id: i64,
@@ -187,6 +242,9 @@ pub struct MediaItemDetailResponse {
     pub metadata_failure_reason: Option<String>,
     pub remote_media_type: Option<String>,
     pub year: Option<i32>,
+    pub tagline: Option<String>,
+    pub premiere_date: Option<String>,
+    pub content_rating: Option<String>,
     pub ratings: Vec<MediaRatingResponse>,
     pub country: Option<String>,
     pub genres: Option<String>,
@@ -591,6 +649,7 @@ impl MediaRatingResponse {
         Self {
             source: rating.source,
             kind: rating.kind,
+            retrieved_via: rating.retrieved_via,
             score: rating.score,
             scale: rating.scale,
             rating_count: rating.rating_count,
@@ -607,7 +666,79 @@ impl MediaCastMemberResponse {
             sort_order: member.sort_order,
             name: member.name,
             character_name: member.character_name,
-            profile_path: member.profile_path,
+            profile_path: public_cast_profile_path(member.profile_path),
+        }
+    }
+}
+
+fn public_cast_profile_path(profile_path: Option<String>) -> Option<String> {
+    profile_path.filter(|value| {
+        let value = value.trim();
+        !value.is_empty()
+            && !std::path::Path::new(value).is_absolute()
+            && !(value.len() >= 3
+                && value.as_bytes()[1] == b':'
+                && matches!(value.as_bytes()[2], b'\\' | b'/'))
+    })
+}
+
+impl MediaExternalIdResponse {
+    pub fn from_domain(external_id: MediaExternalIdRecord) -> Self {
+        Self {
+            provider: external_id.provider,
+            external_id: external_id.external_id,
+            retrieved_via: external_id.retrieved_via,
+        }
+    }
+}
+
+impl MediaItemCreditResponse {
+    pub fn from_domain(credit: MediaItemCredit) -> Self {
+        Self {
+            credit_type: credit.credit_type,
+            retrieved_via: credit.retrieved_via,
+            sort_order: credit.sort_order,
+            person_id: credit.person_id,
+            name: credit.name,
+            role: credit.role,
+            profile_path: public_cast_profile_path(credit.profile_path),
+        }
+    }
+}
+
+impl MediaLocalMetadataSourceResponse {
+    pub fn from_domain(
+        inspection: mova_application::LocalMetadataSourceInspection,
+        offset: UtcOffset,
+    ) -> Self {
+        let source = inspection.source;
+        Self {
+            id: source.id,
+            source_path: source.source_path,
+            document_type: source.document_type,
+            schema_version: source.schema_version,
+            is_locked: source.is_locked,
+            is_selected: source.is_selected,
+            observation_status: inspection.observation_status,
+            observation_error_code: inspection.observation_error_code,
+            payload: source.payload,
+            created_at: format_datetime(source.created_at, offset),
+            updated_at: format_datetime(source.updated_at, offset),
+        }
+    }
+}
+
+impl MediaLocalMetadataSourceSummaryResponse {
+    pub fn from_domain(source: MediaLocalMetadataSourceSummary, offset: UtcOffset) -> Self {
+        Self {
+            id: source.id,
+            source_path: source.source_path,
+            document_type: source.document_type,
+            schema_version: source.schema_version,
+            is_locked: source.is_locked,
+            is_selected: source.is_selected,
+            created_at: format_datetime(source.created_at, offset),
+            updated_at: format_datetime(source.updated_at, offset),
         }
     }
 }
@@ -630,6 +761,9 @@ impl MediaItemDetailResponse {
             metadata_failure_reason: media_item.metadata_failure_reason,
             remote_media_type: media_item.remote_media_type,
             year: media_item.year,
+            tagline: media_item.tagline,
+            premiere_date: media_item.premiere_date.map(|date| date.to_string()),
+            content_rating: media_item.content_rating,
             ratings: media_item
                 .ratings
                 .into_iter()
@@ -659,6 +793,28 @@ impl MediaItemDetailResponse {
             ),
             created_at: format_datetime(media_item.created_at, offset),
             updated_at: format_datetime(media_item.updated_at, offset),
+        }
+    }
+}
+
+impl MediaItemMetadataSourcesResponse {
+    pub fn from_domain(sources: MediaItemMetadataSources, offset: UtcOffset) -> Self {
+        Self {
+            external_ids: sources
+                .external_ids
+                .into_iter()
+                .map(MediaExternalIdResponse::from_domain)
+                .collect(),
+            credits: sources
+                .credits
+                .into_iter()
+                .map(MediaItemCreditResponse::from_domain)
+                .collect(),
+            local_metadata_sources: sources
+                .local_metadata_sources
+                .into_iter()
+                .map(|source| MediaLocalMetadataSourceSummaryResponse::from_domain(source, offset))
+                .collect(),
         }
     }
 }
@@ -1247,10 +1403,16 @@ fn is_generated_episode_still_path(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        public_media_item_asset_path, public_season_asset_path, MediaItemDetailResponse,
-        MediaItemResponse,
+        public_cast_profile_path, public_media_item_asset_path, public_season_asset_path,
+        MediaItemDetailResponse, MediaItemMetadataSourcesResponse, MediaItemResponse,
+        MediaLocalMetadataSourceResponse,
     };
-    use mova_domain::{MediaItem, MediaRating, METADATA_STATUS_MATCHED, REMOTE_MEDIA_TYPE_MOVIE};
+    use mova_application::{LocalMetadataSourceInspection, MediaItemMetadataSources};
+    use mova_domain::{
+        MediaExternalIdRecord, MediaItem, MediaItemCredit, MediaLocalMetadataSource,
+        MediaLocalMetadataSourceSummary, MediaRating, METADATA_STATUS_MATCHED,
+        REMOTE_MEDIA_TYPE_MOVIE,
+    };
     use time::{Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset};
 
     fn sample_media_item() -> MediaItem {
@@ -1274,6 +1436,9 @@ mod tests {
             metadata_failure_reason: None,
             remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE.to_string()),
             year: Some(2001),
+            tagline: Some("A magical journey.".to_string()),
+            premiere_date: Some(Date::from_calendar_date(2001, Month::July, 20).unwrap()),
+            content_rating: Some("PG".to_string()),
             ratings: vec![MediaRating {
                 source: "tmdb".to_string(),
                 kind: "audience".to_string(),
@@ -1296,6 +1461,64 @@ mod tests {
         }
     }
 
+    fn sample_media_item_metadata_sources() -> MediaItemMetadataSources {
+        let timestamp = sample_media_item().updated_at;
+
+        MediaItemMetadataSources {
+            external_ids: vec![MediaExternalIdRecord {
+                media_item_id: 42,
+                provider: "imdb".to_string(),
+                external_id: "tt0245429".to_string(),
+                retrieved_via: "nfo".to_string(),
+            }],
+            credits: vec![MediaItemCredit {
+                id: 1,
+                media_item_id: 42,
+                credit_type: "director".to_string(),
+                retrieved_via: "nfo".to_string(),
+                sort_order: 0,
+                person_id: None,
+                name: "Hayao Miyazaki".to_string(),
+                role: None,
+                profile_path: None,
+            }],
+            local_metadata_sources: vec![MediaLocalMetadataSourceSummary {
+                id: 1,
+                library_id: 7,
+                media_item_id: 42,
+                source_path: "/media/Spirited Away.nfo".to_string(),
+                document_type: "movie".to_string(),
+                schema_version: 1,
+                is_locked: true,
+                is_selected: true,
+                created_at: timestamp,
+                updated_at: timestamp,
+            }],
+        }
+    }
+
+    fn sample_local_metadata_source_inspection() -> LocalMetadataSourceInspection {
+        let timestamp = sample_media_item().updated_at;
+
+        LocalMetadataSourceInspection {
+            source: MediaLocalMetadataSource {
+                id: 1,
+                library_id: 7,
+                media_item_id: 42,
+                source_path: "/media/Spirited Away.nfo".to_string(),
+                document_type: "movie".to_string(),
+                schema_version: 1,
+                is_locked: true,
+                is_selected: true,
+                payload: serde_json::json!({"title": "Spirited Away"}),
+                created_at: timestamp,
+                updated_at: timestamp,
+            },
+            observation_status: "valid".to_string(),
+            observation_error_code: None,
+        }
+    }
+
     #[test]
     fn public_media_item_asset_path_maps_local_files_to_internal_routes() {
         assert_eq!(
@@ -1306,6 +1529,24 @@ mod tests {
                 OffsetDateTime::UNIX_EPOCH,
             ),
             Some("/api/media-items/42/poster?v=0".to_string())
+        );
+    }
+
+    #[test]
+    fn public_cast_profile_path_hides_local_absolute_paths_and_preserves_urls() {
+        assert_eq!(
+            public_cast_profile_path(Some("/media/actors/hayao-miyazaki.jpg".to_string())),
+            None
+        );
+        assert_eq!(
+            public_cast_profile_path(Some(r"C:\media\actors\hayao-miyazaki.jpg".to_string())),
+            None
+        );
+        assert_eq!(
+            public_cast_profile_path(Some(
+                "https://image.tmdb.org/t/p/original/hayao-miyazaki.jpg".to_string()
+            )),
+            Some("https://image.tmdb.org/t/p/original/hayao-miyazaki.jpg".to_string())
         );
     }
 
@@ -1405,6 +1646,7 @@ mod tests {
         assert_eq!(response.metadata_failure_reason, None);
         assert_eq!(response.ratings.len(), 1);
         assert_eq!(response.ratings[0].source, "tmdb");
+        assert_eq!(response.ratings[0].retrieved_via, "tmdb");
         assert_eq!(response.ratings[0].score, 8.6);
         assert_eq!(
             response.remote_media_type.as_deref(),
@@ -1423,6 +1665,43 @@ mod tests {
         assert_eq!(
             response.remote_media_type.as_deref(),
             Some(REMOTE_MEDIA_TYPE_MOVIE)
+        );
+        assert_eq!(response.tagline.as_deref(), Some("A magical journey."));
+        assert_eq!(response.premiere_date.as_deref(), Some("2001-07-20"));
+        assert_eq!(response.content_rating.as_deref(), Some("PG"));
+    }
+
+    #[test]
+    fn media_item_metadata_sources_response_exposes_only_source_summaries() {
+        let response = MediaItemMetadataSourcesResponse::from_domain(
+            sample_media_item_metadata_sources(),
+            UtcOffset::UTC,
+        );
+
+        assert_eq!(response.external_ids.len(), 1);
+        assert_eq!(response.external_ids[0].retrieved_via, "nfo");
+        assert_eq!(response.credits.len(), 1);
+        assert_eq!(response.local_metadata_sources.len(), 1);
+        assert_eq!(response.local_metadata_sources[0].id, 1);
+
+        let serialized = serde_json::to_value(response).unwrap();
+        let source = &serialized["local_metadata_sources"][0];
+        assert!(source.get("payload").is_none());
+        assert!(source.get("observation_status").is_none());
+    }
+
+    #[test]
+    fn media_local_metadata_source_response_exposes_one_payload_and_observation() {
+        let response = MediaLocalMetadataSourceResponse::from_domain(
+            sample_local_metadata_source_inspection(),
+            UtcOffset::UTC,
+        );
+
+        assert_eq!(response.id, 1);
+        assert_eq!(response.observation_status, "valid");
+        assert_eq!(
+            response.payload,
+            serde_json::json!({"title": "Spirited Away"})
         );
     }
 }

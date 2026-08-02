@@ -41,31 +41,37 @@ pub struct TmdbMetadataRevalidationInput {
 /// exact response echo, or artwork already inside the library TMDB namespace,
 /// becomes provider-owned once this snapshot commits.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-struct TmdbRemoteMetadataSnapshot {
+pub(crate) struct TmdbRemoteMetadataSnapshot {
     #[serde(default)]
     version: u8,
     #[serde(default)]
-    title: Option<String>,
+    pub(crate) title: Option<String>,
     #[serde(default)]
-    original_title: Option<String>,
+    pub(crate) original_title: Option<String>,
     #[serde(default)]
-    year: Option<i32>,
+    pub(crate) year: Option<i32>,
     #[serde(default)]
-    country: Option<String>,
+    pub(crate) country: Option<String>,
     #[serde(default)]
-    genres: Option<String>,
+    pub(crate) genres: Option<String>,
     #[serde(default)]
-    studio: Option<String>,
+    pub(crate) studio: Option<String>,
     #[serde(default)]
-    overview: Option<String>,
+    pub(crate) overview: Option<String>,
     #[serde(default)]
-    poster_path: Option<String>,
+    pub(crate) poster_path: Option<String>,
     #[serde(default)]
-    backdrop_path: Option<String>,
+    pub(crate) backdrop_path: Option<String>,
     #[serde(default)]
-    logo_path: Option<String>,
+    pub(crate) logo_path: Option<String>,
     #[serde(default)]
-    series_outline: Option<RemoteSeriesEpisodeOutline>,
+    pub(crate) series_outline: Option<RemoteSeriesEpisodeOutline>,
+}
+
+pub(crate) fn parse_tmdb_remote_snapshot(
+    value: Option<&serde_json::Value>,
+) -> Option<TmdbRemoteMetadataSnapshot> {
+    serde_json::from_value(value?.clone()).ok()
 }
 
 #[derive(Debug)]

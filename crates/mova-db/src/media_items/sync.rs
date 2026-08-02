@@ -1,4 +1,9 @@
-use super::{ratings::replace_media_item_remote_data, series, CreateMediaEntryParams};
+use super::{
+    apply_local_metadata_projection_tx, capture_local_metadata_projection_checkpoint_tx,
+    ratings::replace_media_item_remote_data, reconcile_local_metadata_snapshot_tx,
+    restore_authoritative_local_metadata_projection_tx, series, CreateMediaEntryParams,
+    LocalMetadataProjectionScope,
+};
 use anyhow::{Context, Result};
 use mova_domain::{
     METADATA_FAILURE_PROVIDER_DISABLED, METADATA_FAILURE_PROVIDER_ERROR, METADATA_STATUS_MATCHED,
@@ -10,6 +15,7 @@ use crate::{
     background_jobs::{
         lock_library_scan_background_job_fence, BackgroundJobFence, LibraryScanFenceMode,
     },
+    local_metadata::{reconcile_library_local_metadata_source_paths_tx, MediaLocalMetadataTarget},
     playback_progress::merge_media_item_user_state,
     tmdb_revalidation::{
         lock_library_tmdb_artwork_reference_write, record_authoritative_tmdb_snapshot_tx,
@@ -140,6 +146,7 @@ pub async fn sync_library_media_changes(
     library_id: i64,
     scan_job_id: i64,
     discovered_paths: &[String],
+    retained_local_metadata_source_paths: &[String],
     entries: &[CreateMediaEntryParams],
     fence: &BackgroundJobFence,
 ) -> Result<SyncLibraryMediaBestEffortOutcome> {
@@ -208,7 +215,18 @@ pub async fn sync_library_media_changes(
         outcome.upserted_count += 1;
     }
 
-    if outcome.removed_count > 0 || outcome.upserted_count > 0 {
+    let removed_local_metadata_source_count = reconcile_library_local_metadata_source_paths_tx(
+        &mut tx,
+        library_id,
+        retained_local_metadata_source_paths,
+    )
+    .await
+    .context("failed to reconcile local metadata source paths")?;
+
+    if outcome.removed_count > 0
+        || outcome.upserted_count > 0
+        || removed_local_metadata_source_count > 0
+    {
         series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
         sqlx::query("select mova_bump_realtime_revision($1)")
             .bind(format!("library:{library_id}:catalog"))
@@ -297,7 +315,7 @@ pub async fn upsert_library_media_entries_by_file_path(
         .context("failed to defer row-level catalog revisions for scan group")?;
 
     let preserve_existing_parent = should_preserve_existing_parent(stage, entries);
-    for entry in entries {
+    for entry in entries_ordered_for_local_metadata(entries) {
         let existing =
             get_existing_library_media_file_by_path(&mut tx, library_id, &entry.file_path).await?;
         upsert_media_entry_with_policy(&mut tx, entry, existing, preserve_existing_parent).await?;
@@ -322,6 +340,26 @@ pub async fn upsert_library_media_entries_by_file_path(
         .context("failed to commit scan group media upsert transaction")?;
 
     Ok(entries.len())
+}
+
+/// Persist unselected sidecars before the selected projection. This keeps the
+/// final NFO projection deterministic when a multi-version group changes its
+/// selected source during the same transaction.
+fn entries_ordered_for_local_metadata(
+    entries: &[CreateMediaEntryParams],
+) -> Vec<&CreateMediaEntryParams> {
+    let mut ordered = entries.iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|entry| {
+        entry
+            .local_nfo
+            .as_ref()
+            .is_some_and(|source| source.is_selected)
+            || entry
+                .series_local_nfo
+                .as_ref()
+                .is_some_and(|source| source.is_selected)
+    });
+    ordered
 }
 
 /// Applies the remote-owned half of one already committed scan group.
@@ -434,6 +472,17 @@ async fn patch_movie_remote_entry(
             .await?
             .unwrap_or(existing.media_item_id)
     };
+    let local_projection_checkpoint =
+        capture_local_metadata_projection_checkpoint_tx(tx, target_media_item_id).await?;
+    if preserve_existing_parent {
+        apply_local_metadata_projection_tx(
+            tx,
+            target_media_item_id,
+            entry,
+            LocalMetadataProjectionScope::Movie,
+        )
+        .await?;
+    }
     patch_media_item_remote_fields(
         tx,
         target_media_item_id,
@@ -442,6 +491,23 @@ async fn patch_movie_remote_entry(
         entry.poster_path.as_deref(),
         entry.backdrop_path.as_deref(),
         entry.logo_path.as_deref(),
+    )
+    .await?;
+
+    reconcile_local_metadata_snapshot_tx(
+        tx,
+        entry.library_id,
+        MediaLocalMetadataTarget::MediaItem(target_media_item_id),
+        entry.removed_local_nfo_source_path.as_deref(),
+        entry.local_nfo.as_ref(),
+    )
+    .await?;
+    restore_authoritative_local_metadata_projection_tx(
+        tx,
+        target_media_item_id,
+        &local_projection_checkpoint,
+        entry.local_nfo.as_ref(),
+        LocalMetadataProjectionScope::Movie,
     )
     .await?;
 
@@ -518,6 +584,9 @@ pub(super) async fn patch_media_item_remote_fields(
             poster_path = case when $17 then $14 else coalesce($14, poster_path) end,
             backdrop_path = case when $17 then $15 else coalesce($15, backdrop_path) end,
             logo_path = case when $17 then $16 else coalesce($16, logo_path) end,
+            tagline = $18,
+            premiere_date = $19,
+            content_rating = $20,
             updated_at = now()
         where id = $1
         "#,
@@ -539,6 +608,9 @@ pub(super) async fn patch_media_item_remote_fields(
     .bind(backdrop_path)
     .bind(logo_path)
     .bind(entry.allow_artwork_clear)
+    .bind(&entry.tagline)
+    .bind(entry.premiere_date)
+    .bind(&entry.content_rating)
     .execute(&mut **tx)
     .await
     .context("failed to patch remote-owned media item fields")?;
@@ -958,6 +1030,21 @@ pub(super) async fn update_existing_media_item_from_entry(
     }
 
     if existing_media_item_has_accepted_remote_binding(tx, media_item_id).await? {
+        apply_local_metadata_projection_tx(
+            tx,
+            media_item_id,
+            entry,
+            LocalMetadataProjectionScope::Movie,
+        )
+        .await?;
+        reconcile_local_metadata_snapshot_tx(
+            tx,
+            entry.library_id,
+            MediaLocalMetadataTarget::MediaItem(media_item_id),
+            entry.removed_local_nfo_source_path.as_deref(),
+            entry.local_nfo.as_ref(),
+        )
+        .await?;
         record_transient_metadata_refresh_failure(tx, media_item_id, entry).await?;
         return promote_cached_artwork_paths(
             tx,
@@ -1305,11 +1392,14 @@ async fn insert_media_item(
             overview,
             poster_path,
             backdrop_path,
-            logo_path
+            logo_path,
+            tagline,
+            premiere_date,
+            content_rating
         )
         values (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-            $14, $15, $16, $17, $18, $19
+            $14, $15, $16, $17, $18, $19, $20, $21, $22
         )
         returning id
         "#,
@@ -1333,6 +1423,9 @@ async fn insert_media_item(
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
     .bind(&entry.logo_path)
+    .bind(&entry.tagline)
+    .bind(entry.premiere_date)
+    .bind(&entry.content_rating)
     .fetch_one(&mut **tx)
     .await
     .context("failed to insert media item")?;
@@ -1356,6 +1449,15 @@ async fn insert_media_item(
         )
         .await?;
     }
+
+    reconcile_local_metadata_snapshot_tx(
+        tx,
+        entry.library_id,
+        MediaLocalMetadataTarget::MediaItem(media_item_id),
+        entry.removed_local_nfo_source_path.as_deref(),
+        entry.local_nfo.as_ref(),
+    )
+    .await?;
 
     Ok(media_item_id)
 }
@@ -1389,6 +1491,9 @@ async fn update_media_item_from_entry(
             poster_path = $17,
             backdrop_path = $18,
             logo_path = $19,
+            tagline = $20,
+            premiere_date = $21,
+            content_rating = $22,
             updated_at = now()
         where id = $1
         "#,
@@ -1412,6 +1517,9 @@ async fn update_media_item_from_entry(
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
     .bind(&entry.logo_path)
+    .bind(&entry.tagline)
+    .bind(entry.premiere_date)
+    .bind(&entry.content_rating)
     .execute(&mut **tx)
     .await
     .context("failed to update media item during library sync")?;
@@ -1434,6 +1542,15 @@ async fn update_media_item_from_entry(
         )
         .await?;
     }
+
+    reconcile_local_metadata_snapshot_tx(
+        tx,
+        entry.library_id,
+        MediaLocalMetadataTarget::MediaItem(media_item_id),
+        entry.removed_local_nfo_source_path.as_deref(),
+        entry.local_nfo.as_ref(),
+    )
+    .await?;
 
     Ok(())
 }

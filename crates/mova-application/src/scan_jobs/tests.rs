@@ -31,8 +31,19 @@ fn build_discovered_file() -> DiscoveredMediaFile {
         source_title: "Arcane.S01E01".to_string(),
         original_title: None,
         sort_title: None,
+        tagline: None,
+        premiere_date: None,
+        content_rating: None,
         series_sidecar_title: None,
         series_sidecar_year: None,
+        local_nfo: None,
+        series_local_nfo: None,
+        invalid_local_nfo_source_path: None,
+        invalid_series_local_nfo_source_path: None,
+        local_nfo_is_selected: false,
+        series_local_nfo_is_selected: false,
+        removed_local_nfo_source_path: None,
+        removed_series_local_nfo_source_path: None,
         year: Some(2021),
         external_ids: Vec::new(),
         ratings: Vec::new(),
@@ -49,6 +60,13 @@ fn build_discovered_file() -> DiscoveredMediaFile {
         season_backdrop_path: None,
         episode_number: Some(1),
         episode_title: Some("Welcome to the Playground".to_string()),
+        episode_original_title: None,
+        episode_sort_title: None,
+        episode_year: None,
+        episode_overview: None,
+        episode_tagline: None,
+        episode_premiere_date: None,
+        episode_content_rating: None,
         overview: None,
         series_poster_path: None,
         series_backdrop_path: None,
@@ -172,6 +190,7 @@ fn build_pending_scan_file(file: DiscoveredMediaFile) -> super::PendingScanFile 
                 sidecar_fingerprint: file.sidecar_fingerprint.clone(),
             },
             existing_metadata: None,
+            requires_processing: true,
         },
         file,
     }
@@ -207,6 +226,8 @@ fn build_library() -> Library {
 
 fn build_existing_movie_metadata() -> ExistingMediaMetadataSummary {
     ExistingMediaMetadataSummary {
+        media_item_id: 10,
+        logical_metadata_owner_id: 10,
         media_file_id: 11,
         file_path: "/media/movies/Arcane.mkv".to_string(),
         media_type: "movie".to_string(),
@@ -215,11 +236,18 @@ fn build_existing_movie_metadata() -> ExistingMediaMetadataSummary {
         metadata_status: METADATA_STATUS_MATCHED.to_string(),
         metadata_failure_reason: None,
         remote_media_type: Some(REMOTE_MEDIA_TYPE_MOVIE.to_string()),
+        has_local_nfo: false,
+        local_nfo_source_path: None,
+        local_nfo_payload: None,
+        tmdb_remote_snapshot: None,
         title: "Arcane".to_string(),
         source_title: "Arcane".to_string(),
         original_title: Some("Arcane Original".to_string()),
         sort_title: Some("Arcane, The".to_string()),
         year: Some(2021),
+        tagline: None,
+        premiere_date: None,
+        content_rating: None,
         country: Some("United States".to_string()),
         genres: Some("Animation, Drama".to_string()),
         studio: Some("Fortiche".to_string()),
@@ -276,10 +304,17 @@ fn build_existing_movie_metadata() -> ExistingMediaMetadataSummary {
         series_title: None,
         series_metadata_provider: None,
         series_metadata_provider_item_id: None,
+        series_has_local_nfo: false,
+        series_local_nfo_source_path: None,
+        series_local_nfo_payload: None,
+        series_tmdb_remote_snapshot: None,
         series_source_title: None,
         series_original_title: None,
         series_sort_title: None,
         series_year: None,
+        series_tagline: None,
+        series_premiere_date: None,
+        series_content_rating: None,
         series_country: None,
         series_genres: None,
         series_studio: None,
@@ -299,6 +334,8 @@ fn build_existing_movie_metadata() -> ExistingMediaMetadataSummary {
 
 fn build_existing_episode_metadata() -> ExistingMediaMetadataSummary {
     ExistingMediaMetadataSummary {
+        media_item_id: 20,
+        logical_metadata_owner_id: 30,
         media_file_id: 22,
         file_path: "/media/series/Arcane/Arcane.S01E01.mkv".to_string(),
         media_type: "episode".to_string(),
@@ -307,11 +344,18 @@ fn build_existing_episode_metadata() -> ExistingMediaMetadataSummary {
         metadata_status: METADATA_STATUS_MATCHED.to_string(),
         metadata_failure_reason: None,
         remote_media_type: Some(REMOTE_MEDIA_TYPE_SERIES.to_string()),
+        has_local_nfo: false,
+        local_nfo_source_path: None,
+        local_nfo_payload: None,
+        tmdb_remote_snapshot: None,
         title: "Welcome to the Playground".to_string(),
         source_title: "Arcane.S01E01".to_string(),
         original_title: None,
         sort_title: None,
         year: None,
+        tagline: None,
+        premiere_date: None,
+        content_rating: None,
         country: None,
         genres: None,
         studio: None,
@@ -358,10 +402,17 @@ fn build_existing_episode_metadata() -> ExistingMediaMetadataSummary {
         series_title: Some("Arcane".to_string()),
         series_metadata_provider: Some("tmdb".to_string()),
         series_metadata_provider_item_id: Some("88".to_string()),
+        series_has_local_nfo: false,
+        series_local_nfo_source_path: None,
+        series_local_nfo_payload: None,
+        series_tmdb_remote_snapshot: None,
         series_source_title: Some("Arcane".to_string()),
         series_original_title: Some("Arcane Original".to_string()),
         series_sort_title: Some("Arcane, The".to_string()),
         series_year: Some(2021),
+        series_tagline: None,
+        series_premiere_date: None,
+        series_content_rating: None,
         series_country: Some("United States".to_string()),
         series_genres: Some("Animation, Drama".to_string()),
         series_studio: Some("Fortiche".to_string()),
@@ -1382,6 +1433,491 @@ fn group_discovered_files_for_scan_prefers_tvshow_nfo_identity() {
 }
 
 #[test]
+fn authoritative_nfo_paths_follow_candidate_precedence_and_live_carriers() {
+    let root = std::env::temp_dir().join(format!(
+        "mova-authoritative-nfo-{}",
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    ));
+    let movie_path = root.join("movies").join("Movie").join("Movie.2025.mkv");
+    let movie_specific_nfo = movie_path.with_extension("nfo");
+    let movie_generic_nfo = movie_path.parent().unwrap().join("movie.nfo");
+    let episode_path = root
+        .join("series")
+        .join("Show")
+        .join("Season 01")
+        .join("Show.S01E01.mkv");
+    let series_nfo = root.join("series").join("Show").join("tvshow.nfo");
+    fs::create_dir_all(movie_path.parent().unwrap()).unwrap();
+    fs::create_dir_all(episode_path.parent().unwrap()).unwrap();
+    fs::write(&movie_specific_nfo, "<broken>").unwrap();
+    fs::write(&movie_generic_nfo, "<movie />").unwrap();
+    fs::write(&series_nfo, "<tvshow />").unwrap();
+
+    let discovered_paths = vec![
+        movie_path.to_string_lossy().to_string(),
+        episode_path.to_string_lossy().to_string(),
+    ];
+    let retained = super::authoritative_local_metadata_source_paths(&root, &discovered_paths);
+    assert!(retained.contains(&movie_specific_nfo.to_string_lossy().to_string()));
+    assert!(!retained.contains(&movie_generic_nfo.to_string_lossy().to_string()));
+    assert!(retained.contains(&series_nfo.to_string_lossy().to_string()));
+
+    fs::remove_file(&movie_specific_nfo).unwrap();
+    let retained = super::authoritative_local_metadata_source_paths(&root, &discovered_paths);
+    let _ = fs::remove_dir_all(&root);
+    assert!(!retained.contains(&movie_specific_nfo.to_string_lossy().to_string()));
+    assert!(retained.contains(&movie_generic_nfo.to_string_lossy().to_string()));
+}
+
+#[test]
+fn generic_movie_nfo_is_rejected_for_unrelated_movies_in_one_directory() {
+    let root = std::env::temp_dir().join(format!(
+        "mova-shared-movie-nfo-{}",
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let generic_nfo = root.join("movie.nfo");
+    fs::write(
+        &generic_nfo,
+        "<movie><title>Must Not Leak</title><year>2025</year></movie>",
+    )
+    .unwrap();
+
+    let mut first = build_discovered_file();
+    first.file_path = root.join("First.Movie.2024.mkv");
+    first.title = "First Movie".to_string();
+    first.source_title = "First Movie".to_string();
+    first.year = Some(2024);
+    first.season_number = None;
+    first.episode_number = None;
+    let mut second = first.clone();
+    second.file_path = root.join("Second.Movie.2025.mkv");
+    second.title = "Second Movie".to_string();
+    second.source_title = "Second Movie".to_string();
+    second.year = Some(2025);
+
+    let observations = super::eligible_local_nfo_observations(&[first, second], &root);
+    let retained = super::authoritative_local_metadata_source_paths(
+        &root,
+        &[
+            root.join("First.Movie.2024.mkv")
+                .to_string_lossy()
+                .to_string(),
+            root.join("Second.Movie.2025.mkv")
+                .to_string_lossy()
+                .to_string(),
+        ],
+    );
+    let _ = fs::remove_dir_all(&root);
+
+    assert!(observations.iter().all(|(media, _)| media.is_none()));
+    assert!(!retained.contains(&generic_nfo.to_string_lossy().to_string()));
+}
+
+#[test]
+fn generic_movie_nfo_is_rejected_when_another_movie_has_a_specific_nfo() {
+    let root = std::env::temp_dir().join(format!(
+        "mova-mixed-specific-movie-nfo-{}",
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("movie.nfo"),
+        "<movie><title>Second Movie</title></movie>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("First.Movie.2024.nfo"),
+        "<movie><title>First Movie</title></movie>",
+    )
+    .unwrap();
+
+    let mut first = build_discovered_file();
+    first.file_path = root.join("First.Movie.2024.mkv");
+    first.title = "First Movie".to_string();
+    first.source_title = "First Movie".to_string();
+    first.year = Some(2024);
+    first.season_number = None;
+    first.episode_number = None;
+    let mut second = first.clone();
+    second.file_path = root.join("Second.Movie.2025.mkv");
+    second.title = "Second Movie".to_string();
+    second.source_title = "Second Movie".to_string();
+    second.year = Some(2025);
+
+    let observations = super::eligible_local_nfo_observations(&[first, second], &root);
+    let retained = super::authoritative_local_metadata_source_paths(
+        &root,
+        &[
+            root.join("First.Movie.2024.mkv")
+                .to_string_lossy()
+                .to_string(),
+            root.join("Second.Movie.2025.mkv")
+                .to_string_lossy()
+                .to_string(),
+        ],
+    );
+    let _ = fs::remove_dir_all(&root);
+
+    assert!(matches!(
+        observations[0].0,
+        Some(mova_scan::LocalNfoObservation::Valid(_))
+    ));
+    assert!(observations[1].0.is_none());
+    assert!(retained.contains(
+        &root
+            .join("First.Movie.2024.nfo")
+            .to_string_lossy()
+            .to_string()
+    ));
+    assert!(!retained.contains(&root.join("movie.nfo").to_string_lossy().to_string()));
+}
+
+#[test]
+fn generic_movie_nfo_remains_eligible_for_proven_multi_version_movie() {
+    let root = std::env::temp_dir().join(format!(
+        "mova-multi-version-movie-nfo-{}",
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("movie.nfo"),
+        "<movie><title>Same Movie</title><year>2025</year></movie>",
+    )
+    .unwrap();
+
+    let mut first = build_discovered_file();
+    first.file_path = root.join("Same.Movie.2025.1080p.mkv");
+    first.title = "Same Movie".to_string();
+    first.source_title = "Same Movie".to_string();
+    first.year = Some(2025);
+    first.season_number = None;
+    first.episode_number = None;
+    let mut second = first.clone();
+    second.file_path = root.join("Same.Movie.2025.2160p.mkv");
+
+    let observations = super::eligible_local_nfo_observations(&[first, second], &root);
+    let _ = fs::remove_dir_all(&root);
+
+    assert!(observations.iter().all(|(media, _)| matches!(
+        media,
+        Some(mova_scan::LocalNfoObservation::Valid(metadata))
+            if metadata.kind == mova_scan::LocalNfoKind::Movie
+    )));
+}
+
+#[tokio::test]
+async fn generic_movie_nfo_owner_converges_when_a_second_work_makes_it_ambiguous() {
+    let root = std::env::temp_dir().join(format!(
+        "mova-incremental-shared-movie-nfo-{}",
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let generic_nfo = root.join("movie.nfo");
+    let first_path = root.join("First.Movie.2024.mkv");
+    let second_path = root.join("Second.Movie.2025.mkv");
+    fs::write(
+        &generic_nfo,
+        "<movie><title>Local First Movie</title><year>2024</year></movie>",
+    )
+    .unwrap();
+    fs::write(&first_path, b"first").unwrap();
+
+    let inventory = |file_path: PathBuf, file_size: u64| DiscoveredMediaFileInventory {
+        file_path,
+        file_size,
+        file_modified_at_ms: Some(1_700_000_000_000),
+        sidecar_fingerprint: String::new(),
+    };
+    let first_inventory = inventory(first_path.clone(), 5);
+
+    // First authoritative pass: one local identity owns the directory-level
+    // sidecar, so the NFO is selected and can be persisted normally.
+    let first_pass = super::inspect_incremental_scan_files_shallow(
+        vec![super::IncrementalScanFile {
+            inventory: first_inventory.clone(),
+            existing_metadata: None,
+            requires_processing: true,
+        }],
+        root.clone(),
+    )
+    .await
+    .expect("the first shallow scan should succeed");
+    assert!(matches!(
+        first_pass[0].file.local_nfo.as_ref(),
+        Some(metadata)
+            if super::normalize_nfo_source_path(&metadata.source_path)
+                == super::normalize_nfo_source_path(&generic_nfo)
+    ));
+    let persisted_source_path = first_pass[0]
+        .file
+        .local_nfo
+        .as_ref()
+        .expect("the first pass should select the generic NFO")
+        .source_path
+        .to_string_lossy()
+        .to_string();
+
+    let mut persisted_first = build_existing_movie_metadata();
+    persisted_first.media_item_id = 41;
+    persisted_first.logical_metadata_owner_id = 41;
+    persisted_first.media_file_id = 141;
+    persisted_first.file_path = first_path.to_string_lossy().to_string();
+    persisted_first.has_local_nfo = true;
+    persisted_first.local_nfo_source_path = Some(persisted_source_path.clone());
+    persisted_first.local_nfo_payload = Some(serde_json::json!({
+        "schema_version": 1,
+        "metadata": {
+            "title": "Local First Movie",
+            "year": 2024,
+            "artwork": {}
+        }
+    }));
+    persisted_first.title = "Local First Movie".to_string();
+    persisted_first.source_title = "First Movie".to_string();
+    persisted_first.year = Some(2024);
+    persisted_first.tmdb_remote_snapshot = Some(serde_json::json!({
+        "version": 1,
+        "title": "Remote First Movie",
+        "year": 2024
+    }));
+    persisted_first.scan_hash = Some(discovered_media_file_inventory_scan_hash(&first_inventory));
+
+    // The physical first file and its NFO did not change. Adding a different
+    // movie is nevertheless enough to invalidate the shared `movie.nfo`, so
+    // its existing owner must not remain on the skip path.
+    fs::write(&second_path, b"second").unwrap();
+    let second_inventory = inventory(second_path.clone(), 6);
+    let second_pass = super::inspect_incremental_scan_files_shallow(
+        vec![
+            super::IncrementalScanFile {
+                inventory: first_inventory.clone(),
+                existing_metadata: Some(persisted_first.clone()),
+                requires_processing: false,
+            },
+            super::IncrementalScanFile {
+                inventory: second_inventory.clone(),
+                existing_metadata: None,
+                requires_processing: true,
+            },
+        ],
+        root.clone(),
+    )
+    .await
+    .expect("the ambiguity scan should succeed");
+    assert!(second_pass[0].changed_file.requires_processing);
+    assert!(second_pass
+        .iter()
+        .all(|pending| pending.file.local_nfo.is_none()));
+
+    let mut first_without_shared_nfo = second_pass[0].file.clone();
+    super::apply_existing_media_metadata(&mut first_without_shared_nfo, &persisted_first);
+    assert_eq!(
+        first_without_shared_nfo
+            .removed_local_nfo_source_path
+            .as_deref(),
+        Some(persisted_source_path.as_str())
+    );
+    assert_eq!(first_without_shared_nfo.title, "Remote First Movie");
+
+    let pending_groups = super::build_pending_scan_groups_from_files(
+        second_pass,
+        &root,
+        &std::collections::HashMap::new(),
+    );
+    assert!(pending_groups
+        .iter()
+        .any(|group| group.files.iter().any(|file| {
+            file.existing_metadata
+                .as_ref()
+                .is_some_and(|summary| summary.logical_metadata_owner_id == 41)
+        })));
+
+    // Emulate the successful projection/removal commit. A later unchanged
+    // scan sees the still-present but ineligible generic NFO and remains a
+    // successful no-op instead of repeatedly touching or failing the owner.
+    persisted_first.has_local_nfo = false;
+    persisted_first.local_nfo_source_path = None;
+    persisted_first.local_nfo_payload = None;
+    persisted_first.title = "Remote First Movie".to_string();
+    let mut persisted_second = build_existing_movie_metadata();
+    persisted_second.media_item_id = 42;
+    persisted_second.logical_metadata_owner_id = 42;
+    persisted_second.media_file_id = 142;
+    persisted_second.file_path = second_path.to_string_lossy().to_string();
+    persisted_second.has_local_nfo = false;
+    persisted_second.local_nfo_source_path = None;
+    persisted_second.local_nfo_payload = None;
+    persisted_second.scan_hash = Some(discovered_media_file_inventory_scan_hash(&second_inventory));
+
+    let third_pass = super::inspect_incremental_scan_files_shallow(
+        vec![
+            super::IncrementalScanFile {
+                inventory: first_inventory,
+                existing_metadata: Some(persisted_first),
+                requires_processing: false,
+            },
+            super::IncrementalScanFile {
+                inventory: second_inventory,
+                existing_metadata: Some(persisted_second),
+                requires_processing: false,
+            },
+        ],
+        root.clone(),
+    )
+    .await
+    .expect("the converged scan should succeed");
+    assert!(third_pass
+        .iter()
+        .all(|pending| !pending.changed_file.requires_processing));
+    assert!(super::build_pending_scan_groups_from_files(
+        third_pass,
+        &root,
+        &std::collections::HashMap::new(),
+    )
+    .is_empty());
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn root_tvshow_nfo_is_rejected_for_multiple_series() {
+    let root = std::env::temp_dir().join(format!(
+        "mova-shared-tvshow-nfo-{}",
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let shared_nfo = root.join("tvshow.nfo");
+    fs::write(&shared_nfo, "<tvshow><title>Must Not Leak</title></tvshow>").unwrap();
+
+    let mut first = build_discovered_file();
+    first.file_path = root.join("First Show/S01/First.Show.S01E01.mkv");
+    first.title = "First Show".to_string();
+    first.source_title = "First Show".to_string();
+    first.season_number = Some(1);
+    first.episode_number = Some(1);
+    let mut second = first.clone();
+    second.file_path = root.join("Second Show/S01/Second.Show.S01E01.mkv");
+    second.title = "Second Show".to_string();
+    second.source_title = "Second Show".to_string();
+
+    let observations = super::eligible_local_nfo_observations(&[first, second], &root);
+    let _ = fs::remove_dir_all(&root);
+
+    assert!(observations.iter().all(|(_, series)| series.is_none()));
+}
+
+#[test]
+fn ineligible_selected_tvshow_nfo_forces_every_carrier_of_the_old_owner() {
+    let shared_source = "/media/series/tvshow.nfo";
+    let mut first = build_pending_scan_file(build_discovered_file());
+    let mut first_summary = build_existing_episode_metadata();
+    first_summary.logical_metadata_owner_id = 70;
+    first_summary.series_has_local_nfo = true;
+    first_summary.series_local_nfo_source_path = Some(shared_source.to_string());
+    first.changed_file.existing_metadata = Some(first_summary);
+    first.changed_file.requires_processing = false;
+    first.file.series_local_nfo = None;
+
+    let mut second_file = build_discovered_file();
+    second_file.file_path = PathBuf::from("/media/series/Old/S01/Old.S01E02.mkv");
+    second_file.episode_number = Some(2);
+    let mut second = build_pending_scan_file(second_file);
+    let mut second_summary = build_existing_episode_metadata();
+    second_summary.logical_metadata_owner_id = 70;
+    second_summary.file_path = second
+        .changed_file
+        .inventory
+        .file_path
+        .to_string_lossy()
+        .to_string();
+    second_summary.series_has_local_nfo = true;
+    second_summary.series_local_nfo_source_path = Some(shared_source.to_string());
+    second.changed_file.existing_metadata = Some(second_summary);
+    second.changed_file.requires_processing = false;
+    second.file.series_local_nfo = None;
+
+    let mut pending = vec![first, second];
+    super::force_reconcile_owners_with_ineligible_selected_nfo(&mut pending);
+
+    assert!(pending
+        .iter()
+        .all(|file| file.changed_file.requires_processing));
+}
+
+#[test]
+fn root_tvshow_nfo_is_rejected_even_when_another_series_has_a_nearer_nfo() {
+    let root = std::env::temp_dir().join(format!(
+        "mova-shadowed-shared-tvshow-nfo-{}",
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    ));
+    fs::create_dir_all(root.join("First Show")).unwrap();
+    fs::write(
+        root.join("tvshow.nfo"),
+        "<tvshow><title>Second Show</title></tvshow>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("First Show/tvshow.nfo"),
+        "<tvshow><title>First Show</title></tvshow>",
+    )
+    .unwrap();
+
+    let mut first = build_discovered_file();
+    first.file_path = root.join("First Show/S01/First.Show.S01E01.mkv");
+    first.title = "First Show".to_string();
+    first.source_title = "First Show".to_string();
+    first.season_number = Some(1);
+    first.episode_number = Some(1);
+    let mut second = first.clone();
+    second.file_path = root.join("Second Show/S01/Second.Show.S01E01.mkv");
+    second.title = "Second Show".to_string();
+    second.source_title = "Second Show".to_string();
+
+    let observations = super::eligible_local_nfo_observations(&[first, second], &root);
+    let _ = fs::remove_dir_all(&root);
+
+    assert!(matches!(
+        observations[0].1,
+        Some(mova_scan::LocalNfoObservation::Valid(_))
+    ));
+    assert!(observations[1].1.is_none());
+}
+
+#[test]
+fn root_tvshow_nfo_remains_eligible_for_one_multi_season_series() {
+    let root = std::env::temp_dir().join(format!(
+        "mova-single-series-root-nfo-{}",
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("tvshow.nfo"),
+        "<tvshow><title>Same Show</title><year>2021</year></tvshow>",
+    )
+    .unwrap();
+
+    let mut first = build_discovered_file();
+    first.file_path = root.join("Same Show/S01/Same.Show.S01E01.mkv");
+    first.title = "Same Show".to_string();
+    first.source_title = "Same Show".to_string();
+    first.season_number = Some(1);
+    first.episode_number = Some(1);
+    let mut second = first.clone();
+    second.file_path = root.join("Same Show/S02/Same.Show.S02E01.mkv");
+    second.season_number = Some(2);
+
+    let observations = super::eligible_local_nfo_observations(&[first, second], &root);
+    let _ = fs::remove_dir_all(&root);
+
+    assert!(observations.iter().all(|(_, series)| matches!(
+        series,
+        Some(mova_scan::LocalNfoObservation::Valid(metadata))
+            if metadata.kind == mova_scan::LocalNfoKind::TvShow
+    )));
+}
+
+#[test]
 fn build_media_entries_normalizes_multi_season_series_years_before_sync() {
     let mut first_file = build_discovered_file();
     first_file.file_path = PathBuf::from("黑袍纠察队/Season 01/The Boys (2019) - S01E01.mkv");
@@ -1610,8 +2146,8 @@ async fn inspect_incremental_scan_files_shallow_ignores_stale_existing_titles() 
     summary.title = "Wrong Old Episode".to_string();
     summary.source_title = "Wrong Old Episode".to_string();
 
-    let pending_files =
-        super::inspect_incremental_scan_files_shallow(vec![super::IncrementalScanFile {
+    let pending_files = super::inspect_incremental_scan_files_shallow(
+        vec![super::IncrementalScanFile {
             inventory: DiscoveredMediaFileInventory {
                 file_path: PathBuf::from(
                     "/media/overseas_tv/All's Fair (2025)/Season 01/Alls Fair (2025) - S01E01.mkv",
@@ -1621,9 +2157,12 @@ async fn inspect_incremental_scan_files_shallow_ignores_stale_existing_titles() 
                 sidecar_fingerprint: String::new(),
             },
             existing_metadata: Some(summary),
-        }])
-        .await
-        .expect("shallow inspection should parse without touching the filesystem");
+            requires_processing: true,
+        }],
+        PathBuf::from("/media"),
+    )
+    .await
+    .expect("shallow inspection should parse without touching the filesystem");
 
     assert_eq!(pending_files.len(), 1);
     assert_eq!(pending_files[0].file.title, "Alls Fair");
@@ -1650,6 +2189,7 @@ async fn incremental_scan_inspection_returns_cancelled_before_touching_files() {
                 sidecar_fingerprint: String::new(),
             },
             existing_metadata: None,
+            requires_processing: true,
         }],
         Arc::new(AtomicBool::new(true)),
     )
@@ -2309,6 +2849,58 @@ fn group_discovered_files_for_scan_keeps_multi_version_movie_folder_as_movie() {
 }
 
 #[test]
+fn pending_scan_reconciles_all_carriers_of_touched_metadata_owner() {
+    let root = Path::new("/media");
+    let mut first_file = build_discovered_file();
+    first_file.file_path = PathBuf::from("/media/movies/Version-A.mkv");
+    first_file.title = "Version A".to_string();
+    first_file.source_title = "Version A".to_string();
+    first_file.season_number = None;
+    first_file.episode_number = None;
+    let mut second_file = first_file.clone();
+    second_file.file_path = PathBuf::from("/media/movies/Version-B.mkv");
+    second_file.title = "Version B".to_string();
+    second_file.source_title = "Version B".to_string();
+
+    let mut first = build_pending_scan_file(first_file);
+    let mut first_summary = build_existing_movie_metadata();
+    first_summary.media_item_id = 42;
+    first_summary.logical_metadata_owner_id = 42;
+    first_summary.file_path = first
+        .changed_file
+        .inventory
+        .file_path
+        .to_string_lossy()
+        .to_string();
+    first.changed_file.existing_metadata = Some(first_summary);
+    first.changed_file.requires_processing = false;
+
+    let mut second = build_pending_scan_file(second_file);
+    let mut second_summary = build_existing_movie_metadata();
+    second_summary.media_item_id = 42;
+    second_summary.logical_metadata_owner_id = 42;
+    second_summary.file_path = second
+        .changed_file
+        .inventory
+        .file_path
+        .to_string_lossy()
+        .to_string();
+    second.changed_file.existing_metadata = Some(second_summary);
+    second.changed_file.requires_processing = true;
+
+    let groups = super::build_pending_scan_groups_from_files(
+        vec![first, second],
+        root,
+        &std::collections::HashMap::new(),
+    );
+
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].files.len(), 2);
+    assert!(groups[0].files.iter().any(|file| !file.requires_processing));
+    assert!(groups[0].files.iter().any(|file| file.requires_processing));
+}
+
+#[test]
 fn apply_existing_movie_metadata_reuses_stored_remote_fields() {
     let mut file = build_discovered_file();
     file.file_path = PathBuf::from("/media/movies/Arcane.mkv");
@@ -2333,6 +2925,72 @@ fn apply_existing_movie_metadata_reuses_stored_remote_fields() {
     assert_eq!(file.genres.as_deref(), Some("Animation, Drama"));
     assert_eq!(file.studio.as_deref(), Some("Fortiche"));
     assert_eq!(file.year, Some(2021));
+}
+
+#[test]
+fn deleted_nfo_restores_fields_from_the_authoritative_tmdb_snapshot() {
+    let mut file = build_discovered_file();
+    file.file_path = PathBuf::from("/media/movies/Arcane.mkv");
+    file.title = "Arcane filename".to_string();
+    file.source_title = "Arcane filename".to_string();
+    file.overview = None;
+
+    let mut existing = build_existing_movie_metadata();
+    existing.has_local_nfo = true;
+    existing.local_nfo_source_path = Some("/path/that/does/not/exist/Arcane.nfo".to_string());
+    existing.local_nfo_payload = Some(serde_json::json!({
+        "schema_version": 1,
+        "metadata": {
+            "title": "Old local title",
+            "overview": null,
+            "artwork": {}
+        }
+    }));
+    existing.title = "Old local title".to_string();
+    existing.source_title = "Old local title".to_string();
+    existing.overview = Some("Stored remote overview".to_string());
+    existing.tmdb_remote_snapshot = Some(serde_json::json!({
+        "version": 1,
+        "title": "Remote Arcane",
+        "overview": "Stored remote overview"
+    }));
+
+    super::apply_existing_media_metadata(&mut file, &existing);
+
+    assert_eq!(file.title, "Remote Arcane");
+    assert_eq!(file.source_title, "Arcane filename");
+    assert_eq!(file.overview.as_deref(), Some("Stored remote overview"));
+}
+
+#[test]
+fn invalid_new_higher_priority_nfo_does_not_restore_a_different_old_source() {
+    let mut file = build_discovered_file();
+    file.file_path = PathBuf::from("/media/movies/Arcane/Arcane.mkv");
+    file.title = "Arcane filename".to_string();
+    file.source_title = "Arcane filename".to_string();
+    file.invalid_local_nfo_source_path = Some(PathBuf::from("/media/movies/Arcane/Arcane.nfo"));
+
+    let mut existing = build_existing_movie_metadata();
+    existing.has_local_nfo = true;
+    existing.local_nfo_source_path = Some("/media/movies/Arcane/movie.nfo".to_string());
+    existing.local_nfo_payload = Some(serde_json::json!({
+        "schema_version": 1,
+        "metadata": {
+            "title": "Old generic local title",
+            "artwork": {}
+        }
+    }));
+    existing.title = "Old generic local title".to_string();
+    existing.source_title = "Old generic local title".to_string();
+
+    super::apply_existing_media_metadata(&mut file, &existing);
+
+    assert_eq!(file.title, "Arcane filename");
+    assert_eq!(file.source_title, "Arcane filename");
+    assert_eq!(
+        file.removed_local_nfo_source_path.as_deref(),
+        Some("/media/movies/Arcane/movie.nfo")
+    );
 }
 
 #[test]
@@ -2405,5 +3063,69 @@ fn apply_existing_episode_metadata_reuses_series_and_episode_fields() {
     assert_eq!(
         file.backdrop_path.as_deref(),
         Some("/cache/episode-backdrop.jpg")
+    );
+}
+
+#[test]
+fn removed_namedseason_does_not_leave_the_old_local_season_title() {
+    let mut file = build_discovered_file();
+    file.season_title = None;
+
+    let mut existing = build_existing_episode_metadata();
+    existing.series_has_local_nfo = true;
+    existing.series_local_nfo_source_path = Some("/media/series/Arcane/tvshow.nfo".to_string());
+    existing.series_local_nfo_payload = Some(serde_json::json!({
+        "schema_version": 1,
+        "metadata": {
+            "named_seasons": [
+                {
+                    "season_number": 1,
+                    "title": "Old local season name",
+                    "overview": "Old local season overview",
+                    "artwork": {
+                        "posters": ["/media/series/Arcane/season01-poster.jpg"],
+                        "backdrops": ["/media/series/Arcane/season01-fanart.jpg"]
+                    }
+                }
+            ]
+        }
+    }));
+    existing.season_title = Some("Old local season name".to_string());
+    existing.season_overview = Some("Old local season overview".to_string());
+    existing.season_poster_path = Some("/cache/old-local-season-poster.jpg".to_string());
+    existing.season_backdrop_path = Some("/cache/old-local-season-fanart.jpg".to_string());
+    existing.series_tmdb_remote_snapshot = Some(serde_json::json!({
+        "version": 1,
+        "series_outline": {
+            "seasons": [{
+                "season_number": 1,
+                "title": "Remote season name",
+                "year": null,
+                "overview": "Remote season overview",
+                "poster_path": "/cache/remote-season-poster.jpg",
+                "backdrop_path": "/cache/remote-season-fanart.jpg",
+                "episodes": []
+            }]
+        }
+    }));
+
+    super::apply_existing_media_metadata(&mut file, &existing);
+
+    assert_eq!(file.season_title.as_deref(), Some("Remote season name"));
+    assert_eq!(
+        file.season_overview.as_deref(),
+        Some("Remote season overview")
+    );
+    assert_eq!(
+        file.season_poster_path.as_deref(),
+        Some("/cache/remote-season-poster.jpg")
+    );
+    assert_eq!(
+        file.season_backdrop_path.as_deref(),
+        Some("/cache/remote-season-fanart.jpg")
+    );
+    assert_eq!(
+        file.removed_series_local_nfo_source_path.as_deref(),
+        Some("/media/series/Arcane/tvshow.nfo")
     );
 }

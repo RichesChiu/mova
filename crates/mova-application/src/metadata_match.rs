@@ -180,6 +180,25 @@ pub async fn apply_media_item_metadata_match(
         library.id,
     );
     let update_result: ApplicationResult<MediaItem> = async {
+        let refreshed_seasons = remote_outline
+            .as_ref()
+            .map(|outline| {
+                outline
+                    .seasons
+                    .iter()
+                    .map(|season| mova_db::UpdateSeasonMetadataParams {
+                        season_number: season.season_number,
+                        title: season
+                            .title
+                            .clone()
+                            .unwrap_or_else(|| format!("Season {:02}", season.season_number)),
+                        overview: season.overview.clone(),
+                        poster_path: season.poster_path.clone(),
+                        backdrop_path: season.backdrop_path.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let tmdb_remote_snapshot_json = crate::tmdb_revalidation::serialize_tmdb_remote_snapshot(
             &remote_metadata,
             remote_outline.clone(),
@@ -206,6 +225,12 @@ pub async fn apply_media_item_metadata_match(
                 remote_media_type: remote_media_type_for_media_type(&media_item.media_type)
                     .map(str::to_string),
                 year: remote_metadata.year.or(media_item.year),
+                tagline: media_item.tagline,
+                premiere_date: media_item.premiere_date,
+                content_rating: media_item.content_rating,
+                seasons: refreshed_seasons,
+                local_nfos: Vec::new(),
+                removed_local_nfo_source_paths: Vec::new(),
                 external_ids: remote_metadata.external_ids,
                 ratings: remote_metadata.ratings,
                 country: remote_metadata.country.or(media_item.country),
@@ -419,6 +444,9 @@ mod tests {
             metadata_failure_reason: None,
             remote_media_type: None,
             year: Some(2025),
+            tagline: None,
+            premiere_date: None,
+            content_rating: None,
             ratings: Vec::new(),
             country: None,
             genres: None,

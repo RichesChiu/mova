@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use mova_domain::{MediaExternalId, MediaRating};
 use sqlx::{postgres::PgPool, Postgres, Row, Transaction};
 use std::collections::{HashMap, HashSet};
@@ -27,6 +27,11 @@ pub async fn list_media_item_ratings(
         where media_item_id = any($1)
         order by
             media_item_id,
+            case retrieved_via
+                when 'manual' then 0
+                when 'nfo' then 1
+                else 100
+            end,
             case source when 'tmdb' then 0 else 100 end,
             source,
             kind
@@ -64,11 +69,20 @@ pub(crate) async fn replace_media_item_remote_data(
     external_ids: &[MediaExternalId],
     ratings: &[MediaRating],
 ) -> Result<()> {
+    if metadata_provider.is_some_and(|provider| matches!(provider, "nfo" | "manual"))
+        || ratings
+            .iter()
+            .any(|rating| matches!(rating.retrieved_via.as_str(), "nfo" | "manual"))
+    {
+        bail!("local and manual metadata must not use the remote projection writer");
+    }
+
     let existing_external_ids = sqlx::query(
         r#"
         select provider, external_id
         from media_item_external_ids
         where media_item_id = $1
+          and retrieved_via not in ('nfo', 'manual')
         "#,
     )
     .bind(media_item_id)
@@ -93,11 +107,17 @@ pub(crate) async fn replace_media_item_remote_data(
         metadata_provider,
     );
 
-    sqlx::query("delete from media_item_external_ids where media_item_id = $1")
-        .bind(media_item_id)
-        .execute(&mut **tx)
-        .await
-        .context("failed to replace media external ids")?;
+    sqlx::query(
+        r#"
+        delete from media_item_external_ids
+        where media_item_id = $1
+          and retrieved_via not in ('nfo', 'manual')
+        "#,
+    )
+    .bind(media_item_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to replace media external ids")?;
 
     for external_id in external_ids {
         sqlx::query(
@@ -105,10 +125,11 @@ pub(crate) async fn replace_media_item_remote_data(
             insert into media_item_external_ids (
                 media_item_id,
                 provider,
-                external_id
+                external_id,
+                retrieved_via
             )
-            values ($1, $2, $3)
-            on conflict (media_item_id, provider) do update
+            values ($1, $2, $3, $4)
+            on conflict (media_item_id, provider, retrieved_via) do update
             set external_id = excluded.external_id,
                 updated_at = now()
             "#,
@@ -116,24 +137,37 @@ pub(crate) async fn replace_media_item_remote_data(
         .bind(media_item_id)
         .bind(&external_id.provider)
         .bind(&external_id.external_id)
+        .bind(metadata_provider.unwrap_or("remote"))
         .execute(&mut **tx)
         .await
         .context("failed to upsert media external id")?;
     }
 
     if identity_changed {
-        sqlx::query("delete from media_item_ratings where media_item_id = $1")
-            .bind(media_item_id)
-            .execute(&mut **tx)
-            .await
-            .context("failed to clear ratings for replaced media identity")?;
+        sqlx::query(
+            r#"
+            delete from media_item_ratings
+            where media_item_id = $1
+              and retrieved_via not in ('nfo', 'manual')
+            "#,
+        )
+        .bind(media_item_id)
+        .execute(&mut **tx)
+        .await
+        .context("failed to clear ratings for replaced media identity")?;
     } else if let Some(metadata_provider) = metadata_provider {
-        sqlx::query("delete from media_item_ratings where media_item_id = $1 and source = $2")
-            .bind(media_item_id)
-            .bind(metadata_provider)
-            .execute(&mut **tx)
-            .await
-            .context("failed to replace media ratings for metadata provider")?;
+        sqlx::query(
+            r#"
+            delete from media_item_ratings
+            where media_item_id = $1
+              and retrieved_via = $2
+            "#,
+        )
+        .bind(media_item_id)
+        .bind(metadata_provider)
+        .execute(&mut **tx)
+        .await
+        .context("failed to replace media ratings for metadata provider")?;
     }
 
     for rating in ratings {
@@ -161,7 +195,7 @@ pub(crate) async fn replace_media_item_remote_data(
                 $8,
                 $9
             )
-            on conflict (media_item_id, source, kind) do update
+            on conflict (media_item_id, source, kind, retrieved_via) do update
             set score = excluded.score,
                 scale = excluded.scale,
                 rating_count = excluded.rating_count,
@@ -178,7 +212,7 @@ pub(crate) async fn replace_media_item_remote_data(
         .bind(rating.score)
         .bind(rating.scale)
         .bind(rating.rating_count)
-        .bind(&rating.retrieved_via)
+        .bind(metadata_provider.unwrap_or(&rating.retrieved_via))
         .bind(&rating.attributes)
         .bind(rating.fetched_at)
         .execute(&mut **tx)

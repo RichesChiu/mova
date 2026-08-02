@@ -80,6 +80,158 @@ async fn seed_media_file(
     .unwrap()
 }
 
+#[sqlx::test(migrations = false)]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn nfo_metadata_migration_upgrades_0001_data_and_enforces_source_ownership(pool: PgPool) {
+    sqlx::raw_sql(include_str!("../../../migrations/0001_init.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let library_id = seed_library(&pool, "Upgrade NFO", "/media/upgrade-nfo").await;
+    let media_item_id = seed_media_item(&pool, library_id, "movie", "Upgrade Movie").await;
+    sqlx::query(
+        r#"
+        insert into media_item_external_ids (media_item_id, provider, external_id)
+        values ($1, 'tmdb', '42')
+        "#,
+    )
+    .bind(media_item_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        insert into media_item_ratings (
+            media_item_id, source, kind, score, scale, rating_count,
+            retrieved_via, fetched_at
+        )
+        values ($1, 'tmdb', 'audience', 8.25, 10, 100, 'tmdb', now())
+        "#,
+    )
+    .bind(media_item_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::raw_sql(include_str!("../../../migrations/0002_nfo_metadata.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let upgraded_external_id = sqlx::query_as::<_, (String, String, Option<i64>)>(
+        r#"
+        select external_id, retrieved_via, local_metadata_source_id
+        from media_item_external_ids
+        where media_item_id = $1 and provider = 'tmdb'
+        "#,
+    )
+    .bind(media_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        upgraded_external_id,
+        ("42".to_string(), "tmdb".to_string(), None)
+    );
+    let upgraded_rating = sqlx::query_as::<_, (f64, String, Option<i64>)>(
+        r#"
+        select score::double precision, retrieved_via, local_metadata_source_id
+        from media_item_ratings
+        where media_item_id = $1 and source = 'tmdb' and kind = 'audience'
+        "#,
+    )
+    .bind(media_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(upgraded_rating, (8.25, "tmdb".to_string(), None));
+
+    let source_id = sqlx::query_scalar::<_, i64>(
+        r#"
+        insert into media_local_metadata_sources (
+            library_id, media_item_id, source_path, document_type, is_selected, payload
+        )
+        values ($1, $2, '/media/upgrade-nfo/movie.nfo', 'movie', true, '{}')
+        returning id
+        "#,
+    )
+    .bind(library_id)
+    .bind(media_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let generated_target_type = sqlx::query_scalar::<_, String>(
+        "select target_media_type from media_local_metadata_sources where id = $1",
+    )
+    .bind(source_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(generated_target_type, "movie");
+
+    sqlx::query(
+        r#"
+        insert into media_item_external_ids (
+            media_item_id, provider, external_id, retrieved_via, local_metadata_source_id
+        )
+        values ($1, 'tmdb', 'nfo-42', 'nfo', $2)
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        insert into media_item_ratings (
+            media_item_id, source, kind, score, scale, retrieved_via,
+            local_metadata_source_id, fetched_at
+        )
+        values ($1, 'tmdb', 'audience', 9, 10, 'nfo', $2, now())
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        insert into media_item_credits (
+            media_item_id, local_metadata_source_id, credit_type,
+            retrieved_via, sort_order, name
+        )
+        values ($1, $2, 'actor', 'nfo', 0, 'Upgrade Actor')
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query("delete from media_local_metadata_sources where id = $1")
+        .bind(source_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let remaining = sqlx::query_as::<_, (i64, i64, i64)>(
+        r#"
+        select
+            (select count(*) from media_item_external_ids where media_item_id = $1),
+            (select count(*) from media_item_ratings where media_item_id = $1),
+            (select count(*) from media_item_credits where media_item_id = $1)
+        "#,
+    )
+    .bind(media_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(remaining, (1, 1, 0));
+}
+
 #[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
 async fn media_hierarchy_enforces_parent_types_and_library_ownership(pool: PgPool) {
@@ -369,6 +521,404 @@ async fn cast_members_belong_to_a_cache_aggregate_and_follow_its_lifecycle(pool:
     .await
     .unwrap();
     assert_eq!(member_count, 0);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn local_metadata_sources_allow_versions_but_enforce_one_selected_projection(pool: PgPool) {
+    let library_id = seed_library(&pool, "NFO", "/media/nfo").await;
+    let media_item_id = seed_media_item(&pool, library_id, "movie", "Movie").await;
+
+    sqlx::query(
+        r#"
+        insert into media_local_metadata_sources (
+            library_id, media_item_id, source_path, document_type, is_selected, payload
+        )
+        values
+            ($1, $2, '/media/nfo/version-a.nfo', 'movie', true, '{"title":"A"}'),
+            ($1, $2, '/media/nfo/version-b.nfo', 'movie', false, '{"title":"B"}')
+        "#,
+    )
+    .bind(library_id)
+    .bind(media_item_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let selected_source_id = sqlx::query_scalar::<_, i64>(
+        r#"
+        select id
+        from media_local_metadata_sources
+        where media_item_id = $1 and is_selected
+        "#,
+    )
+    .bind(media_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let duplicate_selected = sqlx::query(
+        r#"
+        insert into media_local_metadata_sources (
+            library_id, media_item_id, source_path, document_type, is_selected
+        )
+        values ($1, $2, '/media/nfo/version-c.nfo', 'movie', true)
+        "#,
+    )
+    .bind(library_id)
+    .bind(media_item_id)
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_sqlstate(duplicate_selected, "23505");
+
+    let invalid_payload = sqlx::query(
+        r#"
+        insert into media_local_metadata_sources (
+            library_id, media_item_id, source_path, document_type, payload
+        )
+        values ($1, $2, '/media/nfo/invalid.nfo', 'movie', '[]')
+        "#,
+    )
+    .bind(library_id)
+    .bind(media_item_id)
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_sqlstate(invalid_payload, "23514");
+
+    sqlx::query(
+        r#"
+        insert into media_item_external_ids (
+            media_item_id,
+            provider,
+            external_id,
+            retrieved_via,
+            local_metadata_source_id
+        )
+        values
+            ($1, 'tmdb', 'remote-42', 'tmdb', null),
+            ($1, 'tmdb', 'local-42', 'nfo', $2)
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(selected_source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let external_id_count = sqlx::query_scalar::<_, i64>(
+        "select count(*) from media_item_external_ids where media_item_id = $1",
+    )
+    .bind(media_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(external_id_count, 2);
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn local_metadata_sources_prevent_incompatible_parent_media_type_updates(pool: PgPool) {
+    let library_id = seed_library(&pool, "NFO Parent Types", "/media/nfo-parent-types").await;
+    let cases = [
+        ("movie", "movie", "series"),
+        ("series", "tvshow", "episode"),
+        ("episode", "episodedetails", "movie"),
+    ];
+
+    for (index, (media_type, document_type, incompatible_type)) in cases.into_iter().enumerate() {
+        let title = format!("NFO Parent Type {index}");
+        let media_item_id = seed_media_item(&pool, library_id, media_type, title.as_str()).await;
+        let incompatible_document_type = if document_type == "movie" {
+            "tvshow"
+        } else {
+            "movie"
+        };
+        let error = sqlx::query(
+            r#"
+            insert into media_local_metadata_sources (
+                library_id, media_item_id, source_path, document_type, payload
+            )
+            values ($1, $2, $3, $4, '{}')
+            "#,
+        )
+        .bind(library_id)
+        .bind(media_item_id)
+        .bind(format!("/media/nfo-parent-types/{index}-invalid.nfo"))
+        .bind(incompatible_document_type)
+        .execute(&pool)
+        .await
+        .unwrap_err();
+        assert_sqlstate(error, "23503");
+
+        sqlx::query(
+            r#"
+            insert into media_local_metadata_sources (
+                library_id, media_item_id, source_path, document_type, payload
+            )
+            values ($1, $2, $3, $4, '{}')
+            "#,
+        )
+        .bind(library_id)
+        .bind(media_item_id)
+        .bind(format!("/media/nfo-parent-types/{index}.nfo"))
+        .bind(document_type)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let generated_target_type = sqlx::query_scalar::<_, String>(
+            "select target_media_type from media_local_metadata_sources where media_item_id = $1",
+        )
+        .bind(media_item_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(generated_target_type, media_type);
+
+        let retained_type = sqlx::query_scalar::<_, String>(
+            r#"
+            update media_items
+            set media_type = $2,
+                title = title || ' updated'
+            where id = $1
+            returning media_type
+            "#,
+        )
+        .bind(media_item_id)
+        .bind(media_type)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(retained_type, media_type);
+
+        let error = sqlx::query("update media_items set media_type = $2 where id = $1")
+            .bind(media_item_id)
+            .bind(incompatible_type)
+            .execute(&pool)
+            .await
+            .unwrap_err();
+        assert_sqlstate(error, "23503");
+
+        let retained_type =
+            sqlx::query_scalar::<_, String>("select media_type from media_items where id = $1")
+                .bind(media_item_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(retained_type, media_type);
+    }
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn local_metadata_target_type_fk_serializes_concurrent_parent_updates(pool: PgPool) {
+    use std::time::Duration;
+    use tokio::{sync::oneshot, time::timeout};
+
+    let library_id = seed_library(&pool, "Concurrent NFO", "/media/concurrent-nfo").await;
+    let media_item_id = seed_media_item(&pool, library_id, "movie", "Concurrent Movie").await;
+    let mut source_tx = pool.begin().await.unwrap();
+    sqlx::query(
+        r#"
+        insert into media_local_metadata_sources (
+            library_id, media_item_id, source_path, document_type, payload
+        )
+        values ($1, $2, '/media/concurrent-nfo/movie.nfo', 'movie', '{}')
+        "#,
+    )
+    .bind(library_id)
+    .bind(media_item_id)
+    .execute(&mut *source_tx)
+    .await
+    .unwrap();
+
+    let update_pool = pool.clone();
+    let (started_tx, started_rx) = oneshot::channel();
+    let mut update_task = tokio::spawn(async move {
+        let mut tx = update_pool.begin().await.unwrap();
+        let _ = started_tx.send(());
+        let result = sqlx::query("update media_items set media_type = 'series' where id = $1")
+            .bind(media_item_id)
+            .execute(&mut *tx)
+            .await;
+        if result.is_ok() {
+            tx.commit().await.unwrap();
+        }
+        result
+    });
+    started_rx.await.unwrap();
+
+    assert!(
+        timeout(Duration::from_millis(100), &mut update_task)
+            .await
+            .is_err(),
+        "parent type update must wait for the concurrent source insert"
+    );
+    source_tx.commit().await.unwrap();
+
+    let error = update_task.await.unwrap().unwrap_err();
+    assert_sqlstate(error, "23503");
+    let retained_type =
+        sqlx::query_scalar::<_, String>("select media_type from media_items where id = $1")
+            .bind(media_item_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(retained_type, "movie");
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn deleting_local_metadata_source_cascades_only_its_nfo_projection(pool: PgPool) {
+    let library_id = seed_library(&pool, "NFO Ownership", "/media/nfo-ownership").await;
+    let media_item_id = seed_media_item(&pool, library_id, "movie", "Owned Movie").await;
+    let source_id = sqlx::query_scalar::<_, i64>(
+        r#"
+        insert into media_local_metadata_sources (
+            library_id, media_item_id, source_path, document_type, is_selected, payload
+        )
+        values ($1, $2, '/media/nfo-ownership/movie.nfo', 'movie', true, '{}')
+        returning id
+        "#,
+    )
+    .bind(library_id)
+    .bind(media_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    let missing_owner = sqlx::query(
+        r#"
+        insert into media_item_external_ids (
+            media_item_id, provider, external_id, retrieved_via
+        )
+        values ($1, 'imdb', 'tt-missing-owner', 'nfo')
+        "#,
+    )
+    .bind(media_item_id)
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_sqlstate(missing_owner, "23514");
+
+    let other_item_id = seed_media_item(&pool, library_id, "movie", "Other Movie").await;
+    let other_source_id = sqlx::query_scalar::<_, i64>(
+        r#"
+        insert into media_local_metadata_sources (
+            library_id, media_item_id, source_path, document_type, payload
+        )
+        values ($1, $2, '/media/nfo-ownership/other.nfo', 'movie', '{}')
+        returning id
+        "#,
+    )
+    .bind(library_id)
+    .bind(other_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let wrong_owner = sqlx::query(
+        r#"
+        insert into media_item_external_ids (
+            media_item_id, provider, external_id, retrieved_via, local_metadata_source_id
+        )
+        values ($1, 'tvdb', 'wrong-owner', 'nfo', $2)
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(other_source_id)
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_sqlstate(wrong_owner, "23503");
+
+    sqlx::query(
+        r#"
+        insert into media_item_external_ids (
+            media_item_id, provider, external_id, retrieved_via, local_metadata_source_id
+        )
+        values
+            ($1, 'tmdb', 'remote-id', 'tmdb', null),
+            ($1, 'tmdb', 'nfo-id', 'nfo', $2)
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        insert into media_item_ratings (
+            media_item_id, source, kind, score, scale, retrieved_via,
+            local_metadata_source_id, fetched_at
+        )
+        values
+            ($1, 'tmdb', 'audience', 8, 10, 'tmdb', null, now()),
+            ($1, 'tmdb', 'audience', 9, 10, 'nfo', $2, now())
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        insert into media_item_credits (
+            media_item_id, local_metadata_source_id, credit_type, retrieved_via,
+            sort_order, person_provider, provider_person_id, name, role
+        )
+        values
+            ($1, $2, 'actor', 'nfo', 0, 'tmdb', '1', 'Same Name', 'Lead'),
+            ($1, $2, 'actor', 'nfo', 0, 'tmdb', '2', 'Same Name', 'Double')
+        "#,
+    )
+    .bind(media_item_id)
+    .bind(source_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let credit_count = sqlx::query_scalar::<_, i64>(
+        "select count(*) from media_item_credits where media_item_id = $1",
+    )
+    .bind(media_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(credit_count, 2, "same-name credits must remain lossless");
+
+    sqlx::query("delete from media_local_metadata_sources where id = $1")
+        .bind(source_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let remaining_external_ids = sqlx::query_scalar::<_, i64>(
+        "select count(*) from media_item_external_ids where media_item_id = $1",
+    )
+    .bind(media_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let remaining_ratings = sqlx::query_scalar::<_, i64>(
+        "select count(*) from media_item_ratings where media_item_id = $1",
+    )
+    .bind(media_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let remaining_credits = sqlx::query_scalar::<_, i64>(
+        "select count(*) from media_item_credits where media_item_id = $1",
+    )
+    .bind(media_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(remaining_external_ids, 1);
+    assert_eq!(remaining_ratings, 1);
+    assert_eq!(remaining_credits, 0);
 }
 
 #[sqlx::test(migrations = "../../migrations")]

@@ -72,6 +72,22 @@ pub async fn list_media_item_cast_members(
     pool: &PgPool,
     media_item_id: i64,
 ) -> Result<Vec<MediaCastMember>> {
+    let local_members =
+        crate::local_metadata::list_preferred_local_cast_members(pool, media_item_id).await?;
+    if !local_members.is_empty() {
+        return Ok(local_members
+            .into_iter()
+            .map(|member| MediaCastMember {
+                media_item_id: member.media_item_id,
+                person_id: member.person_id,
+                sort_order: member.sort_order,
+                name: member.name,
+                character_name: member.role,
+                profile_path: member.profile_path,
+            })
+            .collect());
+    }
+
     let rows = sqlx::query(
         r#"
         select
