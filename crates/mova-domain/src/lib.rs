@@ -4,8 +4,11 @@ mod episode;
 mod library;
 mod library_detail;
 mod media_cast_member;
+mod media_external_id;
 mod media_file;
 mod media_item;
+mod media_item_credit;
+mod media_local_metadata_source;
 mod media_rating;
 mod notification;
 mod playback_progress;
@@ -21,6 +24,7 @@ pub use episode::Episode;
 pub use library::Library;
 pub use library_detail::LibraryDetail;
 pub use media_cast_member::MediaCastMember;
+pub use media_external_id::MediaExternalIdRecord;
 pub use media_file::MediaFile;
 pub use media_item::{
     MediaItem, METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED,
@@ -28,6 +32,8 @@ pub use media_item::{
     METADATA_STATUS_PENDING, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
     REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
 };
+pub use media_item_credit::MediaItemCredit;
+pub use media_local_metadata_source::{MediaLocalMetadataSource, MediaLocalMetadataSourceSummary};
 pub use media_rating::{MediaExternalId, MediaRating, RATING_KIND_AUDIENCE, RATING_SOURCE_TMDB};
 pub use notification::{
     Notification, NotificationFeed, ScanNotificationIssue, ScanNotificationSummary,

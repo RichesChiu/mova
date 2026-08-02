@@ -45,7 +45,7 @@ export const MediaRatingBadges = ({ className, limit = 1, ratings }: MediaRating
         return (
           <span
             className="media-rating-badge"
-            key={`${rating.source}:${rating.kind}`}
+            key={`${rating.source}:${rating.kind}:${rating.retrieved_via}`}
             title={title}
           >
             <span className="media-rating-badge__source">{sourceLabel}</span>

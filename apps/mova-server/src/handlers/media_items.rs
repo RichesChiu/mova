@@ -5,8 +5,8 @@ use crate::auth::{
 use crate::error::ApiError;
 use crate::response::{
     ok, ApiJson, MediaCastMemberResponse, MediaFileResponse, MediaItemDetailResponse,
-    MediaItemPlaybackHeaderResponse, MediaItemResponse, MetadataMatchCandidateResponse,
-    SeriesEpisodeOutlineResponse,
+    MediaItemMetadataSourcesResponse, MediaItemPlaybackHeaderResponse, MediaItemResponse,
+    MediaLocalMetadataSourceResponse, MetadataMatchCandidateResponse, SeriesEpisodeOutlineResponse,
 };
 use crate::state::AppState;
 use axum::{
@@ -45,6 +45,45 @@ pub async fn get_media_item(
 
     Ok(ok(MediaItemDetailResponse::from_domain(
         media_item,
+        state.api_time_offset,
+    )))
+}
+
+/// Query source-aware identities and lightweight local metadata source headers.
+pub async fn get_media_item_metadata_sources(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    jar: CookieJar,
+    Path(media_item_id): Path<i64>,
+) -> Result<ApiJson<MediaItemMetadataSourcesResponse>, ApiError> {
+    let user = require_admin(&state, &headers, &jar).await?;
+    require_media_item_access(&state, &user, media_item_id).await?;
+    let sources = mova_application::get_media_item_metadata_sources(&state.db, media_item_id)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(ok(MediaItemMetadataSourcesResponse::from_domain(
+        sources,
+        state.api_time_offset,
+    )))
+}
+
+/// Query one normalized local metadata payload and observe its current file.
+pub async fn get_media_item_metadata_source(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    jar: CookieJar,
+    Path((media_item_id, source_id)): Path<(i64, i64)>,
+) -> Result<ApiJson<MediaLocalMetadataSourceResponse>, ApiError> {
+    let user = require_admin(&state, &headers, &jar).await?;
+    require_media_item_access(&state, &user, media_item_id).await?;
+    let source =
+        mova_application::get_media_item_metadata_source(&state.db, media_item_id, source_id)
+            .await
+            .map_err(ApiError::from)?;
+
+    Ok(ok(MediaLocalMetadataSourceResponse::from_domain(
+        source,
         state.api_time_offset,
     )))
 }

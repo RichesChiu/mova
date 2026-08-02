@@ -22,13 +22,14 @@ use mova_domain::{
 };
 use mova_scan::{
     discovered_media_file_inventory_scan_hash, discovered_media_file_scan_hash,
-    infer_series_file_metadata, infer_series_sidecar_metadata_within_root, DiscoveredAudioTrack,
-    DiscoveredMediaFile, DiscoveredMediaFileInventory, DiscoveredSubtitleTrack,
+    infer_series_file_metadata, DiscoveredAudioTrack, DiscoveredMediaFile,
+    DiscoveredMediaFileInventory, DiscoveredSubtitleTrack,
 };
 use sqlx::postgres::PgPool;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    path::PathBuf,
+    fs,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
         Arc,
@@ -42,6 +43,23 @@ mod presentation;
 
 use incremental::*;
 use presentation::*;
+
+pub(crate) fn apply_existing_media_metadata_for_refresh(
+    file: &mut DiscoveredMediaFile,
+    summary: &mova_db::ExistingMediaMetadataSummary,
+) {
+    presentation::apply_existing_media_metadata(file, summary);
+}
+
+pub(crate) fn eligible_local_nfo_observations_for_refresh(
+    files: &[DiscoveredMediaFile],
+    root_path: &Path,
+) -> Vec<(
+    Option<mova_scan::LocalNfoObservation>,
+    Option<mova_scan::LocalNfoObservation>,
+)> {
+    eligible_local_nfo_observations(files, root_path)
+}
 
 /// 触发媒体库扫描时返回的结果。
 /// `created = false` 表示本次没有新建任务，而是复用了当前库已有的活跃任务。
@@ -164,12 +182,14 @@ struct PendingScanGroup {
     files: Vec<IncrementalScanFile>,
     metadata_lookup_hint: Option<String>,
     metadata_binding_conflict: bool,
+    eligible_generic_movie_nfo_sources: HashSet<PathBuf>,
+    eligible_series_nfo_sources: HashSet<PathBuf>,
 }
 
 #[derive(Debug)]
 struct IncrementalScanPlan {
     discovered_paths: Vec<String>,
-    changed_files: Vec<IncrementalScanFile>,
+    scan_files: Vec<IncrementalScanFile>,
     container_bindings: HashMap<String, ContainerBindingResolution>,
 }
 
@@ -177,6 +197,9 @@ struct IncrementalScanPlan {
 struct IncrementalScanFile {
     inventory: DiscoveredMediaFileInventory,
     existing_metadata: Option<mova_db::ExistingMediaMetadataSummary>,
+    /// True when this physical file, or another carrier of the same logical
+    /// movie/series metadata owner, changed during this discovery pass.
+    requires_processing: bool,
 }
 
 #[derive(Debug)]
@@ -213,7 +236,7 @@ const SCAN_ITEM_STAGE_COMPLETED: &str = "completed";
 const SCAN_PHASE_INITIALIZING: &str = "initializing";
 const SCAN_DISCOVERY_PROGRESS_MIN_FILE_DELTA: i32 = 25;
 const SCAN_DISCOVERY_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(500);
-pub(crate) const LOCAL_ANALYSIS_VERSION: i32 = 7;
+pub(crate) const LOCAL_ANALYSIS_VERSION: i32 = 9;
 
 fn should_flush_discovery_progress(
     persisted_progress: i32,
@@ -490,7 +513,7 @@ pub async fn execute_scan_job_with_cancellation(
 
     let IncrementalScanPlan {
         discovered_paths,
-        changed_files,
+        scan_files,
         container_bindings,
     } = match build_incremental_scan_plan(
         pool,
@@ -513,9 +536,8 @@ pub async fn execute_scan_job_with_cancellation(
         }
     };
 
-    let pending_file_count = i32::try_from(changed_files.len()).unwrap_or(i32::MAX);
     let pending_groups = match build_pending_scan_groups(
-        changed_files,
+        scan_files,
         std::path::Path::new(&library.root_path),
         &container_bindings,
     )
@@ -531,6 +553,11 @@ pub async fn execute_scan_job_with_cancellation(
             return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
     };
+    let pending_file_count = pending_groups
+        .iter()
+        .map(|group| group.files.len())
+        .sum::<usize>();
+    let pending_file_count = i32::try_from(pending_file_count).unwrap_or(i32::MAX);
 
     match mova_db::initialize_scan_job_work(
         pool,
@@ -645,6 +672,9 @@ pub async fn execute_scan_job_with_cancellation(
     )
     .await?;
 
+    let retained_local_metadata_source_paths =
+        authoritative_local_metadata_source_paths(Path::new(&library.root_path), &discovered_paths);
+
     // Only a complete discovery result is authoritative enough to remove missing paths.
     // A cancelled or failed traversal returns before this point, so transient mount,
     // permission, or I/O failures cannot be mistaken for deleted media files.
@@ -653,6 +683,7 @@ pub async fn execute_scan_job_with_cancellation(
         library.id,
         scan_job_id,
         &discovered_paths,
+        &retained_local_metadata_source_paths,
         &[],
         &fence,
     )
@@ -721,12 +752,81 @@ pub async fn execute_scan_job_with_cancellation(
     }
 }
 
+/// Resolve the exact sidecar paths that remain eligible after a complete file
+/// discovery. Candidate precedence mirrors `mova-scan`: an existing invalid or
+/// unreadable higher-priority NFO blocks fallback and is retained as
+/// last-known-good; only a definitive `NotFound` advances to the next path.
+fn authoritative_local_metadata_source_paths(
+    root_path: &Path,
+    discovered_paths: &[String],
+) -> Vec<String> {
+    let mut retained = std::collections::BTreeSet::new();
+    let canonical_root = fs::canonicalize(root_path).ok();
+
+    let shallow_files = discovered_paths
+        .iter()
+        .filter_map(|discovered_path| {
+            mova_scan::inspect_media_file_inventory_shallow(DiscoveredMediaFileInventory {
+                file_path: PathBuf::from(discovered_path),
+                file_size: 0,
+                file_modified_at_ms: None,
+                sidecar_fingerprint: String::new(),
+            })
+            .ok()
+        })
+        .collect::<Vec<_>>();
+    for (media_observation, series_observation) in
+        eligible_local_nfo_observations(&shallow_files, root_path)
+    {
+        for source_path in [media_observation.as_ref(), series_observation.as_ref()]
+            .into_iter()
+            .flatten()
+            .filter_map(nfo_observation_source_path)
+        {
+            retain_local_metadata_source_path(
+                &mut retained,
+                source_path,
+                root_path,
+                canonical_root.as_deref(),
+            );
+        }
+    }
+
+    retained.into_iter().collect()
+}
+
+fn retain_local_metadata_source_path(
+    retained: &mut std::collections::BTreeSet<String>,
+    source_path: &Path,
+    root_path: &Path,
+    canonical_root: Option<&Path>,
+) {
+    retained.insert(source_path.to_string_lossy().to_string());
+    let Some(canonical_root) = canonical_root else {
+        return;
+    };
+    if let Ok(canonical_source) = fs::canonicalize(source_path) {
+        if canonical_source.starts_with(canonical_root) {
+            retained.insert(canonical_source.to_string_lossy().to_string());
+            if let Ok(relative_source) = canonical_source.strip_prefix(canonical_root) {
+                retained.insert(
+                    root_path
+                        .join(relative_source)
+                        .to_string_lossy()
+                        .to_string(),
+                );
+            }
+        }
+    }
+}
+
 async fn build_pending_scan_groups(
-    changed_files: Vec<IncrementalScanFile>,
+    scan_files: Vec<IncrementalScanFile>,
     root_path: &std::path::Path,
     container_bindings: &HashMap<String, ContainerBindingResolution>,
 ) -> ApplicationResult<Vec<PendingScanGroup>> {
-    let pending_files = inspect_incremental_scan_files_shallow(changed_files).await?;
+    let pending_files =
+        inspect_incremental_scan_files_shallow(scan_files, root_path.to_path_buf()).await?;
 
     Ok(build_pending_scan_groups_from_files(
         pending_files,
@@ -740,30 +840,54 @@ fn build_pending_scan_groups_from_files(
     root_path: &std::path::Path,
     container_bindings: &HashMap<String, ContainerBindingResolution>,
 ) -> Vec<PendingScanGroup> {
-    let mut changed_files_by_path = HashMap::new();
+    let mut scan_files_by_path = HashMap::new();
+    let mut metadata_owner_by_path = HashMap::new();
     let mut shallow_files = Vec::with_capacity(pending_files.len());
 
     for pending_file in pending_files {
         let file_path = pending_file.file.file_path.to_string_lossy().to_string();
         shallow_files.push(pending_file.file);
-        changed_files_by_path.insert(file_path, pending_file.changed_file);
+        if let Some(summary) = pending_file.changed_file.existing_metadata.as_ref() {
+            metadata_owner_by_path.insert(file_path.clone(), summary.logical_metadata_owner_id);
+        }
+        scan_files_by_path.insert(file_path, pending_file.changed_file);
     }
 
-    let mut groups = group_discovered_files_for_scan_with_root(shallow_files, root_path);
+    let groups = group_discovered_files_for_scan_with_root(shallow_files, root_path);
+    let mut groups = coalesce_scan_groups_by_metadata_owner(groups, &metadata_owner_by_path);
     let mut pending_groups = Vec::with_capacity(groups.len());
 
     for mut group in groups.drain(..) {
         apply_container_binding_resolution(&mut group, root_path, container_bindings);
         let mut group_files = Vec::with_capacity(group.files.len());
+        let mut eligible_generic_movie_nfo_sources = HashSet::new();
+        let mut eligible_series_nfo_sources = HashSet::new();
 
         for file in group.files {
             let file_path = file.file_path.to_string_lossy().to_string();
-            if let Some(changed_file) = changed_files_by_path.remove(file_path.as_str()) {
-                group_files.push(changed_file);
+            if let Some(source_path) = file
+                .local_nfo
+                .as_ref()
+                .map(|metadata| metadata.source_path.as_path())
+                .or(file.invalid_local_nfo_source_path.as_deref())
+                .filter(|path| is_generic_movie_nfo(path))
+            {
+                eligible_generic_movie_nfo_sources.insert(normalize_nfo_source_path(source_path));
+            }
+            if let Some(source_path) = file
+                .series_local_nfo
+                .as_ref()
+                .map(|metadata| metadata.source_path.as_path())
+                .or(file.invalid_series_local_nfo_source_path.as_deref())
+            {
+                eligible_series_nfo_sources.insert(normalize_nfo_source_path(source_path));
+            }
+            if let Some(scan_file) = scan_files_by_path.remove(file_path.as_str()) {
+                group_files.push(scan_file);
             }
         }
 
-        if group_files.is_empty() {
+        if group_files.is_empty() || !group_files.iter().any(|file| file.requires_processing) {
             continue;
         }
 
@@ -771,10 +895,65 @@ fn build_pending_scan_groups_from_files(
             files: group_files,
             metadata_lookup_hint: group.metadata_lookup_hint,
             metadata_binding_conflict: group.metadata_binding_conflict,
+            eligible_generic_movie_nfo_sources,
+            eligible_series_nfo_sources,
         });
     }
 
     pending_groups
+}
+
+/// A sidecar belongs to a logical movie/series rather than to one physical
+/// version. Reconcile every live carrier of the same existing owner together,
+/// even when filename grouping temporarily differs because a sidecar was
+/// added, changed, or removed.
+fn coalesce_scan_groups_by_metadata_owner(
+    groups: Vec<ScanDiscoveredGroup>,
+    metadata_owner_by_path: &HashMap<String, i64>,
+) -> Vec<ScanDiscoveredGroup> {
+    let mut coalesced = Vec::<ScanDiscoveredGroup>::new();
+    let mut indexes = HashMap::<String, usize>::new();
+
+    for mut group in groups {
+        let owner_ids = group
+            .files
+            .iter()
+            .filter_map(|file| {
+                metadata_owner_by_path
+                    .get(file.file_path.to_string_lossy().as_ref())
+                    .copied()
+            })
+            .collect::<HashSet<_>>();
+        let key = if owner_ids.len() == 1 {
+            format!(
+                "metadata-owner:{}",
+                owner_ids
+                    .iter()
+                    .next()
+                    .expect("one-element owner set must contain an id")
+            )
+        } else {
+            group.presentation.item_key.clone()
+        };
+        group.presentation.item_key = key.clone();
+
+        if let Some(index) = indexes.get(&key).copied() {
+            let target = &mut coalesced[index];
+            if group.metadata_binding_conflict {
+                target.metadata_lookup_hint = None;
+                target.metadata_binding_conflict = true;
+            } else {
+                merge_metadata_lookup_hint(target, group.metadata_lookup_hint.take());
+            }
+            target.files.extend(group.files);
+            continue;
+        }
+
+        indexes.insert(key, coalesced.len());
+        coalesced.push(group);
+    }
+
+    coalesced
 }
 
 fn apply_container_binding_resolution(
@@ -885,10 +1064,25 @@ async fn analyze_pending_scan_groups(
             files,
             metadata_lookup_hint,
             metadata_binding_conflict,
+            eligible_generic_movie_nfo_sources,
+            eligible_series_nfo_sources,
         } = pending_group;
+        let metadata_owner_by_path = files
+            .iter()
+            .filter_map(|file| {
+                file.existing_metadata.as_ref().map(|summary| {
+                    (
+                        file.inventory.file_path.to_string_lossy().to_string(),
+                        summary.logical_metadata_owner_id,
+                    )
+                })
+            })
+            .collect::<HashMap<_, _>>();
         let discovered_files = match inspect_incremental_scan_files_within_root(
             files,
             PathBuf::from(&library.root_path),
+            eligible_generic_movie_nfo_sources,
+            eligible_series_nfo_sources,
             cancellation_flag.clone(),
         )
         .await?
@@ -899,10 +1093,11 @@ async fn analyze_pending_scan_groups(
                 break;
             }
         };
-        let mut groups = group_discovered_files_for_scan_with_root(
+        let groups = group_discovered_files_for_scan_with_root(
             discovered_files,
             std::path::Path::new(&library.root_path),
         );
+        let mut groups = coalesce_scan_groups_by_metadata_owner(groups, &metadata_owner_by_path);
         for group in &mut groups {
             merge_pending_group_lookup_state(
                 group,
@@ -1029,6 +1224,16 @@ fn prepare_scan_groups_for_metadata_lookup(groups: &mut [ScanDiscoveredGroup]) {
             file.metadata_status = Some(METADATA_STATUS_PENDING.to_string());
             file.metadata_failure_reason = None;
         }
+
+        let lookup_type = scan_presentation_lookup_type(&group.presentation);
+        let local_selection =
+            crate::local_metadata::apply_group_local_metadata(&mut group.files, lookup_type);
+        if local_selection.identity_conflict {
+            group.metadata_lookup_hint = None;
+            group.metadata_binding_conflict = true;
+        } else {
+            merge_metadata_lookup_hint(group, local_selection.tmdb_id_hint);
+        }
     }
 }
 
@@ -1083,6 +1288,10 @@ async fn enrich_discovered_groups(
                     metadata_decision.remote_media_type,
                 );
             }
+            crate::local_metadata::apply_group_local_metadata(
+                &mut group.files,
+                scan_presentation_lookup_type(&group.presentation),
+            );
             let group_outcome = sync_scan_group_media_entries(
                 pool,
                 scan_job_id,
@@ -1232,6 +1441,7 @@ async fn enrich_discovered_groups(
                 remote_media_type_for_lookup_type(lookup_type),
             );
         }
+        crate::local_metadata::apply_group_local_metadata(&mut group.files, lookup_type);
 
         if let Some(primary_file) = group.files.first() {
             if !primary_file.title.trim().is_empty() {
@@ -1595,7 +1805,7 @@ fn remote_media_type_for_lookup_type(lookup_type: &str) -> Option<&'static str> 
     None
 }
 
-fn restore_group_after_provider_error(
+pub(crate) fn restore_group_after_provider_error(
     files: &mut Vec<DiscoveredMediaFile>,
     files_before_enrichment: Vec<DiscoveredMediaFile>,
     remote_media_type: Option<&str>,
@@ -1727,7 +1937,7 @@ fn build_media_entries(
             ))
         })?;
         let scan_hash = discovered_media_file_scan_hash(&file);
-        let metadata_status = file.metadata_status.ok_or_else(|| {
+        let metadata_status = file.metadata_status.clone().ok_or_else(|| {
             ApplicationError::Unexpected(anyhow::anyhow!(
                 "metadata status was not finalized before sync: {}",
                 file_path
@@ -1746,6 +1956,23 @@ fn build_media_entries(
             .flatten();
         let tmdb_remote_snapshot_renews_retention =
             replace_remote_data && tmdb_remote_snapshot_renews_retention;
+        let premiere_date = crate::local_metadata::parse_nfo_date(file.premiere_date.as_deref());
+        let episode_premiere_date =
+            crate::local_metadata::parse_nfo_date(file.episode_premiere_date.as_deref());
+        let local_nfo = file.local_nfo.as_ref().and_then(|metadata| {
+            crate::local_metadata::build_local_metadata_snapshot_for_file(
+                metadata,
+                file.local_nfo_is_selected,
+                &file,
+            )
+        });
+        let series_local_nfo = file.series_local_nfo.as_ref().and_then(|metadata| {
+            crate::local_metadata::build_local_metadata_snapshot_for_file(
+                metadata,
+                file.series_local_nfo_is_selected,
+                &file,
+            )
+        });
 
         entries.push(mova_db::CreateMediaEntryParams {
             library_id: library.id,
@@ -1764,6 +1991,9 @@ fn build_media_entries(
             original_title: file.original_title,
             sort_title: file.sort_title,
             year: file.year,
+            tagline: file.tagline,
+            premiere_date,
+            content_rating: file.content_rating,
             external_ids: file.external_ids,
             ratings: file.ratings,
             country: file.country,
@@ -1776,10 +2006,21 @@ fn build_media_entries(
             season_backdrop_path: file.season_backdrop_path,
             episode_number: file.episode_number,
             episode_title: file.episode_title,
+            episode_original_title: file.episode_original_title,
+            episode_sort_title: file.episode_sort_title,
+            episode_year: file.episode_year,
+            episode_overview: file.episode_overview,
+            episode_tagline: file.episode_tagline,
+            episode_premiere_date,
+            episode_content_rating: file.episode_content_rating,
             overview: file.overview,
             series_poster_path: file.series_poster_path,
             series_backdrop_path: file.series_backdrop_path,
             series_logo_path: file.series_logo_path,
+            local_nfo,
+            series_local_nfo,
+            removed_local_nfo_source_path: file.removed_local_nfo_source_path,
+            removed_series_local_nfo_source_path: file.removed_series_local_nfo_source_path,
             poster_path: file.poster_path,
             backdrop_path: file.backdrop_path,
             logo_path: file.logo_path,

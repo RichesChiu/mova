@@ -1,13 +1,14 @@
 use crate::{
     parse::{
-        episode_identity_for_path, extension_lowercase, parse_media_metadata,
+        episode_identity_for_path, extension_lowercase, parse_media_metadata_with_sidecar,
         parse_media_metadata_without_sidecar,
     },
     probe::{probe_media_file_with_cancel, MediaProbe, ProbeAvailability},
     subtitle::{
         discover_subtitle_tracks, discover_subtitle_tracks_with_index, SubtitleDirectoryIndex,
     },
-    DiscoveredAudioTrack, DiscoveredMediaFile, DiscoveredMediaFileInventory,
+    DiscoveredAudioTrack, DiscoveredMediaFile, DiscoveredMediaFileInventory, LocalNfoMetadata,
+    LocalNfoObservation, MediaNfoKind,
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -117,6 +118,71 @@ where
 
 /// 读取单个媒体文件并返回与整库扫描一致的解析结果。
 pub fn inspect_media_file(path: &Path) -> io::Result<DiscoveredMediaFile> {
+    let inventory = inventory_for_single_media_file(path)?;
+    inspect_media_file_inventory(inventory)
+}
+
+pub fn inspect_media_file_within_root(
+    path: &Path,
+    root_path: &Path,
+) -> io::Result<DiscoveredMediaFile> {
+    inspect_media_file_within_root_and_nfo_policy(path, root_path, true)
+}
+
+pub fn inspect_media_file_within_root_and_nfo_policy(
+    path: &Path,
+    root_path: &Path,
+    allow_generic_movie_nfo: bool,
+) -> io::Result<DiscoveredMediaFile> {
+    let mut inventory = inventory_for_single_media_file(path)?;
+    inventory.sidecar_fingerprint =
+        sidecar_fingerprint_for_directory(path.parent().unwrap_or(root_path), Some(root_path));
+    let mut probe_availability = ProbeAvailability::Unknown;
+    build_discovered_media_file_with_cancel(
+        inventory,
+        &mut probe_availability,
+        &mut || false,
+        None,
+        Some(root_path),
+        allow_generic_movie_nfo,
+    )
+}
+
+/// Reads filename metadata, local NFO and local artwork for one media file
+/// without invoking ffprobe or discovering audio/subtitle streams.
+///
+/// This is intended for sidecar-only metadata refreshes where technical stream
+/// facts already stored by a full scan must remain authoritative.
+pub fn inspect_media_file_sidecar_only(path: &Path) -> io::Result<DiscoveredMediaFile> {
+    let inventory = inventory_for_single_media_file(path)?;
+    Ok(build_discovered_media_file_sidecar_only(
+        inventory, None, true,
+    ))
+}
+
+pub fn inspect_media_file_sidecar_only_within_root(
+    path: &Path,
+    root_path: &Path,
+) -> io::Result<DiscoveredMediaFile> {
+    inspect_media_file_sidecar_only_within_root_and_nfo_policy(path, root_path, true)
+}
+
+pub fn inspect_media_file_sidecar_only_within_root_and_nfo_policy(
+    path: &Path,
+    root_path: &Path,
+    allow_generic_movie_nfo: bool,
+) -> io::Result<DiscoveredMediaFile> {
+    let mut inventory = inventory_for_single_media_file(path)?;
+    inventory.sidecar_fingerprint =
+        sidecar_fingerprint_for_directory(path.parent().unwrap_or(root_path), Some(root_path));
+    Ok(build_discovered_media_file_sidecar_only(
+        inventory,
+        Some(root_path),
+        allow_generic_movie_nfo,
+    ))
+}
+
+fn inventory_for_single_media_file(path: &Path) -> io::Result<DiscoveredMediaFileInventory> {
     let metadata = fs::metadata(path)?;
 
     if !metadata.is_file() {
@@ -140,7 +206,7 @@ pub fn inspect_media_file(path: &Path) -> io::Result<DiscoveredMediaFile> {
     );
     inventory.sidecar_fingerprint =
         sidecar_fingerprint_for_directory(path.parent().unwrap_or_else(|| Path::new(".")), None);
-    inspect_media_file_inventory(inventory)
+    Ok(inventory)
 }
 
 /// 对已确认发生新增或变化的视频文件做完整解析和 ffprobe 探测。
@@ -164,6 +230,8 @@ where
         &mut probe_availability,
         &mut should_cancel,
         None,
+        None,
+        true,
     )
 }
 
@@ -183,6 +251,52 @@ where
         &mut probe_availability,
         &mut should_cancel,
         Some(subtitle_index),
+        None,
+        true,
+    )
+}
+
+pub fn inspect_media_file_inventory_within_root_with_cancel_and_subtitle_index<C>(
+    inventory: DiscoveredMediaFileInventory,
+    root_path: &Path,
+    subtitle_index: &SubtitleDirectoryIndex,
+    mut should_cancel: C,
+) -> io::Result<DiscoveredMediaFile>
+where
+    C: FnMut() -> bool,
+{
+    let mut probe_availability = ProbeAvailability::Unknown;
+    build_discovered_media_file_with_cancel(
+        inventory,
+        &mut probe_availability,
+        &mut should_cancel,
+        Some(subtitle_index),
+        Some(root_path),
+        true,
+    )
+}
+
+/// Fully inspects one inventory entry while enforcing the scan planner's
+/// decision about whether this carrier may consume a directory-level
+/// `movie.nfo`. File-specific movie and episode NFO files remain eligible.
+pub fn inspect_media_file_inventory_within_root_with_cancel_and_subtitle_index_and_nfo_policy<C>(
+    inventory: DiscoveredMediaFileInventory,
+    root_path: &Path,
+    subtitle_index: &SubtitleDirectoryIndex,
+    allow_generic_movie_nfo: bool,
+    mut should_cancel: C,
+) -> io::Result<DiscoveredMediaFile>
+where
+    C: FnMut() -> bool,
+{
+    let mut probe_availability = ProbeAvailability::Unknown;
+    build_discovered_media_file_with_cancel(
+        inventory,
+        &mut probe_availability,
+        &mut should_cancel,
+        Some(subtitle_index),
+        Some(root_path),
+        allow_generic_movie_nfo,
     )
 }
 
@@ -252,6 +366,8 @@ where
             probe_availability,
             should_cancel,
             None,
+            None,
+            true,
         )?);
         if let Some(file) = files.last() {
             on_item_discovered(file);
@@ -402,22 +518,23 @@ fn build_discovered_media_file_with_cancel(
     probe_availability: &mut ProbeAvailability,
     should_cancel: &mut impl FnMut() -> bool,
     subtitle_index: Option<&SubtitleDirectoryIndex>,
+    root_path: Option<&Path>,
+    allow_generic_movie_nfo: bool,
 ) -> io::Result<DiscoveredMediaFile> {
     if should_cancel() {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "scan cancelled"));
     }
 
     let path = inventory.file_path.clone();
-    let parsed = parse_media_metadata(&path);
+    let (sidecar, invalid_local_nfo_source_path) =
+        observe_file_nfo(&path, root_path, allow_generic_movie_nfo);
+    let parsed = parse_media_metadata_with_sidecar(&path, sidecar);
     let probe = probe_media_file_with_cancel(&path, probe_availability, should_cancel)?;
 
-    Ok(build_discovered_media_file_from_parts(
-        inventory,
-        parsed,
-        probe,
-        true,
-        subtitle_index,
-    ))
+    let mut file =
+        build_discovered_media_file_from_parts(inventory, parsed, probe, true, subtitle_index);
+    file.invalid_local_nfo_source_path = invalid_local_nfo_source_path;
+    Ok(file)
 }
 
 fn build_discovered_media_file_without_probe(
@@ -427,6 +544,55 @@ fn build_discovered_media_file_without_probe(
     let parsed = parse_media_metadata_without_sidecar(&path);
 
     build_discovered_media_file_from_parts(inventory, parsed, MediaProbe::default(), false, None)
+}
+
+fn build_discovered_media_file_sidecar_only(
+    inventory: DiscoveredMediaFileInventory,
+    root_path: Option<&Path>,
+    allow_generic_movie_nfo: bool,
+) -> DiscoveredMediaFile {
+    let path = inventory.file_path.clone();
+    let (sidecar, invalid_local_nfo_source_path) =
+        observe_file_nfo(&path, root_path, allow_generic_movie_nfo);
+    let parsed = parse_media_metadata_with_sidecar(&path, sidecar);
+
+    let mut file = build_discovered_media_file_from_parts(
+        inventory,
+        parsed,
+        MediaProbe::default(),
+        false,
+        None,
+    );
+    file.invalid_local_nfo_source_path = invalid_local_nfo_source_path;
+    file
+}
+
+fn observe_file_nfo(
+    path: &Path,
+    root_path: Option<&Path>,
+    allow_generic_movie_nfo: bool,
+) -> (Option<LocalNfoMetadata>, Option<PathBuf>) {
+    let expected_kind = if crate::parse::is_likely_episode_path(path) {
+        MediaNfoKind::Episode
+    } else {
+        MediaNfoKind::Movie
+    };
+    let observation = match (root_path, expected_kind, allow_generic_movie_nfo) {
+        (Some(root_path), MediaNfoKind::Movie, false) => crate::observe_nfo_file_within_root(
+            &path.with_extension("nfo"),
+            crate::LocalNfoKind::Movie,
+            root_path,
+        ),
+        (Some(root_path), _, _) => {
+            crate::observe_media_nfo_for_kind_within_root(path, expected_kind, root_path)
+        }
+        (None, _, _) => crate::observe_media_nfo_for_kind(path, expected_kind),
+    };
+    match observation {
+        LocalNfoObservation::Valid(metadata) => (Some(*metadata), None),
+        LocalNfoObservation::Invalid { candidate_path, .. } => (None, Some(candidate_path)),
+        LocalNfoObservation::Absent { .. } => (None, None),
+    }
 }
 
 fn build_discovered_media_file_from_parts(
@@ -458,8 +624,19 @@ fn build_discovered_media_file_from_parts(
         source_title: parsed.source_title,
         original_title: parsed.original_title,
         sort_title: parsed.sort_title,
+        tagline: None,
+        premiere_date: None,
+        content_rating: None,
         series_sidecar_title: None,
         series_sidecar_year: None,
+        local_nfo: parsed.local_nfo,
+        series_local_nfo: None,
+        invalid_local_nfo_source_path: None,
+        invalid_series_local_nfo_source_path: None,
+        local_nfo_is_selected: false,
+        series_local_nfo_is_selected: false,
+        removed_local_nfo_source_path: None,
+        removed_series_local_nfo_source_path: None,
         year: parsed.year,
         external_ids: Vec::new(),
         ratings: Vec::new(),
@@ -476,6 +653,13 @@ fn build_discovered_media_file_from_parts(
         season_backdrop_path: parsed.season_backdrop_path,
         episode_number: parsed.episode_number,
         episode_title: parsed.episode_title,
+        episode_original_title: None,
+        episode_sort_title: None,
+        episode_year: None,
+        episode_overview: parsed.episode_overview,
+        episode_tagline: None,
+        episode_premiere_date: None,
+        episode_content_rating: None,
         overview: parsed.overview,
         series_poster_path: parsed.series_poster_path,
         series_backdrop_path: parsed.series_backdrop_path,
@@ -637,6 +821,7 @@ fn sidecar_fingerprint_for_directory(directory: &Path, root_path: Option<&Path>)
             .and_then(|relative_directory| {
                 relative_directory
                     .ancestors()
+                    .take(5)
                     .map(|ancestor| root_path.join(ancestor).join("tvshow.nfo"))
                     .find(|path| path.is_file())
             }),

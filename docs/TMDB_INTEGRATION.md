@@ -1,6 +1,6 @@
 # TMDB 接入契约
 
-本文档定义 Mova 服务端如何使用 TMDB v3 完成作品身份确认、元数据补全、演员按需加载和图片缓存。TMDB 的完整 v3 endpoint 目录见 [`TMDB.md`](TMDB.md)，扫描编排、分组和任务进度见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md)。
+本文档定义 Mova 服务端如何使用 TMDB v3 完成作品身份确认、元数据补全、演员按需加载和图片缓存。TMDB 的完整 v3 endpoint 目录见 [`TMDB.md`](TMDB.md)，扫描编排、分组和任务进度见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md)，本地 NFO 的字段与来源契约见 [`NFO_METADATA.md`](NFO_METADATA.md)。
 
 Web、macOS 和 iOS 客户端不直接访问 TMDB，只消费 Mova HTTP API 和 SSE 同步协议。
 
@@ -26,8 +26,9 @@ Token 缺失或只含空白时，服务端使用 disabled provider：
 | 权威来源 | 字段和结构 |
 | --- | --- |
 | 本地 | 媒体库归属、文件路径和指纹、物理版本、受限业务容器、容器与音视频技术信息、字幕、明确的季集坐标、`source_title` |
+| 人工操作 | 管理员明确接受的 provider binding 与人工保存字段；自动扫描不得静默换绑 |
+| NFO | 选中、层级正确的本地文档所声明的展示字段、external IDs、评分、演职员和图片；未声明字段可以由 TMDB 补齐 |
 | TMDB | 已接受身份的规范标题、原始标题、正式年份、简介、国家/地区、题材、制作方、评分、外部 ID 和远端图片 |
-| 用户/NFO | 用户手动选择的 provider ID 是明确身份；容器名称末尾的显式 TMDB ID 是待验证的直接查询提示；NFO 和 sidecar 提供自动扫描前的已有字段 |
 
 TMDB 命中不会把电影改成剧集或重建本地季集坐标。结构由本地证据决定，TMDB 只在对应类型内确认作品身份并提供规范元数据。
 
@@ -71,26 +72,29 @@ https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca
 
 详情请求通过 `append_to_response=external_ids,images` 合并外部身份和图片集合。当前实现没有调用 `/configuration`，图片 URL 仍使用运行时配置或默认图片 base URL；也没有 append `release_dates` 或 `content_ratings`。
 
-演员不在全库扫描阶段预取。客户端调用 `GET /api/media-items/{id}/cast` 时，服务端先读本地缓存；缺失时按已绑定 provider ID 获取并持久化全部有效演员。演员失败不阻断媒体详情主体；一旦存在本地演员缓存，后续 TMDB 合规复核会与作品详情一起更新它，但不会为从未打开演员列表的条目预取演员。
+演员不在全库扫描阶段为没有本地演职员的条目预取。选中 NFO 包含演员时，服务端持久化并优先返回完整 NFO 演员集合；普通浏览只有在客户端调用 `GET /api/media-items/{id}/cast` 且缓存缺失时，才按已绑定 provider ID 获取并持久化全部有效 TMDB 演员。管理员显式执行元数据匹配或单条元数据刷新时，也会在接受 binding 后立即同步该条目的 TMDB 演员。TMDB 演员请求失败不阻断媒体详情主体；一旦存在远端演员缓存，后续 TMDB 合规复核会与作品详情一起更新它，但不会在全库扫描中为其它条目预取演员。
 
 ## 3. 身份来源与唯一类型
 
-人工选择的 TMDB ID 持久化为当前媒体项的明确 binding。自动扫描按以下顺序确定远端查询输入：
+人工选择的 TMDB ID 持久化为当前媒体项的明确 binding。自动扫描按以下规则确定远端查询输入：
 
-1. 受限业务容器名称末尾的显式 TMDB ID。
-2. 本轮文件树中同媒体库、相对媒体库根目录路径相同的业务容器内，唯一且类型一致的既有 TMDB binding。
-3. 当前文件或扫描组已经成功绑定且类型一致的 TMDB ID。
-4. 没有 direct lookup ID 时，使用本地标题与年份执行搜索。
+1. 当前文件或扫描组已经接受且类型一致的 binding 按 ID 刷新；NFO 不能静默替换该身份。
+2. 未绑定条目收集受限业务容器名称末尾的显式 TMDB ID、层级正确的 NFO TMDB ID，以及本轮文件树中同业务容器唯一且类型一致的既有 binding。
+3. direct lookup 提示去重后只有一个值时按对应 movie 或 TV details endpoint 验证；详情成功返回并应用后才持久化为 binding。
+4. 不同来源给出多个 ID 时记录身份冲突，不调用 TMDB，也不按来源顺序盲选。
+5. 没有 direct lookup ID 时，使用本地标题与年份执行搜索。
 
-同容器 binding 索引包含本轮仍然存在但因增量扫描而完全复用的文件，不包含数据库中已经从当前文件树消失的旧路径。剧集可以使用该索引；电影只有在文件名没有可用作品标题并采用直接父目录作为业务容器时使用该索引。容器显式 ID 优先于索引结果。
+同容器 binding 索引包含本轮仍然存在但因增量扫描而完全复用的文件，不包含数据库中已经从当前文件树消失的旧路径。剧集可以使用该索引；电影只有在文件名没有可用作品标题并采用直接父目录作为业务容器时使用该索引。
+
+NFO ID 按根元素隔离：movie lookup 只读取 `movie` 根，series lookup 只读取 `tvshow` 根。`episodedetails` 中的 TMDB ID 只作为 episode external ID 持久化，不能成为 series direct lookup 提示，也不能绑定或替换父剧。完整选择与冲突规则见 [`NFO_METADATA.md`](NFO_METADATA.md)。
 
 标题来源与 ID 来源分别处理。剧集标题和年份按以下优先级确定：
 
-1. 当前媒体库根目录内最近 `tvshow.nfo` 中的非空系列标题和年份。
+1. 当前媒体库根目录内最近且被稳定选中的 `tvshow.nfo` 中的非空系列标题和年份。
 2. 文件名中完整季集标记之前的明确系列标题；S01 文件年份可以表示系列首播年。
 3. 文件名没有系列标题时，受限业务容器的标题和年份。
 
-电影有明确文件标题时保持文件标题为主；文件名只包含年份、技术规格或发布标签时，使用直接父目录的标题和年份。电影 sidecar/NFO 的本地展示字段仍按字段所有权规则保留。文件名没有标题的容器回退、根目录边界和无效候选停止规则见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md)。
+电影标题搜索输入来自选中 `movie` NFO 的非空标题；NFO 未声明标题时，有明确文件标题则使用文件标题，文件名只包含年份、技术规格或发布标签时使用直接父目录的标题和年份。电影 NFO 的本地展示字段按字段所有权规则保留。文件名没有标题的容器回退、根目录边界和无效候选停止规则见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md)。
 
 容器名称末尾支持由 ASCII 十进制数字组成的正整数显式 ID：
 
@@ -121,7 +125,7 @@ otherwise
 
 ## 4. 标题标准化与候选阶段
 
-本节的标题候选规则只适用于没有容器 direct lookup hint 的请求。显式容器 ID 或同容器唯一既有 binding 生成的提示只产生一个 provider ID 请求，不生成标题搜索候选；当前条目已经接受的 binding 仍优先按 ID 刷新，并遵守既有 binding 的失败保留规则。
+本节的标题候选规则只适用于没有 direct lookup hint 的请求。显式容器 ID、层级正确且唯一的 NFO TMDB ID 或同容器唯一既有 binding 生成的提示只产生一个 provider ID 请求，不生成标题搜索候选；当前条目已经接受的 binding 仍优先按 ID 刷新，并遵守既有 binding 的失败保留规则。
 
 本地标题选择先遵守第 3 节的 NFO、文件名和受限容器优先级，再执行以下标准化与远端候选收口。受限容器只选择一个业务目录：剧集允许跳过明确的季目录和纯技术目录，但在第一个非结构目录处停止；电影只检查直接父目录。候选无效时不继续向更高层寻找，媒体库根目录本身永远不是标题候选。
 
@@ -195,10 +199,10 @@ otherwise
 自动扫描接受身份后：
 
 - 保留媒体库、物理文件、版本关系、季集坐标和 `source_title`。
-- 非空远端展示标题会替换 `title`。
-- `original_title`、年份、国家、题材、制作方、简介、海报和背景只在现有字段为空时补入；NFO/sidecar 已有的这些字段会保留。
-- 外部 ID 和 TMDB 评分使用本次远端响应替换。
-- 远端 Logo 存在，或当前 Logo 为空/仍是远程 URL 时，更新 `logo_path`。
+- 非空远端展示标题只在标题没有被人工值或选中 NFO 拥有时写入。
+- `original_title`、年份、国家、题材、制作方、简介、海报和背景只补充人工值和选中 NFO 没有声明的字段。
+- external IDs 和评分按来源共存；本次远端响应只替换 `retrieved_via=tmdb` 的记录，不删除 NFO 或人工来源记录。
+- 远端 Logo 只在该字段没有被人工值或选中 NFO 拥有时更新；远端确认没有 Logo 也不能清空本地 Logo。
 - movie/series poster、backdrop、Logo、season poster 和 episode still 按自身层级写入，不互相兜底。
 - 具有相同 TMDB movie ID 的本地文件归并为同一电影的多个播放版本。
 - 具有相同 TMDB series ID 的本地剧集组归并为同一 series；同一季集坐标的物理文件成为多个播放版本。
@@ -207,7 +211,7 @@ otherwise
 
 `remote_media_type` 只在绑定远端身份时写入。客户端不得根据语言、国家或搜索顺序伪造远端类型。
 
-同一扫描组出现多个不同显式 ID，或没有显式 ID 时同容器既有 binding 包含多个不同 TMDB ID，均视为冲突。服务端不调用 TMDB、不自动采用任一 ID，并沿用 `unmatched / no_remote_match`；该情况不增加新的 HTTP 字段或公开原因码。显式容器 ID 存在时以该提示为准，不再采用容器 binding 索引。
+同一扫描组的 NFO、显式容器 ID 或同容器既有 binding 包含多个不同 TMDB ID 时视为冲突。服务端不调用 TMDB、不自动采用任一 ID，并沿用 `unmatched / no_remote_match`；该情况不增加新的 HTTP 字段或公开原因码。已有人工 binding 时继续保留该身份，冲突 NFO 只保留标准化快照和诊断，不进入公共投影。
 
 ## 7. 当前字段映射
 

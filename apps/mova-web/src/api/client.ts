@@ -18,7 +18,9 @@ import type {
   MediaItem,
   MediaItemDetail,
   MediaItemListResponse,
+  MediaItemMetadataSources,
   MediaItemPlaybackHeader,
+  MediaLocalMetadataSource,
   MetadataSearchResult,
   NotificationFeed,
   PlaybackProgress,
@@ -404,6 +406,16 @@ export const flushMediaItemPlaybackProgress = (
 
 export const getMediaItem = (mediaItemId: number) =>
   requestJson<MediaItemDetail>(withApiPrefix(`/media-items/${mediaItemId}`))
+
+export const getMediaItemMetadataSources = (mediaItemId: number) =>
+  requestJson<MediaItemMetadataSources>(
+    withApiPrefix(`/media-items/${mediaItemId}/metadata-sources`),
+  )
+
+export const getMediaItemMetadataSource = (mediaItemId: number, sourceId: number) =>
+  requestJson<MediaLocalMetadataSource>(
+    withApiPrefix(`/media-items/${mediaItemId}/metadata-sources/${sourceId}`),
+  )
 
 export const getMediaItemCast = (mediaItemId: number) =>
   requestJson<MediaCastMember[]>(withApiPrefix(`/media-items/${mediaItemId}/cast`))

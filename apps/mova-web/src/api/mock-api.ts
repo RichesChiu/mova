@@ -137,6 +137,7 @@ const createMediaItem = ({
           {
             source: 'tmdb',
             kind: 'audience',
+            retrieved_via: 'tmdb',
             score: 8.6,
             scale: 10,
             rating_count: 12_345,

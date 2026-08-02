@@ -1,5 +1,6 @@
 mod background_jobs;
 mod libraries;
+mod local_metadata;
 mod media_cast;
 mod media_items;
 mod notifications;
@@ -24,6 +25,15 @@ pub use libraries::{
     list_library_details, update_library, CreateLibraryParams, DeleteLibraryResult,
     UpdateLibraryOutcome, UpdateLibraryParams, UpdateLibraryResult, VisibilityResult,
 };
+pub use local_metadata::{
+    get_media_local_metadata_source_for_item, list_media_item_credits,
+    list_media_item_external_ids, list_media_local_metadata_source_summaries_for_item,
+    list_media_local_metadata_sources, list_media_local_metadata_sources_for_item,
+    remove_media_local_metadata_source, remove_media_local_metadata_source_tx,
+    replace_media_local_metadata_source, replace_media_local_metadata_source_tx,
+    MediaLocalMetadataTarget, ReplaceMediaItemCreditParams, ReplaceMediaLocalMetadataSourceParams,
+    LOCAL_METADATA_RETRIEVED_VIA,
+};
 pub use media_cast::{
     delete_media_item_cast_cache, get_media_item_cast_cache, list_media_item_cast_members,
     replace_media_item_cast, MediaItemCastCacheEntry, ReplaceMediaItemCastMember,
@@ -37,8 +47,9 @@ pub use media_items::{
     get_season, get_season_with_library_visibility, get_series_episode_outline_cache,
     get_subtitle_file, global_search, list_audio_tracks_for_media_file,
     list_audio_tracks_for_media_files, list_episodes_for_season,
-    list_existing_media_metadata_for_file_paths, list_library_media_file_paths,
-    list_media_files_for_media_item, list_media_item_previews_by_library,
+    list_existing_media_metadata_for_file_paths, list_library_media_file_memberships,
+    list_library_media_file_paths, list_media_files_for_media_item,
+    list_media_item_metadata_refresh_source_files, list_media_item_previews_by_library,
     list_media_items_for_library, list_recently_added_media_items_by_library,
     list_seasons_for_series, list_series_media_item_ids_for_library,
     list_subtitle_files_for_media_file, list_subtitle_files_for_media_files,
@@ -47,14 +58,14 @@ pub use media_items::{
     sync_library_media_changes, update_media_file_metadata, update_media_item_metadata,
     update_season_intro_markers, update_series_episode_metadata, update_series_season_metadata,
     upsert_library_media_entries_by_file_path, upsert_library_media_entry_by_file_path,
-    upsert_series_episode_outline_cache, CreateAudioTrackParams, CreateMediaEntryParams,
-    CreateSubtitleTrackParams, ExistingMediaMetadataSummary, GlobalSearchParams,
-    GlobalSearchResult, LibraryMediaTypeCounts, ListMediaItemsForLibraryParams,
-    ListMediaItemsForLibraryResult, MediaItemPlaybackHeader, RecentlyAddedLibraryMediaItems,
-    ScanGroupCommitStage, SeriesEpisodeOutlineCacheEntry, SyncLibraryMediaBestEffortOutcome,
-    UpdateMediaFileMetadataParams, UpdateMediaItemMetadataParams,
-    UpdateSeriesEpisodeMetadataParams, UpdateSeriesSeasonMetadataParams,
-    UpsertSeriesEpisodeOutlineCacheParams,
+    upsert_series_episode_outline_cache, CreateAudioTrackParams, CreateLocalMetadataSnapshotParams,
+    CreateMediaEntryParams, CreateSubtitleTrackParams, ExistingMediaMetadataSummary,
+    GlobalSearchParams, GlobalSearchResult, LibraryMediaFileMembership, LibraryMediaTypeCounts,
+    ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult, MediaItemPlaybackHeader,
+    RecentlyAddedLibraryMediaItems, ScanGroupCommitStage, SeriesEpisodeOutlineCacheEntry,
+    SyncLibraryMediaBestEffortOutcome, UpdateMediaFileMetadataParams,
+    UpdateMediaItemMetadataParams, UpdateSeasonMetadataParams, UpdateSeriesEpisodeMetadataParams,
+    UpdateSeriesSeasonMetadataParams, UpsertSeriesEpisodeOutlineCacheParams,
 };
 pub use notifications::{list_notifications, mark_all_notifications_read, mark_notification_read};
 pub use playback_progress::{

@@ -164,8 +164,8 @@ const translations: Record<string, string> = {
     'Account and user-management endpoints use dedicated business error codes; clients should localize known codes and use message only as a fallback for unknown codes.',
   '密码认证失败达到限制时返回 429 和 Retry-After；Web 与原生客户端对同一账户共享失败计数。':
     'Password authentication returns 429 and Retry-After when the limit is reached; Web and native clients share the failure count for the same account.',
-  'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；当前评分来源仅接入 TMDB，其他外部 ID 只用于跨来源识别。':
-    'The TMDB token comes from MOVA_TMDB_ACCESS_TOKEN; ratings currently come only from TMDB, while other external IDs are stored only for cross-provider identity.',
+  'TMDB token 来自 MOVA_TMDB_ACCESS_TOKEN；远端评分目前只主动请求 TMDB，合法 NFO 评分会按其 source 和来源持久化，其他外部 ID 用于跨来源识别。':
+    'The TMDB token comes from MOVA_TMDB_ACCESS_TOKEN; TMDB is the only actively queried remote rating provider, while valid NFO ratings retain their source and provenance and other external IDs support cross-provider identity.',
   'OK，请求成功': 'OK, request succeeded',
   'Created，创建成功': 'Created successfully',
   'Accepted，异步任务已创建': 'Accepted, asynchronous task created',
@@ -267,7 +267,7 @@ const translations: Record<string, string> = {
   媒体库与搜索: 'Libraries and search',
   '围绕媒体库配置、最新添加、列表详情、扫描历史、异步扫描和全局搜索展开。':
     'Covers library configuration, recently added items, details, scan history, asynchronous scanning, and global search.',
-  '媒体库统一自动识别电影和剧集，不再要求用户手动选择库类型。':
+  '媒体库统一自动识别电影和剧集，无需用户手动选择库类型。':
     'Libraries automatically identify movies and series without requiring users to choose a library type.',
   'metadata_language 支持 zh-CN / en-US，影响扫描和 TMDB 元数据补全语言。':
     'metadata_language supports zh-CN and en-US and controls scanning and TMDB metadata language.',
@@ -281,8 +281,8 @@ const translations: Record<string, string> = {
     'Deleting a library cascades its authoritative database data and persists a background job that removes the library-scoped artwork, subtitle, and audio caches.',
   '搜索会在当前用户可见库内匹配电影、剧集和本地可用的集条目。':
     'Search matches movies, series, and locally available episodes in libraries visible to the current user.',
-  '搜索结果会返回条目自身的来源原生 ratings 数组，当前评分来源为 TMDB。':
-    'Search results include the item’s source-native ratings array; TMDB is the current rating source.',
+  '搜索结果会返回条目自身的来源原生 ratings 数组；远端评分来自 TMDB，本地 NFO 评分保留自身 source。':
+    'Search results include the item’s source-native ratings array; remote ratings come from TMDB, while local NFO ratings retain their own source.',
   查询媒体库列表: 'List media libraries',
   查询按库分组的最新添加内容: 'Get recently added content grouped by library',
   创建媒体库: 'Create a media library',
@@ -301,19 +301,32 @@ const translations: Record<string, string> = {
     'media_item_id is not library_id; details, file lists, and playback progress all use media_item_id.',
   'metadata_provider_item_id、provider_item_id 和 person_id 都是字符串，客户端不得假设远端 ID 一定是数字。':
     'metadata_provider_item_id, provider_item_id, and person_id are strings; clients must not assume remote IDs are numeric.',
-  'metadata_status 使用 matched / unmatched / failed / skipped 表达元数据处理状态。':
-    'metadata_status uses matched, unmatched, failed, and skipped to represent metadata processing state.',
+  'metadata_status 使用 pending / matched / unmatched / failed / skipped 表达元数据处理状态。':
+    'metadata_status uses pending, matched, unmatched, failed, and skipped to represent metadata processing state.',
+  '条目详情返回 tagline、premiere_date、content_rating 和 ratings 等轻量字段；评分按 source、audience / critic 类型与实际 retrieved_via 来源区分。':
+    'Media item details return lightweight fields such as tagline, premiere_date, content_rating, and ratings; ratings remain separated by source, audience or critic kind, and their actual retrieved_via provenance.',
+  'metadata-sources 是管理员诊断接口：集合只返回 external_ids、credits 和不含 payload 的来源摘要，不访问文件系统。':
+    'metadata-sources is an administrator diagnostic API: the collection returns only external_ids, credits, and source summaries without payloads or filesystem access.',
+  '单个 metadata source 详情才返回标准化 payload，并在媒体库根目录边界内观察一个 NFO；以 valid / invalid / missing 和稳定 error code 表达当前状态，不调用 ffprobe 或 TMDB；超过结构化解析上限时整份来源无效且不截断。':
+    'Only an individual metadata source detail returns the normalized payload and observes one NFO within the media-library root, reporting valid, invalid, or missing with stable error codes without invoking ffprobe or TMDB; a source that exceeds structured parsing limits is rejected in full rather than truncated.',
+  'NFO 标准 payload 区分正式与自定义分级、作品与元数据语言，并支持旧式 ID、结构化评分、actor IDs / profile、季标题/简介/图片及类型不丢失的 artwork；lockdata 仅回显兼容信息，不建立字段锁。':
+    'The normalized NFO payload separates official from custom ratings and original from metadata language, while supporting legacy IDs, structured ratings, actor IDs and profiles, season titles, plots and artwork, plus type-preserving artwork; lockdata is compatibility information only and does not create field locks.',
+  '单条元数据刷新枚举逻辑条目的全部本地载体并统一选择 NFO；series 使用全部本地季集文件定位 tvshow.nfo，只有代表文件执行 ffprobe。':
+    'Single-item metadata refresh enumerates all local carriers for the logical item and selects NFO sources as one group; a series uses all local episode files to locate tvshow.nfo, while only the representative file runs ffprobe.',
+  '已有 matched TMDB binding 时按该 ID 刷新；无效 NFO 保留 last-known-good，冲突 NFO 不能静默换绑。':
+    'Existing matched TMDB bindings refresh by ID; invalid NFO keeps the last-known-good state, and conflicting NFO data cannot silently rebind the item.',
   '剧集可通过 seasons、episodes、episode-outline 获取本地可用集和远端大纲合并结果。':
     'Series use seasons, episodes, and episode-outline to merge locally available episodes with remote outlines.',
   'episode-outline 的播放快照包含 last_media_file_id；同一集有多个文件版本时，客户端应恢复最近播放的具体版本。':
     'episode-outline playback snapshots include last_media_file_id so clients can restore the exact last-used file when an episode has multiple variants.',
   'playback-header 会先返回播放器头部；缺少片头区间时，服务端在后台按需检测，不阻塞首次播放。':
     'playback-header returns player header data first; when intro markers are missing, the server detects them on demand in the background without blocking first playback.',
-  'poster/backdrop 返回图片流；若详情字段是远程 URL，前端可直接使用远程地址。':
-    'poster/backdrop return image streams; when a detail field is a remote URL, clients may use it directly.',
   'poster/backdrop/logo 返回经过媒体库边界、大小和图片内容校验的本地图片流；详情只透出可信的 TMDB 官方远程图片地址。':
     'poster/backdrop/logo return local image streams validated by library boundary, size, and image content; details expose only trusted official TMDB remote artwork URLs.',
   查询单个媒体条目详情: 'Get media item details',
+  '查询条目的元数据来源摘要（管理员）': 'Get metadata source summaries (administrator)',
+  '查询并观察单个本地元数据来源（管理员）':
+    'Get and observe one local metadata source (administrator)',
   查询单个媒体条目的演员列表: 'Get the cast for a media item',
   查询播放器页头部信息: 'Get player header information',
   查询媒体条目关联文件列表: 'Get files associated with a media item',

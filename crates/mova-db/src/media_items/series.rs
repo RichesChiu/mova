@@ -1,5 +1,7 @@
 use super::{
+    apply_local_metadata_projection_tx, capture_local_metadata_projection_checkpoint_tx,
     ratings::replace_media_item_remote_data,
+    reconcile_local_metadata_snapshot_tx, restore_authoritative_local_metadata_projection_tx,
     sync::{
         cleanup_media_item_if_no_files, display_title_for_entry,
         existing_media_item_has_accepted_remote_binding, existing_media_item_is_matched,
@@ -8,14 +10,15 @@ use super::{
         reassign_media_file_to_media_item, record_transient_metadata_refresh_failure,
         update_media_file_from_entry, ExistingLibraryMediaFileRecord,
     },
-    CreateMediaEntryParams,
+    CreateMediaEntryParams, LocalMetadataProjectionScope,
 };
 use anyhow::{Context, Result};
 use mova_domain::METADATA_STATUS_MATCHED;
+use serde_json::Value;
 use sqlx::{Postgres, Row, Transaction};
 
 use crate::{
-    playback_progress::merge_media_item_user_state,
+    local_metadata::MediaLocalMetadataTarget, playback_progress::merge_media_item_user_state,
     tmdb_revalidation::record_authoritative_tmdb_snapshot_tx,
 };
 
@@ -31,10 +34,17 @@ pub(super) async fn upsert_episode_media_entry(
     let episode_number = entry
         .episode_number
         .context("episode entry missing episode number")?;
-    let (series_id, preserve_series_parent) =
+    let (series_id, preserve_series_parent, season_local_metadata_refresh) =
         upsert_series_item_from_entry(tx, entry, preserve_existing_parent).await?;
-    let season_id =
-        upsert_season(tx, series_id, season_number, entry, preserve_series_parent).await?;
+    let season_id = upsert_season(
+        tx,
+        series_id,
+        season_number,
+        entry,
+        preserve_series_parent,
+        season_local_metadata_refresh,
+    )
+    .await?;
     let existing_episode_media_item_id =
         find_existing_episode_media_item(tx, season_id, episode_number).await?;
 
@@ -173,13 +183,25 @@ pub(super) async fn patch_episode_remote_entry(
     let series_id = find_existing_series_item(tx, entry)
         .await?
         .unwrap_or(stored_series_id);
+    let previous_season_local_metadata = selected_season_local_metadata(tx, series_id).await?;
     let preserve_series_parent = preserve_existing_parent
         && existing_media_item_has_accepted_remote_binding(tx, series_id).await?;
+    let series_projection_checkpoint =
+        capture_local_metadata_projection_checkpoint_tx(tx, series_id).await?;
     // `replace_remote_data` is deliberately true for only one entry in a
     // series group so shared series external IDs and ratings are replaced
     // once. A successful authoritative remote group must still patch every
     // episode's own title, overview, and artwork.
     let replace_episode_remote_fields = !preserve_existing_parent;
+    if preserve_existing_parent {
+        apply_local_metadata_projection_tx(
+            tx,
+            series_id,
+            entry,
+            LocalMetadataProjectionScope::Series,
+        )
+        .await?;
+    }
     patch_media_item_remote_fields(
         tx,
         series_id,
@@ -190,12 +212,36 @@ pub(super) async fn patch_episode_remote_entry(
         entry.series_logo_path.as_deref(),
     )
     .await?;
+    reconcile_local_metadata_snapshot_tx(
+        tx,
+        entry.library_id,
+        MediaLocalMetadataTarget::MediaItem(series_id),
+        entry.removed_series_local_nfo_source_path.as_deref(),
+        entry.series_local_nfo.as_ref(),
+    )
+    .await?;
+    restore_authoritative_local_metadata_projection_tx(
+        tx,
+        series_id,
+        &series_projection_checkpoint,
+        entry.series_local_nfo.as_ref(),
+        LocalMetadataProjectionScope::Series,
+    )
+    .await?;
+    let season_local_metadata_refresh = SeasonLocalMetadataRefresh::between(
+        previous_season_local_metadata.as_ref(),
+        selected_season_local_metadata(tx, series_id)
+            .await?
+            .as_ref(),
+        season_number,
+    );
     let season_id = upsert_season(
         tx,
         series_id,
         season_number,
         entry,
         preserve_existing_parent,
+        season_local_metadata_refresh,
     )
     .await?;
     let target_episode_id = find_existing_episode_media_item(tx, season_id, episode_number).await?;
@@ -203,6 +249,8 @@ pub(super) async fn patch_episode_remote_entry(
 
     match target_episode_id {
         Some(target_episode_id) if target_episode_id != existing.media_item_id => {
+            let episode_projection_checkpoint =
+                capture_local_metadata_projection_checkpoint_tx(tx, target_episode_id).await?;
             patch_episode_remote_fields(
                 tx,
                 target_episode_id,
@@ -211,17 +259,51 @@ pub(super) async fn patch_episode_remote_entry(
                 replace_episode_remote_fields,
             )
             .await?;
+            reconcile_local_metadata_snapshot_tx(
+                tx,
+                entry.library_id,
+                MediaLocalMetadataTarget::MediaItem(target_episode_id),
+                entry.removed_local_nfo_source_path.as_deref(),
+                entry.local_nfo.as_ref(),
+            )
+            .await?;
+            restore_authoritative_local_metadata_projection_tx(
+                tx,
+                target_episode_id,
+                &episode_projection_checkpoint,
+                entry.local_nfo.as_ref(),
+                LocalMetadataProjectionScope::Episode,
+            )
+            .await?;
             reassign_media_file_parent_only(tx, existing.media_file_id, target_episode_id).await?;
             merge_media_item_user_state(tx, existing.media_item_id, target_episode_id).await?;
             cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
         }
         _ => {
+            let episode_projection_checkpoint =
+                capture_local_metadata_projection_checkpoint_tx(tx, existing.media_item_id).await?;
             patch_episode_remote_fields(
                 tx,
                 existing.media_item_id,
                 entry,
                 preserve_series_parent,
                 replace_episode_remote_fields,
+            )
+            .await?;
+            reconcile_local_metadata_snapshot_tx(
+                tx,
+                entry.library_id,
+                MediaLocalMetadataTarget::MediaItem(existing.media_item_id),
+                entry.removed_local_nfo_source_path.as_deref(),
+                entry.local_nfo.as_ref(),
+            )
+            .await?;
+            restore_authoritative_local_metadata_projection_tx(
+                tx,
+                existing.media_item_id,
+                &episode_projection_checkpoint,
+                entry.local_nfo.as_ref(),
+                LocalMetadataProjectionScope::Episode,
             )
             .await?;
             update_episode_record(
@@ -270,6 +352,13 @@ async fn patch_episode_remote_fields(
     replace_remote_fields: bool,
 ) -> Result<()> {
     if preserve_existing_parent && existing_media_item_is_matched(tx, media_item_id).await? {
+        apply_local_metadata_projection_tx(
+            tx,
+            media_item_id,
+            entry,
+            LocalMetadataProjectionScope::Episode,
+        )
+        .await?;
         record_transient_metadata_refresh_failure(tx, media_item_id, entry).await?;
         return promote_cached_artwork_paths(
             tx,
@@ -313,10 +402,16 @@ async fn patch_episode_remote_fields(
             metadata_status = $3,
             metadata_failure_reason = $4,
             remote_media_type = $5,
-            overview = $6,
-            poster_path = case when $10 then $7 else coalesce($7, poster_path) end,
-            backdrop_path = case when $10 then $8 else coalesce($8, backdrop_path) end,
-            logo_path = case when $10 then $9 else coalesce($9, logo_path) end,
+            original_title = $6,
+            sort_title = $7,
+            year = $8,
+            overview = $9,
+            poster_path = case when $13 then $10 else coalesce($10, poster_path) end,
+            backdrop_path = case when $13 then $11 else coalesce($11, backdrop_path) end,
+            logo_path = case when $13 then $12 else coalesce($12, logo_path) end,
+            tagline = $14,
+            premiere_date = $15,
+            content_rating = $16,
             updated_at = now()
         where id = $1
         "#,
@@ -326,11 +421,17 @@ async fn patch_episode_remote_fields(
     .bind(&entry.metadata_status)
     .bind(&entry.metadata_failure_reason)
     .bind(&entry.remote_media_type)
-    .bind(&entry.overview)
+    .bind(&entry.episode_original_title)
+    .bind(&entry.episode_sort_title)
+    .bind(entry.episode_year)
+    .bind(&entry.episode_overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
     .bind(&entry.logo_path)
     .bind(entry.allow_artwork_clear)
+    .bind(&entry.episode_tagline)
+    .bind(entry.episode_premiere_date)
+    .bind(&entry.episode_content_rating)
     .execute(&mut **tx)
     .await
     .context("failed to patch remote-owned episode fields")?;
@@ -397,11 +498,27 @@ async fn upsert_series_item_from_entry(
     tx: &mut Transaction<'_, Postgres>,
     entry: &CreateMediaEntryParams,
     preserve_existing_parent: bool,
-) -> Result<(i64, bool)> {
+) -> Result<(i64, bool, SeasonLocalMetadataRefresh)> {
     if let Some(series_id) = find_existing_series_item(tx, entry).await? {
+        let previous_season_local_metadata = selected_season_local_metadata(tx, series_id).await?;
         let preserve_series_parent = preserve_existing_parent
             && existing_media_item_has_accepted_remote_binding(tx, series_id).await?;
         if preserve_series_parent {
+            apply_local_metadata_projection_tx(
+                tx,
+                series_id,
+                entry,
+                LocalMetadataProjectionScope::Series,
+            )
+            .await?;
+            reconcile_local_metadata_snapshot_tx(
+                tx,
+                entry.library_id,
+                MediaLocalMetadataTarget::MediaItem(series_id),
+                entry.removed_series_local_nfo_source_path.as_deref(),
+                entry.series_local_nfo.as_ref(),
+            )
+            .await?;
             record_transient_metadata_refresh_failure(tx, series_id, entry).await?;
             promote_cached_artwork_paths(
                 tx,
@@ -415,9 +532,19 @@ async fn upsert_series_item_from_entry(
         } else {
             update_series_item_from_entry(tx, series_id, entry).await?;
         }
-        Ok((series_id, preserve_series_parent))
+        let current_season_local_metadata = selected_season_local_metadata(tx, series_id).await?;
+        Ok((
+            series_id,
+            preserve_series_parent,
+            SeasonLocalMetadataRefresh::between(
+                previous_season_local_metadata.as_ref(),
+                current_season_local_metadata.as_ref(),
+                entry.season_number.unwrap_or_default(),
+            ),
+        ))
     } else {
-        Ok((insert_series_item_from_entry(tx, entry).await?, false))
+        let series_id = insert_series_item_from_entry(tx, entry).await?;
+        Ok((series_id, false, SeasonLocalMetadataRefresh::default()))
     }
 }
 
@@ -506,11 +633,14 @@ async fn insert_series_item_from_entry(
             overview,
             poster_path,
             backdrop_path,
-            logo_path
+            logo_path,
+            tagline,
+            premiere_date,
+            content_rating
         )
         values (
             $1, 'series', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-            $12, $13, $14, $15, $16, $17, $18
+            $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
         )
         returning id
         "#,
@@ -533,6 +663,9 @@ async fn insert_series_item_from_entry(
     .bind(poster_path)
     .bind(backdrop_path)
     .bind(logo_path)
+    .bind(&entry.tagline)
+    .bind(entry.premiere_date)
+    .bind(&entry.content_rating)
     .fetch_one(&mut **tx)
     .await
     .context("failed to insert series item")?;
@@ -556,6 +689,15 @@ async fn insert_series_item_from_entry(
         )
         .await?;
     }
+
+    reconcile_local_metadata_snapshot_tx(
+        tx,
+        entry.library_id,
+        MediaLocalMetadataTarget::MediaItem(series_id),
+        entry.removed_series_local_nfo_source_path.as_deref(),
+        entry.series_local_nfo.as_ref(),
+    )
+    .await?;
 
     Ok(series_id)
 }
@@ -601,6 +743,9 @@ async fn update_series_item_from_entry(
                 when $19 then $18
                 else coalesce($18, logo_path)
             end,
+            tagline = $20,
+            premiere_date = $21,
+            content_rating = $22,
             updated_at = now()
         where id = $1
         "#,
@@ -624,6 +769,9 @@ async fn update_series_item_from_entry(
     .bind(backdrop_path)
     .bind(logo_path)
     .bind(allow_artwork_clear)
+    .bind(&entry.tagline)
+    .bind(entry.premiere_date)
+    .bind(&entry.content_rating)
     .execute(&mut **tx)
     .await
     .context("failed to update series item during library sync")?;
@@ -647,6 +795,15 @@ async fn update_series_item_from_entry(
         .await?;
     }
 
+    reconcile_local_metadata_snapshot_tx(
+        tx,
+        entry.library_id,
+        MediaLocalMetadataTarget::MediaItem(series_id),
+        entry.removed_series_local_nfo_source_path.as_deref(),
+        entry.series_local_nfo.as_ref(),
+    )
+    .await?;
+
     Ok(())
 }
 
@@ -656,6 +813,7 @@ async fn upsert_season(
     season_number: i32,
     entry: &CreateMediaEntryParams,
     preserve_existing_parent: bool,
+    local_metadata_refresh: SeasonLocalMetadataRefresh,
 ) -> Result<i64> {
     let title = entry
         .season_title
@@ -681,20 +839,23 @@ async fn upsert_season(
         on conflict (series_id, season_number)
         do update set
             title = case
-                when $9 then seasons.title
+                when $9 and not $10 then seasons.title
                 else excluded.title
             end,
             overview = case
-                when $9 then seasons.overview
+                when $9 and not $11 then seasons.overview
+                when $9 then excluded.overview
                 else coalesce(excluded.overview, seasons.overview)
             end,
             poster_path = case
-                when $9 then seasons.poster_path
+                when $9 and not $12 then seasons.poster_path
+                when $9 then excluded.poster_path
                 when $8 then excluded.poster_path
                 else coalesce(excluded.poster_path, seasons.poster_path)
             end,
             backdrop_path = case
-                when $9 then seasons.backdrop_path
+                when $9 and not $13 then seasons.backdrop_path
+                when $9 then excluded.backdrop_path
                 when $8 then excluded.backdrop_path
                 else coalesce(excluded.backdrop_path, seasons.backdrop_path)
             end,
@@ -711,6 +872,10 @@ async fn upsert_season(
     .bind(backdrop_path)
     .bind(allow_artwork_clear)
     .bind(preserve_existing_parent)
+    .bind(local_metadata_refresh.updates_title())
+    .bind(local_metadata_refresh.updates_overview())
+    .bind(local_metadata_refresh.updates_poster())
+    .bind(local_metadata_refresh.updates_backdrop())
     .fetch_one(&mut **tx)
     .await
     .context("failed to upsert season")?;
@@ -723,6 +888,144 @@ async fn upsert_season(
     Ok(season_id)
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct SelectedSeasonLocalMetadata {
+    source_path: String,
+    payload: Value,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct SeasonLocalMetadataFields {
+    title: bool,
+    overview: bool,
+    poster: bool,
+    backdrop: bool,
+}
+
+impl SeasonLocalMetadataFields {
+    fn from_payload(payload: &Value, season_number: i32) -> Self {
+        let Some(season) = payload
+            .get("metadata")
+            .and_then(|metadata| metadata.get("named_seasons"))
+            .and_then(Value::as_array)
+            .and_then(|seasons| {
+                seasons.iter().find(|season| {
+                    season.get("season_number").and_then(Value::as_i64)
+                        == Some(i64::from(season_number))
+                })
+            })
+        else {
+            return Self::default();
+        };
+        let has_text = |name: &str| {
+            season
+                .get(name)
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty())
+        };
+        let has_artwork = |name: &str| {
+            season
+                .get("artwork")
+                .and_then(|artwork| artwork.get(name))
+                .and_then(Value::as_array)
+                .is_some_and(|values| !values.is_empty())
+        };
+        Self {
+            title: has_text("title"),
+            overview: has_text("overview"),
+            poster: has_artwork("posters"),
+            backdrop: has_artwork("backdrops"),
+        }
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.title |= other.title;
+        self.overview |= other.overview;
+        self.poster |= other.poster;
+        self.backdrop |= other.backdrop;
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct SeasonLocalMetadataRefresh {
+    selected_source_changed: bool,
+    fields: SeasonLocalMetadataFields,
+}
+
+impl SeasonLocalMetadataRefresh {
+    fn between(
+        previous: Option<&SelectedSeasonLocalMetadata>,
+        current: Option<&SelectedSeasonLocalMetadata>,
+        season_number: i32,
+    ) -> Self {
+        let mut fields = SeasonLocalMetadataFields::default();
+        if let Some(previous) = previous {
+            fields.merge(SeasonLocalMetadataFields::from_payload(
+                &previous.payload,
+                season_number,
+            ));
+        }
+        if let Some(current) = current {
+            fields.merge(SeasonLocalMetadataFields::from_payload(
+                &current.payload,
+                season_number,
+            ));
+        }
+        Self {
+            selected_source_changed: previous != current,
+            fields,
+        }
+    }
+
+    fn updates_title(self) -> bool {
+        self.selected_source_changed && self.fields.title
+    }
+
+    fn updates_overview(self) -> bool {
+        self.selected_source_changed && self.fields.overview
+    }
+
+    fn updates_poster(self) -> bool {
+        self.selected_source_changed && self.fields.poster
+    }
+
+    fn updates_backdrop(self) -> bool {
+        self.selected_source_changed && self.fields.backdrop
+    }
+}
+
+async fn selected_season_local_metadata(
+    tx: &mut Transaction<'_, Postgres>,
+    series_id: i64,
+) -> Result<Option<SelectedSeasonLocalMetadata>> {
+    // Serializes source reconciliation for one target. The selected source is
+    // then stable for both the before/after comparison and the season upsert.
+    sqlx::query("select id from media_items where id = $1 for update")
+        .bind(series_id)
+        .fetch_one(&mut **tx)
+        .await
+        .context("failed to lock series local metadata target")?;
+    let selected = sqlx::query_as::<_, (String, Value)>(
+        r#"
+        select source_path, payload
+        from media_local_metadata_sources
+        where media_item_id = $1
+          and document_type = 'tvshow'
+          and is_selected
+        "#,
+    )
+    .bind(series_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to load selected series local metadata")?;
+    Ok(
+        selected.map(|(source_path, payload)| SelectedSeasonLocalMetadata {
+            source_path,
+            payload,
+        }),
+    )
+}
+
 async fn update_existing_episode_media_item(
     tx: &mut Transaction<'_, Postgres>,
     media_item_id: i64,
@@ -730,6 +1033,21 @@ async fn update_existing_episode_media_item(
     preserve_series_parent: bool,
 ) -> Result<()> {
     if preserve_series_parent && existing_media_item_is_matched(tx, media_item_id).await? {
+        apply_local_metadata_projection_tx(
+            tx,
+            media_item_id,
+            entry,
+            LocalMetadataProjectionScope::Episode,
+        )
+        .await?;
+        reconcile_local_metadata_snapshot_tx(
+            tx,
+            entry.library_id,
+            MediaLocalMetadataTarget::MediaItem(media_item_id),
+            entry.removed_local_nfo_source_path.as_deref(),
+            entry.local_nfo.as_ref(),
+        )
+        .await?;
         record_transient_metadata_refresh_failure(tx, media_item_id, entry).await?;
         promote_cached_artwork_paths(
             tx,
@@ -838,11 +1156,14 @@ async fn insert_episode_media_item(
             overview,
             poster_path,
             backdrop_path,
-            logo_path
+            logo_path,
+            tagline,
+            premiere_date,
+            content_rating
         )
         values (
-            $1, 'episode', $2, $3, null, null, $4, $5, $6,
-            null, null, null, null, $7, $8, $9, $10
+            $1, 'episode', $2, $3, $4, $5, $6, $7, $8,
+            $9, null, null, null, $10, $11, $12, $13, $14, $15, $16
         )
         returning id
         "#,
@@ -856,18 +1177,34 @@ async fn insert_episode_media_item(
             .cloned()
             .unwrap_or_else(|| entry.source_title.clone()),
     )
+    .bind(&entry.episode_original_title)
+    .bind(&entry.episode_sort_title)
     .bind(&entry.metadata_status)
     .bind(&entry.metadata_failure_reason)
     .bind(&entry.remote_media_type)
-    .bind(&entry.overview)
+    .bind(entry.episode_year)
+    .bind(&entry.episode_overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
     .bind(&entry.logo_path)
+    .bind(&entry.episode_tagline)
+    .bind(entry.episode_premiere_date)
+    .bind(&entry.episode_content_rating)
     .fetch_one(&mut **tx)
     .await
     .context("failed to insert episode media item")?;
 
-    Ok(row.get("id"))
+    let media_item_id = row.get("id");
+    reconcile_local_metadata_snapshot_tx(
+        tx,
+        entry.library_id,
+        MediaLocalMetadataTarget::MediaItem(media_item_id),
+        entry.removed_local_nfo_source_path.as_deref(),
+        entry.local_nfo.as_ref(),
+    )
+    .await?;
+
+    Ok(media_item_id)
 }
 
 async fn update_episode_media_item_from_entry(
@@ -886,28 +1223,31 @@ async fn update_episode_media_item_from_entry(
         set
             title = $2,
             source_title = $3,
-            original_title = null,
-            sort_title = null,
-            metadata_status = $4,
-            metadata_failure_reason = $5,
-            remote_media_type = $6,
-            year = null,
+            original_title = $4,
+            sort_title = $5,
+            metadata_status = $6,
+            metadata_failure_reason = $7,
+            remote_media_type = $8,
+            year = $9,
             country = null,
             genres = null,
             studio = null,
-            overview = $7,
+            overview = $10,
             poster_path = case
-                when $11 then $8
-                else coalesce($8, poster_path)
+                when $14 then $11
+                else coalesce($11, poster_path)
             end,
             backdrop_path = case
-                when $11 then $9
-                else coalesce($9, backdrop_path)
+                when $14 then $12
+                else coalesce($12, backdrop_path)
             end,
             logo_path = case
-                when $11 then $10
-                else coalesce($10, logo_path)
+                when $14 then $13
+                else coalesce($13, logo_path)
             end,
+            tagline = $15,
+            premiere_date = $16,
+            content_rating = $17,
             updated_at = now()
         where id = $1
         "#,
@@ -921,17 +1261,32 @@ async fn update_episode_media_item_from_entry(
             .cloned()
             .unwrap_or_else(|| entry.source_title.clone()),
     )
+    .bind(&entry.episode_original_title)
+    .bind(&entry.episode_sort_title)
     .bind(&entry.metadata_status)
     .bind(&entry.metadata_failure_reason)
     .bind(&entry.remote_media_type)
-    .bind(&entry.overview)
+    .bind(entry.episode_year)
+    .bind(&entry.episode_overview)
     .bind(&entry.poster_path)
     .bind(&entry.backdrop_path)
     .bind(&entry.logo_path)
     .bind(allow_artwork_clear)
+    .bind(&entry.episode_tagline)
+    .bind(entry.episode_premiere_date)
+    .bind(&entry.episode_content_rating)
     .execute(&mut **tx)
     .await
     .context("failed to update episode media item during library sync")?;
+
+    reconcile_local_metadata_snapshot_tx(
+        tx,
+        entry.library_id,
+        MediaLocalMetadataTarget::MediaItem(media_item_id),
+        entry.removed_local_nfo_source_path.as_deref(),
+        entry.local_nfo.as_ref(),
+    )
+    .await?;
 
     Ok(())
 }
@@ -1070,7 +1425,11 @@ pub(super) async fn cleanup_orphan_series_structure(
 
 #[cfg(test)]
 mod tests {
-    use super::metadata_status_allows_artwork_clear;
+    use super::{
+        metadata_status_allows_artwork_clear, SeasonLocalMetadataRefresh,
+        SelectedSeasonLocalMetadata,
+    };
+    use serde_json::json;
 
     #[test]
     fn only_matched_metadata_status_clears_artwork() {
@@ -1079,5 +1438,63 @@ mod tests {
         assert!(!metadata_status_allows_artwork_clear("unmatched"));
         assert!(!metadata_status_allows_artwork_clear("skipped"));
         assert!(!metadata_status_allows_artwork_clear("failed"));
+    }
+
+    #[test]
+    fn selected_nfo_change_refreshes_owned_season_fields() {
+        let previous = SelectedSeasonLocalMetadata {
+            source_path: "/media/show/tvshow.nfo".to_string(),
+            payload: json!({
+                "metadata": {
+                    "named_seasons": [{
+                        "season_number": 1,
+                        "title": "Old local title",
+                        "artwork": { "posters": ["/media/show/old.jpg"] }
+                    }]
+                }
+            }),
+        };
+        let current = SelectedSeasonLocalMetadata {
+            source_path: previous.source_path.clone(),
+            payload: json!({
+                "metadata": {
+                    "named_seasons": [{
+                        "season_number": 1,
+                        "overview": "New local overview",
+                        "artwork": { "backdrops": ["/media/show/new.jpg"] }
+                    }]
+                }
+            }),
+        };
+
+        let refresh = SeasonLocalMetadataRefresh::between(Some(&previous), Some(&current), 1);
+
+        assert!(refresh.updates_title());
+        assert!(refresh.updates_overview());
+        assert!(refresh.updates_poster());
+        assert!(refresh.updates_backdrop());
+    }
+
+    #[test]
+    fn unchanged_global_selection_does_not_apply_another_groups_season_values() {
+        let selected = SelectedSeasonLocalMetadata {
+            source_path: "/media/show/tvshow.nfo".to_string(),
+            payload: json!({
+                "metadata": {
+                    "named_seasons": [{
+                        "season_number": 1,
+                        "title": "Stable title",
+                        "overview": "Stable overview"
+                    }]
+                }
+            }),
+        };
+
+        let refresh = SeasonLocalMetadataRefresh::between(Some(&selected), Some(&selected), 1);
+
+        assert!(!refresh.updates_title());
+        assert!(!refresh.updates_overview());
+        assert!(!refresh.updates_poster());
+        assert!(!refresh.updates_backdrop());
     }
 }

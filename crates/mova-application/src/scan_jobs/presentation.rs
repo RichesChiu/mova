@@ -1,9 +1,9 @@
 use super::*;
 use mova_scan::{
     has_meaningful_file_title, infer_movie_container_identity, infer_series_container_identity,
-    MediaContainerIdentity,
+    LocalNfoMetadata, MediaContainerIdentity,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(super) fn normalize_discovered_files_for_local_structure(
     discovered_files: Vec<DiscoveredMediaFile>,
@@ -475,10 +475,174 @@ pub(super) fn effective_media_type(file: &DiscoveredMediaFile) -> &'static str {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ExistingNfoProjection<'a> {
+    restore_all: bool,
+    previous_payload: Option<&'a serde_json::Value>,
+    episode_scope: bool,
+}
+
+impl<'a> ExistingNfoProjection<'a> {
+    fn for_refresh(
+        has_local_nfo: bool,
+        source_path: Option<&str>,
+        previous_payload: Option<&'a serde_json::Value>,
+        current_nfo: Option<&LocalNfoMetadata>,
+        invalid_candidate_path: Option<&Path>,
+        episode_scope: bool,
+    ) -> Self {
+        let restore_all = should_restore_last_known_good(
+            has_local_nfo,
+            source_path,
+            current_nfo,
+            invalid_candidate_path,
+        );
+        Self {
+            restore_all,
+            previous_payload,
+            episode_scope,
+        }
+    }
+
+    fn allows(self, field: &str) -> bool {
+        self.restore_all
+            || !previous_nfo_owns_field(self.previous_payload, field, self.episode_scope)
+    }
+}
+
+fn previous_nfo_owns_field(
+    payload: Option<&serde_json::Value>,
+    field: &str,
+    episode_scope: bool,
+) -> bool {
+    let Some(metadata) = payload.and_then(|payload| payload.get("metadata")) else {
+        return false;
+    };
+    let has_text = |name: &str| {
+        metadata
+            .get(name)
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    };
+    let has_values = |name: &str| {
+        metadata
+            .get(name)
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|values| {
+                values
+                    .iter()
+                    .any(|value| value.as_str().is_some_and(|value| !value.trim().is_empty()))
+            })
+    };
+    let has_artwork = |name: &str| {
+        metadata
+            .get("artwork")
+            .and_then(|artwork| artwork.get(name))
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|values| !values.is_empty())
+    };
+
+    match field {
+        "title" | "source_title" => has_text("title"),
+        "original_title" => has_text("original_title"),
+        "sort_title" => has_text("sort_title"),
+        "year" => metadata.get("year").is_some_and(|value| !value.is_null()),
+        "tagline" => has_text("tagline"),
+        "premiere_date" => has_text("premiered") || has_text("aired"),
+        "content_rating" => has_text("content_rating"),
+        "country" => has_values("countries"),
+        "genres" => has_values("genres"),
+        "studio" => has_values("studios"),
+        "overview" => has_text("overview") || has_text("outline"),
+        "poster" if episode_scope => has_artwork("thumbnails") || has_artwork("posters"),
+        "poster" => has_artwork("posters"),
+        "backdrop" => has_artwork("backdrops"),
+        "logo" => has_artwork("logos"),
+        _ => false,
+    }
+}
+
+fn previous_nfo_owns_named_season(
+    payload: Option<&serde_json::Value>,
+    season_number: Option<i32>,
+) -> bool {
+    previous_nfo_owns_season_field(payload, season_number, "title")
+}
+
+fn previous_nfo_owns_season_field(
+    payload: Option<&serde_json::Value>,
+    season_number: Option<i32>,
+    field: &str,
+) -> bool {
+    let Some(season_number) = season_number else {
+        return false;
+    };
+    payload
+        .and_then(|payload| payload.get("metadata"))
+        .and_then(|metadata| metadata.get("named_seasons"))
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|seasons| {
+            seasons.iter().any(|season| {
+                if season
+                    .get("season_number")
+                    .and_then(serde_json::Value::as_i64)
+                    != Some(i64::from(season_number))
+                {
+                    return false;
+                }
+                match field {
+                    "title" | "overview" => season
+                        .get(field)
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|value| !value.trim().is_empty()),
+                    "poster" => season
+                        .get("artwork")
+                        .and_then(|artwork| artwork.get("posters"))
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|values| !values.is_empty()),
+                    "backdrop" => season
+                        .get("artwork")
+                        .and_then(|artwork| artwork.get("backdrops"))
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|values| !values.is_empty()),
+                    _ => false,
+                }
+            })
+        })
+}
+
 pub(super) fn apply_existing_media_metadata(
     file: &mut DiscoveredMediaFile,
     summary: &mova_db::ExistingMediaMetadataSummary,
 ) {
+    restore_last_known_good_nfo(
+        &mut file.local_nfo,
+        summary.has_local_nfo,
+        summary.local_nfo_source_path.as_deref(),
+        summary.local_nfo_payload.as_ref(),
+        file.invalid_local_nfo_source_path.as_deref(),
+    );
+    restore_last_known_good_nfo(
+        &mut file.series_local_nfo,
+        summary.series_has_local_nfo,
+        summary.series_local_nfo_source_path.as_deref(),
+        summary.series_local_nfo_payload.as_ref(),
+        file.invalid_series_local_nfo_source_path.as_deref(),
+    );
+    let local_baseline = file.clone();
+    file.removed_local_nfo_source_path = removed_local_source_path(
+        summary.has_local_nfo,
+        summary.local_nfo_source_path.as_deref(),
+        file.local_nfo.as_ref(),
+        file.invalid_local_nfo_source_path.as_deref(),
+    );
+    file.removed_series_local_nfo_source_path = removed_local_source_path(
+        summary.series_has_local_nfo,
+        summary.series_local_nfo_source_path.as_deref(),
+        file.series_local_nfo.as_ref(),
+        file.invalid_series_local_nfo_source_path.as_deref(),
+    );
+
     if summary.metadata_status != METADATA_STATUS_MATCHED
         || effective_existing_metadata_provider_item_id(summary).is_none()
     {
@@ -486,6 +650,23 @@ pub(super) fn apply_existing_media_metadata(
     }
 
     if summary.media_type.eq_ignore_ascii_case("episode") {
+        let series_remote_snapshot = crate::tmdb_revalidation::parse_tmdb_remote_snapshot(
+            summary.series_tmdb_remote_snapshot.as_ref(),
+        );
+        let remote_season = series_remote_snapshot.as_ref().and_then(|snapshot| {
+            snapshot
+                .series_outline
+                .as_ref()?
+                .seasons
+                .iter()
+                .find(|season| Some(season.season_number) == file.season_number)
+        });
+        let remote_episode = remote_season.and_then(|season| {
+            season
+                .episodes
+                .iter()
+                .find(|episode| Some(episode.episode_number) == file.episode_number)
+        });
         replace_option_if_present(
             &mut file.metadata_provider,
             summary.metadata_provider.as_ref(),
@@ -506,47 +687,149 @@ pub(super) fn apply_existing_media_metadata(
             &mut file.remote_media_type,
             summary.remote_media_type.as_deref(),
         );
-        replace_string_if_present(&mut file.title, summary.series_title.as_deref());
-        fill_string_if_missing(
-            &mut file.source_title,
-            summary.series_source_title.as_deref(),
+        let series_projection = ExistingNfoProjection::for_refresh(
+            summary.series_has_local_nfo,
+            summary.series_local_nfo_source_path.as_deref(),
+            summary.series_local_nfo_payload.as_ref(),
+            file.series_local_nfo.as_ref(),
+            file.invalid_series_local_nfo_source_path.as_deref(),
+            false,
         );
-        replace_option_if_present(
-            &mut file.original_title,
-            summary.series_original_title.as_ref(),
+        {
+            replace_string_if_present(&mut file.title, summary.series_title.as_deref());
+            fill_string_if_missing(
+                &mut file.source_title,
+                summary.series_source_title.as_deref(),
+            );
+            replace_option_if_present(
+                &mut file.original_title,
+                summary.series_original_title.as_ref(),
+            );
+            replace_option_if_present(&mut file.sort_title, summary.series_sort_title.as_ref());
+            replace_copy_if_present(&mut file.year, summary.series_year);
+            replace_option_if_present(&mut file.tagline, summary.series_tagline.as_ref());
+            replace_string_option_if_present(
+                &mut file.premiere_date,
+                summary
+                    .series_premiere_date
+                    .map(|value| value.to_string())
+                    .as_deref(),
+            );
+            replace_option_if_present(
+                &mut file.content_rating,
+                summary.series_content_rating.as_ref(),
+            );
+            replace_option_if_present(&mut file.country, summary.series_country.as_ref());
+            replace_option_if_present(&mut file.genres, summary.series_genres.as_ref());
+            replace_option_if_present(&mut file.studio, summary.series_studio.as_ref());
+            replace_option_if_present(&mut file.overview, summary.series_overview.as_ref());
+            fill_option_ref_if_missing(
+                &mut file.series_poster_path,
+                summary.series_poster_path.as_ref(),
+            );
+            fill_option_ref_if_missing(
+                &mut file.series_backdrop_path,
+                summary.series_backdrop_path.as_ref(),
+            );
+            fill_option_ref_if_missing(
+                &mut file.series_logo_path,
+                summary.series_logo_path.as_ref(),
+            );
+        }
+        restore_parent_local_values(
+            file,
+            &local_baseline,
+            series_projection,
+            true,
+            series_remote_snapshot.as_ref(),
         );
-        replace_option_if_present(&mut file.sort_title, summary.series_sort_title.as_ref());
-        replace_copy_if_present(&mut file.year, summary.series_year);
-        replace_option_if_present(&mut file.country, summary.series_country.as_ref());
-        replace_option_if_present(&mut file.genres, summary.series_genres.as_ref());
-        replace_option_if_present(&mut file.studio, summary.series_studio.as_ref());
-        replace_option_if_present(&mut file.overview, summary.series_overview.as_ref());
-        fill_option_ref_if_missing(
-            &mut file.series_poster_path,
-            summary.series_poster_path.as_ref(),
+        if previous_nfo_owns_named_season(
+            summary.series_local_nfo_payload.as_ref(),
+            file.season_number,
+        ) && !series_projection.restore_all
+        {
+            file.season_title = remote_season
+                .and_then(|season| season.title.clone())
+                .or_else(|| local_baseline.season_title.clone());
+        } else {
+            fill_option_ref_if_missing(&mut file.season_title, summary.season_title.as_ref());
+        }
+        if previous_nfo_owns_season_field(
+            summary.series_local_nfo_payload.as_ref(),
+            file.season_number,
+            "overview",
+        ) && !series_projection.restore_all
+        {
+            file.season_overview = remote_season
+                .and_then(|season| season.overview.clone())
+                .or_else(|| local_baseline.season_overview.clone());
+        } else {
+            fill_option_ref_if_missing(&mut file.season_overview, summary.season_overview.as_ref());
+        }
+        if previous_nfo_owns_season_field(
+            summary.series_local_nfo_payload.as_ref(),
+            file.season_number,
+            "poster",
+        ) && !series_projection.restore_all
+        {
+            file.season_poster_path = remote_season
+                .and_then(|season| season.poster_path.clone())
+                .or_else(|| local_baseline.season_poster_path.clone());
+        } else {
+            fill_option_ref_if_missing(
+                &mut file.season_poster_path,
+                summary.season_poster_path.as_ref(),
+            );
+        }
+        if previous_nfo_owns_season_field(
+            summary.series_local_nfo_payload.as_ref(),
+            file.season_number,
+            "backdrop",
+        ) && !series_projection.restore_all
+        {
+            file.season_backdrop_path = remote_season
+                .and_then(|season| season.backdrop_path.clone())
+                .or_else(|| local_baseline.season_backdrop_path.clone());
+        } else {
+            fill_option_ref_if_missing(
+                &mut file.season_backdrop_path,
+                summary.season_backdrop_path.as_ref(),
+            );
+        }
+        let episode_projection = ExistingNfoProjection::for_refresh(
+            summary.has_local_nfo,
+            summary.local_nfo_source_path.as_deref(),
+            summary.local_nfo_payload.as_ref(),
+            file.local_nfo.as_ref(),
+            file.invalid_local_nfo_source_path.as_deref(),
+            true,
         );
-        fill_option_ref_if_missing(
-            &mut file.series_backdrop_path,
-            summary.series_backdrop_path.as_ref(),
-        );
-        fill_option_ref_if_missing(
-            &mut file.series_logo_path,
-            summary.series_logo_path.as_ref(),
-        );
-        fill_option_ref_if_missing(&mut file.season_title, summary.season_title.as_ref());
-        fill_option_ref_if_missing(&mut file.season_overview, summary.season_overview.as_ref());
-        fill_option_ref_if_missing(
-            &mut file.season_poster_path,
-            summary.season_poster_path.as_ref(),
-        );
-        fill_option_ref_if_missing(
-            &mut file.season_backdrop_path,
-            summary.season_backdrop_path.as_ref(),
-        );
-        replace_option_if_present(&mut file.episode_title, summary.episode_title.as_ref());
-        fill_option_ref_if_missing(&mut file.poster_path, summary.poster_path.as_ref());
-        fill_option_ref_if_missing(&mut file.backdrop_path, summary.backdrop_path.as_ref());
-        fill_option_ref_if_missing(&mut file.logo_path, summary.logo_path.as_ref());
+        {
+            replace_option_if_present(&mut file.episode_title, summary.episode_title.as_ref());
+            replace_option_if_present(
+                &mut file.episode_original_title,
+                summary.original_title.as_ref(),
+            );
+            replace_option_if_present(&mut file.episode_sort_title, summary.sort_title.as_ref());
+            replace_copy_if_present(&mut file.episode_year, summary.year);
+            replace_option_if_present(&mut file.episode_overview, summary.overview.as_ref());
+            replace_option_if_present(&mut file.episode_tagline, summary.tagline.as_ref());
+            replace_string_option_if_present(
+                &mut file.episode_premiere_date,
+                summary
+                    .premiere_date
+                    .map(|value| value.to_string())
+                    .as_deref(),
+            );
+            replace_option_if_present(
+                &mut file.episode_content_rating,
+                summary.content_rating.as_ref(),
+            );
+            fill_option_ref_if_missing(&mut file.poster_path, summary.poster_path.as_ref());
+            fill_option_ref_if_missing(&mut file.backdrop_path, summary.backdrop_path.as_ref());
+            fill_option_ref_if_missing(&mut file.logo_path, summary.logo_path.as_ref());
+        }
+        restore_episode_local_values(file, &local_baseline, episode_projection, remote_episode);
         return;
     }
 
@@ -570,18 +853,272 @@ pub(super) fn apply_existing_media_metadata(
         &mut file.remote_media_type,
         summary.remote_media_type.as_deref(),
     );
-    replace_string_if_present(&mut file.title, Some(summary.title.as_str()));
-    fill_string_if_missing(&mut file.source_title, Some(summary.source_title.as_str()));
-    replace_option_if_present(&mut file.original_title, summary.original_title.as_ref());
-    replace_option_if_present(&mut file.sort_title, summary.sort_title.as_ref());
-    replace_copy_if_present(&mut file.year, summary.year);
-    replace_option_if_present(&mut file.country, summary.country.as_ref());
-    replace_option_if_present(&mut file.genres, summary.genres.as_ref());
-    replace_option_if_present(&mut file.studio, summary.studio.as_ref());
-    replace_option_if_present(&mut file.overview, summary.overview.as_ref());
-    fill_option_ref_if_missing(&mut file.poster_path, summary.poster_path.as_ref());
-    fill_option_ref_if_missing(&mut file.backdrop_path, summary.backdrop_path.as_ref());
-    fill_option_ref_if_missing(&mut file.logo_path, summary.logo_path.as_ref());
+    let movie_projection = ExistingNfoProjection::for_refresh(
+        summary.has_local_nfo,
+        summary.local_nfo_source_path.as_deref(),
+        summary.local_nfo_payload.as_ref(),
+        file.local_nfo.as_ref(),
+        file.invalid_local_nfo_source_path.as_deref(),
+        false,
+    );
+    {
+        replace_string_if_present(&mut file.title, Some(summary.title.as_str()));
+        fill_string_if_missing(&mut file.source_title, Some(summary.source_title.as_str()));
+        replace_option_if_present(&mut file.original_title, summary.original_title.as_ref());
+        replace_option_if_present(&mut file.sort_title, summary.sort_title.as_ref());
+        replace_copy_if_present(&mut file.year, summary.year);
+        replace_option_if_present(&mut file.tagline, summary.tagline.as_ref());
+        replace_string_option_if_present(
+            &mut file.premiere_date,
+            summary
+                .premiere_date
+                .map(|value| value.to_string())
+                .as_deref(),
+        );
+        replace_option_if_present(&mut file.content_rating, summary.content_rating.as_ref());
+        replace_option_if_present(&mut file.country, summary.country.as_ref());
+        replace_option_if_present(&mut file.genres, summary.genres.as_ref());
+        replace_option_if_present(&mut file.studio, summary.studio.as_ref());
+        replace_option_if_present(&mut file.overview, summary.overview.as_ref());
+        fill_option_ref_if_missing(&mut file.poster_path, summary.poster_path.as_ref());
+        fill_option_ref_if_missing(&mut file.backdrop_path, summary.backdrop_path.as_ref());
+        fill_option_ref_if_missing(&mut file.logo_path, summary.logo_path.as_ref());
+    }
+    let remote_snapshot =
+        crate::tmdb_revalidation::parse_tmdb_remote_snapshot(summary.tmdb_remote_snapshot.as_ref());
+    restore_parent_local_values(
+        file,
+        &local_baseline,
+        movie_projection,
+        false,
+        remote_snapshot.as_ref(),
+    );
+}
+
+fn restore_last_known_good_nfo(
+    current: &mut Option<LocalNfoMetadata>,
+    has_local_nfo: bool,
+    source_path: Option<&str>,
+    payload: Option<&serde_json::Value>,
+    invalid_candidate_path: Option<&Path>,
+) {
+    if current.is_some() || !has_local_nfo {
+        return;
+    }
+    let Some(source_path) = source_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .filter(|value| {
+            invalid_candidate_path.is_some_and(|candidate| {
+                same_local_metadata_source_path(Path::new(value), candidate)
+            })
+        })
+    else {
+        return;
+    };
+    let Some(metadata) = payload.and_then(|payload| payload.get("metadata")) else {
+        return;
+    };
+    let Ok(mut metadata) = serde_json::from_value::<LocalNfoMetadata>(metadata.clone()) else {
+        return;
+    };
+    metadata.source_path = PathBuf::from(source_path);
+    *current = Some(metadata);
+}
+
+fn restore_parent_local_values(
+    file: &mut DiscoveredMediaFile,
+    baseline: &DiscoveredMediaFile,
+    projection: ExistingNfoProjection<'_>,
+    is_series: bool,
+    remote: Option<&crate::tmdb_revalidation::TmdbRemoteMetadataSnapshot>,
+) {
+    if !projection.allows("title") {
+        file.title = remote
+            .and_then(|snapshot| snapshot.title.clone())
+            .unwrap_or_else(|| baseline.title.clone());
+    }
+    if !projection.allows("source_title") {
+        file.source_title.clone_from(&baseline.source_title);
+    }
+    if !projection.allows("original_title") {
+        file.original_title = remote
+            .and_then(|snapshot| snapshot.original_title.clone())
+            .or_else(|| baseline.original_title.clone());
+    }
+    if !projection.allows("sort_title") {
+        file.sort_title.clone_from(&baseline.sort_title);
+    }
+    if !projection.allows("year") {
+        file.year = remote.and_then(|snapshot| snapshot.year).or(baseline.year);
+    }
+    if !projection.allows("tagline") {
+        file.tagline.clone_from(&baseline.tagline);
+    }
+    if !projection.allows("premiere_date") {
+        file.premiere_date.clone_from(&baseline.premiere_date);
+    }
+    if !projection.allows("content_rating") {
+        file.content_rating.clone_from(&baseline.content_rating);
+    }
+    if !projection.allows("country") {
+        file.country = remote
+            .and_then(|snapshot| snapshot.country.clone())
+            .or_else(|| baseline.country.clone());
+    }
+    if !projection.allows("genres") {
+        file.genres = remote
+            .and_then(|snapshot| snapshot.genres.clone())
+            .or_else(|| baseline.genres.clone());
+    }
+    if !projection.allows("studio") {
+        file.studio = remote
+            .and_then(|snapshot| snapshot.studio.clone())
+            .or_else(|| baseline.studio.clone());
+    }
+    if !projection.allows("overview") {
+        file.overview = remote
+            .and_then(|snapshot| snapshot.overview.clone())
+            .or_else(|| baseline.overview.clone());
+    }
+
+    if is_series {
+        if !projection.allows("poster") {
+            file.series_poster_path = remote
+                .and_then(|snapshot| snapshot.poster_path.clone())
+                .or_else(|| baseline.series_poster_path.clone());
+        }
+        if !projection.allows("backdrop") {
+            file.series_backdrop_path = remote
+                .and_then(|snapshot| snapshot.backdrop_path.clone())
+                .or_else(|| baseline.series_backdrop_path.clone());
+        }
+        if !projection.allows("logo") {
+            file.series_logo_path = remote
+                .and_then(|snapshot| snapshot.logo_path.clone())
+                .or_else(|| baseline.series_logo_path.clone());
+        }
+    } else {
+        if !projection.allows("poster") {
+            file.poster_path = remote
+                .and_then(|snapshot| snapshot.poster_path.clone())
+                .or_else(|| baseline.poster_path.clone());
+        }
+        if !projection.allows("backdrop") {
+            file.backdrop_path = remote
+                .and_then(|snapshot| snapshot.backdrop_path.clone())
+                .or_else(|| baseline.backdrop_path.clone());
+        }
+        if !projection.allows("logo") {
+            file.logo_path = remote
+                .and_then(|snapshot| snapshot.logo_path.clone())
+                .or_else(|| baseline.logo_path.clone());
+        }
+    }
+}
+
+fn restore_episode_local_values(
+    file: &mut DiscoveredMediaFile,
+    baseline: &DiscoveredMediaFile,
+    projection: ExistingNfoProjection<'_>,
+    remote: Option<&crate::metadata::RemoteSeriesEpisode>,
+) {
+    if !projection.allows("title") {
+        file.episode_title = remote
+            .and_then(|episode| episode.title.clone())
+            .or_else(|| baseline.episode_title.clone());
+    }
+    if !projection.allows("original_title") {
+        file.episode_original_title
+            .clone_from(&baseline.episode_original_title);
+    }
+    if !projection.allows("sort_title") {
+        file.episode_sort_title
+            .clone_from(&baseline.episode_sort_title);
+    }
+    if !projection.allows("year") {
+        file.episode_year = baseline.episode_year;
+    }
+    if !projection.allows("overview") {
+        file.episode_overview = remote
+            .and_then(|episode| episode.overview.clone())
+            .or_else(|| baseline.episode_overview.clone());
+    }
+    if !projection.allows("tagline") {
+        file.episode_tagline.clone_from(&baseline.episode_tagline);
+    }
+    if !projection.allows("premiere_date") {
+        file.episode_premiere_date
+            .clone_from(&baseline.episode_premiere_date);
+    }
+    if !projection.allows("content_rating") {
+        file.episode_content_rating
+            .clone_from(&baseline.episode_content_rating);
+    }
+    if !projection.allows("poster") {
+        file.poster_path = remote
+            .and_then(|episode| episode.poster_path.clone())
+            .or_else(|| baseline.poster_path.clone());
+    }
+    if !projection.allows("backdrop") {
+        file.backdrop_path = remote
+            .and_then(|episode| episode.backdrop_path.clone())
+            .or_else(|| baseline.backdrop_path.clone());
+    }
+    if !projection.allows("logo") {
+        file.logo_path.clone_from(&baseline.logo_path);
+    }
+}
+
+fn should_restore_last_known_good(
+    has_local_nfo: bool,
+    source_path: Option<&str>,
+    current_nfo: Option<&LocalNfoMetadata>,
+    invalid_candidate_path: Option<&Path>,
+) -> bool {
+    if current_nfo.is_some() {
+        return false;
+    }
+    if !has_local_nfo {
+        return true;
+    }
+
+    source_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some_and(|value| {
+            invalid_candidate_path.is_some_and(|candidate| {
+                same_local_metadata_source_path(Path::new(value), candidate)
+            })
+        })
+}
+
+fn same_local_metadata_source_path(left: &Path, right: &Path) -> bool {
+    left == right
+        || match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
+            (Ok(left), Ok(right)) => left == right,
+            _ => false,
+        }
+}
+
+fn removed_local_source_path(
+    has_local_nfo: bool,
+    source_path: Option<&str>,
+    current_nfo: Option<&LocalNfoMetadata>,
+    invalid_candidate_path: Option<&Path>,
+) -> Option<String> {
+    if !has_local_nfo {
+        return None;
+    }
+    let source_path = source_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let source_path_ref = Path::new(source_path);
+    let remains_current = current_nfo.is_some_and(|metadata| {
+        same_local_metadata_source_path(source_path_ref, &metadata.source_path)
+    }) || invalid_candidate_path
+        .is_some_and(|candidate| same_local_metadata_source_path(source_path_ref, candidate));
+    (!remains_current).then(|| source_path.to_string())
 }
 
 pub(super) fn replace_string_if_present(target: &mut String, candidate: Option<&str>) {
@@ -794,10 +1331,13 @@ fn group_discovered_files_for_scan_with_optional_root(
     let mut group_indexes = HashMap::<String, usize>::new();
 
     for file in discovered_files {
-        let presentation = match root_path {
+        let mut presentation = match root_path {
             Some(root_path) => build_scan_presentation_group_with_root(&file, root_path),
             None => build_scan_presentation_group(&file),
         };
+        if let Some(item_key) = local_nfo_container_group_key(&file) {
+            presentation.item_key = item_key;
+        }
         let explicit_tmdb_id =
             root_path.and_then(|root_path| explicit_container_tmdb_id(&file, root_path));
 
@@ -818,6 +1358,32 @@ fn group_discovered_files_for_scan_with_optional_root(
     }
 
     groups
+}
+
+fn local_nfo_container_group_key(file: &DiscoveredMediaFile) -> Option<String> {
+    if file.season_number.is_some() && file.episode_number.is_some() {
+        if let Some(metadata) = file
+            .series_local_nfo
+            .as_ref()
+            .filter(|metadata| metadata.kind == mova_scan::LocalNfoKind::TvShow)
+        {
+            return Some(format!(
+                "series:nfo:{}",
+                metadata.source_path.to_string_lossy()
+            ));
+        }
+    }
+
+    file.local_nfo
+        .as_ref()
+        .filter(|metadata| metadata.kind == mova_scan::LocalNfoKind::Movie)
+        .filter(|metadata| {
+            metadata
+                .source_path
+                .file_name()
+                .is_some_and(|name| name.eq_ignore_ascii_case("movie.nfo"))
+        })
+        .map(|metadata| format!("movie:nfo:{}", metadata.source_path.to_string_lossy()))
 }
 
 pub(super) fn metadata_container_key_for_path(
@@ -1000,5 +1566,133 @@ impl From<MetadataEnrichmentStage> for ScanItemStage {
             MetadataEnrichmentStage::Artwork => Self::Artwork,
             MetadataEnrichmentStage::Completed => Self::Completed,
         }
+    }
+}
+
+#[cfg(test)]
+mod last_known_good_tests {
+    use super::should_restore_last_known_good;
+    use mova_scan::{LocalNfoArtwork, LocalNfoCredits, LocalNfoKind, LocalNfoMetadata};
+    use std::{env, fs, path::PathBuf};
+    use uuid::Uuid;
+
+    fn temporary_nfo_path(case: &str) -> PathBuf {
+        env::temp_dir().join(format!("mova-{case}-{}.nfo", Uuid::new_v4()))
+    }
+
+    fn parsed_nfo(source_path: PathBuf) -> LocalNfoMetadata {
+        LocalNfoMetadata {
+            kind: LocalNfoKind::Movie,
+            source_path,
+            suppress_tmdb_identity_projection: false,
+            title: Some("Current title".to_string()),
+            original_title: None,
+            sort_title: None,
+            year: None,
+            overview: None,
+            outline: None,
+            tagline: None,
+            status: None,
+            premiered: None,
+            aired: None,
+            date_added: None,
+            runtime_minutes: None,
+            content_rating: None,
+            original_language: None,
+            preferred_metadata_language: None,
+            preferred_metadata_country_code: None,
+            show_title: None,
+            end_date: None,
+            display_order: None,
+            air_days: Vec::new(),
+            air_time: None,
+            custom_rating: None,
+            trailers: Vec::new(),
+            aspect_ratio: None,
+            top_250: None,
+            season_number: None,
+            episode_number: None,
+            season_count: None,
+            episode_count: None,
+            display_episode_number: None,
+            display_season_number: None,
+            display_after_season_number: None,
+            show_link: None,
+            genres: Vec::new(),
+            countries: Vec::new(),
+            studios: Vec::new(),
+            tags: Vec::new(),
+            styles: Vec::new(),
+            named_seasons: Vec::new(),
+            unique_ids: Vec::new(),
+            episode_guide_ids: Vec::new(),
+            ratings: Vec::new(),
+            credits: LocalNfoCredits::default(),
+            artwork: LocalNfoArtwork::default(),
+            collection: None,
+            lock_data: false,
+            locked_fields: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn restores_remote_projection_when_the_item_never_had_an_nfo() {
+        assert!(should_restore_last_known_good(false, None, None, None));
+    }
+
+    #[test]
+    fn restores_nfo_projection_only_when_the_old_file_still_exists_but_parsing_failed() {
+        let source_path = temporary_nfo_path("nfo-parse-failure");
+        fs::write(&source_path, "<movie>").expect("invalid NFO fixture should be written");
+
+        assert!(should_restore_last_known_good(
+            true,
+            source_path.to_str(),
+            None,
+            Some(&source_path),
+        ));
+
+        let _ = fs::remove_file(source_path);
+    }
+
+    #[test]
+    fn does_not_restore_old_projection_when_current_nfo_parsed_successfully() {
+        let source_path = temporary_nfo_path("nfo-reparsed");
+        fs::write(&source_path, "<movie />").expect("valid NFO fixture should be written");
+        let current = parsed_nfo(source_path.clone());
+
+        assert!(!should_restore_last_known_good(
+            true,
+            source_path.to_str(),
+            Some(&current),
+            None,
+        ));
+
+        let _ = fs::remove_file(source_path);
+    }
+
+    #[test]
+    fn does_not_restore_old_projection_after_the_nfo_was_deleted() {
+        let source_path = temporary_nfo_path("nfo-deleted");
+
+        assert!(!should_restore_last_known_good(
+            true,
+            source_path.to_str(),
+            None,
+            None,
+        ));
+    }
+
+    #[test]
+    fn does_not_fall_back_past_a_new_invalid_higher_priority_nfo() {
+        let persisted_source = temporary_nfo_path("movie-generic");
+        let invalid_higher_priority = temporary_nfo_path("movie-specific-invalid");
+
+        assert!(!should_restore_last_known_good(
+            true,
+            persisted_source.to_str(),
+            None,
+            Some(&invalid_higher_priority),
+        ));
     }
 }
