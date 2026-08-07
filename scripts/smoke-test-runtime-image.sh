@@ -28,6 +28,8 @@ for platform in "${smoke_platforms[@]}"; do
     -ec '
       ! command -v perl
       ! dpkg-query -W perl-base >/dev/null 2>&1
+      libssh_version="$(dpkg-query -W -f=\${Version} libssh-4)"
+      dpkg --compare-versions "$libssh_version" ge "0.11.5-0+deb13u1"
       apt-get check
       test -z "$(dpkg --audit)"
       test -s /etc/ssl/certs/ca-certificates.crt

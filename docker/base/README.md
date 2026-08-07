@@ -9,7 +9,9 @@ These Dockerfiles provide the reusable layers consumed by
 
 Publish application images through the repository script. It verifies the
 required `linux/amd64` and `linux/arm64` base-image platforms and publishes
-missing base images automatically:
+missing build images automatically. A formal release always rebuilds the
+runtime base with `--pull --no-cache` so Debian security updates cannot be
+hidden by a cached `apt` layer:
 
 ```sh
 MOVA_DOCKER_IMAGE_TAG=richeschiu/mova:<immutable-tag> ./scripts/publish-docker-images.sh
@@ -27,7 +29,8 @@ MOVA_DOCKER_IMAGE_TAG=richeschiu/mova:development \
 ```
 
 Force rebuilding all base images only after intentionally changing their
-toolchain or runtime contents:
+toolchain contents. The runtime base is already refreshed automatically for a
+formal release:
 
 ```sh
 MOVA_PUBLISH_BASE_IMAGES=1 \
@@ -45,7 +48,24 @@ Publishing requires Docker Scout and local support for running every requested
 platform. The script first pushes a uniquely tagged multi-platform candidate,
 pins its manifest digest, smoke-tests and scans that immutable digest on every
 requested platform, and only then promotes the same digest to the release tag.
-Promotion succeeds only when Docker Scout reports no critical or high
-vulnerabilities at publish time. A failed smoke test, scan, or digest
-resolution leaves the existing release tag unchanged; the script also verifies
-that the promoted release tag resolves to the approved candidate digest.
+
+The security gate always reports unfixed critical and high findings. It blocks
+every fixable critical or high finding and every finding in the CISA Known
+Exploited Vulnerabilities catalog. A residual finding without an upstream fix
+must either be suppressed by a reviewed VEX statement or be named exactly in
+`MOVA_ACCEPT_UNFIXED_CVES` after a maintainer risk review. For example:
+
+```sh
+MOVA_ACCEPT_UNFIXED_CVES=CVE-YYYY-NNNN,CVE-YYYY-NNNN \
+MOVA_DOCKER_IMAGE_TAG=richeschiu/mova:<immutable-tag> \
+./scripts/publish-docker-images.sh
+```
+
+Use `MOVA_SCOUT_VEX_LOCATION` for a reviewed VEX file or directory and
+`MOVA_SCOUT_VEX_AUTHORS` for its comma-separated author patterns. Never use VEX
+for a merely unpatched or low-likelihood finding; it is reserved for evidence
+that the vulnerable code path is not present or reachable.
+
+A failed build, smoke test, scan, risk-set comparison, or digest resolution
+leaves the existing release tag unchanged. The script also verifies that the
+promoted release tag resolves to the approved candidate digest.
