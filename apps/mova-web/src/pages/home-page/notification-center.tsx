@@ -454,11 +454,11 @@ export const NotificationCenter = () => {
   const feed = notificationsQuery.data
   const markReadMutation = useMutation({
     mutationFn: markNotificationRead,
-    onSuccess: () => queryClient.refetchQueries({ queryKey: ['notifications'], type: 'active' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   })
   const markAllMutation = useMutation({
     mutationFn: () => markAllNotificationsRead(categoryQuery),
-    onSuccess: () => queryClient.refetchQueries({ queryKey: ['notifications'], type: 'active' }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   })
 
   useEffect(() => {

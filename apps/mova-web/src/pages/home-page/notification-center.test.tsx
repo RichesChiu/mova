@@ -45,7 +45,7 @@ const renderNotificationCenter = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
       mutations: { retry: false },
-      queries: { retry: false },
+      queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
     },
   })
 
@@ -97,6 +97,33 @@ describe('NotificationCenter', () => {
       expect(clientMocks.markAllNotificationsRead).toHaveBeenCalledWith(undefined),
     )
     await waitFor(() => expect(clientMocks.listNotifications).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('No notifications in this category.')).toBeInTheDocument()
+  })
+
+  it('invalidates an inactive category before switching back to it', async () => {
+    clientMocks.listNotifications
+      .mockResolvedValueOnce(unreadFeed)
+      .mockResolvedValueOnce(unreadFeed)
+      .mockResolvedValueOnce(emptyFeed)
+      .mockResolvedValueOnce(emptyFeed)
+    renderNotificationCenter()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Notifications' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^System/ }))
+    await waitFor(() => expect(clientMocks.listNotifications).toHaveBeenCalledTimes(2))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark as read' }))
+    await waitFor(() => expect(clientMocks.listNotifications).toHaveBeenCalledTimes(3))
+    expect(await screen.findByText('No notifications in this category.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'All' }))
+
+    await waitFor(() => expect(clientMocks.listNotifications).toHaveBeenCalledTimes(4))
+    expect(clientMocks.listNotifications.mock.calls[3]?.[0]).toEqual({
+      category: undefined,
+      limit: 20,
+      unreadOnly: true,
+    })
     expect(await screen.findByText('No notifications in this category.')).toBeInTheDocument()
   })
 })
