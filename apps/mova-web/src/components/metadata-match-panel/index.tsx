@@ -220,74 +220,76 @@ export const MetadataMatchPanel = ({
                   </button>
                 </form>
 
-                {statusMessage ? <p className="muted">{statusMessage}</p> : null}
-                {searchMutation.isError ? (
-                  <p className="callout callout--danger">
-                    {searchMutation.error instanceof Error
-                      ? searchMutation.error.message
-                      : l('Metadata search failed')}
-                  </p>
-                ) : null}
-                {matchMutation.isError ? (
-                  <p className="callout callout--danger">
-                    {matchMutation.error instanceof ApiError
-                      ? matchMutation.error.message
-                      : matchMutation.error instanceof Error
+                <div className="metadata-match-modal__content scrollbar-thin">
+                  {statusMessage ? <p className="muted">{statusMessage}</p> : null}
+                  {searchMutation.isError ? (
+                    <p className="callout callout--danger">
+                      {searchMutation.error instanceof Error
+                        ? searchMutation.error.message
+                        : l('Metadata search failed')}
+                    </p>
+                  ) : null}
+                  {matchMutation.isError ? (
+                    <p className="callout callout--danger">
+                      {matchMutation.error instanceof ApiError
                         ? matchMutation.error.message
-                        : l('Metadata replacement failed')}
-                  </p>
-                ) : null}
+                        : matchMutation.error instanceof Error
+                          ? matchMutation.error.message
+                          : l('Metadata replacement failed')}
+                    </p>
+                  ) : null}
 
-                {results.length > 0 ? (
-                  <div className="metadata-match-modal__results">
-                    {results.map((result) => {
-                      const isSelected = selectedProviderItemId === result.provider_item_id
+                  {results.length > 0 ? (
+                    <div className="metadata-match-modal__results">
+                      {results.map((result) => {
+                        const isSelected = selectedProviderItemId === result.provider_item_id
 
-                      return (
-                        <button
-                          className={
-                            isSelected
-                              ? 'metadata-match-card metadata-match-card--selected'
-                              : 'metadata-match-card'
-                          }
-                          key={result.provider_item_id}
-                          onClick={() => setSelectedProviderItemId(result.provider_item_id)}
-                          type="button"
-                        >
-                          <div className="metadata-match-card__poster">
-                            {result.poster_path ? (
-                              <img alt={result.title} loading="lazy" src={result.poster_path} />
-                            ) : (
-                              <div className="artwork-placeholder">
-                                <span>{formatMediaTypeLabel(mediaType, l)}</span>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="metadata-match-card__body">
-                            <div className="metadata-match-card__copy">
-                              <p className="metadata-match-card__title">
-                                {renderResultTitle(result)}
-                              </p>
-                              {result.original_title && result.original_title !== result.title ? (
-                                <p className="metadata-match-card__original-title">
-                                  {result.original_title}
-                                </p>
-                              ) : null}
-                              <p className="metadata-match-card__overview">
-                                {result.overview ?? l('No overview available.')}
-                              </p>
+                        return (
+                          <button
+                            className={
+                              isSelected
+                                ? 'metadata-match-card metadata-match-card--selected'
+                                : 'metadata-match-card'
+                            }
+                            key={result.provider_item_id}
+                            onClick={() => setSelectedProviderItemId(result.provider_item_id)}
+                            type="button"
+                          >
+                            <div className="metadata-match-card__poster">
+                              {result.poster_path ? (
+                                <img alt={result.title} loading="lazy" src={result.poster_path} />
+                              ) : (
+                                <div className="artwork-placeholder">
+                                  <span>{formatMediaTypeLabel(mediaType, l)}</span>
+                                </div>
+                              )}
                             </div>
 
-                            <span className="metadata-match-card__badge">
-                              {isSelected ? l('Selected') : l('Select')}
-                            </span>
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                ) : null}
+                            <div className="metadata-match-card__body">
+                              <div className="metadata-match-card__copy">
+                                <p className="metadata-match-card__title">
+                                  {renderResultTitle(result)}
+                                </p>
+                                {result.original_title && result.original_title !== result.title ? (
+                                  <p className="metadata-match-card__original-title">
+                                    {result.original_title}
+                                  </p>
+                                ) : null}
+                                <p className="metadata-match-card__overview">
+                                  {result.overview ?? l('No overview available.')}
+                                </p>
+                              </div>
+
+                              <span className="metadata-match-card__badge">
+                                {isSelected ? l('Selected') : l('Select')}
+                              </span>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
 
                 <div className="metadata-match-modal__footer">
                   <button

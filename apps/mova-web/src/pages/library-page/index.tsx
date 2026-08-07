@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
+import { Link, useOutletContext, useParams } from 'react-router-dom'
 import { getLibrary, listLibraryMediaItems } from '../../api/client'
 import type { MediaItem } from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
@@ -26,7 +26,7 @@ import {
   getLibraryMediaSection,
   getLibraryScanSection,
 } from '../../lib/library-media-sections'
-import { mediaItemPrimaryPath } from '../../lib/media-routes'
+import { libraryDetailReturnPath, mediaItemPrimaryPath } from '../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
@@ -191,7 +191,6 @@ const MediaSectionSkeleton = ({
 
 export const LibraryPage = () => {
   const { l } = useI18n()
-  const navigate = useNavigate()
   const params = useParams()
   const { currentUser, scanRuntimeByLibrary } = useOutletContext<AppShellOutletContext>()
   const libraryId = Number(params.libraryId)
@@ -253,20 +252,6 @@ export const LibraryPage = () => {
   const headerItemCount = mediaItemsQuery.data
     ? visibleMediaItems.length + visibleScanItems.length
     : (currentLibrary?.media_count ?? null)
-  const handleBack = () => {
-    const historyIndex =
-      typeof window !== 'undefined' && typeof window.history.state?.idx === 'number'
-        ? window.history.state.idx
-        : 0
-
-    if (historyIndex > 0) {
-      navigate(-1)
-      return
-    }
-
-    navigate('/libraries')
-  }
-
   if (!Number.isFinite(libraryId)) {
     return (
       <HomeDashboardShell ariaLabel={l('Library')} currentUser={currentUser}>
@@ -285,14 +270,13 @@ export const LibraryPage = () => {
     >
       <div className="home-dashboard__content home-dashboard__content--library-detail">
         <DashboardPageHeader className="library-detail-header">
-          <button
+          <Link
             aria-label={l('Back')}
             className="home-dashboard-page-header__back"
-            onClick={handleBack}
-            type="button"
+            to={libraryDetailReturnPath()}
           >
             <HomeIcon name="arrowLeft" />
-          </button>
+          </Link>
           <h2>{currentLibrary?.name ?? l('Loading…')}</h2>
           {headerItemCount !== null ? (
             <span className="home-dashboard-page-header__meta">

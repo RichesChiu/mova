@@ -21,10 +21,11 @@
   position: relative;
   z-index: 1;
   width: min(960px, 100%);
-  max-height: min(82vh, 920px);
+  height: min(82vh, 920px);
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 16px;
-  overflow: auto;
+  overflow: hidden;
   padding: 22px;
   border-radius: var(--radius-surface);
 }
@@ -86,6 +87,20 @@
 .metadata-match-modal__search-button {
   min-width: 112px;
   width: 100%;
+}
+
+.metadata-match-modal__content {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.metadata-match-modal__content > :first-child {
+  margin-top: 0;
+}
+
+.metadata-match-modal__content > :last-child {
+  margin-bottom: 0;
 }
 
 .metadata-match-modal__results {
@@ -200,6 +215,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
+  padding-top: 2px;
 }
 
 @media (max-width: 860px) {

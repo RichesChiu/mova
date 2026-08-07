@@ -10,6 +10,7 @@ pub async fn list_notifications(
     is_admin: bool,
     visible_library_ids: &[i64],
     category: Option<&str>,
+    unread_only: bool,
     limit: i64,
 ) -> Result<NotificationFeed> {
     let rows = sqlx::query(
@@ -37,14 +38,16 @@ pub async fn list_notifications(
             or (n.audience = 'user' and n.user_id = $1)
         )
           and ($4::text is null or n.category = $4)
+          and (not $5::boolean or nr.notification_id is null)
         order by n.created_at desc, n.id desc
-        limit $5
+        limit $6
         "#,
     )
     .bind(user_id)
     .bind(is_admin)
     .bind(visible_library_ids)
     .bind(category)
+    .bind(unread_only)
     .bind(limit.clamp(1, 50))
     .fetch_all(pool)
     .await
@@ -220,4 +223,86 @@ async fn bump_user_notification_revision(
         .await
         .context("failed to bump user notification revision")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::list_notifications;
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn list_notifications_filters_read_items_only_when_requested(
+        pool: sqlx::postgres::PgPool,
+    ) {
+        let user_id: i64 = sqlx::query_scalar(
+            r#"
+            insert into users (
+                username,
+                username_normalized,
+                nickname,
+                password_hash,
+                role
+            )
+            values ('viewer', 'viewer', 'Viewer', 'test-password-hash', 'viewer')
+            returning id
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let read_notification_id: i64 = sqlx::query_scalar(
+            r#"
+            insert into notifications (
+                category,
+                notification_type,
+                severity,
+                audience,
+                source_key
+            )
+            values ('system', 'system.read', 'info', 'server', 'system:read')
+            returning id
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let unread_notification_id: i64 = sqlx::query_scalar(
+            r#"
+            insert into notifications (
+                category,
+                notification_type,
+                severity,
+                audience,
+                source_key
+            )
+            values ('system', 'system.unread', 'info', 'server', 'system:unread')
+            returning id
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query("insert into notification_reads (notification_id, user_id) values ($1, $2)")
+            .bind(read_notification_id)
+            .bind(user_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let complete_feed = list_notifications(&pool, user_id, false, &[], None, false, 20)
+            .await
+            .unwrap();
+        let unread_feed = list_notifications(&pool, user_id, false, &[], None, true, 20)
+            .await
+            .unwrap();
+
+        assert_eq!(complete_feed.items.len(), 2);
+        assert!(complete_feed.items.iter().any(|item| item.is_read));
+        assert_eq!(unread_feed.items.len(), 1);
+        assert_eq!(unread_feed.items[0].id, unread_notification_id);
+        assert!(!unread_feed.items[0].is_read);
+        assert_eq!(unread_feed.total_unread, 1);
+        assert_eq!(unread_feed.unread_by_category.get("system"), Some(&1));
+    }
 }

@@ -1,6 +1,12 @@
 import type { MediaItem, MediaType } from '../api/types'
 
+export const libraryDetailPath = (libraryId: number) => `/libraries/${libraryId}`
+
+export const libraryDetailReturnPath = () => '/'
+
 export const mediaItemDetailPath = (mediaItemId: number) => `/media-items/${mediaItemId}`
+
+export const mediaItemDetailReturnPath = (libraryId: number) => libraryDetailPath(libraryId)
 
 export const mediaItemPlaybackReturnPath = ({
   libraryId,
@@ -20,7 +26,7 @@ export const mediaItemPlaybackReturnPath = ({
   }
 
   if (seriesMediaItemId === null) {
-    return `/libraries/${libraryId}`
+    return mediaItemDetailReturnPath(libraryId)
   }
 
   const detailPath = mediaItemDetailPath(seriesMediaItemId)

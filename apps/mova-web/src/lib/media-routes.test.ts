@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { mediaItemPlaybackReturnPath } from './media-routes'
+import {
+  libraryDetailReturnPath,
+  mediaItemDetailReturnPath,
+  mediaItemPlaybackReturnPath,
+} from './media-routes'
+
+describe('deterministic page return paths', () => {
+  it('returns a library detail directly to home', () => {
+    expect(libraryDetailReturnPath()).toBe('/')
+  })
+
+  it('returns a media item detail to its containing library', () => {
+    expect(mediaItemDetailReturnPath(4)).toBe('/libraries/4')
+  })
+})
 
 describe('mediaItemPlaybackReturnPath', () => {
   it('returns a movie to its own detail page', () => {

@@ -449,16 +449,16 @@ export const NotificationCenter = () => {
   const categoryQuery = category === 'all' ? undefined : category
   const notificationsQuery = useQuery({
     queryKey: ['notifications', category],
-    queryFn: () => listNotifications({ category: categoryQuery, limit: 20 }),
+    queryFn: () => listNotifications({ category: categoryQuery, limit: 20, unreadOnly: true }),
   })
   const feed = notificationsQuery.data
   const markReadMutation = useMutation({
     mutationFn: markNotificationRead,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+    onSuccess: () => queryClient.refetchQueries({ queryKey: ['notifications'], type: 'active' }),
   })
   const markAllMutation = useMutation({
     mutationFn: () => markAllNotificationsRead(categoryQuery),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+    onSuccess: () => queryClient.refetchQueries({ queryKey: ['notifications'], type: 'active' }),
   })
 
   useEffect(() => {
