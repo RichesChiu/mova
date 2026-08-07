@@ -24,7 +24,11 @@ import {
   buildMediaVersionOptions,
   type MediaFileTechnicalBadge,
 } from '../../lib/media-file-details'
-import { mediaItemDetailPath, mediaItemPlayPath } from '../../lib/media-routes'
+import {
+  mediaItemDetailPath,
+  mediaItemDetailReturnPath,
+  mediaItemPlayPath,
+} from '../../lib/media-routes'
 import { buildPlaybackActionLinks, pickSeriesPlaybackTargetEpisode } from '../../lib/playback'
 import {
   MEDIA_DETAIL_QUERY_STALE_TIME_MS,
@@ -576,7 +580,7 @@ export const MediaItemPage = () => {
     <Link
       aria-label={l('Back to Library')}
       className="home-dashboard-page-header__back"
-      to={`/libraries/${mediaItemQuery.data.library_id}`}
+      to={mediaItemDetailReturnPath(mediaItemQuery.data.library_id)}
     >
       <HomeIcon name="arrowLeft" />
     </Link>,

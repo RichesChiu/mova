@@ -131,7 +131,7 @@ SSE 同步由两类信息组成：
 | `user:{id}:notifications` | 指定用户的通知或已读状态改变 | 指定用户 | 通用通知中心和未读数 |
 | `admin:users` | 用户插入、更新或删除 | 管理员 | 用户管理列表 |
 
-通知不是独立 SSE 事件。服务端把通知正文和每个用户的已读状态持久化后只推进对应 `notifications` revision；库通知使用 `library:{id}:notifications`，管理员系统通知使用 `admin:notifications`，用户自己的通知及已读状态使用 `user:{id}:notifications`。客户端收到失效信号后调用 `GET /api/notifications`。因此断线期间产生的通知不会丢失，重复或乱序的 revision 也不会重复创建通知。
+通知不是独立 SSE 事件。服务端把通知正文和每个用户的已读状态持久化后只推进对应 `notifications` revision；库通知使用 `library:{id}:notifications`，管理员系统通知使用 `admin:notifications`，用户自己的通知及已读状态使用 `user:{id}:notifications`。客户端收到失效信号后重新读取 `GET /api/notifications`；只展示未读项的通知中心使用 `unread_only=true`，并在标记已读成功后立即重新读取当前列表。因此断线期间产生的通知不会丢失，重复或乱序的 revision 也不会重复创建通知。
 
 内部会话信号不出现在 state 和 `resources.changed` 中，也不要求客户端保存 revision：
 

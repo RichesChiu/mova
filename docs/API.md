@@ -123,7 +123,7 @@
 | `PATCH` | `/api/users/{id}` | 更新低权限用户的角色、状态和媒体库权限（管理员） |
 | `DELETE` | `/api/users/{id}` | 删除用户（管理员） |
 | `PUT` | `/api/users/{id}/password` | 管理员重置指定用户密码 |
-| `GET` | `/api/notifications` | 查询当前用户可见的通用通知和分类未读数 |
+| `GET` | `/api/notifications` | 查询当前用户可见的通用通知，可选仅返回未读项 |
 | `PUT` | `/api/notifications` | 批量标记当前用户的通知为已读 |
 | `PUT` | `/api/notifications/{id}/read` | 标记一条可见通知为已读 |
 | `GET` | `/api/server/media-tree` | 查询服务端当前可用于建库的媒体文件夹树 |
@@ -621,6 +621,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 - `category`：可选，按单个通知类别过滤；仅允许 ASCII 字母、数字、`-`、`_`，最长 32 个字符。
 - `limit`：可选，默认 `20`，范围 `1–50`。
+- `unread_only`：可选布尔值，默认 `false`；为 `true` 时 `items` 只返回当前用户尚未读取的通知。
 
 返回 `NotificationFeedResponse`：
 
@@ -686,9 +687,10 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 语义：
 
-- `items` 按 `created_at desc, id desc` 排序，并应用 `category` 与 `limit`。
+- `items` 按 `created_at desc, id desc` 排序，并应用 `category`、`unread_only` 与 `limit`；`unread_only=true` 时已读通知不会出现在列表中。
 - `total_unread` 和 `unread_by_category` 始终统计当前用户可见的全部未读通知，不受本次 `category` 筛选影响，因此客户端只需一次响应即可渲染总红点和分类角标。
 - `is_read` / `read_at` 是当前登录用户自己的状态；同一条 server、admin 或 library 通知可以被不同用户独立阅读。
+- Web 通知中心使用 `unread_only=true`，单条或批量标记已读成功后立即重新请求当前通知列表，使已读项从弹层中消失。
 - `payload` 是按 `notification_type` 区分的扩展对象。扫描通知包含 `summary_available` 布尔值、任务级计数字段，并最多内嵌 20 个未匹配、provider 失败或本地探测警告的问题摘要；`issue_count` 可能大于 `issues.length`。
 - 只有 `summary_available = true` 时，`total_files`、`reused_files`、`matched_files`、`unmatched_files`、`failed_files`、`skipped_files`、`probe_warning_count` 和 `issue_count` 才是可用于展示的任务终态摘要。`scan.failed` 和 `scan.cancelled` 通常返回 `false`；此时计数字段只用于保持 payload 结构稳定，客户端不得把默认值 `0` 当作真实统计，也不应渲染成功摘要。
 - `scan.completed`、`scan.completed_with_issues`、`scan.failed` 和 `scan.cancelled` 分别表示完整成功、有问题地完成、执行失败和主动取消。客户端以 `notification_type` 决定结果文案与视觉状态。

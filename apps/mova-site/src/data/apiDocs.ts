@@ -147,11 +147,12 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '扫描通知使用 reason_code 和 reason_params 生成本地化主文案，diagnostic_message 只作为次级排障信息。',
       '已有远端身份在 provider 临时故障时保持 matched，并以 metadata_provider_error 表示刷新失败。',
       'metadata.tmdb.retention_expired 是媒体库 warning，表示条目的 TMDB 元数据超过 180 天仍未重新验证；provider-owned 数据与缓存已清除，payload 只保留本地定位字段，不保留原 TMDB 条目 ID。',
+      'GET 支持可选 unread_only 过滤；通知中心标记已读后重新请求未读列表，使已读项立即消失。',
       'GET 响应的未读统计不受 category 筛选影响。',
       '标记已读操作幂等，只有状态首次变化时才推进 revision。',
     ],
     endpoints: [
-      { method: 'GET', path: '/api/notifications', description: '查询当前用户可见的通知和分类未读数' },
+      { method: 'GET', path: '/api/notifications', description: '查询当前用户可见的通知，可选仅返回未读项' },
       { method: 'PUT', path: '/api/notifications', description: '批量标记当前用户的通知为已读' },
       { method: 'PUT', path: '/api/notifications/{id}/read', description: '标记一条可见通知为已读' },
     ],

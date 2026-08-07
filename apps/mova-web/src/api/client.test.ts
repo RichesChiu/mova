@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getBootstrapStatus, logout } from './client'
+import { getBootstrapStatus, listNotifications, logout } from './client'
 
 describe('API client request headers', () => {
   afterEach(() => {
@@ -20,6 +20,30 @@ describe('API client request headers', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(new Headers(init.headers).has('Content-Type')).toBe(false)
+  })
+
+  it('requests only unread notifications when the client opts into the filter', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 200,
+          data: { items: [], total_unread: 0, unread_by_category: {} },
+          message: 'ok',
+        }),
+        {
+          headers: { 'Content-Type': 'application/json' },
+          status: 200,
+        },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await listNotifications({ unreadOnly: true })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/notifications?limit=20&unread_only=true',
+      expect.any(Object),
+    )
   })
 
   it('normalizes fetch failures into a stable localizable network error', async () => {

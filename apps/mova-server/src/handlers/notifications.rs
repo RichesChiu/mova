@@ -16,6 +16,7 @@ use serde::Deserialize;
 pub struct ListNotificationsQuery {
     pub category: Option<String>,
     pub limit: Option<i64>,
+    pub unread_only: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -34,6 +35,7 @@ pub async fn list_notifications(
         &state.db,
         &user,
         query.category.as_deref(),
+        query.unread_only.unwrap_or(false),
         query.limit,
     )
     .await

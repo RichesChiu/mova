@@ -247,11 +247,14 @@ const translations: Record<string, string> = {
     'Existing remote identities remain matched during transient provider failures, with metadata_provider_error indicating the refresh failure.',
   'metadata.tmdb.retention_expired 是媒体库 warning，表示条目的 TMDB 元数据超过 180 天仍未重新验证；provider-owned 数据与缓存已清除，payload 只保留本地定位字段，不保留原 TMDB 条目 ID。':
     'metadata.tmdb.retention_expired is a library warning indicating that an item’s TMDB metadata remained unverified beyond 180 days; provider-owned data and caches are cleared, and its payload retains only local identifiers rather than the original TMDB item ID.',
+  'GET 支持可选 unread_only 过滤；通知中心标记已读后重新请求未读列表，使已读项立即消失。':
+    'GET supports the optional unread_only filter; after marking notifications as read, the notification center refetches the unread list so read items disappear immediately.',
   'GET 响应的未读统计不受 category 筛选影响。':
     'Unread counts in GET responses are not affected by the category filter.',
   '标记已读操作幂等，只有状态首次变化时才推进 revision。':
     'Mark-as-read operations are idempotent; the revision advances only on the first state change.',
-  查询当前用户可见的通知和分类未读数: 'Get visible notifications and category unread counts',
+  '查询当前用户可见的通知，可选仅返回未读项':
+    'Get visible notifications, optionally returning unread items only',
   批量标记当前用户的通知为已读: 'Mark multiple notifications as read',
   标记一条可见通知为已读: 'Mark one visible notification as read',
   服务器媒体目录: 'Server media directories',

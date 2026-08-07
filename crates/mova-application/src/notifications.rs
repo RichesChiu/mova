@@ -6,6 +6,7 @@ pub async fn list_notifications(
     pool: &PgPool,
     user: &UserProfile,
     category: Option<&str>,
+    unread_only: bool,
     limit: Option<i64>,
 ) -> ApplicationResult<NotificationFeed> {
     let category = normalize_notification_category(category)?;
@@ -15,6 +16,7 @@ pub async fn list_notifications(
         user.is_admin(),
         &user.library_ids,
         category.as_deref(),
+        unread_only,
         limit.unwrap_or(20).clamp(1, 50),
     )
     .await

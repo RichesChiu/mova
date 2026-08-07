@@ -232,13 +232,18 @@ export const listLibraries = () => requestJson<Library[]>(withApiPrefix('/librar
 export const listNotifications = ({
   category,
   limit = 20,
+  unreadOnly = false,
 }: {
   category?: string
   limit?: number
+  unreadOnly?: boolean
 } = {}) => {
   const searchParams = new URLSearchParams({ limit: String(limit) })
   if (category) {
     searchParams.set('category', category)
+  }
+  if (unreadOnly) {
+    searchParams.set('unread_only', 'true')
   }
   return requestJson<NotificationFeed>(withApiPrefix(`/notifications?${searchParams.toString()}`))
 }
