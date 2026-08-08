@@ -10,7 +10,7 @@ import { PlayerPanelPlaybackError } from './player-playback-error'
 import {
   formatVideoMeta,
   normalizeSubtitleTrackLanguage,
-  releasePointerButtonFocus,
+  releasePointerControlFocus,
   renderSubtitleLabel,
 } from './player-utils'
 
@@ -153,7 +153,7 @@ export const PlayerPanelView = ({
               : 'player-panel__content'
           }
         >
-          <div className="player-stage" onPointerUp={releasePointerButtonFocus} ref={stageRef}>
+          <div className="player-stage" onPointerUp={releasePointerControlFocus} ref={stageRef}>
             <div className="player-stage__media">
               {isImmersive && shouldShowTopOverlay ? (
                 <div className="player-panel__overlay">
