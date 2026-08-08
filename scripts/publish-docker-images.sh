@@ -241,6 +241,17 @@ should_publish_base_image() {
   esac
 }
 
+run_scout_cves() {
+  local image_ref="$1"
+  shift
+
+  if (( ${#SCOUT_VEX_ARGS[@]} > 0 )); then
+    docker scout cves "$@" "${SCOUT_VEX_ARGS[@]}" "registry://$image_ref"
+  else
+    docker scout cves "$@" "registry://$image_ref"
+  fi
+}
+
 verify_image_vulnerabilities() {
   local image_ref="$1"
   local platform
@@ -259,13 +270,11 @@ verify_image_vulnerabilities() {
     report_file="$(mktemp)"
     echo "Reporting unfixed critical and high vulnerabilities on $platform"
     unfixed_status=0
-    docker scout cves \
+    run_scout_cves "$image_ref" \
       --platform "$platform" \
       --only-severity critical,high \
       --only-unfixed \
-      --exit-code \
-      "${SCOUT_VEX_ARGS[@]}" \
-      "registry://$image_ref" 2>&1 | tee "$report_file" || unfixed_status="${PIPESTATUS[0]}"
+      --exit-code 2>&1 | tee "$report_file" || unfixed_status="${PIPESTATUS[0]}"
 
     case "$unfixed_status" in
       0|2)
@@ -278,21 +287,17 @@ verify_image_vulnerabilities() {
     esac
 
     echo "Blocking fixable critical and high vulnerabilities on $platform"
-    docker scout cves \
+    run_scout_cves "$image_ref" \
       --platform "$platform" \
       --only-severity critical,high \
       --only-fixed \
-      --exit-code \
-      "${SCOUT_VEX_ARGS[@]}" \
-      "registry://$image_ref"
+      --exit-code
 
     echo "Blocking vulnerabilities listed in the CISA Known Exploited Vulnerabilities catalog on $platform"
-    docker scout cves \
+    run_scout_cves "$image_ref" \
       --platform "$platform" \
       --only-cisa-kev \
-      --exit-code \
-      "${SCOUT_VEX_ARGS[@]}" \
-      "registry://$image_ref"
+      --exit-code
 
     if [[ "$unfixed_status" == "2" ]]; then
       observed_unfixed_cves="$(grep -Eo 'CVE-[0-9]{4}-[0-9]+' "$report_file" | LC_ALL=C sort -u | paste -sd, -)"
