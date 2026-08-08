@@ -1,4 +1,5 @@
 mod discover;
+mod intro_detection;
 mod parse;
 mod probe;
 mod sidecar;
@@ -16,6 +17,9 @@ pub use discover::{
     inspect_media_file_sidecar_only, inspect_media_file_sidecar_only_within_root,
     inspect_media_file_sidecar_only_within_root_and_nfo_policy, inspect_media_file_within_root,
     inspect_media_file_within_root_and_nfo_policy,
+};
+pub use intro_detection::{
+    detect_repeated_intro, IntroDetectionConfig, IntroDetectionEpisode, IntroDetectionOutcome,
 };
 pub use parse::{
     has_meaningful_file_title, infer_movie_container_identity, infer_series_container_identity,

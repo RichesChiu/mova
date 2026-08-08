@@ -185,7 +185,7 @@ build_and_push() {
 base_images=(
   "docker/base/web-build.Dockerfile|richeschiu/mova-web-build-base:node24-pnpm11|missing"
   "docker/base/rust-build.Dockerfile|richeschiu/mova-rust-build-base:1-bookworm|missing"
-  "docker/base/runtime.Dockerfile|richeschiu/mova-runtime-base:trixie-ffmpeg7-python3|release"
+  "docker/base/runtime.Dockerfile|richeschiu/mova-runtime-base:trixie-ffmpeg-f944afd|release"
 )
 
 image_has_required_platforms() {
