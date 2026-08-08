@@ -8,6 +8,7 @@ ALLOW_UNRELEASED="${MOVA_ALLOW_UNRELEASED:-0}"
 ACCEPT_UNFIXED_CVES="${MOVA_ACCEPT_UNFIXED_CVES:-}"
 SCOUT_VEX_LOCATION="${MOVA_SCOUT_VEX_LOCATION:-}"
 SCOUT_VEX_AUTHORS="${MOVA_SCOUT_VEX_AUTHORS:-}"
+VERIFY_IMAGE_REF="${MOVA_VERIFY_IMAGE_REF:-}"
 DEFAULT_BUILD_VERSION="development"
 if [[ "$IMAGE_TAG" == *:* ]]; then
   DEFAULT_BUILD_VERSION="${IMAGE_TAG##*:}"
@@ -20,6 +21,17 @@ cd "$ROOT_DIR"
 if [[ "$IMAGE_TAG" == *@* || "$IMAGE_TAG" != *:* || -z "${IMAGE_TAG##*:}" || "${IMAGE_TAG##*:}" == */* ]]; then
   echo "MOVA_DOCKER_IMAGE_TAG must include an explicit tag: $IMAGE_TAG" >&2
   exit 2
+fi
+
+if [[ -n "$VERIFY_IMAGE_REF" ]]; then
+  if [[ ! "$VERIFY_IMAGE_REF" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
+    echo "MOVA_VERIFY_IMAGE_REF must be pinned by a sha256 digest: $VERIFY_IMAGE_REF" >&2
+    exit 2
+  fi
+  if [[ "${VERIFY_IMAGE_REF%@*}" != "${IMAGE_TAG%:*}" ]]; then
+    echo "MOVA_VERIFY_IMAGE_REF must use the release image repository: ${IMAGE_TAG%:*}" >&2
+    exit 2
+  fi
 fi
 
 case "$ALLOW_UNRELEASED" in
@@ -347,6 +359,15 @@ resolve_manifest_digest() {
   fi
   printf '%s\n' "$digest"
 }
+
+if [[ -n "$VERIFY_IMAGE_REF" ]]; then
+  echo "Reverifying existing immutable image: $VERIFY_IMAGE_REF"
+  docker buildx imagetools inspect "$VERIFY_IMAGE_REF"
+  ./scripts/smoke-test-runtime-image.sh "$VERIFY_IMAGE_REF" "$PLATFORMS"
+  verify_image_vulnerabilities "$VERIFY_IMAGE_REF"
+  echo "Existing immutable image passed runtime and security verification: $VERIFY_IMAGE_REF"
+  exit 0
+fi
 
 for image in "${base_images[@]}"; do
   IFS="|" read -r dockerfile tag refresh_policy <<< "$image"

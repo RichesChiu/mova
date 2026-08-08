@@ -1,35 +1,35 @@
-# Security Policy
+# 安全策略
 
-English · [简体中文](SECURITY.zh-CN.md)
+[English](SECURITY.en.md) · 简体中文
 
-## Report a vulnerability
+## 报告安全漏洞
 
-Do not disclose a suspected vulnerability in a public Issue, Pull Request, discussion, or chat.
+不要在公开 Issue、Pull Request、讨论或聊天中披露疑似安全漏洞。
 
-Prefer [GitHub private vulnerability reporting](https://github.com/RichesChiu/mova/security/advisories/new). If it is unavailable, email `riches.chiu@gmail.com` with:
+优先使用 [GitHub 私密漏洞报告](https://github.com/RichesChiu/mova/security/advisories/new)。如果该功能不可用，请发送邮件到 `riches.chiu@gmail.com`，并提供：
 
-- the affected Mova version or image digest;
-- the affected endpoint, parser, file type, or deployment path;
-- reproducible steps or a minimal proof of concept;
-- the expected security impact; and
-- any known workaround.
+- 受影响的 Mova 版本或镜像 digest；
+- 受影响的接口、解析器、文件类型或部署路径；
+- 可复现步骤或最小化概念验证；
+- 预期安全影响；
+- 已知临时解决办法。
 
-Do not include real credentials, private media, or personal data. The maintainer will acknowledge the report, validate its scope, and coordinate disclosure after a fix or mitigation is available.
+不要附带真实凭据、私有媒体或个人数据。维护者会确认报告、验证影响范围，并在修复或缓解措施可用后协调披露。
 
-## Supported versions
+## 支持的版本
 
-Security fixes target the current stable release. Preview builds are evaluation channels and receive fixes through a newer preview or stable release. Production deployments should use immutable version tags and update to the latest stable patch.
+安全修复面向当前稳定版本。Preview 是评估渠道，通过后续 Preview 或稳定版本获得修复。生产部署应使用不可变版本标签，并升级到最新稳定补丁版本。
 
-## Container release policy
+## 容器发布策略
 
-Official images support Linux `amd64` and `arm64`. Before an immutable release is promoted, the exact candidate manifest is smoke-tested and scanned on both platforms. The release gate:
+官方镜像支持 Linux `amd64` 和 `arm64`。不可变版本提升前，会对同一个候选 manifest 在两个平台执行烟测和安全扫描。发布门禁会：
 
-- refreshes the Debian runtime base without cached package layers;
-- reports all critical and high findings;
-- blocks fixable critical or high findings;
-- blocks findings in the CISA Known Exploited Vulnerabilities catalog; and
-- requires explicit review of residual findings without an upstream fix.
+- 无缓存刷新 Debian 运行时基础镜像；
+- 报告所有 Critical 和 High 发现；
+- 阻止存在可修复的 Critical 或 High 漏洞；
+- 阻止 CISA Known Exploited Vulnerabilities 目录中的漏洞；
+- 要求逐项审查暂无上游修复的残留发现。
 
-A VEX `not_affected` statement requires repository and binary evidence that the vulnerable path is absent or unreachable. Reachable unpatched findings remain visible and must be accepted by exact CVE for that release; broad or silent exceptions are not permitted.
+只有仓库与二进制证据证明漏洞路径不存在或不可达时，才能使用 VEX `not_affected`。可能触达但尚未修复的漏洞必须保持可见，并按精确 CVE 在当次发布中接受；不允许宽泛或静默豁免。
 
-Container scanning reduces risk but cannot make arbitrary media trustworthy. Mount only trusted media, keep Mova and the host runtime updated, and use HTTPS plus an authenticated reverse proxy before exposing the service publicly.
+容器扫描只能降低风险，不能保证任意媒体文件可信。请只挂载可信媒体，及时更新 Mova 与宿主机运行环境，并在公开服务前配置 HTTPS 和带身份验证的反向代理。

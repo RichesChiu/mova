@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   web:
@@ -94,11 +94,40 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Rust
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable
+
+      - name: Validate release metadata
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title || '' }}
+        run: |
+          version="$(./scripts/resolve-release-version.sh)"
+          tag="v${version}"
+          if git rev-parse --verify --quiet "refs/tags/${tag}" >/dev/null; then
+            exit 0
+          fi
+
+          expected_subject="chore(release): prepare ${version}"
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            actual_subject="$PR_TITLE"
+          else
+            actual_subject="$(git log -1 --format=%s)"
+          fi
+          if [[ "$actual_subject" == "$expected_subject" ]]; then
+            exit 0
+          fi
+          if git log --format=%s | grep --fixed-strings --line-regexp --quiet "$expected_subject"; then
+            exit 0
+          fi
+          echo "An untagged workspace version requires a dedicated release change." >&2
+          echo "Expected subject: $expected_subject" >&2
+          echo "Actual subject:   $actual_subject" >&2
+          exit 1
 
       - name: Check formatting
         run: cargo fmt --all -- --check

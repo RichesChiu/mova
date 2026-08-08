@@ -147,8 +147,8 @@ Mova 会按顺序自动执行数据库迁移。媒体目录始终只读挂载，
 - 官网：[mova.hk](https://mova.hk)
 - Telegram：[mova_feedback](https://t.me/mova_feedback)
 - 问题与建议：[GitHub Issues](https://github.com/RichesChiu/mova/issues)
-- 贡献指南：[English](CONTRIBUTING.md) · [简体中文](CONTRIBUTING.zh-CN.md)
-- 安全报告：[English](SECURITY.md) · [简体中文](SECURITY.zh-CN.md)
+- 贡献指南：[简体中文](CONTRIBUTING.md) · [English](CONTRIBUTING.en.md)
+- 安全报告：[简体中文](SECURITY.md) · [English](SECURITY.en.md)
 
 ## 许可证
 
