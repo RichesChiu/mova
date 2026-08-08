@@ -1,4 +1,5 @@
 mod background_jobs;
+mod intro_detection;
 mod libraries;
 mod local_metadata;
 mod media_cast;
@@ -19,6 +20,10 @@ pub use background_jobs::{
     renew_background_job_lease, retry_or_fail_background_job, AbandonedBackgroundJobOutcome,
     BackgroundJob, BackgroundJobFence, BackgroundJobRetryOutcome, ClaimBackgroundJobOutcome,
     BACKGROUND_JOB_FENCE_LOST_MESSAGE, BACKGROUND_JOB_FINAL_ATTEMPT_LEASE_EXPIRED_MESSAGE,
+};
+pub use intro_detection::{
+    enqueue_season_intro_detection, list_intro_detection_inputs, record_season_intro_analysis,
+    IntroDetectionInput, RecordSeasonIntroAnalysisParams, INTRO_DETECTION_JOB_TYPE,
 };
 pub use libraries::{
     create_library, delete_library, get_library, get_library_with_visibility, list_libraries,
@@ -56,7 +61,7 @@ pub use media_items::{
     patch_library_media_entries_remote_by_file_path, replace_audio_tracks_for_media_file,
     replace_subtitle_files_for_media_file, sync_library_media, sync_library_media_best_effort,
     sync_library_media_changes, update_media_file_metadata, update_media_item_metadata,
-    update_season_intro_markers, update_series_episode_metadata, update_series_season_metadata,
+    update_series_episode_metadata, update_series_season_metadata,
     upsert_library_media_entries_by_file_path, upsert_library_media_entry_by_file_path,
     upsert_series_episode_outline_cache, CreateAudioTrackParams, CreateLocalMetadataSnapshotParams,
     CreateMediaEntryParams, CreateSubtitleTrackParams, ExistingMediaMetadataSummary,

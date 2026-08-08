@@ -123,6 +123,21 @@ pub async fn get_media_item_playback_header(
             .await
             .map_err(ApiError::from)?;
 
+    // Queue only the lightweight database job here. FFmpeg work is owned by the persistent
+    // background-worker runtime, so the playback-header response stays independent from intro
+    // analysis duration and survives process restarts or multiple server instances.
+    match mova_application::enqueue_intro_detection_for_playback(&state.db, &playback_header).await
+    {
+        Ok(true) => state.background_jobs.wake(),
+        Ok(false) => {}
+        Err(error) => tracing::warn!(
+            media_item_id = playback_header.media_item_id,
+            season_id = playback_header.season_id,
+            error = ?error,
+            "failed to enqueue on-demand intro detection"
+        ),
+    }
+
     Ok(ok(MediaItemPlaybackHeaderResponse::from_domain(
         playback_header,
     )))

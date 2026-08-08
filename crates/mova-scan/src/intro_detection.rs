@@ -3,6 +3,7 @@ use std::{
     io::Read,
     path::PathBuf,
     process::{Command, ExitStatus, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
     thread,
     time::{Duration, Instant},
 };
@@ -14,6 +15,7 @@ const MIN_MATCH_SECONDS: usize = 12;
 const MAX_MATCH_SECONDS: usize = 150;
 const OFFSET_TOLERANCE_SECONDS: isize = 18;
 const FRAME_SIMILARITY_THRESHOLD: f64 = 0.93;
+const DEFAULT_MINIMUM_CONFIDENCE: f64 = 0.82;
 const MAX_ANALYSIS_SECONDS: usize = 600;
 const MAX_FFMPEG_TIMEOUT: Duration = Duration::from_secs(600);
 const READ_CHUNK_BYTES: usize = 64 * 1024;
@@ -32,6 +34,7 @@ pub struct IntroDetectionConfig {
     pub min_intro_seconds: usize,
     pub ffmpeg_timeout: Duration,
     pub total_timeout: Duration,
+    pub minimum_confidence: f64,
 }
 
 impl Default for IntroDetectionConfig {
@@ -42,6 +45,7 @@ impl Default for IntroDetectionConfig {
             min_intro_seconds: MIN_MATCH_SECONDS,
             ffmpeg_timeout: Duration::from_secs(90),
             total_timeout: Duration::from_secs(10 * 60),
+            minimum_confidence: DEFAULT_MINIMUM_CONFIDENCE,
         }
     }
 }
@@ -52,16 +56,44 @@ pub enum IntroDetectionOutcome {
         intro_start_seconds: i32,
         intro_end_seconds: i32,
         confidence: f64,
+        analyzed_episode_count: usize,
+        failed_episode_count: usize,
     },
     NoMatch {
-        reason: String,
+        reason_code: String,
+        analyzed_episode_count: usize,
+        failed_episode_count: usize,
     },
+    RetryableFailure {
+        reason_code: String,
+        analyzed_episode_count: usize,
+        failed_episode_count: usize,
+    },
+    Cancelled,
 }
 
 impl IntroDetectionOutcome {
-    fn no_match(reason: impl Into<String>) -> Self {
+    fn no_match(
+        reason_code: impl Into<String>,
+        analyzed_episode_count: usize,
+        failed_episode_count: usize,
+    ) -> Self {
         Self::NoMatch {
-            reason: reason.into(),
+            reason_code: reason_code.into(),
+            analyzed_episode_count,
+            failed_episode_count,
+        }
+    }
+
+    fn retryable_failure(
+        reason_code: impl Into<String>,
+        analyzed_episode_count: usize,
+        failed_episode_count: usize,
+    ) -> Self {
+        Self::RetryableFailure {
+            reason_code: reason_code.into(),
+            analyzed_episode_count,
+            failed_episode_count,
         }
     }
 }
@@ -96,8 +128,17 @@ pub fn detect_repeated_intro(
     episodes: &[IntroDetectionEpisode],
     config: IntroDetectionConfig,
 ) -> IntroDetectionOutcome {
+    let cancellation = AtomicBool::new(false);
+    detect_repeated_intro_with_cancellation(episodes, config, &cancellation)
+}
+
+pub fn detect_repeated_intro_with_cancellation(
+    episodes: &[IntroDetectionEpisode],
+    config: IntroDetectionConfig,
+    cancellation: &AtomicBool,
+) -> IntroDetectionOutcome {
     if episodes.len() < 3 {
-        return IntroDetectionOutcome::no_match("need at least three playable episodes");
+        return IntroDetectionOutcome::no_match("insufficient_episodes", 0, 0);
     }
 
     let analysis_seconds = config.analysis_seconds.clamp(1, MAX_ANALYSIS_SECONDS);
@@ -106,43 +147,85 @@ pub fn detect_repeated_intro(
     let ffmpeg_timeout = config
         .ffmpeg_timeout
         .clamp(Duration::from_secs(1), MAX_FFMPEG_TIMEOUT);
+    let minimum_confidence = config.minimum_confidence.clamp(0.0, 1.0);
     let deadline = Instant::now()
         .checked_add(config.total_timeout)
         .unwrap_or_else(Instant::now);
 
     let mut episode_features = Vec::with_capacity(episodes.len());
+    let mut failed_episode_count = 0;
     for episode in episodes {
+        if cancellation.load(Ordering::Relaxed) {
+            return IntroDetectionOutcome::Cancelled;
+        }
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-            return IntroDetectionOutcome::no_match("intro detection exceeded its total timeout");
+            return IntroDetectionOutcome::retryable_failure(
+                "total_timeout",
+                episode_features.len(),
+                failed_episode_count,
+            );
         };
         let extraction_timeout = ffmpeg_timeout.min(remaining);
-        let features =
-            match load_episode_features(&episode.file_path, analysis_seconds, extraction_timeout) {
-                Ok(features) => features,
-                Err(error) => {
-                    return IntroDetectionOutcome::no_match(format!(
-                        "failed to analyze {}: {error}",
-                        episode.file_path.display()
-                    ));
+        let features = match load_episode_features(
+            &episode.file_path,
+            analysis_seconds,
+            extraction_timeout,
+            cancellation,
+        ) {
+            Ok(features) => features,
+            Err(error) => {
+                if cancellation.load(Ordering::Relaxed) {
+                    return IntroDetectionOutcome::Cancelled;
                 }
-            };
+                failed_episode_count += 1;
+                tracing::warn!(
+                    episode_number = episode.episode_number,
+                    error,
+                    "skipping episode that could not be analyzed for intro detection"
+                );
+                continue;
+            }
+        };
 
         if features.len() < min_match_seconds {
-            return IntroDetectionOutcome::no_match(format!(
-                "not enough audio frames for {}",
-                episode.file_path.display()
-            ));
+            failed_episode_count += 1;
+            tracing::debug!(
+                episode_number = episode.episode_number,
+                audio_frame_count = features.len(),
+                "skipping episode with insufficient audio for intro detection"
+            );
+            continue;
         }
         episode_features.push((episode.episode_number, features));
+    }
+
+    if episode_features.len() < 3 {
+        return IntroDetectionOutcome::retryable_failure(
+            "insufficient_analyzable_episodes",
+            episode_features.len(),
+            failed_episode_count,
+        );
+    }
+    if episode_features.len() < minimum_supported_episode_count(episodes.len()) {
+        return IntroDetectionOutcome::retryable_failure(
+            "insufficient_analyzable_episodes",
+            episode_features.len(),
+            failed_episode_count,
+        );
     }
 
     let mut pair_candidates = Vec::new();
     for left_index in 0..episode_features.len() {
         for right_index in (left_index + 1)..episode_features.len() {
             if Instant::now() >= deadline {
-                return IntroDetectionOutcome::no_match(
-                    "intro detection exceeded its total timeout",
+                return IntroDetectionOutcome::retryable_failure(
+                    "total_timeout",
+                    episode_features.len(),
+                    failed_episode_count,
                 );
+            }
+            if cancellation.load(Ordering::Relaxed) {
+                return IntroDetectionOutcome::Cancelled;
             }
             let (left_episode_number, left_features) = &episode_features[left_index];
             let (right_episode_number, right_features) = &episode_features[right_index];
@@ -154,12 +237,18 @@ pub fn detect_repeated_intro(
                 max_start_offset_seconds,
                 min_match_seconds,
                 deadline,
+                cancellation,
             ) {
                 Ok(Some(candidate)) => pair_candidates.push(candidate),
                 Ok(None) => {}
                 Err(()) => {
-                    return IntroDetectionOutcome::no_match(
-                        "intro detection exceeded its total timeout",
+                    if cancellation.load(Ordering::Relaxed) {
+                        return IntroDetectionOutcome::Cancelled;
+                    }
+                    return IntroDetectionOutcome::retryable_failure(
+                        "total_timeout",
+                        episode_features.len(),
+                        failed_episode_count,
                     );
                 }
             }
@@ -169,13 +258,27 @@ pub fn detect_repeated_intro(
     let Some((start, end, confidence)) =
         cluster_candidates(&pair_candidates, episodes.len(), min_match_seconds)
     else {
-        return IntroDetectionOutcome::no_match("no stable repeated intro segment detected");
+        return IntroDetectionOutcome::no_match(
+            "no_stable_segment",
+            episode_features.len(),
+            failed_episode_count,
+        );
     };
+
+    if confidence < minimum_confidence {
+        return IntroDetectionOutcome::no_match(
+            "confidence_below_threshold",
+            episode_features.len(),
+            failed_episode_count,
+        );
+    }
 
     IntroDetectionOutcome::Match {
         intro_start_seconds: start,
         intro_end_seconds: end,
         confidence,
+        analyzed_episode_count: episode_features.len(),
+        failed_episode_count,
     }
 }
 
@@ -183,8 +286,9 @@ fn load_episode_features(
     file_path: &PathBuf,
     analysis_seconds: usize,
     timeout: Duration,
+    cancellation: &AtomicBool,
 ) -> Result<Vec<[f64; 8]>, String> {
-    let raw_audio = run_ffmpeg_extract(file_path, analysis_seconds, timeout)?;
+    let raw_audio = run_ffmpeg_extract(file_path, analysis_seconds, timeout, cancellation)?;
     let samples = decode_pcm_mono_s16le(&raw_audio);
     let vectors = samples
         .chunks_exact(FRAME_SIZE)
@@ -197,32 +301,22 @@ fn run_ffmpeg_extract(
     file_path: &PathBuf,
     analysis_seconds: usize,
     timeout: Duration,
+    cancellation: &AtomicBool,
 ) -> Result<Vec<u8>, String> {
     let max_stdout_bytes = SAMPLE_RATE
         .saturating_mul(analysis_seconds)
         .saturating_mul(PCM_BYTES_PER_SAMPLE)
         .saturating_add(FRAME_SIZE * PCM_BYTES_PER_SAMPLE);
 
-    let mut command = Command::new("ffmpeg");
-    command
-        .arg("-hide_banner")
-        .arg("-loglevel")
-        .arg("error")
-        .arg("-nostdin")
-        .arg("-i")
-        .arg(file_path)
-        .arg("-vn")
-        .arg("-ac")
-        .arg("1")
-        .arg("-ar")
-        .arg(SAMPLE_RATE.to_string())
-        .arg("-t")
-        .arg(analysis_seconds.to_string())
-        .arg("-f")
-        .arg("s16le")
-        .arg("pipe:1");
+    let command = build_ffmpeg_extract_command(file_path, analysis_seconds);
 
-    let output = run_bounded_process(command, max_stdout_bytes, STDERR_LIMIT_BYTES, timeout)?;
+    let output = run_bounded_process(
+        command,
+        max_stdout_bytes,
+        STDERR_LIMIT_BYTES,
+        timeout,
+        cancellation,
+    )?;
     if output.stdout.truncated {
         return Err(format!(
             "ffmpeg PCM output exceeded the {max_stdout_bytes} byte limit"
@@ -239,11 +333,42 @@ fn run_ffmpeg_extract(
     Ok(output.stdout.bytes)
 }
 
+fn build_ffmpeg_extract_command(file_path: &PathBuf, analysis_seconds: usize) -> Command {
+    let mut command = Command::new("ffmpeg");
+    command
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-nostdin")
+        .arg("-protocol_whitelist")
+        .arg("file,pipe,crypto,data")
+        .arg("-threads")
+        .arg("1")
+        .arg("-i")
+        .arg(file_path)
+        .arg("-map")
+        .arg("0:a:0")
+        .arg("-vn")
+        .arg("-sn")
+        .arg("-dn")
+        .arg("-ac")
+        .arg("1")
+        .arg("-ar")
+        .arg(SAMPLE_RATE.to_string())
+        .arg("-t")
+        .arg(analysis_seconds.to_string())
+        .arg("-f")
+        .arg("s16le")
+        .arg("pipe:1");
+    command
+}
+
 fn run_bounded_process(
     mut command: Command,
     stdout_limit: usize,
     stderr_limit: usize,
     timeout: Duration,
+    cancellation: &AtomicBool,
 ) -> Result<BoundedOutput, String> {
     command
         .stdin(Stdio::null())
@@ -275,6 +400,14 @@ fn run_bounded_process(
         .unwrap_or_else(Instant::now);
 
     let status = loop {
+        if cancellation.load(Ordering::Relaxed) {
+            terminate_process_group(process_id);
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            return Err("intro detection was cancelled".to_string());
+        }
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) if Instant::now() < deadline => {
@@ -466,6 +599,7 @@ fn detect_pair_candidate(
     max_start_offset_seconds: usize,
     min_match_seconds: usize,
     deadline: Instant,
+    cancellation: &AtomicBool,
 ) -> Result<Option<PairCandidate>, ()> {
     let Some(max_left_start) = left_features.len().checked_sub(min_match_seconds) else {
         return Ok(None);
@@ -478,7 +612,7 @@ fn detect_pair_candidate(
     let mut best_candidate = None;
 
     for delta in -OFFSET_TOLERANCE_SECONDS..=OFFSET_TOLERANCE_SECONDS {
-        if Instant::now() >= deadline {
+        if Instant::now() >= deadline || cancellation.load(Ordering::Relaxed) {
             return Err(());
         }
         let left_start_min = (-delta).max(0) as usize;
@@ -492,6 +626,9 @@ fn detect_pair_candidate(
         }
 
         for left_start in left_start_min..=left_start_max {
+            if cancellation.load(Ordering::Relaxed) || Instant::now() >= deadline {
+                return Err(());
+            }
             let right_start = (left_start as isize + delta) as usize;
             let max_length = (left_features.len() - left_start)
                 .min(right_features.len() - right_start)
@@ -622,7 +759,7 @@ fn cluster_candidates(
         cluster.end_seconds = rounded_median(&cluster.ends);
     }
 
-    let min_supported_episodes = 3.max((episode_count * 3).div_ceil(5));
+    let min_supported_episodes = minimum_supported_episode_count(episode_count);
     let mut best: Option<(usize, i32, f64, f64, i32, i32)> = None;
     for cluster in clusters {
         let supported_episodes = cluster.episodes.len();
@@ -664,6 +801,10 @@ fn cluster_candidates(
     best.map(|(_, _, _, confidence, start, end)| (start, end, confidence))
 }
 
+fn minimum_supported_episode_count(episode_count: usize) -> usize {
+    3.max((episode_count * 3).div_ceil(5))
+}
+
 fn rounded_median(values: &[i32]) -> i32 {
     let mut values = values.to_vec();
     values.sort_unstable();
@@ -694,9 +835,53 @@ mod tests {
         assert_eq!(
             detect_repeated_intro(&[], IntroDetectionConfig::default()),
             IntroDetectionOutcome::NoMatch {
-                reason: "need at least three playable episodes".to_string(),
+                reason_code: "insufficient_episodes".to_string(),
+                analyzed_episode_count: 0,
+                failed_episode_count: 0,
             }
         );
+    }
+
+    #[test]
+    fn isolated_decode_failures_become_a_retryable_machine_reason() {
+        let episodes = (1..=3)
+            .map(|episode_number| IntroDetectionEpisode {
+                episode_number,
+                file_path: PathBuf::from(format!(
+                    "/definitely-missing/mova-intro-{episode_number}.mkv"
+                )),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            detect_repeated_intro(&episodes, IntroDetectionConfig::default()),
+            IntroDetectionOutcome::RetryableFailure {
+                reason_code: "insufficient_analyzable_episodes".to_string(),
+                analyzed_episode_count: 0,
+                failed_episode_count: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn support_threshold_scales_with_the_sampled_episode_count() {
+        assert_eq!(minimum_supported_episode_count(3), 3);
+        assert_eq!(minimum_supported_episode_count(5), 3);
+        assert_eq!(minimum_supported_episode_count(8), 5);
+    }
+
+    #[test]
+    fn ffmpeg_extraction_is_local_only_and_single_threaded() {
+        let command = build_ffmpeg_extract_command(&PathBuf::from("/media/show.mkv"), 240);
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(args
+            .windows(2)
+            .any(|pair| { pair == ["-protocol_whitelist", "file,pipe,crypto,data"] }));
+        assert!(args.windows(2).any(|pair| pair == ["-threads", "1"]));
+        assert!(args.windows(2).any(|pair| pair == ["-map", "0:a:0"]));
     }
 
     #[test]
@@ -760,6 +945,7 @@ mod tests {
             20,
             12,
             Instant::now() + Duration::from_secs(1),
+            &AtomicBool::new(false),
         )
         .expect("analysis should stay within deadline")
         .expect("repeated segment should match");
@@ -775,8 +961,15 @@ mod tests {
         let started_at = Instant::now();
         let mut command = Command::new("sh");
         command.args(["-c", "sleep 30"]);
-        let error = run_bounded_process(command, 1024, 1024, Duration::from_millis(50))
-            .expect_err("process should time out");
+        let cancellation = AtomicBool::new(false);
+        let error = run_bounded_process(
+            command,
+            1024,
+            1024,
+            Duration::from_millis(50),
+            &cancellation,
+        )
+        .expect_err("process should time out");
         assert!(started_at.elapsed() < Duration::from_secs(2));
         assert!(error.contains("timeout"));
     }
@@ -786,10 +979,26 @@ mod tests {
     fn bounded_process_drains_and_marks_oversized_output() {
         let mut command = Command::new("sh");
         command.args(["-c", "head -c 2048 /dev/zero"]);
-        let output = run_bounded_process(command, 1024, 1024, Duration::from_secs(2))
-            .expect("process should complete");
+        let cancellation = AtomicBool::new(false);
+        let output =
+            run_bounded_process(command, 1024, 1024, Duration::from_secs(2), &cancellation)
+                .expect("process should complete");
         assert!(output.status.success());
         assert_eq!(output.stdout.bytes.len(), 1024);
         assert!(output.stdout.truncated);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_process_terminates_when_cancelled() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "sleep 30"]);
+        let cancellation = AtomicBool::new(true);
+        let started_at = Instant::now();
+        let error =
+            run_bounded_process(command, 1024, 1024, Duration::from_secs(30), &cancellation)
+                .expect_err("cancelled process should stop");
+        assert!(started_at.elapsed() < Duration::from_secs(2));
+        assert!(error.contains("cancelled"));
     }
 }

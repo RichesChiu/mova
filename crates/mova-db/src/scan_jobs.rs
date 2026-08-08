@@ -61,6 +61,33 @@ pub(crate) async fn enqueue_scan_job_tx(
         });
     }
 
+    // A new scan can replace episode files while intro analysis is reading them. Pending intro
+    // work is cancelled immediately; a running worker observes cancel_requested through its lease
+    // heartbeat and terminates FFmpeg before the scan mutates the catalog.
+    sqlx::query(
+        r#"
+        update background_jobs
+        set status = case
+                when status = 'pending' then 'cancelled'
+                else 'cancel_requested'
+            end,
+            locked_by = case when status = 'pending' then null else locked_by end,
+            locked_at = case when status = 'pending' then null else locked_at end,
+            lease_expires_at = case when status = 'pending' then null else lease_expires_at end,
+            last_error = 'intro_detection_cancelled_for_library_scan',
+            updated_at = now(),
+            finished_at = case when status = 'pending' then now() else null end
+        where job_type = 'media.intro.detect'
+          and scope_type = 'library'
+          and scope_id = $1
+          and status in ('pending', 'running')
+        "#,
+    )
+    .bind(library_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to cancel intro detection before library scan")?;
+
     let row = sqlx::query(
         r#"
         insert into scan_jobs (library_id, status, total_files, scanned_files, progress_percent)
