@@ -28,15 +28,19 @@ for platform in "${smoke_platforms[@]}"; do
     -ec '
       ! command -v perl
       ! dpkg-query -W perl-base >/dev/null 2>&1
-      libssh_version="$(dpkg-query -W -f=\${Version} libssh-4)"
-      dpkg --compare-versions "$libssh_version" ge "0.11.5-0+deb13u1"
+      ! command -v python3
+      for absent_package in ffmpeg python3 librist4 libcjson1 libssh-4; do
+        ! dpkg-query -W "$absent_package" >/dev/null 2>&1
+      done
       apt-get check
       test -z "$(dpkg --audit)"
       test -s /etc/ssl/certs/ca-certificates.crt
       test -s /usr/share/mova/third-party/debian-packages.tsv
       test -s /usr/share/mova/third-party/ffmpeg-source.txt
+      test -s /usr/share/mova/third-party/COPYING.LGPLv2.1
+      test -s /usr/share/mova/third-party/COPYING.LGPLv3
       ! grep -q "^perl-base[[:space:]]" /usr/share/mova/third-party/debian-packages.tsv
-      test -f /app/scripts/detect_intro.py
+      test ! -e /app/scripts/detect_intro.py
       test ! -e /app/scripts/publish-docker-images.sh
       test ! -e /app/scripts/smoke-test-runtime-image.sh
       test -x /usr/local/bin/mova-server
@@ -45,10 +49,12 @@ for platform in "${smoke_platforms[@]}"; do
         exit 1
       fi
       grep -q "missing MOVA_DATABASE_URL" /tmp/server.err
-      python3 --version
-      python3 -c "import ssl; assert ssl.OPENSSL_VERSION"
-      ffmpeg -version
+      ffmpeg -version | grep -q "f944afd04097"
       ffprobe -version
+      ffmpeg -hide_banner -protocols > /tmp/protocols.txt
+      grep -Eq "^[[:space:]]+file$" /tmp/protocols.txt
+      grep -Eq "^[[:space:]]+pipe$" /tmp/protocols.txt
+      ! grep -Eq "^[[:space:]]+(http|https|rist|rtmp|rtmps|tcp|udp)$" /tmp/protocols.txt
       ffmpeg -hide_banner -loglevel error -nostdin -y \
         -f lavfi -i testsrc2=size=32x32:rate=1 \
         -f lavfi -i sine=frequency=440 \
@@ -63,9 +69,9 @@ for platform in "${smoke_platforms[@]}"; do
         ffmpeg -hide_banner -loglevel error -nostdin -y \
           -f srt -i pipe:0 -f webvtt pipe:1 > /tmp/subtitle.vtt
       test -s /tmp/subtitle.vtt
-      printf "{\"episodes\":[]}" |
-        python3 /app/scripts/detect_intro.py |
-        python3 -c "import json,sys; response=json.load(sys.stdin); assert response == {\"status\": \"no-match\", \"reason\": \"need at least three playable episodes\"}"
+      ffmpeg -hide_banner -loglevel error -nostdin -y \
+        -i /tmp/sample.mp4 -vn -ac 1 -ar 8000 -t 1 -f s16le /tmp/intro.pcm
+      test "$(wc -c < /tmp/intro.pcm | tr -d " ")" -eq 16000
     '
 done
 

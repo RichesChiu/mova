@@ -5,7 +5,7 @@ These Dockerfiles provide the reusable layers consumed by
 
 - `web-build.Dockerfile`: Node.js and pnpm Web build environment
 - `rust-build.Dockerfile`: Rust build environment
-- `runtime.Dockerfile`: Debian 13 runtime system, FFmpeg 7, and Python 3
+- `runtime.Dockerfile`: Debian 13 runtime with pinned, source-built FFmpeg and FFprobe
 
 Publish application images through the repository script. It verifies the
 required `linux/amd64` and `linux/arm64` base-image platforms and publishes
@@ -38,11 +38,15 @@ MOVA_DOCKER_IMAGE_TAG=richeschiu/mova:<immutable-tag> \
 ./scripts/publish-docker-images.sh
 ```
 
-The runtime image installs FFmpeg and Python from the supported Debian 13
-repositories, then removes `perl-base`. Perl is present only for Debian package
-maintenance and is not invoked by Mova, FFmpeg, FFprobe, or the Python intro
-detector. Runtime images are immutable: rebuild the base image to apply package
-updates instead of installing packages in a running container.
+The runtime image builds FFmpeg and FFprobe from a pinned upstream commit whose
+archive is SHA-256 verified. The configuration disables network protocols,
+external-library autodetection, and GPL components; Mova uses the tools only for
+local media probing, remuxing, subtitle conversion, and intro-audio extraction.
+Intro analysis is implemented in Rust, so Python is not present. The final image
+installs only the Debian CA certificate package and removes `perl-base` after
+package maintenance completes. Runtime images are immutable: rebuild the base
+image to apply package updates instead of installing packages in a running
+container.
 
 Publishing requires Docker Scout and local support for running every requested
 platform. The script first pushes a uniquely tagged multi-platform candidate,

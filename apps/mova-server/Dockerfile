@@ -2,7 +2,7 @@
 
 ARG MOVA_WEB_BUILD_BASE=richeschiu/mova-web-build-base:node24-pnpm11
 ARG MOVA_RUST_BUILD_BASE=richeschiu/mova-rust-build-base:1-bookworm
-ARG MOVA_RUNTIME_BASE=richeschiu/mova-runtime-base:trixie-ffmpeg7-python3
+ARG MOVA_RUNTIME_BASE=richeschiu/mova-runtime-base:trixie-ffmpeg-f944afd
 
 FROM ${MOVA_WEB_BUILD_BASE} AS web-builder
 ARG TARGETARCH
@@ -62,7 +62,6 @@ WORKDIR /app
 
 COPY --from=builder /app/target/release/mova-server /usr/local/bin/mova-server
 COPY --from=web-builder /app/apps/mova-web/dist /app/web
-COPY scripts/detect_intro.py /app/scripts/detect_intro.py
 
 EXPOSE 36080
 
