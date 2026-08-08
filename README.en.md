@@ -147,8 +147,8 @@ Mova applies database migrations in order at startup. The media mount remains re
 - Website: [mova.hk](https://mova.hk)
 - Telegram: [mova_feedback](https://t.me/mova_feedback)
 - Bugs and ideas: [GitHub Issues](https://github.com/RichesChiu/mova/issues)
-- Contributing: [English](CONTRIBUTING.md) · [简体中文](CONTRIBUTING.zh-CN.md)
-- Security: [English](SECURITY.md) · [简体中文](SECURITY.zh-CN.md)
+- Contributing: [English](CONTRIBUTING.en.md) · [简体中文](CONTRIBUTING.md)
+- Security: [English](SECURITY.en.md) · [简体中文](SECURITY.md)
 
 ## License
 

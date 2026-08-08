@@ -39,8 +39,10 @@ When instructions conflict, apply them in this order:
 ## Build and release
 
 - A build-only request does not authorize a push. Image publishing does not authorize a Git commit or Git push unless the user asks for those actions too.
-- Publish from the repository root with `./scripts/publish-docker-images.sh`; releases must produce
-  Linux `amd64` and `arm64` manifests.
+- Official releases run through the `Release` GitHub Action after a dedicated version Pull Request
+  reaches `master` and CI passes. The Action invokes `./scripts/publish-docker-images.sh` from the
+  repository root; manual publishing is an explicit recovery path, not the default workflow.
+- Releases must produce Linux `amd64` and `arm64` manifests.
 - Release immutable, annotated SemVer Git and image tags first. After verification, move mutable
   channel aliases such as `preview` or `latest` only to the intended manifest. Tag annotations
   summarize user-visible changes, verification, and any migration requirements.

@@ -1,0 +1,376 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mova-release
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish release
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      IMAGE_REPOSITORY: richeschiu/mova
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+
+    steps:
+      - name: Check out verified master revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Verify source revision
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Resolve release metadata
+        id: release
+        run: |
+          set -euo pipefail
+
+          version="$(./scripts/resolve-release-version.sh)"
+
+          tag="v${version}"
+          tag_exists=false
+          if git rev-parse --verify --quiet "refs/tags/${tag}" >/dev/null; then
+            tag_exists=true
+            tag_revision="$(git rev-parse "${tag}^{commit}")"
+            if [[ "$tag_revision" != "$SOURCE_SHA" ]]; then
+              echo "Version $version is already released from $tag_revision; nothing to publish."
+              echo "should_release=false" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [[ "$(git cat-file -t "refs/tags/${tag}")" != "tag" ]]; then
+              echo "Existing release tag ${tag} must be annotated." >&2
+              exit 1
+            fi
+          else
+            expected_subject="chore(release): prepare ${version}"
+            actual_subject="$(git log -1 --format=%s)"
+            if [[ "$actual_subject" != "$expected_subject" ]]; then
+              echo "The untagged version belongs to an earlier release commit; this revision does not publish it."
+              echo "should_release=false" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          if [[ "$version" == *-* ]]; then
+            newest_channel_version="$(
+              git tag --list 'v*-*' \
+                | sed 's/^v//' \
+                | sort --version-sort \
+                | tail -1
+            )"
+          else
+            newest_channel_version="$(
+              git tag --list 'v*' \
+                | grep -v -- '-' \
+                | sed 's/^v//' \
+                | sort --version-sort \
+                | tail -1 \
+                || true
+            )"
+          fi
+          if [[ -n "$newest_channel_version" && "$newest_channel_version" != "$version" ]]; then
+            highest_version="$(
+              printf '%s\n%s\n' "$newest_channel_version" "$version" \
+                | sort --version-sort \
+                | tail -1
+            )"
+            if [[ "$highest_version" == "$newest_channel_version" ]]; then
+              echo "Release $version is superseded by $newest_channel_version; nothing to publish."
+              echo "should_release=false" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
+          previous_tag="$(
+            git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^ 2>/dev/null || true
+          )"
+          if [[ -n "$previous_tag" ]]; then
+            release_range="${previous_tag}..HEAD"
+          else
+            release_range="HEAD"
+          fi
+
+          migration_summary="No database migration is included. No media rescan or cache rebuild is required unless the release notes explicitly say otherwise."
+          if git diff --name-only "$release_range" -- migrations/ | grep -q .; then
+            migration_summary="Bundled database migrations apply automatically at startup. Review the release notes for any explicit media rescan or cache rebuild requirement."
+          fi
+
+          {
+            printf 'Mova %s\n\n' "$version"
+            printf 'Changes:\n'
+            git log --first-parent --pretty='- %s' "$release_range"
+            printf '\nVerification: GitHub Actions CI passed for master revision %s.\n' "$SOURCE_SHA"
+            printf 'Migration: %s\n' "$migration_summary"
+          } > /tmp/mova-release-tag-message.txt
+
+          is_prerelease=false
+          channel=latest
+          if [[ "$version" == *-* ]]; then
+            is_prerelease=true
+            channel=preview
+          fi
+
+          {
+            echo "should_release=true"
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "tag_exists=$tag_exists"
+            echo "previous_tag=$previous_tag"
+            echo "is_prerelease=$is_prerelease"
+            echo "channel=$channel"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Validate Docker Hub credentials
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [[ -z "$DOCKERHUB_USERNAME" || -z "$DOCKERHUB_TOKEN" ]]; then
+            echo "DOCKERHUB_USERNAME variable and DOCKERHUB_TOKEN secret are required." >&2
+            exit 1
+          fi
+
+      - name: Set up QEMU
+        if: steps.release.outputs.should_release == 'true'
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Set up Docker Buildx
+        if: steps.release.outputs.should_release == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to Docker Hub
+        if: steps.release.outputs.should_release == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Inspect immutable image
+        if: steps.release.outputs.should_release == 'true'
+        id: image
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          image_ref="${IMAGE_REPOSITORY}:${VERSION}"
+          if image_metadata="$(
+            docker buildx imagetools inspect "$image_ref" --format '{{json .Image}}' 2>/dev/null
+          )"; then
+            if ! jq -e \
+              --arg version "$VERSION" \
+              --arg revision "$SOURCE_SHA" \
+              'keys == ["linux/amd64", "linux/arm64"] and
+              all(.[];
+                .config.Labels["org.opencontainers.image.version"] == $version and
+                .config.Labels["org.opencontainers.image.revision"] == $revision)' \
+              <<<"$image_metadata" >/dev/null; then
+              echo "Existing immutable image does not match this release revision." >&2
+              exit 1
+            fi
+            digest="$(
+              docker buildx imagetools inspect "$image_ref" \
+                --format '{{.Manifest.Digest}}'
+            )"
+            echo "Reusing verified immutable image ${image_ref}@${digest}."
+            echo "reuse=true" >>"$GITHUB_OUTPUT"
+            echo "digest=$digest" >>"$GITHUB_OUTPUT"
+          else
+            echo "reuse=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Create annotated release tag locally
+        if: >-
+          steps.release.outputs.should_release == 'true' &&
+          steps.release.outputs.tag_exists == 'false'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$TAG" --file /tmp/mova-release-tag-message.txt
+
+      - name: Push annotated Git tag
+        if: >-
+          steps.release.outputs.should_release == 'true' &&
+          steps.release.outputs.tag_exists == 'false'
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: git push origin "refs/tags/${TAG}"
+
+      - name: Install Docker Scout
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          SCOUT_VERSION: 1.24.0
+          SCOUT_ARCHIVE_SHA256: f4e2814bd61040365153d5b964b144cb2dc6ee536a68b5bac4cadf00fc0ec34b
+        run: |
+          scout_archive="/tmp/docker-scout_${SCOUT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/docker/scout-cli/releases/download/v${SCOUT_VERSION}/docker-scout_${SCOUT_VERSION}_linux_amd64.tar.gz" \
+            --output "$scout_archive"
+          echo "${SCOUT_ARCHIVE_SHA256}  ${scout_archive}" | sha256sum --check
+          mkdir -p "$HOME/.docker/cli-plugins" /tmp/docker-scout
+          tar --extract --gzip --file "$scout_archive" --directory /tmp/docker-scout
+          install -m 0755 /tmp/docker-scout/docker-scout \
+            "$HOME/.docker/cli-plugins/docker-scout"
+          docker scout version
+
+      - name: Build, verify, and publish immutable image
+        if: >-
+          steps.release.outputs.should_release == 'true' &&
+          steps.image.outputs.reuse == 'false'
+        env:
+          MOVA_DOCKER_IMAGE_TAG: ${{ env.IMAGE_REPOSITORY }}:${{ steps.release.outputs.version }}
+          MOVA_BUILD_VERSION: ${{ steps.release.outputs.version }}
+          MOVA_DOCKER_PLATFORMS: linux/amd64,linux/arm64
+          MOVA_PUBLISH_BASE_IMAGES: auto
+          MOVA_ACCEPT_UNFIXED_CVES: ${{ vars.MOVA_ACCEPT_UNFIXED_CVES }}
+          DOCKER_SCOUT_HUB_USER: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKER_SCOUT_HUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: ./scripts/publish-docker-images.sh
+
+      - name: Reverify existing immutable image
+        if: >-
+          steps.release.outputs.should_release == 'true' &&
+          steps.image.outputs.reuse == 'true'
+        env:
+          MOVA_DOCKER_IMAGE_TAG: ${{ env.IMAGE_REPOSITORY }}:${{ steps.release.outputs.version }}
+          MOVA_BUILD_VERSION: ${{ steps.release.outputs.version }}
+          MOVA_DOCKER_PLATFORMS: linux/amd64,linux/arm64
+          MOVA_VERIFY_IMAGE_REF: ${{ env.IMAGE_REPOSITORY }}@${{ steps.image.outputs.digest }}
+          MOVA_ACCEPT_UNFIXED_CVES: ${{ vars.MOVA_ACCEPT_UNFIXED_CVES }}
+          DOCKER_SCOUT_HUB_USER: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKER_SCOUT_HUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: ./scripts/publish-docker-images.sh
+
+      - name: Resolve published image digest
+        if: steps.release.outputs.should_release == 'true'
+        id: published
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          image_ref="${IMAGE_REPOSITORY}:${VERSION}"
+          digest="$(
+            docker buildx imagetools inspect "$image_ref" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Could not resolve immutable image digest: $digest" >&2
+            exit 1
+          fi
+          echo "digest=$digest" >>"$GITHUB_OUTPUT"
+
+      - name: Create draft GitHub Release
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          PREVIOUS_TAG: ${{ steps.release.outputs.previous_tag }}
+          IS_PRERELEASE: ${{ steps.release.outputs.is_prerelease }}
+          DIGEST: ${{ steps.published.outputs.digest }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release $TAG already exists; preserving it for retry."
+            exit 0
+          fi
+
+          release_args=(
+            release create "$TAG"
+            --repo "$GITHUB_REPOSITORY"
+            --verify-tag
+            --draft
+            --generate-notes
+            --title "Mova ${VERSION}"
+            --notes "Docker image: \`${IMAGE_REPOSITORY}:${VERSION}\` (\`${DIGEST}\`)"
+          )
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            release_args+=(--notes-start-tag "$PREVIOUS_TAG")
+          fi
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            release_args+=(--prerelease --latest=false)
+          else
+            release_args+=(--latest=false)
+          fi
+          gh "${release_args[@]}"
+
+      - name: Promote channel alias
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          CHANNEL: ${{ steps.release.outputs.channel }}
+          DIGEST: ${{ steps.published.outputs.digest }}
+        run: |
+          alias_ref="${IMAGE_REPOSITORY}:${CHANNEL}"
+          immutable_ref="${IMAGE_REPOSITORY}@${DIGEST}"
+          docker buildx imagetools create \
+            --prefer-index=false \
+            --tag "$alias_ref" \
+            "$immutable_ref"
+          alias_digest="$(
+            docker buildx imagetools inspect "$alias_ref" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          if [[ "$alias_digest" != "$DIGEST" ]]; then
+            echo "Channel alias digest mismatch: expected=$DIGEST actual=$alias_digest" >&2
+            exit 1
+          fi
+          docker buildx imagetools inspect "$alias_ref"
+
+      - name: Publish GitHub Release
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.release.outputs.is_prerelease }}
+        run: |
+          is_draft="$(
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --json isDraft --jq '.isDraft'
+          )"
+          if [[ "$is_draft" != "true" ]]; then
+            echo "GitHub Release $TAG is already published."
+            exit 0
+          fi
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --draft=false --prerelease --latest=false
+          else
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --draft=false --prerelease=false --latest
+          fi
+
+      - name: Summarize release
+        if: steps.release.outputs.should_release == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          CHANNEL: ${{ steps.release.outputs.channel }}
+          DIGEST: ${{ steps.published.outputs.digest }}
+        run: |
+          {
+            echo "## Mova ${VERSION}"
+            echo
+            echo "- Immutable image: \`${IMAGE_REPOSITORY}:${VERSION}\`"
+            echo "- Channel alias: \`${IMAGE_REPOSITORY}:${CHANNEL}\`"
+            echo "- Digest: \`${DIGEST}\`"
+            echo "- Platforms: \`linux/amd64\`, \`linux/arm64\`"
+          } >>"$GITHUB_STEP_SUMMARY"
