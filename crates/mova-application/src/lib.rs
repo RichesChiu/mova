@@ -32,6 +32,10 @@ pub use error::{
     BusinessErrorParams,
 };
 pub use home::{get_home_snapshot, HomeLibrarySnapshot, HomeSnapshot};
+pub use intro_detection::{
+    enqueue_intro_detection_for_playback, execute_intro_detection_job,
+    IntroDetectionExecutionOutcome, INTRO_DETECTION_ALGORITHM_VERSION,
+};
 pub use libraries::{
     create_library, delete_library, get_library, get_library_detail,
     library_metadata_language_will_change, list_libraries, update_library, CreateLibraryInput,

@@ -475,16 +475,16 @@ pub async fn delete_library(pool: &PgPool, library_id: i64) -> Result<Option<Del
                 else finished_at
             end,
             updated_at = now()
-        where job_type = 'library.scan'
-          and scope_type = 'library'
+        where scope_type = 'library'
           and scope_id = $1
+          and job_type in ('library.scan', 'media.intro.detect')
           and status in ('pending', 'running')
         "#,
     )
     .bind(library_id)
     .execute(&mut *tx)
     .await
-    .context("failed to cancel library scan background jobs")?;
+    .context("failed to cancel library-scoped analysis jobs")?;
 
     sqlx::query("delete from libraries where id = $1")
         .bind(library_id)

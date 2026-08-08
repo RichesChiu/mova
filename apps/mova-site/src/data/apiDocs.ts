@@ -215,7 +215,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '已有 matched TMDB binding 时按该 ID 刷新；无效 NFO 保留 last-known-good，冲突 NFO 不能静默换绑。',
       '剧集可通过 seasons、episodes、episode-outline 获取本地可用集和远端大纲合并结果。',
       'episode-outline 的播放快照包含 last_media_file_id；同一集有多个文件版本时，客户端应恢复最近播放的具体版本。',
-      'playback-header 会先返回播放器头部；缺少片头区间时，服务端在后台按需检测，不阻塞首次播放。',
+      'playback-header 只轻量入队持久化片头任务；FFmpeg 与分析由 worker 按需执行，完成后通过 catalog revision 通知客户端定向刷新，不阻塞首次播放。',
       'poster/backdrop/logo 返回经过媒体库边界、大小和图片内容校验的本地图片流；详情只透出可信的 TMDB 官方远程图片地址。',
     ],
     endpoints: [

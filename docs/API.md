@@ -1396,7 +1396,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 单集返回“剧名 + 季集号 + 单集标题”所需的结构化字段
 - `logo_path` 返回当前作品的透明标题 Logo；播放电影时属于电影条目，播放单集时属于其剧集条目。缺失时客户端回退文字标题
 - 如果该条目已经完成 TMDB 元数据增强，这里的标题会优先使用增强后的标题
-- 如果当前播放的是剧集，且当前集和所在季都还没有片头区间，服务端会在返回头部信息后异步触发一次 season 级片头检测；检测和失败都不会阻断本次播放，本次响应仍按“无片头数据”处理
+- 播放本地剧集且当前没有可用片头区间时，请求路径只执行一次轻量、幂等的 season 级持久化任务入队；FFmpeg、输入指纹计算、代表集分析和重试均由 worker 执行，不阻断本次播放
+- 检测完成后服务端推进该库的 catalog revision；Web、macOS 和 iOS 客户端按 SSE 资源失效规则重新读取播放头与 `episode-outline`。首次响应仍可能没有片头区间
+- 完整触发条件、算法阈值、失效规则和资源上限见 [`INTRO_DETECTION.md`](INTRO_DETECTION.md)
 
 返回示例：
 
@@ -1494,7 +1496,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - TMDB 不可用或匹配失败时，会退化为仅返回本地已入库集。
 - TMDB 提供季海报（`season poster`）和集剧照（`episode still`）；剧集大纲中的季只返回 `poster_path`，页面背景使用剧集条目自身的 `backdrop_path`，集剧照只写入集级 `poster_path`。
 - 若集级图片缺失，后端保持为空；不会尝试从本地视频抽取第一帧回退，也不会把通用目录海报（如 `poster.jpg` / `folder.jpg`）、季图或剧图误当成单集封面。
-- `seasons[].intro_start_seconds` / `seasons[].intro_end_seconds` 承载播放时按需检测的 season 级片头区间；`episodes[].intro_*` 默认为空。
+- `seasons[].intro_start_seconds` / `seasons[].intro_end_seconds` 承载按需检测并持久化的 season 级片头区间；`episodes[].intro_*` 默认为空。输入变化和算法版本规则见 [`INTRO_DETECTION.md`](INTRO_DETECTION.md)。
 - `episodes[].playback_progress` 会带上该集最近一次播放快照；`last_media_file_id` 用于在同一集存在多个物理版本时恢复最近播放的版本。前端可以据此显示集卡进度、已看完状态，以及“最近一集已播完则默认跳下一集”的续播入口。
 - 可直接用于前端“可播放集高亮、缺失集置灰”的展示逻辑。
 - TMDB 剧集大纲缓存在 PostgreSQL `series_episode_outline_cache`，默认 TTL 为 24 小时。

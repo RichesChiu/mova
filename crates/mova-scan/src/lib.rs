@@ -19,7 +19,8 @@ pub use discover::{
     inspect_media_file_within_root_and_nfo_policy,
 };
 pub use intro_detection::{
-    detect_repeated_intro, IntroDetectionConfig, IntroDetectionEpisode, IntroDetectionOutcome,
+    detect_repeated_intro, detect_repeated_intro_with_cancellation, IntroDetectionConfig,
+    IntroDetectionEpisode, IntroDetectionOutcome,
 };
 pub use parse::{
     has_meaningful_file_title, infer_movie_container_identity, infer_series_container_identity,

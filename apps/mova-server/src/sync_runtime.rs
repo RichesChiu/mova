@@ -43,6 +43,13 @@ struct TmdbArtworkCleanupJobPayload {
     maintenance: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct IntroDetectionJobPayload {
+    library_id: i64,
+    season_id: i64,
+    algorithm_version: i32,
+}
+
 pub fn start_background_workers(state: AppState, concurrency: usize) {
     for worker_index in 0..concurrency.max(1) {
         let worker_state = state.clone();
@@ -144,6 +151,9 @@ async fn run_background_worker(state: AppState, worker_id: String) {
             }
             mova_db::TMDB_ARTWORK_CLEANUP_JOB_TYPE => {
                 execute_tmdb_artwork_cleanup_background_job(&state, &job, &fence).await
+            }
+            mova_db::INTRO_DETECTION_JOB_TYPE => {
+                execute_intro_detection_background_job(&state, &job, &fence).await
             }
             unsupported => Err(anyhow::anyhow!(
                 "unsupported background job type: {unsupported}"
@@ -320,6 +330,70 @@ fn publish_abandoned_background_job_outcomes(
                 }));
         }
     }
+}
+
+async fn execute_intro_detection_background_job(
+    state: &AppState,
+    job: &mova_db::BackgroundJob,
+    fence: &mova_db::BackgroundJobFence,
+) -> anyhow::Result<()> {
+    let payload: IntroDetectionJobPayload = serde_json::from_str(&job.payload_json)?;
+    if job.scope_type != "library"
+        || job.scope_id != payload.library_id
+        || payload.library_id <= 0
+        || payload.season_id <= 0
+        || payload.algorithm_version <= 0
+    {
+        return Err(anyhow::anyhow!(
+            "invalid intro detection job scope for job {}",
+            job.id
+        ));
+    }
+
+    let cancellation_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (stop_heartbeat, heartbeat_stop) = watch::channel(false);
+    let heartbeat_pool = state.db.clone();
+    let heartbeat_fence = fence.clone();
+    let heartbeat_cancellation_flag = cancellation_flag.clone();
+    let heartbeat = tokio::spawn(async move {
+        run_lease_heartbeat(
+            heartbeat_pool,
+            heartbeat_fence,
+            heartbeat_stop,
+            heartbeat_cancellation_flag,
+        )
+        .await;
+    });
+
+    let result = mova_application::execute_intro_detection_job(
+        &state.db,
+        payload.library_id,
+        payload.season_id,
+        payload.algorithm_version,
+        fence,
+        cancellation_flag,
+    )
+    .await;
+
+    let _ = stop_heartbeat.send(true);
+    let _ = heartbeat.await;
+
+    match result? {
+        mova_application::IntroDetectionExecutionOutcome::Matched => tracing::info!(
+            job_id = job.id,
+            library_id = payload.library_id,
+            season_id = payload.season_id,
+            "intro detection job published season markers"
+        ),
+        mova_application::IntroDetectionExecutionOutcome::NoMatch => tracing::info!(
+            job_id = job.id,
+            library_id = payload.library_id,
+            season_id = payload.season_id,
+            "intro detection job completed without a safe match"
+        ),
+    }
+
+    Ok(())
 }
 
 async fn execute_tmdb_revalidation_background_job(

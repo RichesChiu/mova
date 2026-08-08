@@ -19,9 +19,8 @@ pub use query::{
     list_seasons_for_series, list_series_media_item_ids_for_library,
     list_subtitle_files_for_media_file, list_subtitle_files_for_media_files,
     replace_audio_tracks_for_media_file, replace_subtitle_files_for_media_file,
-    update_media_file_metadata, update_media_item_metadata, update_season_intro_markers,
-    update_series_episode_metadata, update_series_season_metadata,
-    upsert_series_episode_outline_cache,
+    update_media_file_metadata, update_media_item_metadata, update_series_episode_metadata,
+    update_series_season_metadata, upsert_series_episode_outline_cache,
 };
 pub use ratings::list_media_item_ratings;
 pub(crate) use ratings::replace_media_item_remote_data;

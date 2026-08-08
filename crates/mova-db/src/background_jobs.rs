@@ -11,6 +11,9 @@ pub const BACKGROUND_JOB_FINAL_ATTEMPT_LEASE_EXPIRED_MESSAGE: &str =
 const TMDB_MAINTENANCE_CANCELLED_ERROR: &str = "tmdb_maintenance_cancelled";
 pub(crate) const TMDB_MAINTENANCE_FAILED_ERROR: &str = "tmdb_maintenance_failed";
 pub(crate) const TMDB_MAINTENANCE_RETRY_ERROR: &str = "tmdb_maintenance_retry_scheduled";
+const INTRO_DETECTION_CANCELLED_ERROR: &str = "intro_detection_cancelled";
+const INTRO_DETECTION_FAILED_ERROR: &str = "intro_detection_failed";
+const INTRO_DETECTION_RETRY_ERROR: &str = "intro_detection_retry_scheduled";
 
 fn is_tmdb_maintenance_job_type(job_type: &str) -> bool {
     matches!(
@@ -20,6 +23,13 @@ fn is_tmdb_maintenance_job_type(job_type: &str) -> bool {
 }
 
 fn persisted_background_job_error(job_type: &str, status: &str, error_message: &str) -> String {
+    if job_type == crate::INTRO_DETECTION_JOB_TYPE {
+        return match status {
+            "cancelled" => INTRO_DETECTION_CANCELLED_ERROR.to_string(),
+            "failed" => INTRO_DETECTION_FAILED_ERROR.to_string(),
+            _ => INTRO_DETECTION_RETRY_ERROR.to_string(),
+        };
+    }
     if !is_tmdb_maintenance_job_type(job_type) {
         return error_message.to_string();
     }
@@ -309,7 +319,8 @@ pub async fn claim_background_job(
             from background_jobs
             where job_type in (
                     'metadata.tmdb.revalidate',
-                    'metadata.tmdb.artwork.cleanup'
+                    'metadata.tmdb.artwork.cleanup',
+                    'media.intro.detect'
                   )
               and status in ('succeeded', 'failed', 'cancelled')
               and coalesce(finished_at, updated_at) < now() - interval '30 days'
@@ -411,7 +422,9 @@ pub async fn claim_background_job(
         } else {
             None
         };
-        let persisted_terminal_error = if is_tmdb_maintenance_job_type(&abandoned_job.job_type) {
+        let persisted_terminal_error = if is_tmdb_maintenance_job_type(&abandoned_job.job_type)
+            || abandoned_job.job_type == crate::INTRO_DETECTION_JOB_TYPE
+        {
             Some(persisted_background_job_error(
                 &abandoned_job.job_type,
                 terminal_status,
@@ -521,6 +534,17 @@ pub async fn claim_background_job(
         .await
         .context("failed to terminalize abandoned background job")?;
 
+        if abandoned_job.job_type == crate::INTRO_DETECTION_JOB_TYPE && terminal_status == "failed"
+        {
+            crate::intro_detection::record_season_intro_detection_failure_tx(
+                &mut tx,
+                abandoned_job.id,
+                "lease_expired",
+                crate::intro_detection::INTRO_DETECTION_TERMINAL_RETRY_COOLDOWN_SECONDS,
+            )
+            .await?;
+        }
+
         terminalized_jobs.push(AbandonedBackgroundJobOutcome {
             job: map_background_job_row(terminalized_row),
             scan_job,
@@ -574,6 +598,27 @@ pub async fn claim_background_job(
                     )
                   )
               and not (
+                    job.job_type = 'media.intro.detect'
+                    and exists (
+                        select 1
+                        from background_jobs blocker
+                        where blocker.id <> job.id
+                          and blocker.job_type = 'media.intro.detect'
+                          and blocker.status in ('running', 'cancel_requested')
+                    )
+                  )
+              and not (
+                    job.job_type = 'media.intro.detect'
+                    and exists (
+                        select 1
+                        from background_jobs blocker
+                        where blocker.job_type = 'library.scan'
+                          and blocker.scope_type = 'library'
+                          and blocker.scope_id = job.scope_id
+                          and blocker.status in ('pending', 'running', 'cancel_requested')
+                    )
+                  )
+              and not (
                     job.job_type = 'library.scan'
                     and exists (
                         select 1
@@ -602,6 +647,12 @@ pub async fn claim_background_job(
                                     and blocker.scope_id = job.scope_id
                                     and blocker.status in ('running', 'cancel_requested')
                                 )
+                                or (
+                                    blocker.job_type = 'media.intro.detect'
+                                    and blocker.scope_type = 'library'
+                                    and blocker.scope_id = job.scope_id
+                                    and blocker.status in ('running', 'cancel_requested')
+                                )
                               )
                     )
                   )
@@ -609,7 +660,9 @@ pub async fn claim_background_job(
                 case
                     when job.job_type = 'metadata.tmdb.revalidate'
                          and job.payload ->> 'retention_expired' = 'true' then -1
-                    when job.job_type = 'metadata.tmdb.revalidate' then 1
+                    when job.job_type = 'library.scan' then -1
+                    when job.job_type = 'metadata.tmdb.revalidate' then 2
+                    when job.job_type = 'media.intro.detect' then 1
                     else 0
                 end asc,
                 job.run_after asc,
@@ -898,6 +951,15 @@ pub async fn retry_or_fail_background_job(
     let Some(updated_status) = updated else {
         bail!("{BACKGROUND_JOB_FENCE_LOST_MESSAGE}: retry transition was rejected");
     };
+    if job_type == crate::INTRO_DETECTION_JOB_TYPE && updated_status == "failed" {
+        crate::intro_detection::record_season_intro_detection_failure_tx(
+            &mut tx,
+            fence.job_id,
+            "attempts_exhausted",
+            crate::intro_detection::INTRO_DETECTION_TERMINAL_RETRY_COOLDOWN_SECONDS,
+        )
+        .await?;
+    }
     tx.commit()
         .await
         .context("failed to commit background job retry transaction")?;
