@@ -10,6 +10,9 @@
   deliberately republished.
 - Keep `MOVA_VERIFY_IMAGE_REF` pinned to an immutable digest and non-mutating; release retries use
   it to rerun the same runtime smoke and security gates without overwriting a SemVer image tag.
+- Candidate cleanup may delete only exact Docker Hub `publish-*` tags by name. Never delete a
+  manifest by digest, an immutable SemVer tag, or a mutable channel alias such as `latest` or
+  `preview`. Preserve the bounded retention period for failed candidates.
 - Preserve the release security gate: report all critical/high findings, block fixable findings and
   CISA KEV entries, and require an exact reviewed CVE set or evidence-backed VEX for unpatched
   residual findings. Do not add broad vulnerability bypasses.

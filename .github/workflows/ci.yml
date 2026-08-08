@@ -151,7 +151,9 @@ jobs:
           docker compose --env-file .env.example -f compose.source.yaml config --quiet
 
       - name: Validate shell scripts
-        run: bash -n scripts/*.sh
+        run: |
+          bash -n scripts/*.sh scripts/tests/*.sh
+          ./scripts/tests/test-cleanup-docker-candidate-tags.sh
 
       - name: Build Web base image
         run: >-

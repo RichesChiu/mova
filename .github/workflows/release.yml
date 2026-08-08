@@ -235,12 +235,25 @@ jobs:
             "$HOME/.docker/cli-plugins/docker-scout"
           docker scout version
 
+      - name: Resolve release candidate tag
+        if: >-
+          steps.release.outputs.should_release == 'true' &&
+          steps.image.outputs.reuse == 'false'
+        id: candidate
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          candidate_tag="publish-${VERSION}-${SOURCE_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "tag=$candidate_tag" >>"$GITHUB_OUTPUT"
+
       - name: Build, verify, and publish immutable image
+        id: publish_image
         if: >-
           steps.release.outputs.should_release == 'true' &&
           steps.image.outputs.reuse == 'false'
         env:
           MOVA_DOCKER_IMAGE_TAG: ${{ env.IMAGE_REPOSITORY }}:${{ steps.release.outputs.version }}
+          MOVA_DOCKER_CANDIDATE_TAG: ${{ env.IMAGE_REPOSITORY }}:${{ steps.candidate.outputs.tag }}
           MOVA_BUILD_VERSION: ${{ steps.release.outputs.version }}
           MOVA_DOCKER_PLATFORMS: linux/amd64,linux/arm64
           MOVA_PUBLISH_BASE_IMAGES: auto
@@ -248,6 +261,21 @@ jobs:
           DOCKER_SCOUT_HUB_USER: ${{ vars.DOCKERHUB_USERNAME }}
           DOCKER_SCOUT_HUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
         run: ./scripts/publish-docker-images.sh
+
+      - name: Remove promoted release candidate tag
+        if: >-
+          steps.release.outputs.should_release == 'true' &&
+          steps.image.outputs.reuse == 'false' &&
+          steps.publish_image.outcome == 'success'
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          MOVA_DOCKER_REPOSITORY: ${{ env.IMAGE_REPOSITORY }}
+          CANDIDATE_TAG: ${{ steps.candidate.outputs.tag }}
+        run: |
+          if ! ./scripts/cleanup-docker-candidate-tags.sh exact "$CANDIDATE_TAG"; then
+            echo "::warning::The promoted candidate tag could not be deleted; scheduled cleanup will retry."
+          fi
 
       - name: Reverify existing immutable image
         if: >-
