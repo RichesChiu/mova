@@ -554,7 +554,7 @@ describe('MediaPlayerPanel', () => {
     })
   })
 
-  it('releases pointer-focused controls so space returns to playback', async () => {
+  it('releases pointer-focused buttons and sliders after player actions', async () => {
     const { container } = render(
       <QueryClientProvider client={createTestQueryClient()}>
         <MediaPlayerPanel mediaItemId={31} title="Interstellar" variant="immersive" />
@@ -575,6 +575,14 @@ describe('MediaPlayerPanel', () => {
 
     fireEvent.pointerUp(fullscreenButton, { pointerType: 'mouse' })
     expect(document.activeElement).not.toBe(fullscreenButton)
+
+    const timeline = screen.getByRole('slider', { name: 'Seek playback position' })
+    timeline.focus()
+    expect(document.activeElement).toBe(timeline)
+
+    fireEvent.change(timeline, { target: { value: '480' } })
+    fireEvent.pointerUp(timeline, { pointerType: 'mouse' })
+    expect(document.activeElement).not.toBe(timeline)
 
     fireEvent.keyDown(window, { code: 'Space', key: ' ' })
     expect(video.play).toHaveBeenCalledTimes(1)

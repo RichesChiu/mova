@@ -18,14 +18,16 @@ export const isInteractiveKeyboardTarget = (target: EventTarget | null) => {
   )
 }
 
-export const releasePointerButtonFocus = (event: ReactPointerEvent<HTMLElement>) => {
+export const releasePointerControlFocus = (event: ReactPointerEvent<HTMLElement>) => {
   if (!(event.target instanceof Element)) {
     return
   }
 
-  const button = event.target.closest('button')
-  if (button instanceof HTMLButtonElement && event.currentTarget.contains(button)) {
-    button.blur()
+  const control = event.target.closest<HTMLElement>(
+    'button, input, select, textarea, [role="menuitem"], [role="menuitemradio"]',
+  )
+  if (control && event.currentTarget.contains(control)) {
+    control.blur()
   }
 }
 
