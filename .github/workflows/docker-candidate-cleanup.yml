@@ -1,0 +1,45 @@
+name: Clean Docker candidates
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      max_age_hours:
+        description: Delete publish-* tags at least this many hours old
+        required: false
+        default: '72'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-candidate-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Delete stale candidate tags
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Validate Docker Hub credentials
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [[ -z "$DOCKERHUB_USERNAME" || -z "$DOCKERHUB_TOKEN" ]]; then
+            echo "DOCKERHUB_USERNAME variable and DOCKERHUB_TOKEN secret are required." >&2
+            exit 1
+          fi
+
+      - name: Delete expired candidate tags
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          MOVA_DOCKER_REPOSITORY: richeschiu/mova
+          MOVA_DOCKER_CANDIDATE_MAX_AGE_HOURS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_age_hours || '72' }}
+        run: ./scripts/cleanup-docker-candidate-tags.sh prune

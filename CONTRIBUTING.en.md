@@ -121,7 +121,12 @@ After that Pull Request is merged and the resulting `master` CI run passes, the 
 4. moves `latest` for a stable version or `preview` for a SemVer prerelease; and
 5. publishes the matching GitHub Release with generated notes.
 
+Promoted `publish-*` candidate tags are deleted immediately after verification. Failed build or
+verification candidates remain available for diagnostics for at most 72 hours, then a daily cleanup
+job removes them. Cleanup deletes candidate tag names only; it never deletes shared image content,
+immutable version tags, `latest`, or `preview`.
+
 The workflow stops when the version tag belongs to another commit. A failed run for the same tagged
 commit can be retried safely from GitHub Actions and continues the incomplete release; do not recreate
 or move release tags manually. Repository maintainers must configure the `DOCKERHUB_USERNAME`
-Actions variable and `DOCKERHUB_TOKEN` Actions secret.
+Actions variable and a `DOCKERHUB_TOKEN` Actions secret with read, write, and delete permissions.

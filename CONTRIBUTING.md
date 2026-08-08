@@ -120,6 +120,11 @@ chore(release): prepare X.Y.Z
 4. 稳定版更新 `latest`，SemVer 预发布版更新 `preview`；
 5. 生成并发布对应的 GitHub Release。
 
+验证通过并晋升后的 `publish-*` 候选标签会立即删除。构建或验证失败的候选最多保留 72
+小时用于诊断，随后由每日清理任务回收；清理只按标签名删除候选，不会删除共享镜像内容、
+不可变版本标签、`latest` 或 `preview`。
+
 版本标签已指向其他提交时，工作流会停止发布。同一已打标签提交的失败任务可以在
 GitHub Actions 中安全重试并续传未完成的发布；不要手工重建或移动发布标签。仓库维护者
-需要配置 Actions variable `DOCKERHUB_USERNAME` 和 Actions secret `DOCKERHUB_TOKEN`。
+需要配置 Actions variable `DOCKERHUB_USERNAME` 和具有读取、写入、删除权限的 Actions
+secret `DOCKERHUB_TOKEN`。
