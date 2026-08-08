@@ -1,27 +1,20 @@
 # Contributing to Mova
 
-Thank you for helping improve Mova. This guide keeps contributions focused, reviewable, and safe to merge as the project evolves.
+English · [简体中文](CONTRIBUTING.zh-CN.md)
 
-## Before you start
+Thank you for improving Mova. Keep each contribution focused, reviewable, and safe to upgrade.
 
-Search existing Issues and Pull Requests before opening a new one.
+## Before implementation
 
-Open an Issue before implementation when a change:
+Search existing [Issues](https://github.com/RichesChiu/mova/issues) and Pull Requests first.
 
-- adds or substantially changes product behavior;
-- changes a public API, database schema, deployment contract, or media-scanning rule;
-- needs product or architecture discussion;
-- fixes a bug that needs a reproducible investigation; or
-- is likely to span multiple sessions or contributors.
+Open an Issue before coding when a change affects product behavior, public APIs, database schemas, deployment contracts, media-scanning rules, or needs architectural discussion. Reproducible bugs and work spanning multiple sessions or contributors should also start with an Issue. Small documentation, test, and maintenance changes may go directly to a Pull Request.
 
-Small documentation fixes, tests, and narrowly scoped maintenance may go directly to a Pull Request. If you are unsure, open an Issue first.
+Never disclose a suspected vulnerability publicly. Follow [SECURITY.md](SECURITY.md).
 
-Do not disclose security vulnerabilities in a public Issue. Follow the private reporting process in
-[`SECURITY.md`](SECURITY.md).
+## Branches and commits
 
-## Branches
-
-External contributors should work from a fork. Maintainers may create branches in the main repository. In both cases, branch from the latest `master` and use lowercase kebab case:
+External contributors should work from a fork. Start from the latest `master`, keep one outcome per branch, and use lowercase kebab case:
 
 ```text
 feat/continue-watching-filter
@@ -33,112 +26,77 @@ ci/pull-request-checks
 chore/dependency-refresh
 ```
 
-Keep one coherent outcome per branch. Do not mix unrelated refactors, formatting, or cleanup into a feature or fix.
-
-## Commits
-
 Use English [Conventional Commits](https://www.conventionalcommits.org/) with a specific scope:
 
 ```text
 feat(player): add episode navigation
 fix(scan): preserve authoritative progress
-refactor(realtime): batch resource invalidations
 docs(api): document notification events
-test(player): cover autoplay recovery
-chore(deps): update frontend tooling
 ```
 
-Common types are `feat`, `fix`, `refactor`, `docs`, `test`, `ci`, and `chore`.
+Keep the subject concise and imperative. Explain non-obvious decisions in the body and mark breaking changes with a `BREAKING CHANGE:` footer. Do not mix unrelated refactors or formatting into a feature or fix.
 
-- Write the subject in the imperative mood and keep it concise.
-- Explain motivation and non-obvious tradeoffs in the commit body when needed.
-- Mark breaking changes with a `BREAKING CHANGE:` footer.
-- Keep commits buildable when practical. Maintainers normally squash a single-purpose Pull Request when merging, but readable commits make review easier.
+## Local development
 
-## Development and verification
-
-### Run the current source checkout with Docker
-
-The default `docker-compose.yml` is the published-image deployment used by self-hosted users. To
-build and run the current checkout instead, prepare the ignored local environment file and use the
-standalone source Compose file:
+The root `docker-compose.yml` runs the published image. To run the current source checkout:
 
 ```bash
 cp .env.example .env
-# Set MOVA_MEDIA_PATH and, optionally, the TMDB token and proxy in .env.
+# Set MOVA_MEDIA_PATH and optional TMDB or proxy values in .env.
 docker compose -f compose.source.yaml up -d --build
 ```
 
-The source stack listens only on `http://127.0.0.1:36080`, stores PostgreSQL data and rebuildable
-cache files under `data/`, and mounts the configured media directory read-only. Inspect and stop it
-with:
+The source stack listens on `http://127.0.0.1:36080`, stores PostgreSQL data and rebuildable caches under `data/`, and mounts media read-only.
 
 ```bash
 docker compose -f compose.source.yaml logs -f app
 docker compose -f compose.source.yaml down
 ```
 
-The actual `.env`, runtime data, media, credentials, and caches are ignored by Git. Do not combine
-`docker-compose.yml` and `compose.source.yaml`; each file is a complete stack for a distinct use
-case.
+Do not combine the deployment and source Compose files. Never commit credentials, local databases, media, caches, generated output, or private logs.
 
-### Run targeted checks
+## Verification
 
-Run checks proportional to the change and report only commands that completed successfully.
-
-For frontend changes, run:
+Run checks proportional to the change and add tests for behavior changes.
 
 ```bash
+# Web
 pnpm -C apps/mova-web test
 pnpm -C apps/mova-web check
 pnpm -C apps/mova-web build
-```
 
-For official website changes, run:
-
-```bash
+# Website
 npm --prefix apps/mova-site run check:api-docs
 npm --prefix apps/mova-site run lint
 npm --prefix apps/mova-site run typecheck
 npm --prefix apps/mova-site run build
-```
 
-For Rust changes, run targeted commands for the affected package, for example:
-
-```bash
+# Rust examples
 cargo check -p mova-server
 cargo test -p mova-scan
 ```
 
-Add or update tests for behavior changes. Visible UI changes should include before/after screenshots or a short recording in the Pull Request.
+Visible UI changes should include before/after screenshots or a short recording.
 
-## Documentation and API changes
+## Contracts and migrations
 
-- Update relevant Markdown in the same Pull Request as the behavior change.
-- Update `docs/API.md` and the appropriate topic document for route, request, response, field, error, or API behavior changes.
-- Keep the root `README.md` focused on product positioning, deployment, first use, and major product direction.
-- Never commit credentials, TMDB tokens, local database files, media, caches, generated build output, or private logs.
-
-## Database and public contracts
-
-`migrations/0001_init.sql` is the frozen `1.0` schema baseline. Do not edit an applied migration. Add the next sequential migration for every later schema change and make it upgrade an initialized database in place.
-
-A schema Pull Request must update all affected Rust queries, response models, TypeScript types, tests, and documentation. State whether media libraries need to be rescanned or caches rebuilt; a destructive database reset is not an acceptable upgrade path unless the maintainer explicitly approves it.
-
-HTTP API contract version `1` allows additive endpoints, optional fields, and error codes. Removing a route or changing an existing field, status code, authorization rule, or error meaning requires an explicit versioning proposal. Breaking SSE changes independently require a `protocol_version` increase. Run the official website API synchronization check so the server routes, `docs/API.md`, and public website remain aligned.
+- Update relevant Markdown with behavior changes.
+- Update `docs/API.md` and the matching topic document when routes, requests, responses, fields, errors, or semantics change.
+- Keep the official website API content synchronized with `docs/API.md` and run `check:api-docs`.
+- Keep `README.md` focused on the product, deployment, first use, and major direction.
+- Do not edit an applied migration. Add the next sequential migration and make it upgrade initialized databases in place.
+- Schema changes must update affected Rust queries, response models, TypeScript types, tests, and documentation. State whether a rescan or cache rebuild is required.
+- HTTP contract version `1` permits additive endpoints, optional fields, and error codes. Removing or changing existing semantics requires an explicit versioning proposal. Breaking SSE changes require a `protocol_version` increase.
 
 ## Pull Requests
 
-Pull Request titles must also use the Conventional Commit format because the title becomes the squash commit message.
+Use a Conventional Commit title because it becomes the squash commit message. A ready Pull Request should:
 
-Before requesting review:
+- link the Issue with `Closes #123` when one exists;
+- explain the outcome, scope, and important tradeoffs;
+- list the exact checks that passed;
+- include UI evidence when applicable;
+- state API, database, deployment, and documentation impact; and
+- contain no unrelated or temporary files.
 
-- link the related Issue with `Closes #123` when one exists;
-- describe the user-visible outcome and implementation boundary;
-- list the exact verification commands that passed;
-- attach UI evidence for visible changes;
-- state API, database, deployment, and documentation impact;
-- remove unrelated changes and temporary files; and
-- convert the Pull Request from Draft only when it is ready to merge.
-
-Maintainers may request changes, split an oversized Pull Request, or close work that conflicts with the current product direction. Approved single-purpose Pull Requests are normally squash-merged into `master`, and the merged branch is then deleted.
+Single-purpose Pull Requests are normally squash-merged into `master`; delete the merged branch afterward.
