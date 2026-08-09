@@ -68,6 +68,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          source ./scripts/lib/release-subject.sh
           version="$(./scripts/resolve-release-version.sh)"
           release_notes_file=".github/release-notes/${version}.md"
 
@@ -88,7 +89,7 @@ jobs:
           else
             expected_subject="chore(release): prepare ${version}"
             actual_subject="$(git log -1 --format=%s)"
-            if [[ "$actual_subject" != "$expected_subject" ]]; then
+            if ! mova_release_subject_matches "$actual_subject" "$expected_subject"; then
               echo "The untagged version belongs to an earlier release commit; this revision does not publish it."
               echo "should_release=false" >>"$GITHUB_OUTPUT"
               exit 0
