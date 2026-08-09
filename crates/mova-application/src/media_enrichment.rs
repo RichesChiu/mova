@@ -2764,6 +2764,8 @@ mod tests {
     fn build_discovered_episode() -> DiscoveredMediaFile {
         DiscoveredMediaFile {
             file_path: PathBuf::from("/media/series/Show/Season 01/Show.S01E01.mkv"),
+            source_kind: mova_domain::MediaSourceKind::LocalFile,
+            stream_reference_hash: None,
             file_modified_at_ms: Some(1_700_000_000_000),
             sidecar_fingerprint: String::new(),
             probe_error: None,

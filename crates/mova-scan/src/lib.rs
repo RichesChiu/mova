@@ -3,9 +3,11 @@ mod intro_detection;
 mod parse;
 mod probe;
 mod sidecar;
+mod strm;
 mod subtitle;
 
 pub use discover::{
+    discover_media_file_inventory_report_with_progress_and_cancel,
     discover_media_file_inventory_with_progress_and_cancel, discover_media_files,
     discover_media_files_with_progress, discover_media_files_with_progress_and_cancel,
     discover_media_files_with_progress_item_and_cancel, discover_media_paths, inspect_media_file,
@@ -36,11 +38,28 @@ pub use sidecar::{
     LocalNfoMetadata, LocalNfoNamedSeason, LocalNfoObservation, LocalNfoRating, LocalNfoRatingKind,
     LocalNfoUniqueId, MediaNfoKind,
 };
+pub use strm::{
+    parse_http_strm_reference, read_http_strm_reference, HttpStrmReference,
+    ReadHttpStrmReferenceError, StrmReferenceError, MAX_STRM_FILE_BYTES, MAX_STRM_URL_BYTES,
+};
 pub use subtitle::SubtitleDirectoryIndex;
 
 use std::path::PathBuf;
 
-use mova_domain::{MediaExternalId, MediaRating};
+use mova_domain::{MediaExternalId, MediaRating, MediaSourceKind};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaDiscoveryIssue {
+    pub file_path: PathBuf,
+    pub reason_code: String,
+    pub diagnostic_message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MediaDiscoveryReport {
+    pub files: Vec<DiscoveredMediaFileInventory>,
+    pub issues: Vec<MediaDiscoveryIssue>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredSubtitleTrack {
@@ -71,6 +90,8 @@ pub struct DiscoveredAudioTrack {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredMediaFileInventory {
     pub file_path: PathBuf,
+    pub source_kind: MediaSourceKind,
+    pub stream_reference_hash: Option<String>,
     pub file_size: u64,
     pub file_modified_at_ms: Option<i64>,
     /// Stable metadata-only fingerprint of NFO, local artwork and external
@@ -82,6 +103,8 @@ pub struct DiscoveredMediaFileInventory {
 #[derive(Debug, Clone)]
 pub struct DiscoveredMediaFile {
     pub file_path: PathBuf,
+    pub source_kind: MediaSourceKind,
+    pub stream_reference_hash: Option<String>,
     pub file_modified_at_ms: Option<i64>,
     pub sidecar_fingerprint: String,
     pub probe_error: Option<String>,
@@ -165,6 +188,8 @@ pub struct DiscoveredMediaFile {
 pub fn discovered_media_file_scan_hash(file: &DiscoveredMediaFile) -> String {
     discovered_media_file_inventory_scan_hash(&DiscoveredMediaFileInventory {
         file_path: file.file_path.clone(),
+        source_kind: file.source_kind,
+        stream_reference_hash: file.stream_reference_hash.clone(),
         file_size: file.file_size,
         file_modified_at_ms: file.file_modified_at_ms,
         sidecar_fingerprint: file.sidecar_fingerprint.clone(),
@@ -175,6 +200,16 @@ pub fn discovered_media_file_inventory_scan_hash(file: &DiscoveredMediaFileInven
     let mut hasher = StableScanHasher::new();
 
     hasher.write_u64("file_size", file.file_size);
+    // Preserve the pre-STRM local-file fingerprint byte-for-byte so upgrading
+    // does not force every existing video through ffprobe again. STRM hashes
+    // carry an explicit source discriminator plus the reference digest.
+    if file.source_kind == MediaSourceKind::Strm {
+        hasher.write_str("source_kind", file.source_kind.as_str());
+        hasher.write_opt_str(
+            "stream_reference_hash",
+            file.stream_reference_hash.as_deref(),
+        );
+    }
     hasher.write_opt_i64("file_modified_at_ms", file.file_modified_at_ms);
     hasher.write_str("sidecar_fingerprint", &file.sidecar_fingerprint);
 
@@ -225,6 +260,18 @@ impl StableScanHasher {
 
     fn write_opt_i64(&mut self, key: &str, value: Option<i64>) {
         self.write_opt_number(key, value.map(i64::to_le_bytes));
+    }
+
+    fn write_opt_str(&mut self, key: &str, value: Option<&str>) {
+        self.write_marker(key);
+        match value {
+            Some(value) => {
+                self.write_bytes(&[1]);
+                self.write_bytes(&(value.len() as u64).to_le_bytes());
+                self.write_bytes(value.as_bytes());
+            }
+            None => self.write_bytes(&[0]),
+        }
     }
 
     fn write_opt_number<const N: usize>(&mut self, key: &str, value: Option<[u8; N]>) {

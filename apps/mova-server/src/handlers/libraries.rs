@@ -432,6 +432,7 @@ mod tests {
             realtime_hub: RealtimeHub::default(),
             realtime_dispatcher: RealtimeDispatcherHandle::default(),
             background_jobs: BackgroundJobNotifier::default(),
+            strm_streaming: Default::default(),
         }
     }
 

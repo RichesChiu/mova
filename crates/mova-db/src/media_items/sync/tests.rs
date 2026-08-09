@@ -12,9 +12,10 @@ use crate::{
     CreateSubtitleTrackParams, BACKGROUND_JOB_FENCE_LOST_MESSAGE,
 };
 use mova_domain::{
-    ScanNotificationSummary, METADATA_FAILURE_PROVIDER_DISABLED, METADATA_FAILURE_PROVIDER_ERROR,
-    METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED, METADATA_STATUS_PENDING,
-    METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
+    MediaSourceKind, ScanNotificationSummary, METADATA_FAILURE_PROVIDER_DISABLED,
+    METADATA_FAILURE_PROVIDER_ERROR, METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED,
+    METADATA_STATUS_PENDING, METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE,
+    REMOTE_MEDIA_TYPE_SERIES,
 };
 
 fn build_movie_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams {
@@ -69,6 +70,8 @@ fn build_movie_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams
         backdrop_path: None,
         logo_path: None,
         file_path: file_path.to_string(),
+        source_kind: MediaSourceKind::LocalFile,
+        stream_reference_hash: None,
         container: Some("mkv".to_string()),
         file_size: 1,
         duration_seconds: Some(7800),
@@ -150,6 +153,8 @@ fn build_episode_entry(library_id: i64, file_path: &str) -> CreateMediaEntryPara
         backdrop_path: None,
         logo_path: None,
         file_path: file_path.to_string(),
+        source_kind: MediaSourceKind::LocalFile,
+        stream_reference_hash: None,
         container: Some("mkv".to_string()),
         file_size: 1,
         duration_seconds: Some(1800),
@@ -268,10 +273,11 @@ fn cached_artwork_promotion_requires_an_absolute_local_path() {
 
 #[test]
 fn authoritative_empty_discovery_is_only_valid_for_an_empty_library() {
-    assert!(validate_authoritative_discovery(7, 0, 0).is_ok());
-    assert!(validate_authoritative_discovery(7, 2, 1).is_ok());
+    assert!(validate_authoritative_discovery(7, 0, 0, false).is_ok());
+    assert!(validate_authoritative_discovery(7, 2, 1, false).is_ok());
+    assert!(validate_authoritative_discovery(7, 2, 0, true).is_ok());
 
-    let error = validate_authoritative_discovery(7, 2, 0).unwrap_err();
+    let error = validate_authoritative_discovery(7, 2, 0, false).unwrap_err();
     assert!(error
         .to_string()
         .contains("non-empty library 7: discovery returned zero media files"));
@@ -291,7 +297,9 @@ async fn authoritative_empty_discovery_preserves_existing_media(pool: sqlx::post
     )
     .await
     .unwrap();
-    let entry = build_movie_entry(library.id, "/media/movies/Movie/Movie.mkv");
+    let mut entry = build_movie_entry(library.id, "/media/movies/Movie/Movie.strm");
+    entry.source_kind = MediaSourceKind::Strm;
+    entry.stream_reference_hash = Some("a".repeat(64));
     sync_library_media(&pool, library.id, std::slice::from_ref(&entry))
         .await
         .unwrap();
@@ -315,9 +323,10 @@ async fn authoritative_empty_discovery_preserves_existing_media(pool: sqlx::post
         .unwrap()
         .unwrap();
 
-    let error = sync_library_media_changes(&pool, library.id, scan_job.id, &[], &[], &[], &fence)
-        .await
-        .unwrap_err();
+    let error =
+        sync_library_media_changes(&pool, library.id, scan_job.id, &[], false, &[], &[], &fence)
+            .await
+            .unwrap_err();
     assert!(error
         .to_string()
         .contains("discovery returned zero media files"));
@@ -337,6 +346,243 @@ async fn authoritative_empty_discovery_preserves_existing_media(pool: sqlx::post
 
     assert_eq!(persisted_path, entry.file_path);
     assert_eq!(media_item_count, 1);
+
+    let outcome =
+        sync_library_media_changes(&pool, library.id, scan_job.id, &[], true, &[], &[], &fence)
+            .await
+            .expect("an observed invalid carrier makes an otherwise empty discovery authoritative");
+    assert_eq!(outcome.removed_count, 1);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("select count(*) from media_files where library_id = $1",)
+            .bind(library.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn strm_sources_round_trip_update_and_merge_with_local_versions(
+    pool: sqlx::postgres::PgPool,
+) {
+    let library = create_library(
+        &pool,
+        CreateLibraryParams {
+            name: "STRM Movies".to_string(),
+            description: None,
+            metadata_language: "en-US".to_string(),
+            root_path: "/media/strm-movies".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let local_entry = build_movie_entry(library.id, "/media/strm-movies/Movie.2025.mkv");
+    let mut strm_entry = build_movie_entry(library.id, "/media/strm-movies/Movie.2025.strm");
+    strm_entry.source_kind = MediaSourceKind::Strm;
+    strm_entry.stream_reference_hash = Some("a".repeat(64));
+    strm_entry.container = None;
+    strm_entry.duration_seconds = None;
+    strm_entry.video_codec = None;
+    strm_entry.video_profile = None;
+    strm_entry.video_level = None;
+    strm_entry.audio_codec = None;
+    strm_entry.width = None;
+    strm_entry.height = None;
+    strm_entry.bitrate = None;
+    strm_entry.video_bitrate = None;
+    strm_entry.video_frame_rate = None;
+    strm_entry.video_aspect_ratio = None;
+    strm_entry.video_scan_type = None;
+    strm_entry.video_color_primaries = None;
+    strm_entry.video_color_space = None;
+    strm_entry.video_color_transfer = None;
+    strm_entry.video_bit_depth = None;
+    strm_entry.video_pixel_format = None;
+    strm_entry.video_reference_frames = None;
+    strm_entry.technical_tags.clear();
+    strm_entry.audio_tracks.clear();
+
+    sync_library_media(
+        &pool,
+        library.id,
+        &[local_entry.clone(), strm_entry.clone()],
+    )
+    .await
+    .unwrap();
+
+    let counts = sqlx::query_as::<_, (i64, i64)>(
+        r#"
+        select
+            (select count(*) from media_items where library_id = $1),
+            (select count(*) from media_files where library_id = $1)
+        "#,
+    )
+    .bind(library.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(counts, (1, 2));
+
+    let strm_id = sqlx::query_scalar::<_, i64>(
+        "select id from media_files where library_id = $1 and file_path = $2",
+    )
+    .bind(library.id)
+    .bind(&strm_entry.file_path)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let stored = crate::get_media_file(&pool, strm_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.source_kind, MediaSourceKind::Strm);
+    assert_eq!(stored.stream_reference_hash, Some("a".repeat(64)));
+    assert_eq!(stored.container, None);
+    assert_eq!(stored.duration_seconds, None);
+
+    strm_entry.stream_reference_hash = Some("b".repeat(64));
+    sync_library_media(&pool, library.id, &[local_entry, strm_entry.clone()])
+        .await
+        .unwrap();
+    let updated = crate::get_media_file(&pool, strm_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.id, strm_id);
+    assert_eq!(updated.stream_reference_hash, Some("b".repeat(64)));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn converting_a_local_carrier_to_strm_clears_technical_and_embedded_tracks(
+    pool: sqlx::postgres::PgPool,
+) {
+    let library = create_library(
+        &pool,
+        CreateLibraryParams {
+            name: "Converted STRM".to_string(),
+            description: None,
+            metadata_language: "en-US".to_string(),
+            root_path: "/media/converted-strm".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let path = "/media/converted-strm/Movie.2025.strm";
+    let mut entry = build_movie_entry(library.id, path);
+    entry.audio_tracks = vec![CreateAudioTrackParams {
+        stream_index: 1,
+        language: Some("en".to_string()),
+        audio_codec: Some("aac".to_string()),
+        label: None,
+        channel_layout: Some("stereo".to_string()),
+        channels: Some(2),
+        bitrate: Some(192_000),
+        sample_rate: Some(48_000),
+        is_default: true,
+    }];
+    entry.subtitle_tracks = vec![
+        CreateSubtitleTrackParams {
+            source_kind: "embedded".to_string(),
+            file_path: None,
+            stream_index: Some(2),
+            language: Some("en".to_string()),
+            subtitle_format: "subrip".to_string(),
+            label: None,
+            is_default: false,
+            is_forced: false,
+            is_hearing_impaired: false,
+        },
+        CreateSubtitleTrackParams {
+            source_kind: "external".to_string(),
+            file_path: Some("/media/converted-strm/Movie.2025.en.srt".to_string()),
+            stream_index: None,
+            language: Some("en".to_string()),
+            subtitle_format: "srt".to_string(),
+            label: None,
+            is_default: false,
+            is_forced: false,
+            is_hearing_impaired: false,
+        },
+    ];
+    sync_library_media(&pool, library.id, std::slice::from_ref(&entry))
+        .await
+        .unwrap();
+    let media_file_id = sqlx::query_scalar::<_, i64>(
+        "select id from media_files where library_id = $1 and file_path = $2",
+    )
+    .bind(library.id)
+    .bind(path)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    entry.source_kind = MediaSourceKind::Strm;
+    entry.stream_reference_hash = Some("c".repeat(64));
+    entry.container = None;
+    entry.duration_seconds = None;
+    entry.video_title = None;
+    entry.video_codec = None;
+    entry.video_profile = None;
+    entry.video_level = None;
+    entry.audio_codec = None;
+    entry.width = None;
+    entry.height = None;
+    entry.bitrate = None;
+    entry.video_bitrate = None;
+    entry.video_frame_rate = None;
+    entry.video_aspect_ratio = None;
+    entry.video_scan_type = None;
+    entry.video_color_primaries = None;
+    entry.video_color_space = None;
+    entry.video_color_transfer = None;
+    entry.video_bit_depth = None;
+    entry.video_pixel_format = None;
+    entry.video_reference_frames = None;
+    entry.technical_tags.clear();
+    entry.audio_tracks.clear();
+    entry
+        .subtitle_tracks
+        .retain(|subtitle| subtitle.source_kind == "external");
+    sync_library_media(&pool, library.id, std::slice::from_ref(&entry))
+        .await
+        .unwrap();
+
+    let stored = crate::get_media_file(&pool, media_file_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.source_kind, MediaSourceKind::Strm);
+    assert_eq!(stored.container, None);
+    assert_eq!(stored.duration_seconds, None);
+    assert_eq!(stored.video_codec, None);
+    assert_eq!(stored.audio_codec, None);
+    assert!(stored.technical_tags.is_empty());
+    let audio_count =
+        sqlx::query_scalar::<_, i64>("select count(*) from audio_tracks where media_file_id = $1")
+            .bind(media_file_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let subtitles = sqlx::query_as::<_, (String, Option<String>, Option<i32>)>(
+        r#"
+        select source_kind, file_path, stream_index
+        from subtitle_files
+        where media_file_id = $1
+        "#,
+    )
+    .bind(media_file_id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audio_count, 0);
+    assert_eq!(subtitles.len(), 1);
+    assert_eq!(subtitles[0].0, "external");
+    assert!(subtitles[0].1.is_some());
+    assert_eq!(subtitles[0].2, None);
 }
 
 #[sqlx::test(migrations = "../../migrations")]

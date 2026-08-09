@@ -29,6 +29,19 @@ This document defines the supported Docker Compose deployment, initialization bo
 
 本文后续使用 `docker compose exec database` 的备份与恢复命令只适用于 Compose 内置 PostgreSQL。使用外部数据库时，应改用数据库提供方支持的备份、恢复和回滚流程。
 
+#### STRM 私网目标白名单（高级）
+
+HTTP/HTTPS STRM 默认只能代理解析到公网地址的目标。家庭 NAS、AList 或其他可信私网源必须按实际主机与端口显式允许，例如：
+
+```yaml
+services:
+  app:
+    environment:
+      MOVA_STRM_ALLOWED_HOSTS: "192.168.1.20:5244,media.home:443"
+```
+
+该值只接受逗号分隔的精确 `host:port`，不支持通配符、域名后缀或 CIDR。它只能放开私网地址，不能放开 loopback、link-local、multicast、`localhost` 或云 metadata 地址。重定向目标和每次 DNS 解析都会重新验证；任一解析结果不安全时整次请求会被拒绝。该配置仅用于 STRM 远程媒体源，与 Mova 访问 TMDB 使用的部署代理无关。
+
 ### 2. 首次初始化安全
 
 数据库中还没有系统管理员时，初始化接口允许创建首个系统管理员。完成初始化前：
@@ -169,6 +182,19 @@ To connect an existing PostgreSQL database:
 Create the external database first and grant the connection account permission to create and alter tables and run migrations. `localhost` inside the container refers to the Mova container itself, so use the database's actual IP address or DNS name and configure TLS in the connection URL when required. Mova runs migrations automatically during startup.
 
 The backup and restore commands later in this document that use `docker compose exec database` apply only to the bundled PostgreSQL service. For an external database, follow the provider-supported backup, restore, and rollback procedure.
+
+#### Private STRM target allowlist (advanced)
+
+HTTP/HTTPS STRM proxying allows only targets that resolve to public addresses by default. A trusted home NAS, AList instance, or other private source must be allowed by its exact host and port:
+
+```yaml
+services:
+  app:
+    environment:
+      MOVA_STRM_ALLOWED_HOSTS: "192.168.1.20:5244,media.home:443"
+```
+
+The value accepts comma-separated exact `host:port` entries only; wildcards, DNS suffixes, and CIDR ranges are not supported. It can relax private-address restrictions but can never allow loopback, link-local, multicast, `localhost`, or cloud metadata addresses. Redirect targets and every DNS result are checked again, and any unsafe result rejects the request. This setting applies only to STRM media sources and is independent from the deployment proxy used by Mova to reach TMDB.
 
 ### 2. Initial bootstrap security
 

@@ -9,6 +9,7 @@ authors.workspace = true
 anyhow.workspace = true
 argon2.workspace = true
 async-trait.workspace = true
+bytes = "1"
 rand_core.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -23,3 +24,6 @@ uuid.workspace = true
 mova-db = { path = "../mova-db" }
 mova-domain = { path = "../mova-domain" }
 mova-scan = { path = "../mova-scan" }
+
+[dev-dependencies]
+http = "1"

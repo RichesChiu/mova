@@ -39,7 +39,7 @@ export const MediaItemSourceFilesSection = ({
   const [selectedSubtitleTrackId, setSelectedSubtitleTrackId] = useState('')
   const audioTracksQuery = useQuery({
     gcTime: MEDIA_QUERY_GC_TIME_MS,
-    enabled: selectedMediaFile !== null,
+    enabled: selectedMediaFile !== null && selectedMediaFile.source_kind === 'local_file',
     queryKey: ['media-file-audio-tracks', selectedMediaFile?.id],
     queryFn: () => listMediaFileAudioTracks(selectedMediaFile?.id ?? 0),
     staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
@@ -53,7 +53,10 @@ export const MediaItemSourceFilesSection = ({
   })
 
   const audioTracks = audioTracksQuery.data ?? []
-  const subtitleTracks = subtitleTracksQuery.data ?? []
+  const subtitleTracks =
+    selectedMediaFile?.source_kind === 'strm'
+      ? (subtitleTracksQuery.data ?? []).filter((track) => track.source_kind === 'external')
+      : (subtitleTracksQuery.data ?? [])
   const audioTrackOptions = buildAudioTrackOptions(audioTracks)
   const selectedAudioTrackValue = selectedAudioTrackId || audioTrackOptions[0]?.value || ''
   const selectedAudioTrack =
@@ -114,8 +117,16 @@ export const MediaItemSourceFilesSection = ({
               <article className="media-tech-card media-tech-card--video">
                 <div className="media-tech-card__header">
                   <div className="media-tech-card__title-block">
-                    <p className="media-tech-card__eyebrow">{l('Video')}</p>
-                    <h5>{l('Video Details')}</h5>
+                    <p className="media-tech-card__eyebrow">
+                      {l(selectedMediaFile.source_kind === 'strm' ? 'Source' : 'Video')}
+                    </p>
+                    <h5>
+                      {l(
+                        selectedMediaFile.source_kind === 'strm'
+                          ? 'Source Details'
+                          : 'Video Details',
+                      )}
+                    </h5>
                   </div>
                 </div>
                 <dl className="media-tech-card__facts">
@@ -131,64 +142,70 @@ export const MediaItemSourceFilesSection = ({
                 </dl>
               </article>
 
-              <article className="media-tech-card">
-                <div className="media-tech-card__header media-tech-card__header--with-select">
-                  <div className="media-tech-card__title-block">
-                    <p className="media-tech-card__eyebrow">{l('Audio')}</p>
-                    <h5>{l('Audio Details')}</h5>
+              {selectedMediaFile.source_kind === 'local_file' ? (
+                <article className="media-tech-card">
+                  <div className="media-tech-card__header media-tech-card__header--with-select">
+                    <div className="media-tech-card__title-block">
+                      <p className="media-tech-card__eyebrow">{l('Audio')}</p>
+                      <h5>{l('Audio Details')}</h5>
+                    </div>
+                    <div className="media-tech-card__selector">
+                      <GlassSelect
+                        ariaLabel={l('Select audio track for {{name}}', {
+                          name: getMediaFileDisplayName(selectedMediaFile.file_path),
+                        })}
+                        disabled={audioTrackOptions.length === 0}
+                        onChange={setSelectedAudioTrackId}
+                        options={
+                          audioTrackOptions.length > 0
+                            ? audioTrackOptions
+                            : [
+                                {
+                                  label: l('No audio tracks detected'),
+                                  value: `empty-audio-${selectedMediaFile.id}`,
+                                },
+                              ]
+                        }
+                        value={
+                          audioTrackOptions.length > 0
+                            ? selectedAudioTrackValue
+                            : `empty-audio-${selectedMediaFile.id}`
+                        }
+                      />
+                    </div>
                   </div>
-                  <div className="media-tech-card__selector">
-                    <GlassSelect
-                      ariaLabel={l('Select audio track for {{name}}', {
-                        name: getMediaFileDisplayName(selectedMediaFile.file_path),
-                      })}
-                      disabled={audioTrackOptions.length === 0}
-                      onChange={setSelectedAudioTrackId}
-                      options={
-                        audioTrackOptions.length > 0
-                          ? audioTrackOptions
-                          : [
-                              {
-                                label: l('No audio tracks detected'),
-                                value: `empty-audio-${selectedMediaFile.id}`,
-                              },
-                            ]
-                      }
-                      value={
-                        audioTrackOptions.length > 0
-                          ? selectedAudioTrackValue
-                          : `empty-audio-${selectedMediaFile.id}`
-                      }
-                    />
-                  </div>
-                </div>
-                {audioTracksQuery.isLoading ? (
-                  <p className="muted">{l('Loading audio tracks…')}</p>
-                ) : null}
-                {audioTracksQuery.isError ? (
-                  <p className="callout callout--danger">
-                    {audioTracksQuery.error instanceof Error
-                      ? audioTracksQuery.error.message
-                      : l('Failed to load audio tracks')}
-                  </p>
-                ) : null}
-                {!audioTracksQuery.isLoading && !audioTracksQuery.isError && selectedAudioTrack ? (
-                  <dl className="media-tech-card__facts">
-                    {buildAudioTrackFacts(selectedAudioTrack).map((fact) => (
-                      <div
-                        className="media-tech-card__fact"
-                        key={`${selectedAudioTrack.id}-${fact.label}`}
-                      >
-                        <dt>{fact.label}</dt>
-                        <dd>{fact.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : null}
-                {!audioTracksQuery.isLoading && !audioTracksQuery.isError && !selectedAudioTrack ? (
-                  <p className="muted">{l('No embedded audio tracks were detected.')}</p>
-                ) : null}
-              </article>
+                  {audioTracksQuery.isLoading ? (
+                    <p className="muted">{l('Loading audio tracks…')}</p>
+                  ) : null}
+                  {audioTracksQuery.isError ? (
+                    <p className="callout callout--danger">
+                      {audioTracksQuery.error instanceof Error
+                        ? audioTracksQuery.error.message
+                        : l('Failed to load audio tracks')}
+                    </p>
+                  ) : null}
+                  {!audioTracksQuery.isLoading &&
+                  !audioTracksQuery.isError &&
+                  selectedAudioTrack ? (
+                    <dl className="media-tech-card__facts">
+                      {buildAudioTrackFacts(selectedAudioTrack).map((fact) => (
+                        <div
+                          className="media-tech-card__fact"
+                          key={`${selectedAudioTrack.id}-${fact.label}`}
+                        >
+                          <dt>{fact.label}</dt>
+                          <dd>{fact.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : null}
+                  {!audioTracksQuery.isLoading &&
+                  !audioTracksQuery.isError &&
+                  !selectedAudioTrack ? (
+                    <p className="muted">{l('No embedded audio tracks were detected.')}</p>
+                  ) : null}
+                </article>
+              ) : null}
 
               <article className="media-tech-card">
                 <div className="media-tech-card__header media-tech-card__header--with-select">

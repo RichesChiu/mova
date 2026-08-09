@@ -120,6 +120,10 @@ chore(release): prepare X.Y.Z
 4. 稳定版更新 `latest`，SemVer 预发布版更新 `preview`；
 5. 生成并发布对应的 GitHub Release。
 
+需要补充重点提示、实验边界或迁移说明时，可在功能 PR 中增加
+`.github/release-notes/X.Y.Z[-prerelease].md`。Release 工作流会把该文件内容加入带注释的 Git
+标签，并置于自动生成的 GitHub Release 说明之前。
+
 验证通过并晋升后的 `publish-*` 候选标签会立即删除。构建或验证失败的候选最多保留 72
 小时用于诊断，随后由每日清理任务回收；清理只按标签名删除候选，不会删除共享镜像内容、
 不可变版本标签、`latest` 或 `preview`。

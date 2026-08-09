@@ -339,6 +339,7 @@ export interface EpisodeOutlinePlaybackProgress {
 export interface MediaFile {
   id: number
   media_item_id: number
+  source_kind: 'local_file' | 'strm'
   file_path: string
   container: string | null
   file_size: number

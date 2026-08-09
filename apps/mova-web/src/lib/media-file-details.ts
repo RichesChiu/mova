@@ -185,11 +185,15 @@ export const getMediaFileDisplayName = (filePath: string) => extractFileName(fil
 export const buildMediaVersionOptions = (mediaFiles: MediaFile[]): MediaFileTrackOption[] =>
   mediaFiles.map((file, index) => {
     const displayName = getMediaFileDisplayName(file.file_path)
-    const meta = [
-      file.container?.trim() ? file.container.trim().toUpperCase() : null,
-      file.width && file.height ? `${file.width} × ${file.height}` : null,
-      formatMediaFileBitrate(file.bitrate),
-    ]
+    const meta = (
+      file.source_kind === 'strm'
+        ? [translateCurrent('HTTP(S) Stream')]
+        : [
+            file.container?.trim() ? file.container.trim().toUpperCase() : null,
+            file.width && file.height ? `${file.width} × ${file.height}` : null,
+            formatMediaFileBitrate(file.bitrate),
+          ]
+    )
       .filter((value) => value && value !== '—')
       .join(' · ')
 
@@ -223,111 +227,143 @@ export const formatMediaFileBitrate = (bitrate: number | null | undefined) => {
 }
 
 export const buildMediaFileTechnicalBadges = (
-  file: Pick<MediaFile, 'technical_tags'>,
+  file: Pick<MediaFile, 'source_kind' | 'technical_tags'>,
 ): MediaFileTechnicalBadge[] => {
   const seen = new Set<string>()
 
-  return file.technical_tags
-    .map((tag) => tag.trim())
-    .filter((tag) => {
-      const normalizedTag = tag.toLowerCase()
+  const sourceBadges: MediaFileTechnicalBadge[] =
+    file.source_kind === 'strm'
+      ? [
+          {
+            label: translateCurrent('HTTP(S) Stream'),
+            text: 'STRM',
+            tone: 'neutral',
+          },
+        ]
+      : []
 
-      if (!tag || seen.has(normalizedTag)) {
-        return false
-      }
+  if (file.source_kind === 'strm') {
+    return sourceBadges
+  }
 
-      seen.add(normalizedTag)
-      return true
-    })
-    .map((tag) => {
-      const presentation = TECHNICAL_TAG_PRESENTATIONS[tag.toLowerCase()]
+  return sourceBadges.concat(
+    file.technical_tags
+      .map((tag) => tag.trim())
+      .filter((tag) => {
+        const normalizedTag = tag.toLowerCase()
 
-      if (presentation) {
-        return presentation
-      }
+        if (!tag || seen.has(normalizedTag)) {
+          return false
+        }
 
-      return {
-        label: tag,
-        text: tag,
-        tone: /^\d{3,4}p$|^[48]K$/i.test(tag) ? 'resolution' : 'neutral',
-      }
-    })
+        seen.add(normalizedTag)
+        return true
+      })
+      .map((tag) => {
+        const presentation = TECHNICAL_TAG_PRESENTATIONS[tag.toLowerCase()]
+
+        if (presentation) {
+          return presentation
+        }
+
+        return {
+          label: tag,
+          text: tag,
+          tone: /^\d{3,4}p$|^[48]K$/i.test(tag) ? 'resolution' : 'neutral',
+        }
+      }),
+  )
 }
 
-export const buildVideoCardFacts = (file: MediaFile): MediaFileFact[] => [
-  {
-    label: translateCurrent('File Size'),
-    value: formatBytes(file.file_size, getCurrentInterfaceLanguage()),
-  },
-  {
-    label: translateCurrent('Duration'),
-    value: formatDuration(file.duration_seconds, getCurrentInterfaceLanguage()),
-  },
-  {
-    label: translateCurrent('Overall Bitrate'),
-    value: formatMediaFileBitrate(file.bitrate),
-  },
-  {
-    label: translateCurrent('Container'),
-    value: file.container?.trim() ? file.container.trim().toUpperCase() : '—',
-  },
-  {
-    label: translateCurrent('Codec'),
-    value: formatCodecLabel(file.video_codec),
-  },
-  {
-    label: translateCurrent('Profile'),
-    value: file.video_profile?.trim() || '—',
-  },
-  {
-    label: translateCurrent('Level'),
-    value: file.video_level?.trim() || '—',
-  },
-  {
-    label: translateCurrent('Resolution'),
-    value: formatMediaFileResolution(file),
-  },
-  {
-    label: translateCurrent('Aspect Ratio'),
-    value: file.video_aspect_ratio?.trim() || '—',
-  },
-  {
-    label: translateCurrent('Scan Type'),
-    value: file.video_scan_type?.trim() || '—',
-  },
-  {
-    label: translateCurrent('Frame Rate'),
-    value: formatFrameRate(file.video_frame_rate),
-  },
-  {
-    label: translateCurrent('Color Primaries'),
-    value: file.video_color_primaries?.trim() || '—',
-  },
-  {
-    label: translateCurrent('Color Space'),
-    value: file.video_color_space?.trim() || '—',
-  },
-  {
-    label: translateCurrent('Color Transfer'),
-    value: file.video_color_transfer?.trim() || '—',
-  },
-  {
-    label: translateCurrent('Bit Depth'),
-    value: formatBitDepth(file.video_bit_depth),
-  },
-  {
-    label: translateCurrent('Pixel Format'),
-    value: file.video_pixel_format?.trim() || '—',
-  },
-  {
-    label: translateCurrent('Reference Frames'),
-    value:
-      typeof file.video_reference_frames === 'number' &&
-      Number.isFinite(file.video_reference_frames)
-        ? String(file.video_reference_frames)
-        : '—',
-  },
-]
+export const buildVideoCardFacts = (file: MediaFile): MediaFileFact[] => {
+  if (file.source_kind === 'strm') {
+    return [
+      {
+        label: translateCurrent('Source'),
+        value: translateCurrent('HTTP(S) Stream'),
+      },
+      {
+        label: translateCurrent('File Size'),
+        value: translateCurrent('Remote resource'),
+      },
+    ]
+  }
+
+  return [
+    {
+      label: translateCurrent('File Size'),
+      value: formatBytes(file.file_size, getCurrentInterfaceLanguage()),
+    },
+    {
+      label: translateCurrent('Duration'),
+      value: formatDuration(file.duration_seconds, getCurrentInterfaceLanguage()),
+    },
+    {
+      label: translateCurrent('Overall Bitrate'),
+      value: formatMediaFileBitrate(file.bitrate),
+    },
+    {
+      label: translateCurrent('Container'),
+      value: file.container?.trim() ? file.container.trim().toUpperCase() : '—',
+    },
+    {
+      label: translateCurrent('Codec'),
+      value: formatCodecLabel(file.video_codec),
+    },
+    {
+      label: translateCurrent('Profile'),
+      value: file.video_profile?.trim() || '—',
+    },
+    {
+      label: translateCurrent('Level'),
+      value: file.video_level?.trim() || '—',
+    },
+    {
+      label: translateCurrent('Resolution'),
+      value: formatMediaFileResolution(file),
+    },
+    {
+      label: translateCurrent('Aspect Ratio'),
+      value: file.video_aspect_ratio?.trim() || '—',
+    },
+    {
+      label: translateCurrent('Scan Type'),
+      value: file.video_scan_type?.trim() || '—',
+    },
+    {
+      label: translateCurrent('Frame Rate'),
+      value: formatFrameRate(file.video_frame_rate),
+    },
+    {
+      label: translateCurrent('Color Primaries'),
+      value: file.video_color_primaries?.trim() || '—',
+    },
+    {
+      label: translateCurrent('Color Space'),
+      value: file.video_color_space?.trim() || '—',
+    },
+    {
+      label: translateCurrent('Color Transfer'),
+      value: file.video_color_transfer?.trim() || '—',
+    },
+    {
+      label: translateCurrent('Bit Depth'),
+      value: formatBitDepth(file.video_bit_depth),
+    },
+    {
+      label: translateCurrent('Pixel Format'),
+      value: file.video_pixel_format?.trim() || '—',
+    },
+    {
+      label: translateCurrent('Reference Frames'),
+      value:
+        typeof file.video_reference_frames === 'number' &&
+        Number.isFinite(file.video_reference_frames)
+          ? String(file.video_reference_frames)
+          : '—',
+    },
+  ]
+}
 
 export const buildVideoTrackOptions = (file: MediaFile): MediaFileTrackOption[] => [
   {

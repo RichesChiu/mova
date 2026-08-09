@@ -14,6 +14,12 @@ export type ApiEndpointGroup = {
   endpoints: ApiEndpoint[]
 }
 
+export type ApiStreamErrorCode = {
+  status: string
+  errorCode: string
+  description: string
+}
+
 export const apiOverviewCards = [
   {
     label: 'Base URL',
@@ -53,6 +59,7 @@ export const apiSourceLinks = {
   repository: 'https://github.com/RichesChiu/mova',
   api: 'https://github.com/RichesChiu/mova/blob/master/docs/API.md',
   sse: 'https://github.com/RichesChiu/mova/blob/master/docs/SSE.md',
+  strm: 'https://github.com/RichesChiu/mova/blob/master/docs/STRM.md',
 }
 
 export const apiStatusCodes = [
@@ -61,14 +68,70 @@ export const apiStatusCodes = [
   ['202', 'Accepted，异步任务已创建'],
   ['400', 'Bad Request，参数或业务校验失败'],
   ['401', 'Unauthorized，未登录或会话失效'],
-  ['403', 'Forbidden，权限不足'],
+  ['403', 'Forbidden，权限不足或安全策略拒绝目标'],
   ['404', 'Not Found，资源不存在'],
   ['409', 'Conflict，当前资源状态不允许操作'],
   ['413', 'Payload Too Large，媒体处理输入或结果超过服务端上限'],
-  ['429', 'Too Many Requests，认证尝试过多'],
-  ['416', 'Range Not Satisfiable，媒体 Range 越界'],
+  ['416', 'Range Not Satisfiable，媒体 Range 无法满足'],
+  ['422', 'Unprocessable Entity，STRM 引用内容无效'],
+  ['429', 'Too Many Requests，认证尝试或用户远程流并发超限'],
   ['500', 'Internal Server Error，服务内部错误'],
-  ['503', 'Service Unavailable，媒体处理资源或依赖服务暂不可用'],
+  ['502', 'Bad Gateway，远程媒体上游不可用或响应无效'],
+  ['503', 'Service Unavailable，媒体处理或远程流代理容量暂不可用'],
+  ['504', 'Gateway Timeout，远程媒体上游响应超时'],
+]
+
+export const apiStreamErrorCodes: ApiStreamErrorCode[] = [
+  {
+    status: '400',
+    errorCode: 'strm_audio_track_selection_unsupported',
+    description: 'STRM 不支持指定内嵌音轨',
+  },
+  {
+    status: '403',
+    errorCode: 'strm_target_forbidden',
+    description: 'STRM 目标被 URL、端口、DNS 或地址安全策略拒绝',
+  },
+  {
+    status: '413',
+    errorCode: 'strm_reference_too_large',
+    description: 'STRM 引用载体超过读取上限',
+  },
+  {
+    status: '416',
+    errorCode: 'remote_range_not_supported',
+    description: 'STRM 上游不能满足非零 Range',
+  },
+  {
+    status: '422',
+    errorCode: 'strm_reference_invalid',
+    description: 'STRM 引用内容无效',
+  },
+  {
+    status: '429',
+    errorCode: 'strm_user_stream_limit_exceeded',
+    description: '当前用户的 STRM 并发数达到上限',
+  },
+  {
+    status: '502',
+    errorCode: 'remote_source_unavailable',
+    description: 'STRM 上游不可用或返回失败状态',
+  },
+  {
+    status: '502',
+    errorCode: 'remote_response_invalid',
+    description: 'STRM 上游内容类型或 Range 响应不符合直接媒体要求',
+  },
+  {
+    status: '503',
+    errorCode: 'strm_stream_capacity_exhausted',
+    description: '服务端 STRM 全局代理名额已满',
+  },
+  {
+    status: '504',
+    errorCode: 'remote_source_timeout',
+    description: 'STRM 上游连接或响应头超时',
+  },
 ]
 
 export const apiSuccessExample = `{
@@ -215,6 +278,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '已有 matched TMDB binding 时按该 ID 刷新；无效 NFO 保留 last-known-good，冲突 NFO 不能静默换绑。',
       '剧集可通过 seasons、episodes、episode-outline 获取本地可用集和远端大纲合并结果。',
       'episode-outline 的播放快照包含 last_media_file_id；同一集有多个文件版本时，客户端应恢复最近播放的具体版本。',
+      '文件列表的 source_kind 是必填字段，用于区分 local_file 与 strm；STRM 的 file_path / file_size 只描述本地引用载体，API 永不返回远端 URL，容器、时长、编码、码率、分辨率和技术标签均为空。',
       'playback-header 只轻量入队持久化片头任务；FFmpeg 与分析由 worker 按需执行，完成后通过 catalog revision 通知客户端定向刷新，不阻塞首次播放。',
       'poster/backdrop/logo 返回经过媒体库边界、大小和图片内容校验的本地图片流；详情只透出可信的 TMDB 官方远程图片地址。',
     ],
@@ -258,11 +322,16 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
   {
     id: 'streams',
     title: '媒体流',
-    summary: '播放器相关接口：内嵌音轨、字幕列表、WebVTT 字幕输出、媒体文件流和 HEAD 探测。',
+    summary:
+      '播放器相关接口：本地文件与 HTTP(S) STRM 使用统一媒体流地址，并提供本地文件内嵌音轨、字幕列表、WebVTT 和 HEAD 探测。',
     highlights: [
       '媒体流和字幕流不返回 JSON envelope，直接返回文件流或 text/vtt。',
-      'GET /stream 支持 Range 请求，拖动进度条时通常返回 206 Partial Content。',
-      'GET 携带 audio_track_id 时会验证并按需生成 remux 缓存。',
+      'GET /stream 支持单段 Range；播放源能够满足请求区间时返回 206 Partial Content。',
+      'STRM 上游忽略非零 Range 时返回 416；带 If-Range 的条件失效后，上游可以按 HTTP 语义返回完整 200。',
+      '本地文件的 GET 携带 audio_track_id 时会验证并按需生成 remux 缓存；STRM 不支持内嵌音轨选择。',
+      'STRM 播放时服务端重新读取本地载体、逐跳执行 DNS/IP 与重定向安全检查，再以有界字节流代理直接媒体响应；远端 URL 不进入 API、数据库或日志。',
+      'STRM 只支持 HTTP/HTTPS 直接媒体与本地外挂字幕，不支持 HLS、RTSP、MMS、远端 ffprobe、内嵌字幕/音轨或远程转码。',
+      'STRM 错误通过 strm_* 与 remote_* 稳定 error_code 返回；客户端本地化错误码，不显示上游正文或原始 URL。',
       '音轨和字幕 HEAD 都是只读探测；缓存命中返回准确头，缓存未命中返回 no-store 且不返回虚假长度，也不启动 FFmpeg。',
       '音轨缓存命中会立即返回；生成槽位已满或同 key 等待超时时返回 503，由客户端稍后重试。',
       '字幕接口会把 srt、ass/ssa、内嵌字幕统一转换成浏览器可挂载的 WebVTT。',
@@ -291,7 +360,6 @@ export const apiIdRelations = [
 export const apiPlaybackFlow = [
   'GET /api/libraries/{library_id}/media-items',
   'GET /api/media-items/{media_item_id}/files',
-  'GET /api/media-files/{media_file_id}/audio-tracks',
   'GET /api/media-files/{media_file_id}/subtitles',
   'GET /api/subtitle-files/{subtitle_file_id}/stream',
   'GET /api/media-files/{media_file_id}/stream',

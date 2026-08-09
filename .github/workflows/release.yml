@@ -46,6 +46,7 @@ jobs:
           set -euo pipefail
 
           version="$(./scripts/resolve-release-version.sh)"
+          release_notes_file=".github/release-notes/${version}.md"
 
           tag="v${version}"
           tag_exists=false
@@ -119,6 +120,11 @@ jobs:
             printf 'Mova %s\n\n' "$version"
             printf 'Changes:\n'
             git log --first-parent --pretty='- %s' "$release_range"
+            if [[ -f "$release_notes_file" ]]; then
+              printf '\nRelease notes:\n\n'
+              cat "$release_notes_file"
+              printf '\n'
+            fi
             printf '\nVerification: GitHub Actions CI passed for master revision %s.\n' "$SOURCE_SHA"
             printf 'Migration: %s\n' "$migration_summary"
           } > /tmp/mova-release-tag-message.txt
@@ -138,6 +144,7 @@ jobs:
             echo "previous_tag=$previous_tag"
             echo "is_prerelease=$is_prerelease"
             echo "channel=$channel"
+            echo "release_notes_file=$release_notes_file"
           } >>"$GITHUB_OUTPUT"
 
       - name: Validate Docker Hub credentials
@@ -317,10 +324,16 @@ jobs:
           PREVIOUS_TAG: ${{ steps.release.outputs.previous_tag }}
           IS_PRERELEASE: ${{ steps.release.outputs.is_prerelease }}
           DIGEST: ${{ steps.published.outputs.digest }}
+          RELEASE_NOTES_FILE: ${{ steps.release.outputs.release_notes_file }}
         run: |
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "GitHub Release $TAG already exists; preserving it for retry."
             exit 0
+          fi
+
+          release_notes="Docker image: \`${IMAGE_REPOSITORY}:${VERSION}\` (\`${DIGEST}\`)"
+          if [[ -f "$RELEASE_NOTES_FILE" ]]; then
+            release_notes="$(cat "$RELEASE_NOTES_FILE")"$'\n\n'"$release_notes"
           fi
 
           release_args=(
@@ -330,7 +343,7 @@ jobs:
             --draft
             --generate-notes
             --title "Mova ${VERSION}"
-            --notes "Docker image: \`${IMAGE_REPOSITORY}:${VERSION}\` (\`${DIGEST}\`)"
+            --notes "$release_notes"
           )
           if [[ -n "$PREVIOUS_TAG" ]]; then
             release_args+=(--notes-start-tag "$PREVIOUS_TAG")

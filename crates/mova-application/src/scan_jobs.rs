@@ -23,7 +23,8 @@ use mova_domain::{
 use mova_scan::{
     discovered_media_file_inventory_scan_hash, discovered_media_file_scan_hash,
     infer_series_file_metadata, DiscoveredAudioTrack, DiscoveredMediaFile,
-    DiscoveredMediaFileInventory, DiscoveredSubtitleTrack,
+    DiscoveredMediaFileInventory, DiscoveredSubtitleTrack, MediaDiscoveryIssue,
+    MediaDiscoveryReport,
 };
 use sqlx::postgres::PgPool;
 use std::{
@@ -122,7 +123,7 @@ enum ScanItemStage {
 
 #[derive(Debug)]
 enum DiscoverMediaFilesOutcome {
-    Completed(Vec<DiscoveredMediaFileInventory>),
+    Completed(MediaDiscoveryReport),
     Cancelled(i32),
 }
 
@@ -445,7 +446,7 @@ pub async fn execute_scan_job_with_cancellation(
 
     let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
 
-    let discovered_files = match discover_media_files(
+    let discovery_report = match discover_media_files(
         pool,
         scan_job_id,
         &library,
@@ -455,7 +456,7 @@ pub async fn execute_scan_job_with_cancellation(
     )
     .await
     {
-        Ok(DiscoverMediaFilesOutcome::Completed(files)) => files,
+        Ok(DiscoverMediaFilesOutcome::Completed(report)) => report,
         Ok(DiscoverMediaFilesOutcome::Cancelled(scanned_files)) => {
             if let Some(scan_job) = finalize_cancelled_scan(
                 pool,
@@ -484,7 +485,17 @@ pub async fn execute_scan_job_with_cancellation(
         }
     };
 
-    let total_files = discovered_files.len() as i32;
+    let total_files = i32::try_from(
+        discovery_report
+            .files
+            .len()
+            .saturating_add(discovery_report.issues.len()),
+    )
+    .unwrap_or(i32::MAX);
+    let MediaDiscoveryReport {
+        files: discovered_files,
+        issues: discovery_issues,
+    } = discovery_report;
     match mova_db::update_scan_job_progress(
         pool,
         scan_job_id,
@@ -627,7 +638,7 @@ pub async fn execute_scan_job_with_cancellation(
         )
     );
 
-    let notification_summary = match pipeline_result {
+    let mut notification_summary = match pipeline_result {
         Ok((local_outcome, remote_outcome)) => {
             merge_sync_outcome(&mut sync_outcome, local_outcome);
             merge_sync_outcome(&mut sync_outcome, remote_outcome.sync);
@@ -642,6 +653,7 @@ pub async fn execute_scan_job_with_cancellation(
             return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
     };
+    record_media_discovery_issues(&mut notification_summary, &discovery_issues);
 
     if is_cancelled(&cancellation_flag) {
         if let Some(scan_job) = finalize_cancelled_scan(
@@ -683,6 +695,7 @@ pub async fn execute_scan_job_with_cancellation(
         library.id,
         scan_job_id,
         &discovered_paths,
+        !discovery_issues.is_empty(),
         &retained_local_metadata_source_paths,
         &[],
         &fence,
@@ -768,6 +781,15 @@ fn authoritative_local_metadata_source_paths(
         .filter_map(|discovered_path| {
             mova_scan::inspect_media_file_inventory_shallow(DiscoveredMediaFileInventory {
                 file_path: PathBuf::from(discovered_path),
+                source_kind: if Path::new(discovered_path)
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("strm"))
+                {
+                    mova_domain::MediaSourceKind::Strm
+                } else {
+                    mova_domain::MediaSourceKind::LocalFile
+                },
+                stream_reference_hash: None,
                 file_size: 0,
                 file_modified_at_ms: None,
                 sidecar_fingerprint: String::new(),
@@ -1668,6 +1690,48 @@ fn record_scan_notification_group(
     });
 }
 
+fn record_media_discovery_issues(
+    summary: &mut ScanNotificationSummary,
+    issues: &[MediaDiscoveryIssue],
+) {
+    for issue in issues {
+        summary.failed_files = summary.failed_files.saturating_add(1);
+        summary.issue_count = summary.issue_count.saturating_add(1);
+        if summary.issues.len() >= MAX_SCAN_NOTIFICATION_ISSUES {
+            continue;
+        }
+
+        let file_path = issue.file_path.to_string_lossy().to_string();
+        let title = issue
+            .file_path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| "STRM".to_string());
+        summary.issues.push(ScanNotificationIssue {
+            item_key: format!("discovery:{file_path}"),
+            media_type: "strm".to_string(),
+            title,
+            year: None,
+            file_count: 1,
+            metadata_status: METADATA_STATUS_FAILED.to_string(),
+            reason_code: issue.reason_code.clone(),
+            reason_params: BTreeMap::from([(
+                "file_path".to_string(),
+                serde_json::Value::String(file_path),
+            )]),
+            // Keep notification diagnostics derived exclusively from the
+            // stable reason code. The discovery layer already redacts its
+            // text, but this boundary must never trust carrier content.
+            diagnostic_message: Some(format!("STRM discovery issue: {}", issue.reason_code)),
+            probe_warning_count: 0,
+            probe_warning_file_path: None,
+            probe_warning_code: None,
+            probe_warning_params: BTreeMap::new(),
+            probe_warning_diagnostic: None,
+        });
+    }
+}
+
 fn compact_scan_failure_detail(detail: impl AsRef<str>) -> String {
     detail
         .as_ref()
@@ -2025,6 +2089,8 @@ fn build_media_entries(
             backdrop_path: file.backdrop_path,
             logo_path: file.logo_path,
             file_path,
+            source_kind: file.source_kind,
+            stream_reference_hash: file.stream_reference_hash,
             container: file.container,
             file_size,
             duration_seconds: file.duration_seconds,

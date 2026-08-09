@@ -406,6 +406,7 @@ const continueWatching = (url: URL): ContinueWatchingItem[] => {
 const mediaFile = (mediaItem: MediaItem): MediaFile => ({
   id: mediaItem.id * 100,
   media_item_id: mediaItem.id,
+  source_kind: 'local_file',
   file_path: `${libraryForMediaItem(mediaItem).root_path}/${mediaItem.title}.mkv`,
   container: 'mkv',
   file_size: 12_400_000_000,

@@ -14,6 +14,7 @@ mod metadata_match;
 mod notifications;
 mod playback_header;
 mod playback_progress;
+mod remote_stream;
 mod scan_jobs;
 mod tmdb_revalidation;
 mod users;
@@ -74,6 +75,11 @@ pub use playback_header::{get_media_item_playback_header, MediaItemPlaybackHeade
 pub use playback_progress::{
     get_playback_progress_for_media_item, list_continue_watching,
     update_playback_progress_for_media_item, UpdatePlaybackProgressInput,
+};
+pub use remote_stream::{
+    RemoteResponseHeader, RemoteResponseHeaderName, RemoteStreamBody, RemoteStreamBodyFailure,
+    RemoteStreamError, RemoteStreamErrorKind, RemoteStreamMethod, RemoteStreamRequest,
+    RemoteStreamResponse, RemoteTargetDiagnostics, StrmStreamingConfig, StrmStreamingService,
 };
 pub use scan_jobs::{
     enqueue_library_scan, execute_scan_job_with_cancellation, get_scan_job_for_library,

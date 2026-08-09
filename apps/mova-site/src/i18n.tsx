@@ -62,6 +62,13 @@ const translations: Record<string, string> = {
     'Leave both variables empty when the MOVA container can already reach TMDB, for example through a transparent proxy, TUN, or router proxy that also covers Docker. Merely starting a regular proxy on the host does not make the container inherit it.',
   '这里的代理只影响 MOVA 运行时请求；Docker Hub 镜像拉取代理仍需在 Docker Desktop 或 Docker Engine 中配置。':
     'These variables affect only MOVA runtime requests. Configure image-pull proxy access separately in Docker Desktop or Docker Engine.',
+  'STRM 私网目标白名单（高级）': 'Private STRM target allowlist (advanced)',
+  'HTTP/HTTPS STRM 默认只允许解析到公网地址的目标。家庭 NAS、AList 或其他可信私网源必须在 app.environment 中按实际主机与端口显式允许。':
+    'HTTP/HTTPS STRM allows only targets that resolve to public addresses by default. A home NAS, AList instance, or another trusted private source must be allowed by its exact host and port in app.environment.',
+  '该值只接受逗号分隔的精确 host:port，不支持通配符、域名后缀或 CIDR。它不能放开 loopback、link-local、multicast、localhost 或云 metadata 地址；每次 DNS 解析和重定向都会重新验证。':
+    'The value accepts comma-separated exact host:port entries only; wildcards, DNS suffixes, and CIDR ranges are not supported. It cannot allow loopback, link-local, multicast, localhost, or cloud metadata addresses; every DNS resolution and redirect is validated again.',
+  'STRM 播放不会继承 HTTP_PROXY 或 HTTPS_PROXY，避免部署代理绕过 DNS 与目标地址安全检查。':
+    'STRM playback does not inherit HTTP_PROXY or HTTPS_PROXY, preventing deployment proxies from bypassing DNS and target-address security checks.',
   '获取 TMDB Access Token': 'Get a TMDB Access Token',
   'TMDB Token 用于获取影片与剧集的元数据、海报、背景图、标题 Logo 和评分。':
     'The TMDB token enables movie and series metadata, posters, backdrops, title logos, and ratings.',
@@ -123,6 +130,7 @@ const translations: Record<string, string> = {
   'API 文档内容': 'API documentation content',
   完整细节请以项目文档为准: 'Use the project documentation as the source of truth',
   '完整 API.md': 'Complete API.md',
+  '完整 STRM.md': 'Complete STRM.md',
   '完整 SSE.md': 'Complete SSE.md',
   'MOVA 项目仓库': 'MOVA repository',
   文档目录: 'Contents',
@@ -172,15 +180,29 @@ const translations: Record<string, string> = {
   'Bad Request，参数或业务校验失败': 'Bad Request, parameter or business validation failed',
   'Unauthorized，未登录或会话失效': 'Unauthorized, not signed in or session expired',
   'Forbidden，权限不足': 'Forbidden, insufficient permission',
+  'Forbidden，权限不足或安全策略拒绝目标':
+    'Forbidden, insufficient permission or target rejected by security policy',
   'Not Found，资源不存在': 'Not Found, resource does not exist',
   'Conflict，当前资源状态不允许操作': 'Conflict, the current resource state does not allow this operation',
   'Payload Too Large，媒体处理输入或结果超过服务端上限':
     'Payload Too Large, media processing input or output exceeds the server limit',
+  'Unprocessable Entity，STRM 引用内容无效':
+    'Unprocessable Entity, the STRM reference content is invalid',
   'Too Many Requests，认证尝试过多': 'Too Many Requests, too many authentication attempts',
+  'Too Many Requests，认证尝试或用户远程流并发超限':
+    "Too Many Requests, too many authentication attempts or the user's remote-stream limit was reached",
   'Range Not Satisfiable，媒体 Range 越界': 'Range Not Satisfiable, media range is out of bounds',
+  'Range Not Satisfiable，媒体 Range 无法满足':
+    'Range Not Satisfiable, the requested media range cannot be served',
   'Internal Server Error，服务内部错误': 'Internal Server Error',
+  'Bad Gateway，远程媒体上游不可用或响应无效':
+    'Bad Gateway, the remote media upstream is unavailable or returned an invalid response',
   'Service Unavailable，媒体处理资源或依赖服务暂不可用':
     'Service Unavailable, media processing capacity or a dependency is temporarily unavailable',
+  'Service Unavailable，媒体处理或远程流代理容量暂不可用':
+    'Service Unavailable, media processing or remote-stream proxy capacity is temporarily unavailable',
+  'Gateway Timeout，远程媒体上游响应超时':
+    'Gateway Timeout, the remote media upstream timed out',
 
   健康检查: 'Health',
   '用于探测服务进程和数据库是否可用，适合容器探针、本地调试和部署后的联通性检查。':
@@ -322,6 +344,8 @@ const translations: Record<string, string> = {
     'Series use seasons, episodes, and episode-outline to merge locally available episodes with remote outlines.',
   'episode-outline 的播放快照包含 last_media_file_id；同一集有多个文件版本时，客户端应恢复最近播放的具体版本。':
     'episode-outline playback snapshots include last_media_file_id so clients can restore the exact last-used file when an episode has multiple variants.',
+  '文件列表的 source_kind 是必填字段，用于区分 local_file 与 strm；STRM 的 file_path / file_size 只描述本地引用载体，API 永不返回远端 URL，容器、时长、编码、码率、分辨率和技术标签均为空。':
+    'source_kind is required in file lists and distinguishes local_file from strm. STRM file_path and file_size describe only the local reference carrier; the API never returns the remote URL, while container, duration, codecs, bitrate, resolution, and technical tags are empty.',
   'playback-header 只轻量入队持久化片头任务；FFmpeg 与分析由 worker 按需执行，完成后通过 catalog revision 通知客户端定向刷新，不阻塞首次播放。':
     'playback-header only performs a lightweight persistent-job enqueue; a worker runs FFmpeg and intro analysis on demand, then publishes a catalog revision for targeted client refresh without blocking first playback.',
   'poster/backdrop/logo 返回经过媒体库边界、大小和图片内容校验的本地图片流；详情只透出可信的 TMDB 官方远程图片地址。':
@@ -362,14 +386,38 @@ const translations: Record<string, string> = {
   写入或更新播放进度: 'Create or update playback progress',
   查询继续观看列表: 'Get the continue-watching list',
   媒体流: 'Media streams',
-  '播放器相关接口：内嵌音轨、字幕列表、WebVTT 字幕输出、媒体文件流和 HEAD 探测。':
-    'Player endpoints for embedded audio tracks, subtitle lists, WebVTT output, media streams, and HEAD probes.',
+  '播放器相关接口：本地文件与 HTTP(S) STRM 使用统一媒体流地址，并提供本地文件内嵌音轨、字幕列表、WebVTT 和 HEAD 探测。':
+    'Player endpoints use one media-stream URL for local files and HTTP(S) STRM sources, with local-file embedded-audio lists, subtitle lists, WebVTT output, and HEAD probes.',
   '媒体流和字幕流不返回 JSON envelope，直接返回文件流或 text/vtt。':
     'Media and subtitle streams do not use the JSON envelope; they return file streams or text/vtt directly.',
-  'GET /stream 支持 Range 请求，拖动进度条时通常返回 206 Partial Content。':
-    'GET /stream supports Range requests and usually returns 206 Partial Content when seeking.',
-  'GET 携带 audio_track_id 时会验证并按需生成 remux 缓存。':
-    'GET validates audio_track_id and creates a remux cache on demand.',
+  'GET /stream 支持单段 Range；播放源能够满足请求区间时返回 206 Partial Content。':
+    'GET /stream supports a single Range and returns 206 Partial Content when the source can satisfy the requested interval.',
+  '本地文件的 GET 携带 audio_track_id 时会验证并按需生成 remux 缓存；STRM 不支持内嵌音轨选择。':
+    'For local files, GET validates audio_track_id and creates a remux cache on demand; STRM does not support embedded-audio selection.',
+  'STRM 播放时服务端重新读取本地载体、逐跳执行 DNS/IP 与重定向安全检查，再以有界字节流代理直接媒体响应；远端 URL 不进入 API、数据库或日志。':
+    'For STRM playback, the server rereads the local carrier, validates DNS, IP addresses, and every redirect hop, then proxies a direct-media response as a bounded byte stream. Remote URLs never enter the API, database, or logs.',
+  'STRM 只支持 HTTP/HTTPS 直接媒体与本地外挂字幕，不支持 HLS、RTSP、MMS、远端 ffprobe、内嵌字幕/音轨或远程转码。':
+    'STRM supports direct HTTP/HTTPS media and local external subtitles only; HLS, RTSP, MMS, remote ffprobe, embedded subtitles or audio tracks, and remote transcoding are not supported.',
+  'STRM 错误通过 strm_* 与 remote_* 稳定 error_code 返回；客户端本地化错误码，不显示上游正文或原始 URL。':
+    'STRM failures use stable strm_* and remote_* error codes. Clients localize those codes and never display upstream bodies or raw URLs.',
+  'STRM 播放错误': 'STRM playback errors',
+  'STRM 不支持指定内嵌音轨': 'STRM does not support selecting an embedded audio track',
+  'STRM 目标被 URL、端口、DNS 或地址安全策略拒绝':
+    'The STRM target was rejected by URL, port, DNS, or address security policy',
+  'STRM 引用载体超过读取上限': 'The STRM reference carrier exceeds the read limit',
+  'STRM 上游不能满足非零 Range': 'The STRM upstream cannot satisfy a non-zero Range',
+  'STRM 上游忽略非零 Range 时返回 416；带 If-Range 的条件失效后，上游可以按 HTTP 语义返回完整 200。':
+    'A STRM upstream that ignores a non-zero Range returns 416; when an If-Range condition fails, the upstream may return a complete 200 response according to HTTP semantics.',
+  'STRM 引用内容无效': 'The STRM reference content is invalid',
+  '当前用户的 STRM 并发数达到上限':
+    'The current user has reached the concurrent STRM limit',
+  'STRM 上游不可用或返回失败状态':
+    'The STRM upstream is unavailable or returned a failure status',
+  'STRM 上游内容类型或 Range 响应不符合直接媒体要求':
+    'The STRM upstream content type or Range response does not meet direct-media requirements',
+  '服务端 STRM 全局代理名额已满': 'The server-wide STRM proxy capacity is exhausted',
+  'STRM 上游连接或响应头超时':
+    'The STRM upstream connection or response headers timed out',
   '音轨和字幕 HEAD 都是只读探测；缓存命中返回准确头，缓存未命中返回 no-store 且不返回虚假长度，也不启动 FFmpeg。':
     'Audio and subtitle HEAD requests are read-only probes; cache hits return accurate headers, while misses return no-store without a false length or starting FFmpeg.',
   '音轨缓存命中会立即返回；生成槽位已满或同 key 等待超时时返回 503，由客户端稍后重试。':

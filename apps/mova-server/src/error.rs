@@ -80,6 +80,50 @@ impl From<mova_application::ApplicationError> for ApiError {
     }
 }
 
+impl From<mova_application::RemoteStreamError> for ApiError {
+    fn from(error: mova_application::RemoteStreamError) -> Self {
+        use mova_application::RemoteStreamErrorKind as Kind;
+
+        match error.kind() {
+            Kind::CarrierNotFound => Self::NotFound(error.diagnostic_message().to_string()),
+            Kind::CarrierReadFailed => {
+                tracing::error!(
+                    error_code = error.code(),
+                    "failed to read a validated STRM carrier"
+                );
+                Self::Internal
+            }
+            kind => {
+                let status = remote_stream_status(kind);
+                Self::Business {
+                    status,
+                    error_code: error.code(),
+                    params: BTreeMap::new(),
+                    diagnostic_message: error.diagnostic_message().to_string(),
+                }
+            }
+        }
+    }
+}
+
+fn remote_stream_status(kind: mova_application::RemoteStreamErrorKind) -> StatusCode {
+    use mova_application::RemoteStreamErrorKind as Kind;
+
+    match kind {
+        Kind::InvalidRequest => StatusCode::BAD_REQUEST,
+        Kind::ReferenceTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+        Kind::ReferenceInvalid => StatusCode::UNPROCESSABLE_ENTITY,
+        Kind::TargetForbidden => StatusCode::FORBIDDEN,
+        Kind::RangeNotSupported => StatusCode::RANGE_NOT_SATISFIABLE,
+        Kind::UserLimitExceeded => StatusCode::TOO_MANY_REQUESTS,
+        Kind::SourceUnavailable | Kind::ResponseInvalid => StatusCode::BAD_GATEWAY,
+        Kind::SourceTimeout => StatusCode::GATEWAY_TIMEOUT,
+        Kind::CapacityExhausted => StatusCode::SERVICE_UNAVAILABLE,
+        Kind::CarrierNotFound => StatusCode::NOT_FOUND,
+        Kind::CarrierReadFailed => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
 impl From<anyhow::Error> for ApiError {
     fn from(error: anyhow::Error) -> Self {
         tracing::error!(error = ?error, "database request failed");
@@ -289,7 +333,7 @@ async fn normalize_error_response(response: Response) -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_error_code, normalize_error_response, ApiError};
+    use super::{default_error_code, normalize_error_response, remote_stream_status, ApiError};
     use axum::{
         body::to_bytes,
         http::{header, StatusCode},
@@ -353,6 +397,27 @@ mod tests {
             payload["message"],
             "only the system owner can perform this operation"
         );
+    }
+
+    #[test]
+    fn remote_stream_errors_map_to_the_stable_http_contract() {
+        use mova_application::RemoteStreamErrorKind;
+
+        let cases = [
+            (RemoteStreamErrorKind::ReferenceTooLarge, 413),
+            (RemoteStreamErrorKind::ReferenceInvalid, 422),
+            (RemoteStreamErrorKind::TargetForbidden, 403),
+            (RemoteStreamErrorKind::RangeNotSupported, 416),
+            (RemoteStreamErrorKind::UserLimitExceeded, 429),
+            (RemoteStreamErrorKind::SourceUnavailable, 502),
+            (RemoteStreamErrorKind::ResponseInvalid, 502),
+            (RemoteStreamErrorKind::SourceTimeout, 504),
+            (RemoteStreamErrorKind::CapacityExhausted, 503),
+        ];
+
+        for (kind, status) in cases {
+            assert_eq!(remote_stream_status(kind).as_u16(), status);
+        }
     }
 
     #[tokio::test]

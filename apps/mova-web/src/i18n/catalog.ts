@@ -389,6 +389,28 @@ const zhCN: Record<string, string> = {
   External: '外挂',
   'No subtitles found.': '没有找到字幕。',
   'The selected subtitle is too large to process.': '所选字幕过大，服务器无法处理。',
+  'Embedded audio track selection is not available for remote streams.':
+    '远程流不支持选择内嵌音轨。',
+  'The remote stream reference is empty.': '远程流引用内容为空。',
+  'The remote stream reference is too large.': '远程流引用文件过大。',
+  'The remote stream reference is not valid UTF-8 text.': '远程流引用不是有效的 UTF-8 文本。',
+  'The remote stream reference must contain exactly one URL.': '远程流引用必须且只能包含一个地址。',
+  'The remote stream reference does not contain a valid URL.': '远程流引用没有包含有效地址。',
+  'The remote stream reference must use HTTP or HTTPS.': '远程流引用必须使用 HTTP 或 HTTPS。',
+  'Credentials are not allowed inside a remote stream URL.': '远程流地址中不能包含账户或密码。',
+  'The remote stream reference is invalid.': '远程流引用内容无效。',
+  'The remote stream target is blocked by the server security policy.':
+    '远程流目标已被服务器安全策略拦截。',
+  'The remote source does not support seeking to this position.':
+    '远程资源不支持跳转到此播放位置。',
+  'You have reached the concurrent remote stream limit. Close another stream and try again.':
+    '已达到当前账户的远程流并发上限，请关闭其他播放后重试。',
+  'The remote media source is temporarily unavailable.': '远程媒体资源暂时不可用。',
+  'The remote source did not return a supported media response.':
+    '远程资源没有返回受支持的媒体响应。',
+  'The remote media source took too long to respond.': '远程媒体资源响应超时。',
+  'The server is currently handling too many remote streams. Try again shortly.':
+    '服务器当前处理的远程流过多，请稍后重试。',
   'Adjust volume': '调整音量',
   'Exit fullscreen': '退出全屏',
   'Enter fullscreen': '进入全屏',
@@ -436,6 +458,10 @@ const zhCN: Record<string, string> = {
   Yes: '是',
   No: '否',
   'File Size': '文件大小',
+  Source: '来源',
+  'Source Details': '来源信息',
+  'HTTP(S) Stream': 'HTTP(S) 远程流',
+  'Remote resource': '远程资源',
   'Overall Bitrate': '整体码率',
   'Resource Tags': '资源标签',
   Container: '封装方式',

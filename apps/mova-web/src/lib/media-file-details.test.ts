@@ -18,6 +18,7 @@ import {
 const sampleFile = {
   id: 11,
   media_item_id: 21,
+  source_kind: 'local_file' as const,
   file_path: '/media/movies/Dune (2021)/Dune (2021) [DDP Atmos][DoVi].mkv',
   container: 'mkv',
   file_size: 16_987_654_321,
@@ -102,6 +103,7 @@ describe('media file detail helpers', () => {
   it('uses MOVA-owned text presentations and preserves unknown technical tags', () => {
     expect(
       buildMediaFileTechnicalBadges({
+        source_kind: 'local_file',
         technical_tags: ['HDR10+', 'DTS-HD', '4K', 'Custom Format', 'custom format'],
       }),
     ).toEqual([
@@ -218,6 +220,35 @@ describe('media file detail helpers', () => {
       {
         label: 'Dune (2021) [DDP Atmos][DoVi].mkv · MKV · 3840 × 2160 · 19 Mb/s',
         value: '11',
+      },
+    ])
+  })
+
+  it('presents STRM sources without treating the carrier as media bytes or local metadata', () => {
+    const strmFile = {
+      ...sampleFile,
+      id: 12,
+      source_kind: 'strm' as const,
+      file_path: '/media/movies/Dune (2021)/Dune (2021).strm',
+      container: null,
+      file_size: 126,
+    }
+
+    expect(buildMediaFileTechnicalBadges(strmFile)).toEqual([
+      {
+        label: 'HTTP(S) Stream',
+        text: 'STRM',
+        tone: 'neutral',
+      },
+    ])
+    expect(buildVideoCardFacts(strmFile)).toEqual([
+      { label: 'Source', value: 'HTTP(S) Stream' },
+      { label: 'File Size', value: 'Remote resource' },
+    ])
+    expect(buildMediaVersionOptions([strmFile])).toEqual([
+      {
+        label: 'Dune (2021).strm · HTTP(S) Stream',
+        value: '12',
       },
     ])
   })

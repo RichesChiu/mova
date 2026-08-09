@@ -141,11 +141,15 @@ pub async fn sync_library_media_best_effort(
 
 /// 增量同步当前扫描确认有变化的媒体记录。
 /// `discovered_paths` 是本轮仍存在的全部视频路径；`entries` 只包含新增或内容发生变化的路径。
+/// `allow_empty_discovery_with_observed_issues` 只能在遍历成功且至少观察到一个可恢复的
+/// 单文件 discovery issue 时启用；遍历或文件 I/O 失败必须在调用此函数前中止。
+#[allow(clippy::too_many_arguments)]
 pub async fn sync_library_media_changes(
     pool: &PgPool,
     library_id: i64,
     scan_job_id: i64,
     discovered_paths: &[String],
+    allow_empty_discovery_with_observed_issues: bool,
     retained_local_metadata_source_paths: &[String],
     entries: &[CreateMediaEntryParams],
     fence: &BackgroundJobFence,
@@ -171,7 +175,12 @@ pub async fn sync_library_media_changes(
     let existing_records = list_library_media_files_for_sync(&mut tx, library_id)
         .await
         .context("failed to list existing library media paths for incremental sync")?;
-    validate_authoritative_discovery(library_id, existing_records.len(), discovered_paths.len())?;
+    validate_authoritative_discovery(
+        library_id,
+        existing_records.len(),
+        discovered_paths.len(),
+        allow_empty_discovery_with_observed_issues,
+    )?;
     let mut existing_by_path = existing_records
         .into_iter()
         .map(|record| (record.file_path.clone(), record))
@@ -246,8 +255,12 @@ fn validate_authoritative_discovery(
     library_id: i64,
     existing_file_count: usize,
     discovered_file_count: usize,
+    allow_empty_discovery_with_observed_issues: bool,
 ) -> Result<()> {
-    if existing_file_count > 0 && discovered_file_count == 0 {
+    if existing_file_count > 0
+        && discovered_file_count == 0
+        && !allow_empty_discovery_with_observed_issues
+    {
         anyhow::bail!(
             "refusing authoritative media reconciliation for non-empty library {library_id}: discovery returned zero media files"
         );
@@ -1566,6 +1579,8 @@ pub(super) async fn insert_media_file(
             library_id,
             media_item_id,
             file_path,
+            source_kind,
+            stream_reference_hash,
             container,
             file_size,
             duration_seconds,
@@ -1593,7 +1608,7 @@ pub(super) async fn insert_media_file(
         )
         values (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27
+            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
         )
         returning id
         "#,
@@ -1601,6 +1616,8 @@ pub(super) async fn insert_media_file(
     .bind(entry.library_id)
     .bind(media_item_id)
     .bind(&entry.file_path)
+    .bind(entry.source_kind.as_str())
+    .bind(&entry.stream_reference_hash)
     .bind(&entry.container)
     .bind(entry.file_size)
     .bind(entry.duration_seconds)
@@ -1646,36 +1663,40 @@ pub(super) async fn update_media_file_from_entry(
         update media_files
         set
             file_path = $2,
-            container = $3,
-            file_size = $4,
-            duration_seconds = $5,
-            video_title = $6,
-            video_codec = $7,
-            video_profile = $8,
-            video_level = $9,
-            audio_codec = $10,
-            width = $11,
-            height = $12,
-            bitrate = $13,
-            video_bitrate = $14,
-            video_frame_rate = $15,
-            video_aspect_ratio = $16,
-            video_scan_type = $17,
-            video_color_primaries = $18,
-            video_color_space = $19,
-            video_color_transfer = $20,
-            video_bit_depth = $21,
-            video_pixel_format = $22,
-            video_reference_frames = $23,
-            technical_tags = $24,
-            local_analysis_version = $25,
-            scan_hash = $26,
+            source_kind = $3,
+            stream_reference_hash = $4,
+            container = $5,
+            file_size = $6,
+            duration_seconds = $7,
+            video_title = $8,
+            video_codec = $9,
+            video_profile = $10,
+            video_level = $11,
+            audio_codec = $12,
+            width = $13,
+            height = $14,
+            bitrate = $15,
+            video_bitrate = $16,
+            video_frame_rate = $17,
+            video_aspect_ratio = $18,
+            video_scan_type = $19,
+            video_color_primaries = $20,
+            video_color_space = $21,
+            video_color_transfer = $22,
+            video_bit_depth = $23,
+            video_pixel_format = $24,
+            video_reference_frames = $25,
+            technical_tags = $26,
+            local_analysis_version = $27,
+            scan_hash = $28,
             updated_at = now()
         where id = $1
         "#,
     )
     .bind(media_file_id)
     .bind(&entry.file_path)
+    .bind(entry.source_kind.as_str())
+    .bind(&entry.stream_reference_hash)
     .bind(&entry.container)
     .bind(entry.file_size)
     .bind(entry.duration_seconds)
@@ -1826,30 +1847,32 @@ pub(super) async fn reassign_media_file_to_media_item(
         set
             media_item_id = $2,
             file_path = $3,
-            container = $4,
-            file_size = $5,
-            duration_seconds = $6,
-            video_title = $7,
-            video_codec = $8,
-            video_profile = $9,
-            video_level = $10,
-            audio_codec = $11,
-            width = $12,
-            height = $13,
-            bitrate = $14,
-            video_bitrate = $15,
-            video_frame_rate = $16,
-            video_aspect_ratio = $17,
-            video_scan_type = $18,
-            video_color_primaries = $19,
-            video_color_space = $20,
-            video_color_transfer = $21,
-            video_bit_depth = $22,
-            video_pixel_format = $23,
-            video_reference_frames = $24,
-            technical_tags = $25,
-            local_analysis_version = $26,
-            scan_hash = $27,
+            source_kind = $4,
+            stream_reference_hash = $5,
+            container = $6,
+            file_size = $7,
+            duration_seconds = $8,
+            video_title = $9,
+            video_codec = $10,
+            video_profile = $11,
+            video_level = $12,
+            audio_codec = $13,
+            width = $14,
+            height = $15,
+            bitrate = $16,
+            video_bitrate = $17,
+            video_frame_rate = $18,
+            video_aspect_ratio = $19,
+            video_scan_type = $20,
+            video_color_primaries = $21,
+            video_color_space = $22,
+            video_color_transfer = $23,
+            video_bit_depth = $24,
+            video_pixel_format = $25,
+            video_reference_frames = $26,
+            technical_tags = $27,
+            local_analysis_version = $28,
+            scan_hash = $29,
             updated_at = now()
         where id = $1
         "#,
@@ -1857,6 +1880,8 @@ pub(super) async fn reassign_media_file_to_media_item(
     .bind(media_file_id)
     .bind(target_media_item_id)
     .bind(&entry.file_path)
+    .bind(entry.source_kind.as_str())
+    .bind(&entry.stream_reference_hash)
     .bind(&entry.container)
     .bind(entry.file_size)
     .bind(entry.duration_seconds)

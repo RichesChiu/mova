@@ -41,6 +41,25 @@ const errorMessageKeys: Record<string, string> = {
   metadata_processing_failed: 'Metadata processing failed',
   media_probe_warning: 'Media inspection warning',
   subtitle_too_large: 'The selected subtitle is too large to process.',
+  strm_audio_track_selection_unsupported:
+    'Embedded audio track selection is not available for remote streams.',
+  strm_reference_empty: 'The remote stream reference is empty.',
+  strm_reference_too_large: 'The remote stream reference is too large.',
+  strm_reference_invalid_utf8: 'The remote stream reference is not valid UTF-8 text.',
+  strm_reference_multiple_lines: 'The remote stream reference must contain exactly one URL.',
+  strm_reference_invalid_url: 'The remote stream reference does not contain a valid URL.',
+  strm_reference_unsupported_scheme: 'The remote stream reference must use HTTP or HTTPS.',
+  strm_reference_credentials_not_allowed: 'Credentials are not allowed inside a remote stream URL.',
+  strm_reference_invalid: 'The remote stream reference is invalid.',
+  strm_target_forbidden: 'The remote stream target is blocked by the server security policy.',
+  remote_range_not_supported: 'The remote source does not support seeking to this position.',
+  strm_user_stream_limit_exceeded:
+    'You have reached the concurrent remote stream limit. Close another stream and try again.',
+  remote_source_unavailable: 'The remote media source is temporarily unavailable.',
+  remote_response_invalid: 'The remote source did not return a supported media response.',
+  remote_source_timeout: 'The remote media source took too long to respond.',
+  strm_stream_capacity_exhausted:
+    'The server is currently handling too many remote streams. Try again shortly.',
   cache_cleanup_failed:
     'The library data was deleted, but its cache could not be removed after all retries.',
   tmdb_retention_expired:

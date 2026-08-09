@@ -149,6 +149,13 @@ fn index_subtitle_directory(directory: &Path) -> IndexedSubtitleDirectory {
         }
 
         if is_supported_video(&path) {
+            if path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("strm"))
+                && crate::read_http_strm_reference(&path).is_err()
+            {
+                continue;
+            }
             if let Some(identity) = episode_identity_for_path(&path) {
                 *indexed
                     .episode_identity_counts
@@ -303,7 +310,19 @@ fn is_supported_subtitle(path: &Path) -> bool {
 fn is_supported_video(path: &Path) -> bool {
     matches!(
         extension_lowercase(path).as_deref(),
-        Some("mp4" | "mkv" | "avi" | "mov" | "m4v" | "wmv" | "flv" | "webm" | "mpg" | "mpeg")
+        Some(
+            "mp4"
+                | "mkv"
+                | "avi"
+                | "mov"
+                | "m4v"
+                | "wmv"
+                | "flv"
+                | "webm"
+                | "mpg"
+                | "mpeg"
+                | "strm"
+        )
     )
 }
 

@@ -63,6 +63,7 @@ pub async fn list_intro_detection_inputs(
             select candidate.*
             from media_files candidate
             where candidate.media_item_id = episode.media_item_id
+              and candidate.source_kind = 'local_file'
             order by candidate.created_at asc, candidate.id asc
             limit 1
         ) media_file on true
@@ -136,6 +137,7 @@ pub async fn enqueue_season_intro_detection(
                         select 1
                         from media_files media_file
                         where media_file.media_item_id = episode.media_item_id
+                          and media_file.source_kind = 'local_file'
                   )
               ) >= 3
           and not exists (
@@ -262,6 +264,7 @@ pub async fn record_season_intro_analysis(
             select candidate.*
             from media_files candidate
             where candidate.media_item_id = episode.media_item_id
+              and candidate.source_kind = 'local_file'
             order by candidate.created_at asc, candidate.id asc
             limit 1
         ) media_file on true
@@ -707,6 +710,323 @@ mod tests {
         .expect("markers should load");
         assert_eq!(analysis_count, 0);
         assert_eq!(markers, (None, None));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn strm_versions_are_not_intro_inputs_and_hash_changes_do_not_invalidate_markers(
+        pool: PgPool,
+    ) {
+        let (library_id, season_id, local_media_file_ids) = seed_episode_season(&pool).await;
+        let episode_media_item_id =
+            sqlx::query_scalar::<_, i64>("select media_item_id from media_files where id = $1")
+                .bind(local_media_file_ids[0])
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let strm_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_files (
+                library_id, media_item_id, file_path, source_kind,
+                stream_reference_hash, file_size, created_at
+            )
+            values ($1, $2, '/media/tv/series/S01E01.strm', 'strm', $3, 64, now() - interval '1 day')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(episode_media_item_id)
+        .bind("c".repeat(64))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let inputs = list_intro_detection_inputs(&pool, season_id).await.unwrap();
+        assert_eq!(inputs.len(), 3);
+        assert_eq!(inputs[0].media_file_id, local_media_file_ids[0]);
+
+        sqlx::query(
+            r#"
+            insert into season_intro_analyses (
+                season_id, algorithm_version, input_fingerprint, outcome,
+                intro_start_seconds, intro_end_seconds, confidence,
+                sampled_episode_count, analyzed_episode_count, failed_episode_count
+            )
+            values ($1, 2, $2, 'matched', 12, 72, 0.94, 3, 3, 0)
+            "#,
+        )
+        .bind(season_id)
+        .bind("e".repeat(64))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "update seasons set intro_start_seconds = 12, intro_end_seconds = 72 where id = $1",
+        )
+        .bind(season_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "update media_files set stream_reference_hash = $2, scan_hash = 'changed' where id = $1",
+        )
+        .bind(strm_id)
+        .bind("d".repeat(64))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let analysis_count = sqlx::query_scalar::<_, i64>(
+            "select count(*) from season_intro_analyses where season_id = $1",
+        )
+        .bind(season_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let markers = sqlx::query_as::<_, (Option<i32>, Option<i32>)>(
+            "select intro_start_seconds, intro_end_seconds from seasons where id = $1",
+        )
+        .bind(season_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(analysis_count, 1);
+        assert_eq!(markers, (Some(12), Some(72)));
+
+        let second_strm_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_files (
+                library_id, media_item_id, file_path, source_kind,
+                stream_reference_hash, file_size
+            )
+            values ($1, $2, '/media/tv/series/S01E01-alt.strm', 'strm', $3, 64)
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(episode_media_item_id)
+        .bind("8".repeat(64))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from season_intro_analyses where season_id = $1",
+            )
+            .bind(season_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            1
+        );
+
+        sqlx::query("delete from media_files where id = $1")
+            .bind(second_strm_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from season_intro_analyses where season_id = $1",
+            )
+            .bind(season_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            1
+        );
+
+        let strm_only_episode_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_items (library_id, media_type, title, source_title)
+            values ($1, 'episode', 'Episode 4', 'Episode 4')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into episodes (media_item_id, library_id, season_id, episode_number)
+            values ($1, $2, $3, 4)
+            "#,
+        )
+        .bind(strm_only_episode_id)
+        .bind(library_id)
+        .bind(season_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into media_files (
+                library_id, media_item_id, file_path, source_kind,
+                stream_reference_hash, file_size
+            )
+            values ($1, $2, '/media/tv/series/S01E04.strm', 'strm', $3, 64)
+            "#,
+        )
+        .bind(library_id)
+        .bind(strm_only_episode_id)
+        .bind("7".repeat(64))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from season_intro_analyses where season_id = $1",
+            )
+            .bind(season_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            1
+        );
+
+        sqlx::query("delete from media_items where id = $1")
+            .bind(strm_only_episode_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from season_intro_analyses where season_id = $1",
+            )
+            .bind(season_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            1
+        );
+
+        sqlx::query("delete from media_files where id = $1")
+            .bind(strm_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from season_intro_analyses where season_id = $1",
+            )
+            .bind(season_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            1
+        );
+
+        sqlx::query(
+            r#"
+            update media_files
+            set source_kind = 'strm',
+                stream_reference_hash = $2,
+                duration_seconds = null,
+                scan_hash = 'converted-to-strm'
+            where id = $1
+            "#,
+        )
+        .bind(local_media_file_ids[0])
+        .bind("f".repeat(64))
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from season_intro_analyses where season_id = $1",
+            )
+            .bind(season_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_as::<_, (Option<i32>, Option<i32>)>(
+                "select intro_start_seconds, intro_end_seconds from seasons where id = $1",
+            )
+            .bind(season_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            (None, None)
+        );
+
+        sqlx::query(
+            r#"
+            insert into season_intro_analyses (
+                season_id, algorithm_version, input_fingerprint, outcome,
+                intro_start_seconds, intro_end_seconds, confidence,
+                sampled_episode_count, analyzed_episode_count, failed_episode_count
+            )
+            values ($1, 2, $2, 'matched', 12, 72, 0.94, 3, 3, 0)
+            "#,
+        )
+        .bind(season_id)
+        .bind("9".repeat(64))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "update seasons set intro_start_seconds = 12, intro_end_seconds = 72 where id = $1",
+        )
+        .bind(season_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            update media_files
+            set source_kind = 'local_file',
+                stream_reference_hash = null,
+                duration_seconds = 2400,
+                scan_hash = 'converted-to-local'
+            where id = $1
+            "#,
+        )
+        .bind(local_media_file_ids[0])
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from season_intro_analyses where season_id = $1",
+            )
+            .bind(season_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            0
+        );
+
+        for (index, media_file_id) in local_media_file_ids.iter().enumerate() {
+            sqlx::query(
+                r#"
+                update media_files
+                set source_kind = 'strm',
+                    stream_reference_hash = $2,
+                    duration_seconds = null,
+                    scan_hash = 'all-strm'
+                where id = $1
+                "#,
+            )
+            .bind(media_file_id)
+            .bind(format!("{index:064x}"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        assert!(list_intro_detection_inputs(&pool, season_id)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(
+            !enqueue_season_intro_detection(&pool, library_id, season_id, 2)
+                .await
+                .expect("STRM-only seasons must not enqueue intro detection")
+        );
     }
 
     #[sqlx::test(migrations = "../../migrations")]

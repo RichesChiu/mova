@@ -1,5 +1,6 @@
 use super::{
     discover::{
+        discover_media_file_inventory_report_with_progress_and_cancel,
         discover_media_file_inventory_with_progress_and_cancel, discover_media_files,
         discover_media_files_with_progress_and_cancel,
         discover_media_files_with_progress_item_and_cancel, discover_media_paths,
@@ -21,6 +22,7 @@ use super::{
     },
     SubtitleDirectoryIndex,
 };
+use mova_domain::MediaSourceKind;
 use std::{cell::Cell, env, fs, io::ErrorKind, path::Path, path::PathBuf};
 use uuid::Uuid;
 
@@ -2211,6 +2213,8 @@ fn inspect_media_inventory_can_be_cancelled_before_ffprobe_starts() {
     let result = inspect_media_file_inventory_with_cancel(
         super::DiscoveredMediaFileInventory {
             file_path: PathBuf::from("/media/missing-file.mkv"),
+            source_kind: mova_domain::MediaSourceKind::LocalFile,
+            stream_reference_hash: None,
             file_size: 2048,
             file_modified_at_ms: None,
             sidecar_fingerprint: String::new(),
@@ -2254,6 +2258,182 @@ fn inventory_scan_hash_changes_when_directory_sidecars_change() {
     assert_eq!(first.file_modified_at_ms, second.file_modified_at_ms);
     assert_ne!(first.sidecar_fingerprint, second.sidecar_fingerprint);
     assert_ne!(first_hash, second_hash);
+}
+
+#[test]
+fn local_inventory_scan_hash_remains_compatible_with_the_pre_strm_algorithm() {
+    let inventory = super::DiscoveredMediaFileInventory {
+        file_path: PathBuf::from("/media/movie.mkv"),
+        source_kind: MediaSourceKind::LocalFile,
+        stream_reference_hash: None,
+        file_size: 2048,
+        file_modified_at_ms: None,
+        sidecar_fingerprint: String::new(),
+    };
+
+    assert_eq!(
+        discovered_media_file_inventory_scan_hash(&inventory),
+        "76bd43bc9a8765c2"
+    );
+}
+
+#[test]
+fn strm_discovery_skips_ffprobe_and_keeps_local_nfo_and_subtitles() {
+    let root = unique_temp_path("strm-sidecars");
+    fs::create_dir_all(&root).unwrap();
+    let strm_path = root.join("Remote Movie (2026).strm");
+    let subtitle_path = root.join("Remote Movie (2026).en.srt");
+    fs::write(
+        &strm_path,
+        b"https://media.example/movie.mp4?signature=private",
+    )
+    .unwrap();
+    fs::write(
+        strm_path.with_extension("nfo"),
+        b"<movie><title>Local Remote Movie</title><year>2026</year></movie>",
+    )
+    .unwrap();
+    fs::write(root.join("poster.jpg"), b"poster").unwrap();
+    fs::write(root.join("fanart.jpg"), b"fanart").unwrap();
+    fs::write(&subtitle_path, b"1\n00:00:00,000 --> 00:00:01,000\nhello").unwrap();
+
+    let files = discover_media_files(&root).unwrap();
+    assert_eq!(files.len(), 1);
+    let file = &files[0];
+    assert_eq!(file.source_kind, MediaSourceKind::Strm);
+    assert_eq!(
+        file.stream_reference_hash.as_deref().map(str::len),
+        Some(64)
+    );
+    assert_eq!(file.title, "Local Remote Movie");
+    assert_eq!(
+        file.poster_path.as_deref(),
+        Some(root.join("poster.jpg").to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        file.backdrop_path.as_deref(),
+        Some(root.join("fanart.jpg").to_string_lossy().as_ref())
+    );
+    assert_eq!(file.container, None);
+    assert_eq!(file.probe_error, None);
+    assert_eq!(file.duration_seconds, None);
+    assert!(file.audio_tracks.is_empty());
+    assert_eq!(file.subtitle_tracks.len(), 1);
+    assert_eq!(
+        file.subtitle_tracks[0].file_path.as_ref(),
+        Some(&subtitle_path)
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn inventory_reports_invalid_strm_without_exposing_its_reference() {
+    let root = unique_temp_path("invalid-strm-report");
+    fs::create_dir_all(&root).unwrap();
+    let valid_path = root.join("Valid.strm");
+    let invalid_path = root.join("Invalid.strm");
+    fs::write(&valid_path, b"https://media.example/valid.mp4").unwrap();
+    fs::write(
+        &invalid_path,
+        b"https://media.example/private.mp4?token=do-not-log#fragment",
+    )
+    .unwrap();
+
+    let report =
+        discover_media_file_inventory_report_with_progress_and_cancel(&root, |_| {}, || false)
+            .unwrap();
+    assert_eq!(report.files.len(), 1);
+    assert_eq!(report.files[0].file_path, valid_path);
+    assert_eq!(report.issues.len(), 1);
+    assert_eq!(report.issues[0].file_path, invalid_path);
+    assert_eq!(report.issues[0].reason_code, "strm_reference_invalid_url");
+    let diagnostics = format!("{:?}", report.issues);
+    assert!(!diagnostics.contains("media.example"));
+    assert!(!diagnostics.contains("token"));
+    assert!(!diagnostics.contains("do-not-log"));
+
+    let paths = discover_media_paths(&root).unwrap();
+    assert_eq!(paths, vec![valid_path]);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn strm_discovery_keeps_carrier_io_failures_non_authoritative() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
+    let root = unique_temp_path("strm-io-failure");
+    fs::create_dir_all(&root).unwrap();
+    let unreadable_path = root.join("Unreadable.strm");
+    fs::write(&unreadable_path, b"https://media.example/movie.mp4").unwrap();
+    fs::set_permissions(&unreadable_path, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let error =
+        discover_media_file_inventory_report_with_progress_and_cancel(&root, |_| {}, || false)
+            .expect_err("a carrier boundary I/O failure must abort authoritative discovery");
+    fs::set_permissions(&unreadable_path, fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(error.kind(), ErrorKind::PermissionDenied);
+
+    symlink(root.join("missing-target.strm"), root.join("Broken.strm")).unwrap();
+    let error =
+        discover_media_file_inventory_report_with_progress_and_cancel(&root, |_| {}, || false)
+            .expect_err("a carrier boundary failure must abort authoritative discovery");
+    assert_eq!(error.kind(), ErrorKind::NotFound);
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn invalid_strm_does_not_make_external_episode_subtitles_ambiguous() {
+    let root = unique_temp_path("invalid-strm-subtitle-ambiguity");
+    fs::create_dir_all(&root).unwrap();
+    let valid_path = root.join("Show.S01E01.strm");
+    let invalid_path = root.join("Broken.S01E01.strm");
+    let subtitle_path = root.join("Unrelated.S01E01.en.srt");
+    fs::write(&valid_path, b"https://media.example/episode.mp4").unwrap();
+    fs::write(&invalid_path, b"not a URL").unwrap();
+    fs::write(&subtitle_path, b"1\n00:00:00,000 --> 00:00:01,000\nhello").unwrap();
+
+    let files = discover_media_files(&root).unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].file_path, valid_path);
+    assert_eq!(files[0].subtitle_tracks.len(), 1);
+    assert_eq!(
+        files[0].subtitle_tracks[0].file_path.as_ref(),
+        Some(&subtitle_path)
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn same_length_strm_change_updates_inventory_scan_hash() {
+    let root = unique_temp_path("strm-hash-change");
+    fs::create_dir_all(&root).unwrap();
+    let path = root.join("Movie.strm");
+    fs::write(&path, b"https://media.example/a.mp4").unwrap();
+    let first =
+        discover_media_file_inventory_report_with_progress_and_cancel(&root, |_| {}, || false)
+            .unwrap()
+            .files
+            .remove(0);
+
+    fs::write(&path, b"https://media.example/b.mp4").unwrap();
+    let mut second =
+        discover_media_file_inventory_report_with_progress_and_cancel(&root, |_| {}, || false)
+            .unwrap()
+            .files
+            .remove(0);
+    second.file_modified_at_ms = first.file_modified_at_ms;
+
+    assert_eq!(first.file_size, second.file_size);
+    assert_ne!(first.stream_reference_hash, second.stream_reference_hash);
+    assert_ne!(
+        discovered_media_file_inventory_scan_hash(&first),
+        discovered_media_file_inventory_scan_hash(&second)
+    );
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

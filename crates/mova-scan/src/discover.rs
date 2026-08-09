@@ -8,8 +8,10 @@ use crate::{
         discover_subtitle_tracks, discover_subtitle_tracks_with_index, SubtitleDirectoryIndex,
     },
     DiscoveredAudioTrack, DiscoveredMediaFile, DiscoveredMediaFileInventory, LocalNfoMetadata,
-    LocalNfoObservation, MediaNfoKind,
+    LocalNfoObservation, MediaDiscoveryIssue, MediaDiscoveryReport, MediaNfoKind,
+    ReadHttpStrmReferenceError,
 };
+use mova_domain::MediaSourceKind;
 use std::{
     collections::{BTreeMap, HashSet},
     fs,
@@ -71,19 +73,41 @@ where
     F: FnMut(usize),
     C: FnMut() -> bool,
 {
+    discover_media_file_inventory_report_with_progress_and_cancel(
+        root_path,
+        &mut on_progress,
+        &mut should_cancel,
+    )
+    .map(|report| report.files)
+}
+
+/// Recursively discovers media carriers and reports recoverable per-file
+/// issues separately from authoritative traversal and carrier I/O failures.
+pub fn discover_media_file_inventory_report_with_progress_and_cancel<F, C>(
+    root_path: &Path,
+    mut on_progress: F,
+    mut should_cancel: C,
+) -> io::Result<MediaDiscoveryReport>
+where
+    F: FnMut(usize),
+    C: FnMut() -> bool,
+{
     let mut files = Vec::new();
+    let mut issues = Vec::new();
     let mut boundary = DiscoveryBoundary::new(root_path)?;
     visit_dir_inventory(
         root_path,
         &mut files,
+        &mut issues,
         &mut on_progress,
         &mut should_cancel,
         &mut boundary,
     )?;
     populate_inventory_sidecar_fingerprints(&mut files, root_path);
     files.sort_by(|left, right| left.file_path.cmp(&right.file_path));
+    issues.sort_by(|left, right| left.file_path.cmp(&right.file_path));
 
-    Ok(files)
+    Ok(MediaDiscoveryReport { files, issues })
 }
 
 /// 递归扫描目录，支持在发现单个媒体文件时立即回调，便于上层做增量 UI。
@@ -199,11 +223,14 @@ fn inventory_for_single_media_file(path: &Path) -> io::Result<DiscoveredMediaFil
         ));
     }
 
-    let mut inventory = build_discovered_media_file_inventory(
+    let mut inventory = match build_discovered_media_file_inventory(
         path.to_path_buf(),
         metadata.len(),
         metadata_modified_at_ms(&metadata),
-    );
+    )? {
+        Ok(inventory) => inventory,
+        Err(issue) => return Err(io::Error::new(ErrorKind::InvalidData, issue.reason_code)),
+    };
     inventory.sidecar_fingerprint =
         sidecar_fingerprint_for_directory(path.parent().unwrap_or_else(|| Path::new(".")), None);
     Ok(inventory)
@@ -356,11 +383,16 @@ where
             continue;
         }
 
-        let inventory = build_discovered_media_file_inventory(
+        let inventory = match build_discovered_media_file_inventory(
             path,
             metadata.len(),
             metadata_modified_at_ms(&metadata),
-        );
+        )? {
+            Ok(inventory) => inventory,
+            // Legacy full-discovery callers do not expose issue details, but
+            // malformed STRM carriers remain recoverable and are omitted.
+            Err(_) => continue,
+        };
         files.push(build_discovered_media_file_with_cancel(
             inventory,
             probe_availability,
@@ -381,6 +413,7 @@ where
 fn visit_dir_inventory<F>(
     dir: &Path,
     files: &mut Vec<DiscoveredMediaFileInventory>,
+    issues: &mut Vec<MediaDiscoveryIssue>,
     on_progress: &mut F,
     should_cancel: &mut impl FnMut() -> bool,
     boundary: &mut DiscoveryBoundary,
@@ -409,7 +442,7 @@ where
         let metadata = fs::metadata(canonical_path)?;
 
         if metadata.is_dir() {
-            visit_dir_inventory(&path, files, on_progress, should_cancel, boundary)?;
+            visit_dir_inventory(&path, files, issues, on_progress, should_cancel, boundary)?;
             continue;
         }
 
@@ -417,12 +450,15 @@ where
             continue;
         }
 
-        files.push(build_discovered_media_file_inventory(
+        match build_discovered_media_file_inventory(
             path,
             metadata.len(),
             metadata_modified_at_ms(&metadata),
-        ));
-        on_progress(files.len());
+        )? {
+            Ok(inventory) => files.push(inventory),
+            Err(issue) => issues.push(issue),
+        }
+        on_progress(files.len().saturating_add(issues.len()));
     }
 
     Ok(())
@@ -454,7 +490,15 @@ fn visit_dir_paths(
             continue;
         }
 
-        files.push(path);
+        if build_discovered_media_file_inventory(
+            path.clone(),
+            metadata.len(),
+            metadata_modified_at_ms(&metadata),
+        )?
+        .is_ok()
+        {
+            files.push(path);
+        }
     }
 
     Ok(())
@@ -504,13 +548,31 @@ fn build_discovered_media_file_inventory(
     path: PathBuf,
     file_size: u64,
     file_modified_at_ms: Option<i64>,
-) -> DiscoveredMediaFileInventory {
-    DiscoveredMediaFileInventory {
+) -> io::Result<Result<DiscoveredMediaFileInventory, MediaDiscoveryIssue>> {
+    let (source_kind, stream_reference_hash) = if is_strm_file(&path) {
+        match crate::read_http_strm_reference(&path) {
+            Ok(reference) => (MediaSourceKind::Strm, Some(reference.reference_hash)),
+            Err(ReadHttpStrmReferenceError::Invalid(error)) => {
+                return Ok(Err(MediaDiscoveryIssue {
+                    file_path: path,
+                    reason_code: error.code().to_string(),
+                    diagnostic_message: format!("Invalid STRM reference: {}", error.code()),
+                }));
+            }
+            Err(ReadHttpStrmReferenceError::Io(error)) => return Err(error),
+        }
+    } else {
+        (MediaSourceKind::LocalFile, None)
+    };
+
+    Ok(Ok(DiscoveredMediaFileInventory {
         file_path: path,
+        source_kind,
+        stream_reference_hash,
         file_size,
         file_modified_at_ms,
         sidecar_fingerprint: String::new(),
-    }
+    }))
 }
 
 fn build_discovered_media_file_with_cancel(
@@ -529,7 +591,11 @@ fn build_discovered_media_file_with_cancel(
     let (sidecar, invalid_local_nfo_source_path) =
         observe_file_nfo(&path, root_path, allow_generic_movie_nfo);
     let parsed = parse_media_metadata_with_sidecar(&path, sidecar);
-    let probe = probe_media_file_with_cancel(&path, probe_availability, should_cancel)?;
+    let probe = if inventory.source_kind == MediaSourceKind::Strm {
+        MediaProbe::default()
+    } else {
+        probe_media_file_with_cancel(&path, probe_availability, should_cancel)?
+    };
 
     let mut file =
         build_discovered_media_file_from_parts(inventory, parsed, probe, true, subtitle_index);
@@ -615,6 +681,8 @@ fn build_discovered_media_file_from_parts(
     };
 
     DiscoveredMediaFile {
+        source_kind: inventory.source_kind,
+        stream_reference_hash: inventory.stream_reference_hash,
         file_modified_at_ms: inventory.file_modified_at_ms,
         sidecar_fingerprint: inventory.sidecar_fingerprint,
         probe_error: probe.error,
@@ -667,7 +735,9 @@ fn build_discovered_media_file_from_parts(
         poster_path: parsed.poster_path,
         backdrop_path: parsed.backdrop_path,
         logo_path: None,
-        container: extension_lowercase(&path),
+        container: (inventory.source_kind == MediaSourceKind::LocalFile)
+            .then(|| extension_lowercase(&path))
+            .flatten(),
         duration_seconds: probe.duration_seconds,
         video_title: probe.video_title,
         video_codec: probe.video_codec,
@@ -778,6 +848,9 @@ fn sidecar_fingerprint_for_directory(directory: &Path, root_path: Option<&Path>)
         for entry in entries.flatten() {
             let path = entry.path();
             if is_supported_video(&path) && path.is_file() {
+                if is_strm_file(&path) && crate::read_http_strm_reference(&path).is_err() {
+                    continue;
+                }
                 if let Some(identity) = episode_identity_for_path(&path) {
                     *episode_video_counts
                         .entry((identity.season_number, identity.episode_number))
@@ -900,6 +973,24 @@ fn metadata_modified_at_ms(metadata: &fs::Metadata) -> Option<i64> {
 pub(crate) fn is_supported_video(path: &Path) -> bool {
     matches!(
         extension_lowercase(path).as_deref(),
-        Some("mp4" | "mkv" | "avi" | "mov" | "m4v" | "wmv" | "flv" | "webm" | "mpg" | "mpeg")
+        Some(
+            "mp4"
+                | "mkv"
+                | "avi"
+                | "mov"
+                | "m4v"
+                | "wmv"
+                | "flv"
+                | "webm"
+                | "mpg"
+                | "mpeg"
+                | "strm"
+        )
     )
+}
+
+fn is_strm_file(path: &Path) -> bool {
+    extension_lowercase(path)
+        .as_deref()
+        .is_some_and(|extension| extension == "strm")
 }

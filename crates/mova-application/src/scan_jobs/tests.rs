@@ -2,7 +2,7 @@ use crate::metadata::{MetadataLookup, MetadataProvider, RemoteMetadata};
 use async_trait::async_trait;
 use mova_db::ExistingMediaMetadataSummary;
 use mova_domain::{
-    Library, MediaExternalId, MediaRating, METADATA_FAILURE_NO_REMOTE_MATCH,
+    Library, MediaExternalId, MediaRating, MediaSourceKind, METADATA_FAILURE_NO_REMOTE_MATCH,
     METADATA_FAILURE_PROVIDER_ERROR, METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED,
     METADATA_STATUS_PENDING, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
     REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
@@ -22,6 +22,8 @@ use time::OffsetDateTime;
 fn build_discovered_file() -> DiscoveredMediaFile {
     DiscoveredMediaFile {
         file_path: PathBuf::from("/media/series/Arcane/Arcane.S01E01.mkv"),
+        source_kind: MediaSourceKind::LocalFile,
+        stream_reference_hash: None,
         file_modified_at_ms: Some(1_700_000_000_000),
         sidecar_fingerprint: String::new(),
         probe_error: None,
@@ -180,11 +182,35 @@ fn scan_notification_summary_counts_all_issues_but_bounds_payload_details() {
     );
 }
 
+#[test]
+fn discovery_issue_notification_uses_only_stable_strm_diagnostics() {
+    let issue = mova_scan::MediaDiscoveryIssue {
+        file_path: PathBuf::from("/media/Invalid.strm"),
+        reason_code: "strm_reference_invalid_url".to_string(),
+        diagnostic_message: "https://media.example/private.mp4?token=do-not-log is invalid"
+            .to_string(),
+    };
+    let mut summary = mova_domain::ScanNotificationSummary::default();
+
+    super::record_media_discovery_issues(&mut summary, &[issue]);
+
+    assert_eq!(summary.failed_files, 1);
+    assert_eq!(summary.issue_count, 1);
+    let serialized = serde_json::to_string(&summary).unwrap();
+    assert!(serialized.contains("strm_reference_invalid_url"));
+    assert!(serialized.contains("/media/Invalid.strm"));
+    assert!(!serialized.contains("media.example"));
+    assert!(!serialized.contains("token"));
+    assert!(!serialized.contains("do-not-log"));
+}
+
 fn build_pending_scan_file(file: DiscoveredMediaFile) -> super::PendingScanFile {
     super::PendingScanFile {
         changed_file: super::IncrementalScanFile {
             inventory: DiscoveredMediaFileInventory {
                 file_path: file.file_path.clone(),
+                source_kind: file.source_kind,
+                stream_reference_hash: file.stream_reference_hash.clone(),
                 file_size: file.file_size,
                 file_modified_at_ms: file.file_modified_at_ms,
                 sidecar_fingerprint: file.sidecar_fingerprint.clone(),
@@ -256,6 +282,8 @@ fn build_existing_movie_metadata() -> ExistingMediaMetadataSummary {
         backdrop_path: Some("/cache/backdrop.jpg".to_string()),
         logo_path: Some("/cache/logo.png".to_string()),
         scan_hash: Some("movie-hash".to_string()),
+        source_kind: MediaSourceKind::LocalFile,
+        stream_reference_hash: None,
         container: Some("mkv".to_string()),
         file_size: 1024,
         duration_seconds: Some(600),
@@ -364,6 +392,8 @@ fn build_existing_episode_metadata() -> ExistingMediaMetadataSummary {
         backdrop_path: Some("/cache/episode-backdrop.jpg".to_string()),
         logo_path: None,
         scan_hash: Some("episode-hash".to_string()),
+        source_kind: MediaSourceKind::LocalFile,
+        stream_reference_hash: None,
         container: Some("mkv".to_string()),
         file_size: 2048,
         duration_seconds: Some(1200),
@@ -697,6 +727,8 @@ fn discovered_file_from_existing_local_analysis_preserves_cached_probe_data() {
     let summary = build_existing_episode_metadata();
     let inventory = DiscoveredMediaFileInventory {
         file_path: PathBuf::from("/media/series/Arcane/Arcane.S01E01.mkv"),
+        source_kind: MediaSourceKind::LocalFile,
+        stream_reference_hash: None,
         file_size: 2048,
         file_modified_at_ms: Some(1_700_000_000_000),
         sidecar_fingerprint: "sidecars".to_string(),
@@ -730,6 +762,8 @@ fn failed_episode_does_not_inherit_an_accepted_series_binding_for_retry_status()
     summary.metadata_provider_item_id = None;
     let inventory = DiscoveredMediaFileInventory {
         file_path: PathBuf::from("/media/series/Arcane/Arcane.S01E02.mkv"),
+        source_kind: MediaSourceKind::LocalFile,
+        stream_reference_hash: None,
         file_size: 2048,
         file_modified_at_ms: Some(1_700_000_000_000),
         sidecar_fingerprint: "sidecars".to_string(),
@@ -1594,7 +1628,10 @@ fn generic_movie_nfo_remains_eligible_for_proven_multi_version_movie() {
     first.season_number = None;
     first.episode_number = None;
     let mut second = first.clone();
-    second.file_path = root.join("Same.Movie.2025.2160p.mkv");
+    second.file_path = root.join("Same.Movie.2025.strm");
+    second.source_kind = MediaSourceKind::Strm;
+    second.stream_reference_hash = Some("a".repeat(64));
+    second.container = None;
 
     let observations = super::eligible_local_nfo_observations(&[first, second], &root);
     let _ = fs::remove_dir_all(&root);
@@ -1604,6 +1641,35 @@ fn generic_movie_nfo_remains_eligible_for_proven_multi_version_movie() {
         Some(mova_scan::LocalNfoObservation::Valid(metadata))
             if metadata.kind == mova_scan::LocalNfoKind::Movie
     )));
+}
+
+#[test]
+fn build_media_entries_preserves_strm_source_without_technical_fields() {
+    let mut file = build_discovered_file();
+    file.file_path = PathBuf::from("/media/movies/Remote.Movie.2025.strm");
+    file.source_kind = MediaSourceKind::Strm;
+    file.stream_reference_hash = Some("b".repeat(64));
+    file.title = "Remote Movie".to_string();
+    file.source_title = "Remote Movie".to_string();
+    file.year = Some(2025);
+    file.season_number = None;
+    file.episode_number = None;
+    file.episode_title = None;
+    file.container = None;
+    file.duration_seconds = None;
+    file.technical_tags.clear();
+    file.audio_tracks.clear();
+
+    let entries =
+        super::build_media_entries(&build_library(), vec![file], false, false, None, false)
+            .unwrap();
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].source_kind, MediaSourceKind::Strm);
+    assert_eq!(entries[0].stream_reference_hash, Some("b".repeat(64)));
+    assert_eq!(entries[0].container, None);
+    assert_eq!(entries[0].duration_seconds, None);
+    assert!(entries[0].audio_tracks.is_empty());
 }
 
 #[tokio::test]
@@ -1625,6 +1691,8 @@ async fn generic_movie_nfo_owner_converges_when_a_second_work_makes_it_ambiguous
 
     let inventory = |file_path: PathBuf, file_size: u64| DiscoveredMediaFileInventory {
         file_path,
+        source_kind: MediaSourceKind::LocalFile,
+        stream_reference_hash: None,
         file_size,
         file_modified_at_ms: Some(1_700_000_000_000),
         sidecar_fingerprint: String::new(),
@@ -2152,6 +2220,8 @@ async fn inspect_incremental_scan_files_shallow_ignores_stale_existing_titles() 
                 file_path: PathBuf::from(
                     "/media/overseas_tv/All's Fair (2025)/Season 01/Alls Fair (2025) - S01E01.mkv",
                 ),
+                source_kind: MediaSourceKind::LocalFile,
+                stream_reference_hash: None,
                 file_size: 2048,
                 file_modified_at_ms: Some(1_700_000_000_000),
                 sidecar_fingerprint: String::new(),
@@ -2184,6 +2254,8 @@ async fn incremental_scan_inspection_returns_cancelled_before_touching_files() {
         vec![super::IncrementalScanFile {
             inventory: DiscoveredMediaFileInventory {
                 file_path: PathBuf::from("/media/missing-file.mkv"),
+                source_kind: MediaSourceKind::LocalFile,
+                stream_reference_hash: None,
                 file_size: 2048,
                 file_modified_at_ms: Some(1_700_000_000_000),
                 sidecar_fingerprint: String::new(),

@@ -867,13 +867,17 @@ mod tests {
         .unwrap();
         let second_file_id = sqlx::query_scalar::<_, i64>(
             r#"
-            insert into media_files (library_id, media_item_id, file_path, file_size)
-            values ($1, $2, '/media/versions/movie-2160p.mkv', 1)
+            insert into media_files (
+                library_id, media_item_id, file_path, source_kind,
+                stream_reference_hash, file_size
+            )
+            values ($1, $2, '/media/versions/movie-remote.strm', 'strm', $3, 64)
             returning id
             "#,
         )
         .bind(library_id)
         .bind(media_item_id)
+        .bind("a".repeat(64))
         .fetch_one(&pool)
         .await
         .unwrap();
