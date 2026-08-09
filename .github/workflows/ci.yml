@@ -106,6 +106,7 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title || '' }}
         run: |
+          source ./scripts/lib/release-subject.sh
           version="$(./scripts/resolve-release-version.sh)"
           tag="v${version}"
           if git rev-parse --verify --quiet "refs/tags/${tag}" >/dev/null; then
@@ -118,10 +119,7 @@ jobs:
           else
             actual_subject="$(git log -1 --format=%s)"
           fi
-          if [[ "$actual_subject" == "$expected_subject" ]]; then
-            exit 0
-          fi
-          if git log --format=%s | grep --fixed-strings --line-regexp --quiet "$expected_subject"; then
+          if mova_release_subject_matches "$actual_subject" "$expected_subject"; then
             exit 0
           fi
           echo "An untagged workspace version requires a dedicated release change." >&2
@@ -157,6 +155,7 @@ jobs:
           ./scripts/tests/test-docker-attestation-policy.sh
           ./scripts/tests/test-docker-build-policy.sh
           ./scripts/tests/test-docker-platform-image.sh
+          ./scripts/tests/test-release-subject.sh
 
       - name: Build Web base image
         run: >-
