@@ -7,7 +7,6 @@ validate_attested_image_index() {
   local image_ref="$1"
   local platforms="$2"
   local media_type
-  local image_metadata
   local manifest_metadata
   local expected_platforms_json
   local platform
@@ -50,15 +49,6 @@ validate_attested_image_index() {
       ;;
   esac
 
-  image_metadata="$(
-    docker buildx imagetools inspect "$image_ref" --format '{{json .Image}}'
-  )"
-  if ! jq -e --argjson expected "$expected_platforms_json" \
-    'keys | sort == $expected' <<<"$image_metadata" >/dev/null; then
-    echo "Attested image platform set does not match the expected platforms: $image_ref" >&2
-    return 1
-  fi
-
   manifest_metadata="$(
     docker buildx imagetools inspect "$image_ref" --format '{{json .Manifest}}'
   )"
@@ -87,7 +77,7 @@ validate_attested_image_index() {
        (($images | map(.digest) |
          index($manifest.annotations["vnd.docker.reference.digest"])) != null))))
   ' <<<"$manifest_metadata" >/dev/null; then
-    echo "Image manifests and attestation references are incomplete or invalid: $image_ref" >&2
+    echo "Image platform set or attestation references are incomplete or invalid: $image_ref" >&2
     return 1
   fi
 }

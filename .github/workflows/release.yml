@@ -212,22 +212,13 @@ jobs:
               exit 1
             fi
             pinned_ref="${IMAGE_REPOSITORY}@${digest}"
-            image_metadata="$(
-              docker buildx imagetools inspect "$pinned_ref" --format '{{json .Image}}'
-            )"
-            if ! jq -e \
-              --arg version "$VERSION" \
-              --arg revision "$SOURCE_SHA" \
-              'keys == ["linux/amd64", "linux/arm64"] and
-              all(.[];
-                .config.Labels["org.opencontainers.image.version"] == $version and
-                .config.Labels["org.opencontainers.image.revision"] == $revision)' \
-              <<<"$image_metadata" >/dev/null; then
-              echo "Existing immutable image does not match this release revision." >&2
-              exit 1
-            fi
-          source scripts/lib/docker-attestation-policy.sh
-          validate_attested_image_index "$pinned_ref" linux/amd64,linux/arm64
+            source scripts/lib/docker-platform-image.sh
+            validate_platform_image_identity \
+              "$pinned_ref" linux/amd64 "$VERSION" "$SOURCE_SHA"
+            validate_platform_image_identity \
+              "$pinned_ref" linux/arm64 "$VERSION" "$SOURCE_SHA"
+            source scripts/lib/docker-attestation-policy.sh
+            validate_attested_image_index "$pinned_ref" linux/amd64,linux/arm64
 
             echo "Reusing verified immutable image ${pinned_ref}."
             echo "reuse=true" >>"$GITHUB_OUTPUT"
@@ -456,21 +447,9 @@ jobs:
             exit 1
           fi
           pinned_ref="${IMAGE_REPOSITORY}@${digest}"
-          image_metadata="$(
-            docker buildx imagetools inspect "$pinned_ref" --format '{{json .Image}}'
-          )"
-          if ! jq -e \
-            --arg platform "$PLATFORM" \
-            --arg version "$VERSION" \
-            --arg revision "$SOURCE_SHA" \
-            'keys == [$platform] and
-            all(.[];
-              .config.Labels["org.opencontainers.image.version"] == $version and
-              .config.Labels["org.opencontainers.image.revision"] == $revision)' \
-            <<<"$image_metadata" >/dev/null; then
-            echo "Platform candidate identity or platform set is invalid." >&2
-            exit 1
-          fi
+          source scripts/lib/docker-platform-image.sh
+          validate_platform_image_identity \
+            "$pinned_ref" "$PLATFORM" "$VERSION" "$SOURCE_SHA"
           source scripts/lib/docker-attestation-policy.sh
           validate_attested_image_index "$pinned_ref" "$PLATFORM"
 
@@ -604,20 +583,11 @@ jobs:
             exit 1
           fi
           pinned_ref="${IMAGE_REPOSITORY}@${digest}"
-          image_metadata="$(
-            docker buildx imagetools inspect "$pinned_ref" --format '{{json .Image}}'
-          )"
-          if ! jq -e \
-            --arg version "$VERSION" \
-            --arg revision "$SOURCE_SHA" \
-            'keys == ["linux/amd64", "linux/arm64"] and
-            all(.[];
-              .config.Labels["org.opencontainers.image.version"] == $version and
-              .config.Labels["org.opencontainers.image.revision"] == $revision)' \
-            <<<"$image_metadata" >/dev/null; then
-            echo "Combined candidate identity or platform set is invalid." >&2
-            exit 1
-          fi
+          source scripts/lib/docker-platform-image.sh
+          validate_platform_image_identity \
+            "$pinned_ref" linux/amd64 "$VERSION" "$SOURCE_SHA"
+          validate_platform_image_identity \
+            "$pinned_ref" linux/arm64 "$VERSION" "$SOURCE_SHA"
           source scripts/lib/docker-attestation-policy.sh
           validate_attested_image_index "$pinned_ref" linux/amd64,linux/arm64
 
