@@ -19,9 +19,6 @@ if [[ "${MOVA_DOCKER_ATTESTATION_TEST_FAKE:-}" == 1 && "${0##*/}" == docker ]]; 
     '{{.Manifest.MediaType}}')
       printf '%s\n' "${MOVA_MOCK_MEDIA_TYPE:?Missing mock media type}"
       ;;
-    '{{json .Image}}')
-      printf '%s\n' "${MOVA_MOCK_IMAGE_METADATA:?Missing mock image metadata}"
-      ;;
     '{{json .Manifest}}')
       printf '%s\n' "${MOVA_MOCK_MANIFEST_METADATA:?Missing mock manifest metadata}"
       ;;
@@ -53,11 +50,8 @@ AMD64_DIGEST='sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 ARM64_DIGEST='sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
 AMD64_ATTESTATION_DIGEST='sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
 ARM64_ATTESTATION_DIGEST='sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+S390X_DIGEST='sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
 
-VALID_IMAGE_METADATA='{
-  "linux/amd64": {"os": "linux", "architecture": "amd64"},
-  "linux/arm64": {"os": "linux", "architecture": "arm64"}
-}'
 VALID_MANIFEST_METADATA="$(
   jq -nc \
     --arg amd64 "$AMD64_DIGEST" \
@@ -93,8 +87,16 @@ VALID_MANIFEST_METADATA="$(
       ]
     }'
 )"
+VALID_SINGLE_ARM64_MANIFEST_METADATA="$(
+  jq \
+    --arg amd64 "$AMD64_DIGEST" \
+    --arg amd64_attestation "$AMD64_ATTESTATION_DIGEST" '
+    .manifests |= map(
+      select(.digest != $amd64 and .digest != $amd64_attestation)
+    )
+  ' <<<"$VALID_MANIFEST_METADATA"
+)"
 
-export MOVA_MOCK_IMAGE_METADATA="$VALID_IMAGE_METADATA"
 export MOVA_MOCK_MANIFEST_METADATA="$VALID_MANIFEST_METADATA"
 
 fail() {
@@ -152,7 +154,15 @@ assert_docker_calls() {
 # A valid two-platform index has exactly one attestation referencing each image.
 run_case valid-index "$IMAGE_REF" 'linux/amd64,linux/arm64'
 assert_case 0 '' ''
-assert_docker_calls 3
+assert_docker_calls 2
+
+# A one-platform OCI index with an attached attestation is valid even though
+# Buildx renders its `.Image` value as a single config object instead of a
+# platform-keyed map.
+MOVA_MOCK_MANIFEST_METADATA="$VALID_SINGLE_ARM64_MANIFEST_METADATA"
+run_case valid-single-platform-index "$IMAGE_REF" 'linux/arm64'
+assert_case 0 '' ''
+assert_docker_calls 2
 
 # The index fails closed when one platform has no attached attestation.
 MOVA_MOCK_MANIFEST_METADATA="$(
@@ -162,27 +172,71 @@ MOVA_MOCK_MANIFEST_METADATA="$(
 )"
 run_case missing-arm64-attestation "$IMAGE_REF" 'linux/amd64,linux/arm64'
 assert_case 1 '' \
-  "Image manifests and attestation references are incomplete or invalid: $IMAGE_REF"
-assert_docker_calls 3
-
-# An extra or wrong image platform is rejected before manifest references matter.
-MOVA_MOCK_IMAGE_METADATA='{
-  "linux/amd64": {"os": "linux", "architecture": "amd64"},
-  "linux/arm64": {"os": "linux", "architecture": "arm64"},
-  "linux/s390x": {"os": "linux", "architecture": "s390x"}
-}'
-run_case extra-platform "$IMAGE_REF" 'linux/amd64,linux/arm64'
-assert_case 1 '' \
-  "Attested image platform set does not match the expected platforms: $IMAGE_REF"
+  "Image platform set or attestation references are incomplete or invalid: $IMAGE_REF"
 assert_docker_calls 2
 
-MOVA_MOCK_IMAGE_METADATA='{
-  "linux/amd64": {"os": "linux", "architecture": "amd64"},
-  "linux/s390x": {"os": "linux", "architecture": "s390x"}
-}'
+# An attestation must reference one of the real image digests in the same index.
+MOVA_MOCK_MANIFEST_METADATA="$(
+  jq --arg arm64_attestation "$ARM64_ATTESTATION_DIGEST" \
+    --arg wrong_digest "$S390X_DIGEST" '
+    (.manifests[] |
+      select(.digest == $arm64_attestation) |
+      .annotations["vnd.docker.reference.digest"]) = $wrong_digest
+  ' <<<"$VALID_MANIFEST_METADATA"
+)"
+run_case wrong-attestation-reference "$IMAGE_REF" 'linux/amd64,linux/arm64'
+assert_case 1 '' \
+  "Image platform set or attestation references are incomplete or invalid: $IMAGE_REF"
+assert_docker_calls 2
+
+# Duplicate real manifests for one platform are rejected even when the digest
+# and platform tuple happen to be identical.
+MOVA_MOCK_MANIFEST_METADATA="$(
+  jq --arg amd64 "$AMD64_DIGEST" '
+    .manifests += [(.manifests[] | select(.digest == $amd64))]
+  ' <<<"$VALID_MANIFEST_METADATA"
+)"
+run_case duplicate-platform "$IMAGE_REF" 'linux/amd64,linux/arm64'
+assert_case 1 '' \
+  "Image platform set or attestation references are incomplete or invalid: $IMAGE_REF"
+assert_docker_calls 2
+
+# Attestation descriptors must use unknown/unknown exactly. A half-unknown
+# descriptor is neither accepted as evidence nor silently ignored.
+MOVA_MOCK_MANIFEST_METADATA="$(
+  jq --arg arm64_attestation "$ARM64_ATTESTATION_DIGEST" '
+    (.manifests[] |
+      select(.digest == $arm64_attestation) |
+      .platform.architecture) = "arm64"
+  ' <<<"$VALID_MANIFEST_METADATA"
+)"
+run_case half-unknown-attestation "$IMAGE_REF" 'linux/amd64,linux/arm64'
+assert_case 1 '' \
+  "Image platform set or attestation references are incomplete or invalid: $IMAGE_REF"
+assert_docker_calls 2
+
+# An extra or wrong image platform is rejected before manifest references matter.
+MOVA_MOCK_MANIFEST_METADATA="$(
+  jq --arg s390x "$S390X_DIGEST" '
+    .manifests += [{
+      digest: $s390x,
+      platform: {os: "linux", architecture: "s390x"}
+    }]
+  ' <<<"$VALID_MANIFEST_METADATA"
+)"
+run_case extra-platform "$IMAGE_REF" 'linux/amd64,linux/arm64'
+assert_case 1 '' \
+  "Image platform set or attestation references are incomplete or invalid: $IMAGE_REF"
+assert_docker_calls 2
+
+MOVA_MOCK_MANIFEST_METADATA="$(
+  jq --arg arm64 "$ARM64_DIGEST" '
+    (.manifests[] | select(.digest == $arm64) | .platform.architecture) = "s390x"
+  ' <<<"$VALID_MANIFEST_METADATA"
+)"
 run_case wrong-platform "$IMAGE_REF" 'linux/amd64,linux/arm64'
 assert_case 1 '' \
-  "Attested image platform set does not match the expected platforms: $IMAGE_REF"
+  "Image platform set or attestation references are incomplete or invalid: $IMAGE_REF"
 assert_docker_calls 2
 
 # Unsupported manifest media types are rejected without inspecting image data.

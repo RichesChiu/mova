@@ -51,6 +51,8 @@ export MOVA_MOCK_PLATFORM_DIGEST=""
 
 IMAGE_REF='registry.example.test/mova@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 CHILD_DIGEST='sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+VERSION='1.4.0-preview.4'
+REVISION='1234567890abcdef1234567890abcdef12345678'
 
 fail() {
   echo "$1" >&2
@@ -68,6 +70,25 @@ run_case() {
 
   set +e
   resolve_platform_image_ref "$image_ref" "$platform" >"$CASE_STDOUT" 2>"$CASE_STDERR"
+  CASE_STATUS=$?
+  set -e
+}
+
+run_identity_case() {
+  local case_name="$1"
+  local image_ref="$2"
+  local platform="$3"
+  local version="$4"
+  local revision="$5"
+
+  CASE_STDOUT="$TEST_DIRECTORY/$case_name.out"
+  CASE_STDERR="$TEST_DIRECTORY/$case_name.err"
+  : >"$MOVA_MOCK_DOCKER_LOG"
+
+  set +e
+  validate_platform_image_identity \
+    "$image_ref" "$platform" "$version" "$revision" \
+    >"$CASE_STDOUT" 2>"$CASE_STDERR"
   CASE_STATUS=$?
   set -e
 }
@@ -135,6 +156,54 @@ assert_docker_calls 2
 grep -F '(eq .Platform.OS "linux")' "$MOVA_MOCK_DOCKER_LOG" >/dev/null
 grep -F '(eq .Platform.Architecture "arm64")' "$MOVA_MOCK_DOCKER_LOG" >/dev/null
 grep -F '(eq .Platform.Variant "v8")' "$MOVA_MOCK_DOCKER_LOG" >/dev/null
+
+# Identity validation resolves a one-platform OCI index to its real image
+# manifest before checking platform and OCI labels. This mirrors the candidate
+# shape produced by Buildx when provenance and SBOM are enabled.
+MOVA_MOCK_IMAGE_METADATA="$(
+  jq -nc \
+    --arg version "$VERSION" \
+    --arg revision "$REVISION" '
+    {
+      os: "linux",
+      architecture: "arm64",
+      config: {
+        Labels: {
+          "org.opencontainers.image.version": $version,
+          "org.opencontainers.image.revision": $revision
+        }
+      }
+    }'
+)"
+run_identity_case valid-index-identity \
+  "$IMAGE_REF" linux/arm64 "$VERSION" "$REVISION"
+assert_case 0 '' ''
+assert_docker_calls 3
+grep -F "registry.example.test/mova@$CHILD_DIGEST" "$MOVA_MOCK_DOCKER_LOG" >/dev/null
+
+run_identity_case wrong-version-identity \
+  "$IMAGE_REF" linux/arm64 '1.4.0-preview.3' "$REVISION"
+assert_case 1 '' "Platform image identity is invalid for $IMAGE_REF on linux/arm64."
+assert_docker_calls 3
+
+run_identity_case wrong-revision-identity \
+  "$IMAGE_REF" linux/arm64 "$VERSION" 'ffffffffffffffffffffffffffffffffffffffff'
+assert_case 1 '' "Platform image identity is invalid for $IMAGE_REF on linux/arm64."
+assert_docker_calls 3
+
+MOVA_MOCK_IMAGE_METADATA="$(
+  jq '.architecture = "amd64"' <<<"$MOVA_MOCK_IMAGE_METADATA"
+)"
+run_identity_case wrong-platform-identity \
+  "$IMAGE_REF" linux/arm64 "$VERSION" "$REVISION"
+assert_case 1 '' "Platform image identity is invalid for $IMAGE_REF on linux/arm64."
+assert_docker_calls 3
+
+run_identity_case mutable-identity \
+  'registry.example.test/mova:preview' linux/arm64 "$VERSION" "$REVISION"
+assert_case 2 '' \
+  'Platform identity validation requires a digest-pinned image reference: registry.example.test/mova:preview'
+assert_docker_calls 0
 
 # Missing and malformed child digests both fail closed.
 MOVA_MOCK_PLATFORM_DIGEST=''
