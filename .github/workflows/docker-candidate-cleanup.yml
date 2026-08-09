@@ -19,12 +19,21 @@ concurrency:
 
 jobs:
   cleanup:
-    name: Delete stale candidate tags
+    name: Delete stale candidates (${{ matrix.repository }})
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        repository:
+          - richeschiu/mova
+          - richeschiu/mova-runtime-base
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/heads/master
 
       - name: Validate Docker Hub credentials
         env:
@@ -40,6 +49,6 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          MOVA_DOCKER_REPOSITORY: richeschiu/mova
+          MOVA_DOCKER_REPOSITORY: ${{ matrix.repository }}
           MOVA_DOCKER_CANDIDATE_MAX_AGE_HOURS: ${{ github.event_name == 'workflow_dispatch' && inputs.max_age_hours || '72' }}
         run: ./scripts/cleanup-docker-candidate-tags.sh prune

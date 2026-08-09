@@ -9,6 +9,7 @@ ACCEPT_UNFIXED_CVES="${MOVA_ACCEPT_UNFIXED_CVES:-}"
 SCOUT_VEX_LOCATION="${MOVA_SCOUT_VEX_LOCATION:-}"
 SCOUT_VEX_AUTHORS="${MOVA_SCOUT_VEX_AUTHORS:-}"
 VERIFY_IMAGE_REF="${MOVA_VERIFY_IMAGE_REF:-}"
+SMOKE_TEST_SCRIPT="${MOVA_SMOKE_TEST_SCRIPT:-scripts/smoke-test-runtime-image.sh}"
 DEFAULT_BUILD_VERSION="development"
 if [[ "$IMAGE_TAG" == *:* ]]; then
   DEFAULT_BUILD_VERSION="${IMAGE_TAG##*:}"
@@ -17,6 +18,29 @@ BUILD_VERSION="${MOVA_BUILD_VERSION:-$DEFAULT_BUILD_VERSION}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+
+# shellcheck source=scripts/lib/docker-build-policy.sh
+source "$ROOT_DIR/scripts/lib/docker-build-policy.sh"
+# shellcheck source=scripts/lib/docker-attestation-policy.sh
+source "$ROOT_DIR/scripts/lib/docker-attestation-policy.sh"
+
+if [[ "$SMOKE_TEST_SCRIPT" != /* ]]; then
+  SMOKE_TEST_SCRIPT="$ROOT_DIR/$SMOKE_TEST_SCRIPT"
+fi
+if [[ ! -f "$SMOKE_TEST_SCRIPT" || ! -x "$SMOKE_TEST_SCRIPT" || -L "$SMOKE_TEST_SCRIPT" ]]; then
+  echo "MOVA_SMOKE_TEST_SCRIPT must identify an executable, non-symlinked repository script." >&2
+  exit 2
+fi
+SMOKE_TEST_DIRECTORY="$(cd "$(dirname "$SMOKE_TEST_SCRIPT")" && pwd -P)"
+SMOKE_TEST_SCRIPT="$SMOKE_TEST_DIRECTORY/$(basename "$SMOKE_TEST_SCRIPT")"
+case "$SMOKE_TEST_SCRIPT" in
+  "$ROOT_DIR"/scripts/*)
+    ;;
+  *)
+    echo "MOVA_SMOKE_TEST_SCRIPT must remain inside the repository scripts directory." >&2
+    exit 2
+    ;;
+esac
 
 if [[ "$IMAGE_TAG" == *@* || "$IMAGE_TAG" != *:* || -z "${IMAGE_TAG##*:}" || "${IMAGE_TAG##*:}" == */* ]]; then
   echo "MOVA_DOCKER_IMAGE_TAG must include an explicit tag: $IMAGE_TAG" >&2
@@ -157,6 +181,8 @@ build_and_push() {
   local tag="$2"
   local include_build_version="${3:-false}"
   local cache_policy="${4:-pull}"
+  shift 4
+  local extra_build_args=("$@")
 
   local build_command=(
     docker buildx build
@@ -164,6 +190,8 @@ build_and_push() {
     -f "$dockerfile"
     -t "$tag"
     --push
+    --provenance=mode=max
+    --sbom=true
   )
 
   case "$cache_policy" in
@@ -190,14 +218,21 @@ build_and_push() {
     )
   fi
 
+  if ((${#extra_build_args[@]} > 0)); then
+    build_command+=("${extra_build_args[@]}")
+  fi
+
   build_command+=(.)
   "${build_command[@]}"
 }
 
+WEB_BUILD_BASE_TAG="richeschiu/mova-web-build-base:node24-pnpm11"
+RUST_BUILD_BASE_TAG="richeschiu/mova-rust-build-base:1-bookworm"
+RUNTIME_BASE_TAG="richeschiu/mova-runtime-base:trixie-ffmpeg-f944afd"
 base_images=(
-  "docker/base/web-build.Dockerfile|richeschiu/mova-web-build-base:node24-pnpm11|missing"
-  "docker/base/rust-build.Dockerfile|richeschiu/mova-rust-build-base:1-bookworm|missing"
-  "docker/base/runtime.Dockerfile|richeschiu/mova-runtime-base:trixie-ffmpeg-f944afd|release"
+  "docker/base/web-build.Dockerfile|$WEB_BUILD_BASE_TAG"
+  "docker/base/rust-build.Dockerfile|$RUST_BUILD_BASE_TAG"
+  "docker/base/runtime.Dockerfile|$RUNTIME_BASE_TAG"
 )
 
 image_has_required_platforms() {
@@ -223,34 +258,37 @@ image_has_required_platforms() {
 
 should_publish_base_image() {
   local tag="$1"
-  local refresh_policy="$2"
+  local has_required_platforms=0
+  local action
 
-  case "$PUBLISH_BASE_IMAGES" in
-    1|true|yes)
+  # Forced refresh and disabled publication are intentional overrides. Avoid a
+  # registry lookup in both cases; only auto mode needs platform availability.
+  if [[ "$PUBLISH_BASE_IMAGES" == "auto" ]] && image_has_required_platforms "$tag"; then
+    has_required_platforms=1
+  fi
+
+  action="$(resolve_base_image_action "$PUBLISH_BASE_IMAGES" "$has_required_platforms")"
+  case "$action" in
+    refresh)
+      if [[ "$PUBLISH_BASE_IMAGES" == "auto" ]]; then
+        echo "Base image is missing required platform(s), refreshing: $tag"
+      else
+        echo "Forcing a clean base image refresh: $tag"
+      fi
       return 0
       ;;
-    0|false|no)
-      return 1
-      ;;
-    auto)
-      if [[ "$ALLOW_UNRELEASED" == "0" && "$refresh_policy" == "release" ]]; then
-        echo "Refreshing the runtime base image for the formal release: $tag"
-        return 0
+    reuse)
+      if [[ "$PUBLISH_BASE_IMAGES" == "auto" ]]; then
+        echo "Base image already includes required platform(s), reusing: $tag"
+      else
+        echo "Base image publication is disabled, reusing the configured reference: $tag"
       fi
-      if ! image_has_required_platforms "$tag"; then
-        echo "Base image is missing required platform(s), publishing: $tag"
-        return 0
-      fi
-
-      echo "Base image already includes required platform(s), reusing: $tag"
       return 1
-      ;;
-    *)
-      echo "Invalid MOVA_PUBLISH_BASE_IMAGES value: $PUBLISH_BASE_IMAGES" >&2
-      echo "Use auto, 1, true, yes, 0, false, or no." >&2
-      exit 2
       ;;
   esac
+
+  echo "Unknown base image action: $action" >&2
+  exit 2
 }
 
 run_scout_cves() {
@@ -363,31 +401,46 @@ resolve_manifest_digest() {
 if [[ -n "$VERIFY_IMAGE_REF" ]]; then
   echo "Reverifying existing immutable image: $VERIFY_IMAGE_REF"
   docker buildx imagetools inspect "$VERIFY_IMAGE_REF"
-  ./scripts/smoke-test-runtime-image.sh "$VERIFY_IMAGE_REF" "$PLATFORMS"
+  validate_attested_image_index "$VERIFY_IMAGE_REF" "$PLATFORMS"
+  "$SMOKE_TEST_SCRIPT" "$VERIFY_IMAGE_REF" "$PLATFORMS"
   verify_image_vulnerabilities "$VERIFY_IMAGE_REF"
   echo "Existing immutable image passed runtime and security verification: $VERIFY_IMAGE_REF"
   exit 0
 fi
 
 for image in "${base_images[@]}"; do
-  IFS="|" read -r dockerfile tag refresh_policy <<< "$image"
-  if should_publish_base_image "$tag" "$refresh_policy"; then
-    cache_policy="pull"
-    if [[ "$refresh_policy" == "release" ]]; then
-      cache_policy="refresh"
-    fi
-    build_and_push "$dockerfile" "$tag" false "$cache_policy"
+  IFS="|" read -r dockerfile tag <<< "$image"
+  if should_publish_base_image "$tag"; then
+    build_and_push "$dockerfile" "$tag" false refresh
   fi
 done
 
+WEB_BUILD_BASE_DIGEST="$(resolve_manifest_digest "$WEB_BUILD_BASE_TAG")"
+RUST_BUILD_BASE_DIGEST="$(resolve_manifest_digest "$RUST_BUILD_BASE_TAG")"
+RUNTIME_BASE_DIGEST="$(resolve_manifest_digest "$RUNTIME_BASE_TAG")"
+WEB_BUILD_BASE_REF="${WEB_BUILD_BASE_TAG%:*}@${WEB_BUILD_BASE_DIGEST}"
+RUST_BUILD_BASE_REF="${RUST_BUILD_BASE_TAG%:*}@${RUST_BUILD_BASE_DIGEST}"
+RUNTIME_BASE_REF="${RUNTIME_BASE_TAG%:*}@${RUNTIME_BASE_DIGEST}"
+echo "Pinned Web build base for the application build: $WEB_BUILD_BASE_REF"
+echo "Pinned Rust build base for the application build: $RUST_BUILD_BASE_REF"
+echo "Pinned runtime base for the application build: $RUNTIME_BASE_REF"
+
 echo "Building an isolated release candidate: $CANDIDATE_TAG"
-build_and_push apps/mova-server/Dockerfile "$CANDIDATE_TAG" true pull
+build_and_push \
+  apps/mova-server/Dockerfile \
+  "$CANDIDATE_TAG" \
+  true \
+  pull \
+  --build-arg "MOVA_WEB_BUILD_BASE=$WEB_BUILD_BASE_REF" \
+  --build-arg "MOVA_RUST_BUILD_BASE=$RUST_BUILD_BASE_REF" \
+  --build-arg "MOVA_RUNTIME_BASE=$RUNTIME_BASE_REF"
 CANDIDATE_DIGEST="$(resolve_manifest_digest "$CANDIDATE_TAG")"
 CANDIDATE_REF="${CANDIDATE_REPOSITORY}@${CANDIDATE_DIGEST}"
 echo "Pinned release candidate: $CANDIDATE_REF"
 docker buildx imagetools inspect "$CANDIDATE_REF"
 
-./scripts/smoke-test-runtime-image.sh "$CANDIDATE_REF" "$PLATFORMS"
+validate_attested_image_index "$CANDIDATE_REF" "$PLATFORMS"
+"$SMOKE_TEST_SCRIPT" "$CANDIDATE_REF" "$PLATFORMS"
 verify_image_vulnerabilities "$CANDIDATE_REF"
 
 echo "Security gate passed; promoting the exact candidate manifest to $IMAGE_TAG"

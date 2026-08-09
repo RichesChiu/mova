@@ -23,7 +23,7 @@ for platform in "${smoke_platforms[@]}"; do
 
   tested_platforms=$((tested_platforms + 1))
   platform_image_ref="$(resolve_platform_image_ref "$IMAGE_REF" "$platform")"
-  echo "Smoke-testing $platform_image_ref on $platform"
+  echo "Smoke-testing runtime base $platform_image_ref on $platform"
   # The single-quoted program is intentionally evaluated by /bin/sh inside the container.
   # shellcheck disable=SC2016
   docker run --rm \
@@ -34,6 +34,7 @@ for platform in "${smoke_platforms[@]}"; do
       ! command -v perl
       ! dpkg-query -W perl-base >/dev/null 2>&1
       ! command -v python3
+      ! test -e /usr/local/bin/mova-server
       for absent_package in ffmpeg python3 librist4 libcjson1 libssh-4; do
         ! dpkg-query -W "$absent_package" >/dev/null 2>&1
       done
@@ -45,15 +46,6 @@ for platform in "${smoke_platforms[@]}"; do
       test -s /usr/share/mova/third-party/COPYING.LGPLv2.1
       test -s /usr/share/mova/third-party/COPYING.LGPLv3
       ! grep -q "^perl-base[[:space:]]" /usr/share/mova/third-party/debian-packages.tsv
-      test ! -e /app/scripts/detect_intro.py
-      test ! -e /app/scripts/publish-docker-images.sh
-      test ! -e /app/scripts/smoke-test-runtime-image.sh
-      test -x /usr/local/bin/mova-server
-      if /usr/local/bin/mova-server > /tmp/server.out 2> /tmp/server.err; then
-        echo "mova-server unexpectedly started without MOVA_DATABASE_URL" >&2
-        exit 1
-      fi
-      grep -q "missing MOVA_DATABASE_URL" /tmp/server.err
       ffmpeg -version | grep -q "f944afd04097"
       ffprobe -version
       ffmpeg -hide_banner -protocols > /tmp/protocols.txt
@@ -81,6 +73,6 @@ for platform in "${smoke_platforms[@]}"; do
 done
 
 if ((tested_platforms == 0)); then
-  echo "At least one Docker platform is required for runtime smoke testing." >&2
+  echo "At least one Docker platform is required for runtime base smoke testing." >&2
   exit 2
 fi

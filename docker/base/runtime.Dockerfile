@@ -47,7 +47,7 @@ RUN test "$FFMPEG_SOURCE_SHA256" = "8af9d494814124d2ad6eb2324f2d955e06a183242dae
         /opt/ffmpeg/bin/ffmpeg -hide_banner -buildconf 2>&1; \
     } > /opt/ffmpeg/share/ffmpeg-source.txt
 
-FROM debian:trixie-slim
+FROM debian:trixie-slim AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 

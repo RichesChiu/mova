@@ -1,0 +1,335 @@
+name: Refresh runtime base
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - docker/base/runtime.Dockerfile
+  schedule:
+    - cron: '37 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mova-runtime-base
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPOSITORY: richeschiu/mova-runtime-base
+  RUNTIME_BASE_TAG: trixie-ffmpeg-f944afd
+
+jobs:
+  prepare:
+    name: Prepare runtime refresh
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      candidate_stem: ${{ steps.candidate.outputs.stem }}
+    steps:
+      - name: Check out source revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify trusted source revision
+        run: |
+          test "$GITHUB_REF" = "refs/heads/master"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Validate Docker Hub credentials
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [[ -z "$DOCKERHUB_USERNAME" || -z "$DOCKERHUB_TOKEN" ]]; then
+            echo "DOCKERHUB_USERNAME variable and DOCKERHUB_TOKEN secret are required." >&2
+            exit 1
+          fi
+
+      - name: Resolve candidate names
+        id: candidate
+        run: |
+          set -euo pipefail
+          stem="publish-runtime-${GITHUB_SHA:0:12}-${GITHUB_RUN_ID}"
+          if [[ ! "$stem" =~ ^publish-[A-Za-z0-9_.-]+$ ]]; then
+            echo "Generated an invalid runtime candidate tag: $stem" >&2
+            exit 1
+          fi
+          echo "stem=$stem" >>"$GITHUB_OUTPUT"
+
+  build_platform:
+    name: Build runtime ${{ matrix.platform }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            os: linux
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Check out source revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify source revision
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve platform candidate tag
+        id: candidate
+        env:
+          CANDIDATE_STEM: ${{ needs.prepare.outputs.candidate_stem }}
+          ARCH: ${{ matrix.arch }}
+        run: echo "tag=${IMAGE_REPOSITORY}:${CANDIDATE_STEM}-${ARCH}" >>"$GITHUB_OUTPUT"
+
+      - name: Build and push platform candidate
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: docker/base/runtime.Dockerfile
+          target: runtime
+          platforms: ${{ matrix.platform }}
+          push: true
+          pull: true
+          tags: ${{ steps.candidate.outputs.tag }}
+          no-cache-filters: runtime
+          cache-from: type=gha,scope=mova-runtime-base-${{ matrix.arch }}-v1
+          cache-to: type=gha,scope=mova-runtime-base-${{ matrix.arch }}-v1,mode=max,ignore-error=true
+          provenance: mode=max
+          sbom: true
+
+      - name: Verify platform candidate
+        env:
+          CANDIDATE_TAG: ${{ steps.candidate.outputs.tag }}
+          EXPECTED_DIGEST: ${{ steps.build.outputs.digest }}
+          EXPECTED_OS: ${{ matrix.os }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+
+          digest="$(
+            docker buildx imagetools inspect "$CANDIDATE_TAG" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          if [[ "$digest" != "$EXPECTED_DIGEST" ]]; then
+            echo "Runtime candidate digest mismatch: expected=$EXPECTED_DIGEST actual=$digest" >&2
+            exit 1
+          fi
+
+          pinned_ref="${IMAGE_REPOSITORY}@${digest}"
+          source scripts/lib/docker-attestation-policy.sh
+          validate_attested_image_index "$pinned_ref" "${EXPECTED_OS}/${EXPECTED_ARCH}"
+
+      - name: Smoke-test platform candidate
+        env:
+          CANDIDATE_TAG: ${{ steps.candidate.outputs.tag }}
+          CANDIDATE_DIGEST: ${{ steps.build.outputs.digest }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          candidate_repository="${CANDIDATE_TAG%:*}"
+          ./scripts/smoke-test-runtime-base-image.sh \
+            "${candidate_repository}@${CANDIDATE_DIGEST}" \
+            "$PLATFORM"
+
+  publish:
+    name: Verify and promote runtime base
+    needs:
+      - prepare
+      - build_platform
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out source revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify source revision
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Set up QEMU for cross-platform verification
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Install Docker Scout
+        env:
+          SCOUT_VERSION: 1.24.0
+          SCOUT_ARCHIVE_SHA256: f4e2814bd61040365153d5b964b144cb2dc6ee536a68b5bac4cadf00fc0ec34b
+        run: |
+          scout_archive="/tmp/docker-scout_${SCOUT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/docker/scout-cli/releases/download/v${SCOUT_VERSION}/docker-scout_${SCOUT_VERSION}_linux_amd64.tar.gz" \
+            --output "$scout_archive"
+          echo "${SCOUT_ARCHIVE_SHA256}  ${scout_archive}" | sha256sum --check
+          mkdir -p "$HOME/.docker/cli-plugins" /tmp/docker-scout
+          tar --extract --gzip --file "$scout_archive" --directory /tmp/docker-scout
+          install -m 0755 /tmp/docker-scout/docker-scout \
+            "$HOME/.docker/cli-plugins/docker-scout"
+          docker scout version
+
+      - name: Combine exact platform manifests
+        id: candidate
+        env:
+          CANDIDATE_STEM: ${{ needs.prepare.outputs.candidate_stem }}
+        run: |
+          set -euo pipefail
+
+          amd64_tag="${IMAGE_REPOSITORY}:${CANDIDATE_STEM}-amd64"
+          arm64_tag="${IMAGE_REPOSITORY}:${CANDIDATE_STEM}-arm64"
+          candidate_tag="${IMAGE_REPOSITORY}:${CANDIDATE_STEM}"
+
+          amd64_digest="$(
+            docker buildx imagetools inspect "$amd64_tag" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          arm64_digest="$(
+            docker buildx imagetools inspect "$arm64_tag" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          for digest in "$amd64_digest" "$arm64_digest"; do
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Runtime platform candidate has an invalid digest: $digest" >&2
+              exit 1
+            fi
+          done
+          if [[ "$amd64_digest" == "$arm64_digest" ]]; then
+            echo "Runtime platform candidates unexpectedly share one digest." >&2
+            exit 1
+          fi
+
+          docker buildx imagetools create \
+            --tag "$candidate_tag" \
+            "${IMAGE_REPOSITORY}@${amd64_digest}" \
+            "${IMAGE_REPOSITORY}@${arm64_digest}"
+
+          digest="$(
+            docker buildx imagetools inspect "$candidate_tag" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Combined runtime candidate has an invalid digest: $digest" >&2
+            exit 1
+          fi
+          pinned_ref="${IMAGE_REPOSITORY}@${digest}"
+          source scripts/lib/docker-attestation-policy.sh
+          validate_attested_image_index "$pinned_ref" linux/amd64,linux/arm64
+
+          {
+            echo "tag=$candidate_tag"
+            echo "digest=$digest"
+            echo "ref=$pinned_ref"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Verify exact multi-platform runtime base
+        env:
+          MOVA_ALLOW_UNRELEASED: '1'
+          MOVA_DOCKER_IMAGE_TAG: ${{ env.IMAGE_REPOSITORY }}:${{ env.RUNTIME_BASE_TAG }}
+          MOVA_DOCKER_PLATFORMS: linux/amd64,linux/arm64
+          MOVA_VERIFY_IMAGE_REF: ${{ steps.candidate.outputs.ref }}
+          MOVA_SMOKE_TEST_SCRIPT: ./scripts/smoke-test-runtime-base-image.sh
+          MOVA_ACCEPT_UNFIXED_CVES: ${{ vars.MOVA_ACCEPT_UNFIXED_CVES }}
+          DOCKER_SCOUT_HUB_USER: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKER_SCOUT_HUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: ./scripts/publish-docker-images.sh
+
+      - name: Promote fixed runtime base tag
+        env:
+          VERIFIED_REF: ${{ steps.candidate.outputs.ref }}
+          VERIFIED_DIGEST: ${{ steps.candidate.outputs.digest }}
+        run: |
+          set -euo pipefail
+
+          fixed_ref="${IMAGE_REPOSITORY}:${RUNTIME_BASE_TAG}"
+          docker buildx imagetools create \
+            --prefer-index=false \
+            --tag "$fixed_ref" \
+            "$VERIFIED_REF"
+          published_digest="$(
+            docker buildx imagetools inspect "$fixed_ref" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          if [[ "$published_digest" != "$VERIFIED_DIGEST" ]]; then
+            echo "Published runtime digest mismatch: expected=$VERIFIED_DIGEST actual=$published_digest" >&2
+            exit 1
+          fi
+          docker buildx imagetools inspect "${IMAGE_REPOSITORY}@${published_digest}"
+
+      - name: Summarize runtime refresh
+        env:
+          DIGEST: ${{ steps.candidate.outputs.digest }}
+        run: |
+          {
+            echo "## Runtime base refreshed"
+            echo
+            echo "- Image: \`${IMAGE_REPOSITORY}:${RUNTIME_BASE_TAG}\`"
+            echo "- Digest: \`${DIGEST}\`"
+            echo "- Platforms: \`linux/amd64\`, \`linux/arm64\`"
+            echo "- FFmpeg source commit: \`f944afd04097178b7e3c0d6c7f4e524a9e8f6063\`"
+            echo "- Source revision: \`${GITHUB_SHA}\`"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  cleanup:
+    name: Remove runtime candidates
+    needs:
+      - prepare
+      - build_platform
+      - publish
+    if: always() && needs.publish.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Remove exact candidate tags
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          MOVA_DOCKER_REPOSITORY: ${{ env.IMAGE_REPOSITORY }}
+          CANDIDATE_STEM: ${{ needs.prepare.outputs.candidate_stem }}
+        run: |
+          cleanup_failed=false
+          for candidate_tag in \
+            "$CANDIDATE_STEM" \
+            "${CANDIDATE_STEM}-amd64" \
+            "${CANDIDATE_STEM}-arm64"; do
+            if ! ./scripts/cleanup-docker-candidate-tags.sh exact "$candidate_tag"; then
+              echo "::warning::Runtime candidate $candidate_tag could not be deleted."
+              cleanup_failed=true
+            fi
+          done
+          if [[ "$cleanup_failed" == "true" ]]; then
+            echo "One or more runtime candidate tags remain for manual cleanup."
+          fi
