@@ -10,26 +10,49 @@ on:
       - master
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: mova-release
   queue: max
   cancel-in-progress: false
 
+env:
+  IMAGE_REPOSITORY: richeschiu/mova
+  WEB_BUILD_BASE_TAG: richeschiu/mova-web-build-base:node24-pnpm11
+  RUST_BUILD_BASE_TAG: richeschiu/mova-rust-build-base:1-bookworm
+  RUNTIME_BASE_TAG: richeschiu/mova-runtime-base:trixie-ffmpeg-f944afd
+  SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+
 jobs:
-  release:
-    name: Publish release
+  prepare:
+    name: Prepare release
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'master'
-    runs-on: ubuntu-latest
-    timeout-minutes: 330
-    env:
-      IMAGE_REPOSITORY: richeschiu/mova
-      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
-
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    outputs:
+      should_release: ${{ steps.release.outputs.should_release }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      previous_tag: ${{ steps.release.outputs.previous_tag }}
+      is_prerelease: ${{ steps.release.outputs.is_prerelease }}
+      channel: ${{ steps.release.outputs.channel }}
+      release_notes_file: ${{ steps.release.outputs.release_notes_file }}
+      candidate_stem: ${{ steps.release.outputs.candidate_stem }}
+      reuse: ${{ steps.image.outputs.reuse }}
+      image_digest: ${{ steps.image.outputs.digest }}
+      web_build_ref: ${{ steps.build_bases.outputs.web_ref }}
+      web_build_digest: ${{ steps.build_bases.outputs.web_digest }}
+      rust_build_ref: ${{ steps.build_bases.outputs.rust_ref }}
+      rust_build_digest: ${{ steps.build_bases.outputs.rust_digest }}
+      runtime_ref: ${{ steps.runtime.outputs.ref }}
+      runtime_digest: ${{ steps.runtime.outputs.digest }}
+      runtime_oldest_created: ${{ steps.runtime.outputs.oldest_created }}
     steps:
       - name: Check out verified master revision
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -145,6 +168,7 @@ jobs:
             echo "is_prerelease=$is_prerelease"
             echo "channel=$channel"
             echo "release_notes_file=$release_notes_file"
+            echo "candidate_stem=publish-${version}-${SOURCE_SHA:0:12}-${GITHUB_RUN_ID}"
           } >>"$GITHUB_OUTPUT"
 
       - name: Validate Docker Hub credentials
@@ -157,10 +181,6 @@ jobs:
             echo "DOCKERHUB_USERNAME variable and DOCKERHUB_TOKEN secret are required." >&2
             exit 1
           fi
-
-      - name: Set up QEMU
-        if: steps.release.outputs.should_release == 'true'
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Set up Docker Buildx
         if: steps.release.outputs.should_release == 'true'
@@ -180,10 +200,20 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
+
           image_ref="${IMAGE_REPOSITORY}:${VERSION}"
-          if image_metadata="$(
-            docker buildx imagetools inspect "$image_ref" --format '{{json .Image}}' 2>/dev/null
+          if digest="$(
+            docker buildx imagetools inspect "$image_ref" \
+              --format '{{.Manifest.Digest}}' 2>/dev/null
           )"; then
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Existing immutable image has an invalid digest: $digest" >&2
+              exit 1
+            fi
+            pinned_ref="${IMAGE_REPOSITORY}@${digest}"
+            image_metadata="$(
+              docker buildx imagetools inspect "$pinned_ref" --format '{{json .Image}}'
+            )"
             if ! jq -e \
               --arg version "$VERSION" \
               --arg revision "$SOURCE_SHA" \
@@ -195,16 +225,129 @@ jobs:
               echo "Existing immutable image does not match this release revision." >&2
               exit 1
             fi
-            digest="$(
-              docker buildx imagetools inspect "$image_ref" \
-                --format '{{.Manifest.Digest}}'
-            )"
-            echo "Reusing verified immutable image ${image_ref}@${digest}."
+          source scripts/lib/docker-attestation-policy.sh
+          validate_attested_image_index "$pinned_ref" linux/amd64,linux/arm64
+
+            echo "Reusing verified immutable image ${pinned_ref}."
             echo "reuse=true" >>"$GITHUB_OUTPUT"
             echo "digest=$digest" >>"$GITHUB_OUTPUT"
           else
             echo "reuse=false" >>"$GITHUB_OUTPUT"
           fi
+
+      - name: Validate runtime base image
+        if: >-
+          steps.release.outputs.should_release == 'true' &&
+          steps.image.outputs.reuse == 'false'
+        id: runtime
+        run: |
+          set -euo pipefail
+
+          digest="$(
+            docker buildx imagetools inspect "$RUNTIME_BASE_TAG" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Runtime base has an invalid manifest digest: $digest" >&2
+            exit 1
+          fi
+
+          runtime_repository="${RUNTIME_BASE_TAG%:*}"
+          pinned_ref="${runtime_repository}@${digest}"
+          image_metadata="$(
+            docker buildx imagetools inspect "$pinned_ref" --format '{{json .Image}}'
+          )"
+          if ! jq -e '
+            keys == ["linux/amd64", "linux/arm64"] and
+            .["linux/amd64"].os == "linux" and
+            .["linux/amd64"].architecture == "amd64" and
+            .["linux/arm64"].os == "linux" and
+            .["linux/arm64"].architecture == "arm64" and
+            all(.[]; (.created | type) == "string")
+          ' <<<"$image_metadata" >/dev/null; then
+            echo "Runtime base must contain exactly linux/amd64 and linux/arm64 images." >&2
+            exit 1
+          fi
+
+          oldest_created_epoch="$(
+            jq -r '[.[] | .created | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601] | min' \
+              <<<"$image_metadata"
+          )"
+          newest_created_epoch="$(
+            jq -r '[.[] | .created | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601] | max' \
+              <<<"$image_metadata"
+          )"
+          oldest_created="$(date --utc --date="@${oldest_created_epoch}" '+%Y-%m-%dT%H:%M:%SZ')"
+          now_epoch="$(date +%s)"
+          max_age_seconds=$((192 * 60 * 60))
+          age_seconds=$((now_epoch - oldest_created_epoch))
+
+          if ((newest_created_epoch > now_epoch + 300)); then
+            echo "Runtime base has a future creation timestamp." >&2
+            exit 1
+          fi
+          if ((age_seconds < 0 || age_seconds > max_age_seconds)); then
+            age_hours=$((age_seconds / 3600))
+            echo "Runtime base is stale: oldest=${oldest_created}, age=${age_hours}h, limit=192h." >&2
+            echo "Refresh and verify the runtime base before publishing an application release." >&2
+            exit 1
+          fi
+
+          age_hours=$((age_seconds / 3600))
+          echo "Using runtime base ${pinned_ref}; oldest platform age=${age_hours}h."
+          {
+            echo "ref=$pinned_ref"
+            echo "digest=$digest"
+            echo "oldest_created=$oldest_created"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Pin build base images
+        if: >-
+          steps.release.outputs.should_release == 'true' &&
+          steps.image.outputs.reuse == 'false'
+        id: build_bases
+        run: |
+          set -euo pipefail
+
+          pin_base_image() {
+            local tag="$1"
+            local output_prefix="$2"
+            local digest
+            local repository
+            local pinned_ref
+            local image_metadata
+
+            digest="$(
+              docker buildx imagetools inspect "$tag" \
+                --format '{{.Manifest.Digest}}'
+            )"
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Build base has an invalid manifest digest: ${tag} => ${digest}" >&2
+              return 1
+            fi
+            repository="${tag%:*}"
+            pinned_ref="${repository}@${digest}"
+            image_metadata="$(
+              docker buildx imagetools inspect "$pinned_ref" --format '{{json .Image}}'
+            )"
+            if ! jq -e '
+              keys == ["linux/amd64", "linux/arm64"] and
+              .["linux/amd64"].os == "linux" and
+              .["linux/amd64"].architecture == "amd64" and
+              .["linux/arm64"].os == "linux" and
+              .["linux/arm64"].architecture == "arm64"
+            ' <<<"$image_metadata" >/dev/null; then
+              echo "Build base must contain exactly linux/amd64 and linux/arm64: $tag" >&2
+              return 1
+            fi
+            {
+              echo "${output_prefix}_ref=$pinned_ref"
+              echo "${output_prefix}_digest=$digest"
+            } >>"$GITHUB_OUTPUT"
+          }
+
+          pin_base_image "$WEB_BUILD_BASE_TAG" web
+          pin_base_image "$RUST_BUILD_BASE_TAG" rust
 
       - name: Create annotated release tag locally
         if: >-
@@ -225,8 +368,166 @@ jobs:
           TAG: ${{ steps.release.outputs.tag }}
         run: git push origin "refs/tags/${TAG}"
 
+  build_platform:
+    name: Build ${{ matrix.platform }}
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.should_release == 'true' &&
+      needs.prepare.outputs.reuse == 'false'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Check out verified release revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+
+      - name: Verify source revision
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Resolve platform candidate tag
+        id: candidate
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          CANDIDATE_STEM: ${{ needs.prepare.outputs.candidate_stem }}
+        run: |
+          candidate_tag="${CANDIDATE_STEM}-${ARCH}"
+          echo "tag=${IMAGE_REPOSITORY}:${candidate_tag}" >>"$GITHUB_OUTPUT"
+
+      - name: Build and push platform candidate
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: apps/mova-server/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          pull: true
+          tags: ${{ steps.candidate.outputs.tag }}
+          build-args: |
+            MOVA_BUILD_VERSION=${{ needs.prepare.outputs.version }}
+            MOVA_BUILD_REVISION=${{ env.SOURCE_SHA }}
+            MOVA_WEB_BUILD_BASE=${{ needs.prepare.outputs.web_build_ref }}
+            MOVA_RUST_BUILD_BASE=${{ needs.prepare.outputs.rust_build_ref }}
+            MOVA_RUNTIME_BASE=${{ needs.prepare.outputs.runtime_ref }}
+          cache-from: type=gha,scope=mova-release-app-${{ matrix.arch }}-v1
+          cache-to: type=gha,scope=mova-release-app-${{ matrix.arch }}-v1,mode=max,ignore-error=true
+          provenance: mode=max
+          sbom: true
+
+      - name: Verify platform candidate identity
+        env:
+          CANDIDATE_TAG: ${{ steps.candidate.outputs.tag }}
+          EXPECTED_DIGEST: ${{ steps.build.outputs.digest }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+
+          digest="$(
+            docker buildx imagetools inspect "$CANDIDATE_TAG" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          if [[ "$digest" != "$EXPECTED_DIGEST" ]]; then
+            echo "Platform candidate digest mismatch: expected=$EXPECTED_DIGEST actual=$digest" >&2
+            exit 1
+          fi
+          pinned_ref="${IMAGE_REPOSITORY}@${digest}"
+          image_metadata="$(
+            docker buildx imagetools inspect "$pinned_ref" --format '{{json .Image}}'
+          )"
+          if ! jq -e \
+            --arg platform "$PLATFORM" \
+            --arg version "$VERSION" \
+            --arg revision "$SOURCE_SHA" \
+            'keys == [$platform] and
+            all(.[];
+              .config.Labels["org.opencontainers.image.version"] == $version and
+              .config.Labels["org.opencontainers.image.revision"] == $revision)' \
+            <<<"$image_metadata" >/dev/null; then
+            echo "Platform candidate identity or platform set is invalid." >&2
+            exit 1
+          fi
+          source scripts/lib/docker-attestation-policy.sh
+          validate_attested_image_index "$pinned_ref" "$PLATFORM"
+
+      - name: Smoke-test platform candidate
+        env:
+          CANDIDATE_TAG: ${{ steps.candidate.outputs.tag }}
+          CANDIDATE_DIGEST: ${{ steps.build.outputs.digest }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          candidate_repository="${CANDIDATE_TAG%:*}"
+          ./scripts/smoke-test-runtime-image.sh \
+            "${candidate_repository}@${CANDIDATE_DIGEST}" \
+            "$PLATFORM"
+
+  publish:
+    name: Publish release
+    needs:
+      - prepare
+      - build_platform
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.should_release == 'true' &&
+      (needs.prepare.outputs.reuse == 'true' || needs.build_platform.result == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - name: Check out verified release revision
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+
+      - name: Fetch and verify annotated release tag
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git cat-file -t "refs/tags/${TAG}")" = "tag"
+          test "$(git rev-parse "${TAG}^{commit}")" = "$SOURCE_SHA"
+
+      - name: Set up QEMU for cross-platform re-verification
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Install Docker Scout
-        if: steps.release.outputs.should_release == 'true'
         env:
           SCOUT_VERSION: 1.24.0
           SCOUT_ARCHIVE_SHA256: f4e2814bd61040365153d5b964b144cb2dc6ee536a68b5bac4cadf00fc0ec34b
@@ -242,68 +543,133 @@ jobs:
             "$HOME/.docker/cli-plugins/docker-scout"
           docker scout version
 
-      - name: Resolve release candidate tag
-        if: >-
-          steps.release.outputs.should_release == 'true' &&
-          steps.image.outputs.reuse == 'false'
-        id: candidate
+      - name: Resolve image to verify
+        id: source
         env:
-          VERSION: ${{ steps.release.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REUSE: ${{ needs.prepare.outputs.reuse }}
+          REUSED_DIGEST: ${{ needs.prepare.outputs.image_digest }}
+          CANDIDATE_STEM: ${{ needs.prepare.outputs.candidate_stem }}
         run: |
-          candidate_tag="publish-${VERSION}-${SOURCE_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          echo "tag=$candidate_tag" >>"$GITHUB_OUTPUT"
+          set -euo pipefail
 
-      - name: Build, verify, and publish immutable image
-        id: publish_image
-        if: >-
-          steps.release.outputs.should_release == 'true' &&
-          steps.image.outputs.reuse == 'false'
-        env:
-          MOVA_DOCKER_IMAGE_TAG: ${{ env.IMAGE_REPOSITORY }}:${{ steps.release.outputs.version }}
-          MOVA_DOCKER_CANDIDATE_TAG: ${{ env.IMAGE_REPOSITORY }}:${{ steps.candidate.outputs.tag }}
-          MOVA_BUILD_VERSION: ${{ steps.release.outputs.version }}
-          MOVA_DOCKER_PLATFORMS: linux/amd64,linux/arm64
-          MOVA_PUBLISH_BASE_IMAGES: auto
-          MOVA_ACCEPT_UNFIXED_CVES: ${{ vars.MOVA_ACCEPT_UNFIXED_CVES }}
-          DOCKER_SCOUT_HUB_USER: ${{ vars.DOCKERHUB_USERNAME }}
-          DOCKER_SCOUT_HUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: ./scripts/publish-docker-images.sh
-
-      - name: Remove promoted release candidate tag
-        if: >-
-          steps.release.outputs.should_release == 'true' &&
-          steps.image.outputs.reuse == 'false' &&
-          steps.publish_image.outcome == 'success'
-        env:
-          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          MOVA_DOCKER_REPOSITORY: ${{ env.IMAGE_REPOSITORY }}
-          CANDIDATE_TAG: ${{ steps.candidate.outputs.tag }}
-        run: |
-          if ! ./scripts/cleanup-docker-candidate-tags.sh exact "$CANDIDATE_TAG"; then
-            echo "::warning::The promoted candidate tag could not be deleted; scheduled cleanup will retry."
+          if [[ "$REUSE" == "true" ]]; then
+            digest="$REUSED_DIGEST"
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Reusable immutable image has an invalid digest: $digest" >&2
+              exit 1
+            fi
+            echo "Reverifying existing immutable image ${IMAGE_REPOSITORY}@${digest}."
+            {
+              echo "digest=$digest"
+              echo "ref=${IMAGE_REPOSITORY}@${digest}"
+              echo "candidate_tag="
+              echo "amd64_tag="
+              echo "arm64_tag="
+            } >>"$GITHUB_OUTPUT"
+            exit 0
           fi
 
-      - name: Reverify existing immutable image
-        if: >-
-          steps.release.outputs.should_release == 'true' &&
-          steps.image.outputs.reuse == 'true'
+          amd64_tag="${IMAGE_REPOSITORY}:${CANDIDATE_STEM}-amd64"
+          arm64_tag="${IMAGE_REPOSITORY}:${CANDIDATE_STEM}-arm64"
+          candidate_tag="${IMAGE_REPOSITORY}:${CANDIDATE_STEM}"
+
+          amd64_digest="$(
+            docker buildx imagetools inspect "$amd64_tag" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          arm64_digest="$(
+            docker buildx imagetools inspect "$arm64_tag" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          for digest in "$amd64_digest" "$arm64_digest"; do
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Platform candidate has an invalid digest: $digest" >&2
+              exit 1
+            fi
+          done
+
+          docker buildx imagetools create \
+            --tag "$candidate_tag" \
+            "${IMAGE_REPOSITORY}@${amd64_digest}" \
+            "${IMAGE_REPOSITORY}@${arm64_digest}"
+
+          digest="$(
+            docker buildx imagetools inspect "$candidate_tag" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Combined candidate has an invalid digest: $digest" >&2
+            exit 1
+          fi
+          pinned_ref="${IMAGE_REPOSITORY}@${digest}"
+          image_metadata="$(
+            docker buildx imagetools inspect "$pinned_ref" --format '{{json .Image}}'
+          )"
+          if ! jq -e \
+            --arg version "$VERSION" \
+            --arg revision "$SOURCE_SHA" \
+            'keys == ["linux/amd64", "linux/arm64"] and
+            all(.[];
+              .config.Labels["org.opencontainers.image.version"] == $version and
+              .config.Labels["org.opencontainers.image.revision"] == $revision)' \
+            <<<"$image_metadata" >/dev/null; then
+            echo "Combined candidate identity or platform set is invalid." >&2
+            exit 1
+          fi
+          source scripts/lib/docker-attestation-policy.sh
+          validate_attested_image_index "$pinned_ref" linux/amd64,linux/arm64
+
+          {
+            echo "digest=$digest"
+            echo "ref=$pinned_ref"
+            echo "candidate_tag=$candidate_tag"
+            echo "amd64_tag=$amd64_tag"
+            echo "arm64_tag=$arm64_tag"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Reverify exact multi-platform image
         env:
-          MOVA_DOCKER_IMAGE_TAG: ${{ env.IMAGE_REPOSITORY }}:${{ steps.release.outputs.version }}
-          MOVA_BUILD_VERSION: ${{ steps.release.outputs.version }}
+          MOVA_DOCKER_IMAGE_TAG: ${{ env.IMAGE_REPOSITORY }}:${{ needs.prepare.outputs.version }}
+          MOVA_BUILD_VERSION: ${{ needs.prepare.outputs.version }}
           MOVA_DOCKER_PLATFORMS: linux/amd64,linux/arm64
-          MOVA_VERIFY_IMAGE_REF: ${{ env.IMAGE_REPOSITORY }}@${{ steps.image.outputs.digest }}
+          MOVA_VERIFY_IMAGE_REF: ${{ steps.source.outputs.ref }}
           MOVA_ACCEPT_UNFIXED_CVES: ${{ vars.MOVA_ACCEPT_UNFIXED_CVES }}
           DOCKER_SCOUT_HUB_USER: ${{ vars.DOCKERHUB_USERNAME }}
           DOCKER_SCOUT_HUB_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
         run: ./scripts/publish-docker-images.sh
 
+      - name: Promote immutable image
+        if: needs.prepare.outputs.reuse == 'false'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          VERIFIED_REF: ${{ steps.source.outputs.ref }}
+          VERIFIED_DIGEST: ${{ steps.source.outputs.digest }}
+        run: |
+          set -euo pipefail
+
+          immutable_ref="${IMAGE_REPOSITORY}:${VERSION}"
+          docker buildx imagetools create \
+            --prefer-index=false \
+            --tag "$immutable_ref" \
+            "$VERIFIED_REF"
+          published_digest="$(
+            docker buildx imagetools inspect "$immutable_ref" \
+              --format '{{.Manifest.Digest}}'
+          )"
+          if [[ "$published_digest" != "$VERIFIED_DIGEST" ]]; then
+            echo "Published digest mismatch: expected=$VERIFIED_DIGEST actual=$published_digest" >&2
+            exit 1
+          fi
+
       - name: Resolve published image digest
-        if: steps.release.outputs.should_release == 'true'
         id: published
         env:
-          VERSION: ${{ steps.release.outputs.version }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          EXPECTED_DIGEST: ${{ steps.source.outputs.digest }}
         run: |
+          set -euo pipefail
+
           image_ref="${IMAGE_REPOSITORY}:${VERSION}"
           digest="$(
             docker buildx imagetools inspect "$image_ref" \
@@ -313,18 +679,21 @@ jobs:
             echo "Could not resolve immutable image digest: $digest" >&2
             exit 1
           fi
+          if [[ "$digest" != "$EXPECTED_DIGEST" ]]; then
+            echo "Immutable image digest mismatch: expected=$EXPECTED_DIGEST actual=$digest" >&2
+            exit 1
+          fi
           echo "digest=$digest" >>"$GITHUB_OUTPUT"
 
       - name: Create draft GitHub Release
-        if: steps.release.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          VERSION: ${{ steps.release.outputs.version }}
-          PREVIOUS_TAG: ${{ steps.release.outputs.previous_tag }}
-          IS_PRERELEASE: ${{ steps.release.outputs.is_prerelease }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
+          IS_PRERELEASE: ${{ needs.prepare.outputs.is_prerelease }}
           DIGEST: ${{ steps.published.outputs.digest }}
-          RELEASE_NOTES_FILE: ${{ steps.release.outputs.release_notes_file }}
+          RELEASE_NOTES_FILE: ${{ needs.prepare.outputs.release_notes_file }}
         run: |
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "GitHub Release $TAG already exists; preserving it for retry."
@@ -356,11 +725,12 @@ jobs:
           gh "${release_args[@]}"
 
       - name: Promote channel alias
-        if: steps.release.outputs.should_release == 'true'
         env:
-          CHANNEL: ${{ steps.release.outputs.channel }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
           DIGEST: ${{ steps.published.outputs.digest }}
         run: |
+          set -euo pipefail
+
           alias_ref="${IMAGE_REPOSITORY}:${CHANNEL}"
           immutable_ref="${IMAGE_REPOSITORY}@${DIGEST}"
           docker buildx imagetools create \
@@ -378,11 +748,10 @@ jobs:
           docker buildx imagetools inspect "$alias_ref"
 
       - name: Publish GitHub Release
-        if: steps.release.outputs.should_release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          IS_PRERELEASE: ${{ steps.release.outputs.is_prerelease }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          IS_PRERELEASE: ${{ needs.prepare.outputs.is_prerelease }}
         run: |
           is_draft="$(
             gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
@@ -400,12 +769,36 @@ jobs:
               --draft=false --prerelease=false --latest
           fi
 
-      - name: Summarize release
-        if: steps.release.outputs.should_release == 'true'
+      - name: Remove promoted release candidate tags
+        if: needs.prepare.outputs.reuse == 'false'
         env:
-          VERSION: ${{ steps.release.outputs.version }}
-          CHANNEL: ${{ steps.release.outputs.channel }}
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          MOVA_DOCKER_REPOSITORY: ${{ env.IMAGE_REPOSITORY }}
+          CANDIDATE_TAG: ${{ steps.source.outputs.candidate_tag }}
+          AMD64_TAG: ${{ steps.source.outputs.amd64_tag }}
+          ARM64_TAG: ${{ steps.source.outputs.arm64_tag }}
+        run: |
+          cleanup_failed=false
+          for candidate_tag in "$CANDIDATE_TAG" "$AMD64_TAG" "$ARM64_TAG"; do
+            if ! ./scripts/cleanup-docker-candidate-tags.sh exact "${candidate_tag##*:}"; then
+              echo "::warning::Candidate tag $candidate_tag could not be deleted; scheduled cleanup will retry."
+              cleanup_failed=true
+            fi
+          done
+          if [[ "$cleanup_failed" == "true" ]]; then
+            echo "One or more candidate tags remain for scheduled cleanup."
+          fi
+
+      - name: Summarize release
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
           DIGEST: ${{ steps.published.outputs.digest }}
+          RUNTIME_DIGEST: ${{ needs.prepare.outputs.runtime_digest }}
+          RUNTIME_CREATED: ${{ needs.prepare.outputs.runtime_oldest_created }}
+          WEB_BUILD_DIGEST: ${{ needs.prepare.outputs.web_build_digest }}
+          RUST_BUILD_DIGEST: ${{ needs.prepare.outputs.rust_build_digest }}
         run: |
           {
             echo "## Mova ${VERSION}"
@@ -414,4 +807,10 @@ jobs:
             echo "- Channel alias: \`${IMAGE_REPOSITORY}:${CHANNEL}\`"
             echo "- Digest: \`${DIGEST}\`"
             echo "- Platforms: \`linux/amd64\`, \`linux/arm64\`"
+            if [[ -n "$RUNTIME_DIGEST" ]]; then
+              echo "- Web build base digest: \`${WEB_BUILD_DIGEST}\`"
+              echo "- Rust build base digest: \`${RUST_BUILD_DIGEST}\`"
+              echo "- Runtime base digest: \`${RUNTIME_DIGEST}\`"
+              echo "- Oldest runtime platform created: \`${RUNTIME_CREATED}\`"
+            fi
           } >>"$GITHUB_STEP_SUMMARY"
