@@ -209,27 +209,31 @@ export const MediaPlayerPanel = ({
       setPlaybackSyncError(PLAYBACK_PROGRESS_SAVE_ERROR())
     },
   })
+  const mediaFiles = mediaFilesQuery.data ?? []
+  const selectedMediaFile =
+    selectedMediaFileId === null
+      ? null
+      : (mediaFiles.find((file) => file.id === selectedMediaFileId) ?? null)
+  const isSelectedStrm = selectedMediaFile?.source_kind === 'strm'
   const subtitleFilesQuery = useQuery({
     enabled: selectedMediaFileId !== null,
     queryKey: ['media-file-subtitles', selectedMediaFileId],
     queryFn: () => listMediaFileSubtitles(selectedMediaFileId ?? 0),
   })
   const audioTracksQuery = useQuery({
-    enabled: selectedMediaFileId !== null,
+    enabled: selectedMediaFileId !== null && !isSelectedStrm,
     queryKey: ['media-file-audio-tracks', selectedMediaFileId],
     queryFn: () => listMediaFileAudioTracks(selectedMediaFileId ?? 0),
   })
 
-  const mediaFiles = mediaFilesQuery.data ?? []
   const audioTracks = audioTracksQuery.data ?? []
-  const subtitleFiles = subtitleFilesQuery.data ?? []
-  const selectedMediaFile =
-    selectedMediaFileId === null
-      ? null
-      : (mediaFiles.find((file) => file.id === selectedMediaFileId) ?? null)
+  const subtitleFiles = isSelectedStrm
+    ? (subtitleFilesQuery.data ?? []).filter((subtitle) => subtitle.source_kind === 'external')
+    : (subtitleFilesQuery.data ?? [])
   const selectedMediaFileDuration = selectedMediaFile?.duration_seconds ?? null
+  const playbackAudioTrackId = isSelectedStrm ? null : selectedAudioTrackId
   const selectedAudioTrack =
-    audioTracks.find((audioTrack) => audioTrack.id === selectedAudioTrackId) ?? null
+    audioTracks.find((audioTrack) => audioTrack.id === playbackAudioTrackId) ?? null
   const selectedSubtitle =
     subtitleFiles.find((subtitle) => subtitle.id === selectedSubtitleId) ?? null
   const subtitleWarning =
@@ -858,7 +862,10 @@ export const MediaPlayerPanel = ({
     shouldPlayRef.current = false
     playbackRequestPendingRef.current = false
     setIsBuffering(false)
-    const fallbackMessage = buildPlaybackSourceErrorMessage(videoRef.current)
+    const fallbackMessage =
+      selectedMediaFileRef.current?.source_kind === 'strm'
+        ? translateCurrent('The remote media source is temporarily unavailable.')
+        : buildPlaybackSourceErrorMessage(videoRef.current)
 
     if (pendingAudioTrackSwitchRef.current) {
       const switchLabel = pendingAudioTrackSwitchRef.current.label
@@ -964,7 +971,8 @@ export const MediaPlayerPanel = ({
     positionSeconds < intro.endSeconds
   const bufferingStatusMessage = audioTrackNotice ?? translateCurrent('Buffering playback…')
   const shouldRenderAudioMenu =
-    audioTracks.length > 1 || audioTracksQuery.isError || audioTracksQuery.isLoading
+    !isSelectedStrm &&
+    (audioTracks.length > 1 || audioTracksQuery.isError || audioTracksQuery.isLoading)
   const playbackLoadErrorMessages = [
     mediaFilesQuery.isError
       ? mediaFilesQuery.error instanceof Error
@@ -1067,7 +1075,7 @@ export const MediaPlayerPanel = ({
         onSubtitleMenuOpenChange: setIsSubtitleMenuOpen,
         onToggleFullscreen: () => void toggleFullscreen(),
         playbackRate,
-        selectedAudioTrackId,
+        selectedAudioTrackId: playbackAudioTrackId,
         selectedSubtitleId,
         shouldRenderAudioMenu,
         subtitleFiles,
@@ -1108,7 +1116,7 @@ export const MediaPlayerPanel = ({
       positionSeconds={positionSeconds}
       seekMax={seekMax}
       selectedAudioTrack={selectedAudioTrack}
-      selectedAudioTrackId={selectedAudioTrackId}
+      selectedAudioTrackId={playbackAudioTrackId}
       selectedMediaFile={selectedMediaFile}
       selectedSubtitle={selectedSubtitle}
       stageRef={stageRef}

@@ -121,6 +121,10 @@ After that Pull Request is merged and the resulting `master` CI run passes, the 
 4. moves `latest` for a stable version or `preview` for a SemVer prerelease; and
 5. publishes the matching GitHub Release with generated notes.
 
+When a release needs a prominent warning, experimental boundary, or migration note, add
+`.github/release-notes/X.Y.Z[-prerelease].md` in the feature Pull Request. The Release workflow
+includes that content in the annotated Git tag and prepends it to the generated GitHub Release notes.
+
 Promoted `publish-*` candidate tags are deleted immediately after verification. Failed build or
 verification candidates remain available for diagnostics for at most 72 hours, then a daily cleanup
 job removes them. Cleanup deletes candidate tag names only; it never deletes shared image content,

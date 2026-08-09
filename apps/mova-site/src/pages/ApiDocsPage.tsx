@@ -10,6 +10,7 @@ import {
   apiPlaybackFlow,
   apiSourceLinks,
   apiStatusCodes,
+  apiStreamErrorCodes,
   apiSuccessExample,
   type ApiEndpoint,
   type HttpMethod,
@@ -100,6 +101,10 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
         <div className="api-source-links">
           <a href={apiSourceLinks.api} target="_blank" rel="noreferrer">
             {t('完整 API.md')}
+            <MovaIcon name="arrow-right" />
+          </a>
+          <a href={apiSourceLinks.strm} target="_blank" rel="noreferrer">
+            {t('完整 STRM.md')}
             <MovaIcon name="arrow-right" />
           </a>
           <a href={apiSourceLinks.sse} target="_blank" rel="noreferrer">
@@ -197,6 +202,21 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
                   <span key={highlight}>{t(highlight)}</span>
                 ))}
               </div>
+
+              {group.id === 'streams' ? (
+                <div className="api-error-code-section">
+                  <h3>{t('STRM 播放错误')}</h3>
+                  <div className="api-error-code-list">
+                    {apiStreamErrorCodes.map(({ description, errorCode, status }) => (
+                      <article key={errorCode}>
+                        <strong>{status}</strong>
+                        <code>{errorCode}</code>
+                        <p>{t(description)}</p>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="endpoint-list">
                 {group.endpoints.map((endpoint) => (

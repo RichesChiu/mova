@@ -43,6 +43,8 @@ async fn main() -> anyhow::Result<()> {
     );
     let metadata_provider =
         mova_application::build_metadata_provider(config.metadata_provider.clone())?;
+    let strm_streaming = mova_application::StrmStreamingService::new(config.strm_streaming.clone())
+        .map_err(anyhow::Error::msg)?;
     if metadata_provider.is_enabled() {
         info!(provider = "tmdb", "metadata provider initialized");
     } else {
@@ -70,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
         realtime_hub,
         realtime_dispatcher,
         background_jobs: state::BackgroundJobNotifier::default(),
+        strm_streaming,
     };
 
     sync_runtime::start_background_workers(state.clone(), config.worker_concurrency);

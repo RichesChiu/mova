@@ -232,6 +232,120 @@ async fn nfo_metadata_migration_upgrades_0001_data_and_enforces_source_ownership
     assert_eq!(remaining, (1, 1, 0));
 }
 
+#[sqlx::test(migrations = false)]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn strm_migration_upgrades_0003_rows_and_enforces_source_shape(pool: PgPool) {
+    for migration in [
+        include_str!("../../../migrations/0001_init.sql"),
+        include_str!("../../../migrations/0002_nfo_metadata.sql"),
+        include_str!("../../../migrations/0003_intro_detection.sql"),
+    ] {
+        sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+    }
+
+    let library_id = seed_library(&pool, "STRM Upgrade", "/media/strm-upgrade").await;
+    let media_item_id = seed_media_item(&pool, library_id, "movie", "Upgrade Movie").await;
+    let old_media_file_id = seed_media_file(
+        &pool,
+        library_id,
+        media_item_id,
+        "/media/strm-upgrade/movie.mkv",
+    )
+    .await;
+
+    sqlx::raw_sql(include_str!("../../../migrations/0004_strm_sources.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let upgraded = sqlx::query_as::<_, (String, Option<String>)>(
+        "select source_kind, stream_reference_hash from media_files where id = $1",
+    )
+    .bind(old_media_file_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(upgraded, ("local_file".to_string(), None));
+
+    let reference_hash = "a".repeat(64);
+    sqlx::query(
+        r#"
+        insert into media_files (
+            library_id, media_item_id, file_path, source_kind,
+            stream_reference_hash, file_size
+        )
+        values ($1, $2, '/media/strm-upgrade/movie.strm', 'strm', $3, 64)
+        "#,
+    )
+    .bind(library_id)
+    .bind(media_item_id)
+    .bind(&reference_hash)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    for (path, source_kind, hash) in [
+        (
+            "/media/strm-upgrade/local-with-hash.mkv",
+            "local_file",
+            Some(reference_hash.clone()),
+        ),
+        ("/media/strm-upgrade/strm-without-hash.strm", "strm", None),
+        (
+            "/media/strm-upgrade/short-hash.strm",
+            "strm",
+            Some("a".repeat(63)),
+        ),
+        (
+            "/media/strm-upgrade/uppercase-hash.strm",
+            "strm",
+            Some("A".repeat(64)),
+        ),
+        (
+            "/media/strm-upgrade/non-hex-hash.strm",
+            "strm",
+            Some("g".repeat(64)),
+        ),
+        (
+            "/media/strm-upgrade/unknown-source.strm",
+            "remote_url",
+            Some(reference_hash.clone()),
+        ),
+    ] {
+        let error = sqlx::query(
+            r#"
+            insert into media_files (
+                library_id, media_item_id, file_path, source_kind,
+                stream_reference_hash, file_size
+            )
+            values ($1, $2, $3, $4, $5, 1)
+            "#,
+        )
+        .bind(library_id)
+        .bind(media_item_id)
+        .bind(path)
+        .bind(source_kind)
+        .bind(hash)
+        .execute(&pool)
+        .await
+        .unwrap_err();
+        assert_sqlstate(error, "23514");
+    }
+
+    sqlx::query("delete from libraries where id = $1")
+        .bind(library_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let remaining =
+        sqlx::query_scalar::<_, i64>("select count(*) from media_files where library_id = $1")
+            .bind(library_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
+}
+
 #[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
 async fn media_hierarchy_enforces_parent_types_and_library_ownership(pool: PgPool) {

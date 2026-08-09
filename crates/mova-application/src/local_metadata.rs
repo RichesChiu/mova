@@ -826,6 +826,8 @@ mod tests {
     fn discovered_file(path: &str) -> DiscoveredMediaFile {
         inspect_media_file_inventory_shallow(DiscoveredMediaFileInventory {
             file_path: PathBuf::from(path),
+            source_kind: mova_domain::MediaSourceKind::LocalFile,
+            stream_reference_hash: None,
             file_size: 1,
             file_modified_at_ms: Some(1),
             sidecar_fingerprint: String::new(),

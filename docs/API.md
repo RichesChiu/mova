@@ -78,6 +78,16 @@
 | `error_code` | `params` | 含义 |
 | --- | --- | --- |
 | `subtitle_too_large` | `{ "max_bytes": number }` | 字幕源文件或转换后的 WebVTT 超过服务端单次处理上限 |
+| `strm_audio_track_selection_unsupported` | `{}` | STRM 不支持指定内嵌音轨 |
+| `strm_reference_too_large` | `{}` | STRM 引用载体超过读取上限 |
+| `strm_reference_invalid` | `{}` | STRM 引用内容无效 |
+| `strm_target_forbidden` | `{}` | STRM 目标被 URL、端口、DNS 或地址安全策略拒绝 |
+| `remote_range_not_supported` | `{}` | STRM 上游不能满足非零 Range |
+| `strm_user_stream_limit_exceeded` | `{}` | 当前用户的 STRM 并发数达到上限 |
+| `remote_source_unavailable` | `{}` | STRM 上游不可用或返回失败状态 |
+| `remote_response_invalid` | `{}` | STRM 上游内容类型或 Range 响应不符合直接媒体要求 |
+| `remote_source_timeout` | `{}` | STRM 上游连接或响应头超时 |
+| `strm_stream_capacity_exhausted` | `{}` | 服务端 STRM 全局代理名额已满 |
 
 客户端必须允许服务端增加新的 `error_code`。已知错误码使用本地文案；未知错误码可以临时显示 `message`，并应将其记录为诊断信息。
 
@@ -89,14 +99,17 @@
   - `202 Accepted`：异步任务已创建并开始后台执行
   - `400 Bad Request`：请求参数或业务校验不通过
   - `401 Unauthorized`：未登录、access token 无效/过期，或 refresh token 无效/过期/已撤销
-  - `403 Forbidden`：已登录但没有权限访问
+  - `403 Forbidden`：已登录但没有权限访问，或请求目标被服务端安全策略拒绝
+  - `404 Not Found`：资源不存在
   - `409 Conflict`：资源当前状态不允许执行该操作
   - `413 Payload Too Large`：请求关联的媒体处理输入或生成结果超过服务端上限
-  - `404 Not Found`：资源不存在
-  - `429 Too Many Requests`：认证失败次数达到限制，按 `Retry-After` 响应头等待后重试
-  - `416 Range Not Satisfiable`：媒体流的 `Range` 请求越界
+  - `416 Range Not Satisfiable`：本地媒体 `Range` 越界，或 STRM 上游不能满足非零 Range
+  - `422 Unprocessable Entity`：请求结构有效，但 STRM 引用内容无法作为受支持的远程媒体地址处理
+  - `429 Too Many Requests`：认证失败次数或当前用户的远程流并发数达到限制；提供 `Retry-After` 时按该响应头等待后重试
   - `500 Internal Server Error`：服务内部错误
-  - `503 Service Unavailable`：媒体处理资源暂时繁忙、磁盘安全余量不足或依赖服务暂不可用，客户端可以稍后重试
+  - `502 Bad Gateway`：STRM 上游不可用，或返回的直接媒体响应无效
+  - `503 Service Unavailable`：媒体处理资源暂时繁忙、STRM 全局代理名额已满、磁盘安全余量不足或依赖服务暂不可用，客户端可以稍后重试
+  - `504 Gateway Timeout`：STRM 上游连接或响应头超时
 - TMDB provider 从运行时环境变量 `MOVA_TMDB_ACCESS_TOKEN` 读取，值必须是 TMDB 账户 API 设置页中的 **API Read Access Token**，不是较短的 `API Key (v3 auth)`。变量为空或只含空白时服务仍正常启动，本地扫描、NFO/sidecar、入库和播放保持可用；扫描不会发起 TMDB 请求，条目以 `skipped / metadata_provider_disabled` 完成。后续配置 Token、重启并重扫后，这些条目会进入远端补全。每个媒体库可单独配置 `metadata_language`，决定扫描与元数据补全时使用 `zh-CN` 或 `en-US`。TMDB 接入、身份匹配规则和字段覆盖见 [`TMDB_INTEGRATION.md`](TMDB_INTEGRATION.md)，完整 v3 接口目录见 [`TMDB.md`](TMDB.md)。
 - TMDB 详情响应中的 `vote_average` 和 `vote_count` 会写入通用 `ratings` 集合，评分来源明确标记为 `tmdb`。TMDB details 附带的 IMDb、TVDB、Wikidata 和社交平台 ID 只作为外部身份保存，不代表对应平台的评分或数据已经接入；当前不请求 IMDb、OMDb 或其他评分来源。
 - 本地海报和背景图的 URL 带版本参数（例如 `/api/media-items/42/poster?v=1704164645`）。浏览器可以长期缓存；媒体元数据更新时版本参数随之变化。
@@ -1436,7 +1449,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 关键字段：
 - `id`：`media_file_id`
 - `media_item_id`：所属媒体条目
+- `source_kind`：播放源类型，`local_file` 表示本地媒体文件，`strm` 表示由本地 `.strm` 载体引用的 HTTP(S) 远程流
 - `file_path`：后端内部文件路径
+- `file_size`：文件或 STRM 本地引用载体的字节数
 - `container`：容器格式，如 `mp4` / `mkv`
 - `duration_seconds` / `video_codec` / `audio_codec` / `width` / `height` / `bitrate`：基础探测字段
 - `video_title` / `video_profile` / `video_level`：视频流标题、profile、level
@@ -1447,7 +1462,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 说明：
 - 客户端播放前应先从这个接口取得 `media_file_id`
-- 如果服务运行环境里安装了 `ffprobe`，扫描时会尽量填充时长、编码、分辨率、码率和 `technical_tags`
+- `source_kind = strm` 时，`file_path` 和 `file_size` 分别表示本地 `.strm` 载体路径与载体大小，不是远端 URL 和远端媒体大小；API 不返回原始或重定向后的远端 URL
+- STRM 扫描不访问远端且不执行 `ffprobe`，所以容器、时长、编码、码率、分辨率、内嵌音轨和技术标签均为空；客户端应显示远程流来源，不应把空字段伪装成本地技术参数
+- 对 `source_kind = local_file` 的文件，如果服务运行环境里安装了 `ffprobe`，扫描时会尽量填充时长、编码、分辨率、码率和 `technical_tags`
 - `technical_tags` 是文件维度字段；同一个电影或单集有多个版本时，每个 `media_file` 可以返回不同标签
 - 如果没有安装 `ffprobe`，或者文件探测失败，这些字段会保持为空，但不会阻断扫描
 - 如果这个条目是 `series`，这里通常返回空列表；季集层级和本地可用性统一改用 `/api/media-items/{id}/episode-outline`
@@ -1871,6 +1888,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 说明：
 - 仅列出扫描时通过 `ffprobe` 发现的内嵌音轨
+- `source_kind = strm` 的媒体文件没有内嵌音轨清单；客户端不应为其请求或展示内嵌音轨切换。若仍在 STRM 播放请求中传入 `audio_track_id`，服务端返回 `400 strm_audio_track_selection_unsupported`
 - 外挂音轨暂不在 MVP 范围内
 - 前端通常会额外提供一个 `Auto` 选项，表示不传 `audio_track_id`，直接使用原始文件默认音轨
 - 详情页会把音轨列表收成一张音频技术卡，并通过卡头小下拉切换不同轨道
@@ -1902,6 +1920,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 说明：
 - 服务端会把外挂字幕和内嵌字幕统一列在这里，前端播放器只需要渲染一份字幕菜单
+- STRM 只支持本地外挂字幕，不发现或抽取远端媒体中的内嵌字幕
 - 外挂字幕支持：
   - 同目录、同 stem 自动匹配
   - 同目录、季集号一致且目录内唯一时自动匹配，例如 `show.S01E01.mkv` 可匹配 `xxxxx.S01E01.srt`
@@ -1972,19 +1991,25 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 返回：
 - 不带 `Range` 时通常为 `200 OK`
-- 带 `Range` 时为 `206 Partial Content`
+- 带 `Range` 且播放源能够满足该区间时为 `206 Partial Content`
 - 响应体是文件流，不是 JSON
 
 关键响应头：
-- `Accept-Ranges: bytes`
+- `Accept-Ranges: bytes`（本地文件或 STRM 上游明确支持字节范围时）
 - `Content-Type`
 - `Content-Length`
 - `Content-Range`（分段请求时）
 
 说明：
 - 播放器直接使用这个 URL
+- 本地文件和 HTTP(S) STRM 使用同一个 Mova URL；客户端不读取 `.strm`，也不会收到远端 URL
 - 不建议前端先 `fetch` 完整文件再转 `blob`
-- 当带上 `audio_track_id` 时，服务端会先验证这条音轨确实属于当前媒体文件，再按 `ffmpeg -c copy` 生成缓存变体；这里是 remux，不是转码
+- 本地文件带上 `audio_track_id` 时，服务端会先验证这条音轨确实属于当前媒体文件，再按 `ffmpeg -c copy` 生成缓存变体；这里是 remux，不是转码
+- STRM 播放时，服务端重新读取并校验本地载体，在完成用户与媒体库权限校验、DNS/IP 安全检查和重定向逐跳检查后，以有界字节流代理 HTTP(S) 上游；不缓存完整媒体，也不启用 FFmpeg 网络能力
+- STRM 代理仅转发单段 `Range` 与 `If-Range`，不转发客户端 Cookie、Authorization、代理凭据或 `X-Forwarded-*`；响应只保留媒体播放所需的安全头，并设置 `Cache-Control: private, no-store` 与 `X-Content-Type-Options: nosniff`
+- STRM 仅接受直接媒体响应；HTML、JSON、XML、HLS/MPEGURL、上游错误正文和不一致的 Range 响应不会转发给客户端
+- STRM 全局最多 64 条代理流、同一用户最多 4 条；名额用尽立即返回稳定错误，不建立无界等待队列
+- STRM 上游忽略从 0 开始的 Range 时可以返回 `200 OK`，但服务端不宣称该响应支持拖动；没有 `If-Range` 时，上游忽略非零 Range 会返回 `416 remote_range_not_supported`。带 `If-Range` 的条件请求失效后，上游可以按 HTTP 语义返回完整 `200 OK`
 - 已有有效缓存时直接返回，不进入 remux 排队。缓存未命中且进程内 2 个 remux 名额已经占满时立即返回 `503 service_unavailable`；同一缓存键最多等待 5 秒，超时同样返回 `503`，客户端可以稍后重试
 - 生成前同时检查缓存总配额和缓存卷实际可用空间；任何新任务都必须为在途任务预留空间，并在生成后至少保留 5 GiB 可用空间
 - remux 变体只服务于源码直放，不提供多码率或自适应码流
@@ -2014,10 +2039,30 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 说明：
 - 前端通常不需要手动调用
 - 浏览器播放器可能会自己使用
-- 请求 `audio_track_id` 时仍会校验音轨归属，但 `HEAD` 不启动 FFmpeg，也不等待生成任务
+- STRM 优先向上游发送 `HEAD`；上游返回 `405` 或 `501` 时，服务端改用 `GET Range: bytes=0-0` 探测并立即释放正文
+- 本地文件请求 `audio_track_id` 时仍会校验音轨归属，但 `HEAD` 不启动 FFmpeg，也不等待生成任务；STRM 请求携带该参数时返回 `400 strm_audio_track_selection_unsupported`
 - 已有有效音轨缓存时返回该变体准确的 `Accept-Ranges`、`Content-Length` 和可选 `Content-Range`
 - 音轨缓存未命中时只返回确定的 `Content-Type`、`Cache-Control: no-store` 和 `Accept-Ranges: none`；不返回原媒体文件的 `Content-Length` 或 `Content-Range`，避免把源文件长度误报为音轨变体长度
 - 客户端不能把没有 `Content-Length` 解释为长度为零；真正的音轨变体在后续 `GET` 时按需生成
+
+#### STRM 播放错误
+
+STRM 播放错误仍使用通用 JSON 错误 envelope；`message` 只作诊断兜底，客户端必须优先按 `error_code + params` 本地化：
+
+| HTTP | `error_code` | 客户端语义 |
+|---|---|---|
+| `400` | `strm_audio_track_selection_unsupported` | 远程流不支持指定内嵌音轨 |
+| `403` | `strm_target_forbidden` | URL、端口、DNS 或目标地址被安全策略拒绝 |
+| `413` | `strm_reference_too_large` | 本地引用文件超过读取上限 |
+| `416` | `remote_range_not_supported` | 上游不能满足非零 Range |
+| `422` | `strm_reference_invalid` | 当前引用内容已经无效 |
+| `429` | `strm_user_stream_limit_exceeded` | 当前用户的远程流并发数达到上限 |
+| `502` | `remote_source_unavailable` | DNS、连接、上游状态或远端资源不可用 |
+| `502` | `remote_response_invalid` | 上游内容类型或 Range 响应不符合直接媒体要求 |
+| `503` | `strm_stream_capacity_exhausted` | 服务端全局远程流名额已满 |
+| `504` | `remote_source_timeout` | DNS、连接或响应头超时 |
+
+上游响应体开始传输后若连接中断，HTTP 状态已经不能改写；客户端按普通媒体流中断处理。服务端日志不得记录原始 URL、查询参数或上游错误正文。
 
 ## 9. ID 关系说明
 

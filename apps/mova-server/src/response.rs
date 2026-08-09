@@ -385,6 +385,7 @@ pub struct EpisodePlaybackProgressResponse {
 pub struct MediaFileResponse {
     pub id: i64,
     pub media_item_id: i64,
+    pub source_kind: String,
     pub file_path: String,
     pub container: Option<String>,
     pub file_size: i64,
@@ -1098,6 +1099,7 @@ impl MediaFileResponse {
         Self {
             id: media_file.id,
             media_item_id: media_file.media_item_id,
+            source_kind: media_file.source_kind.to_string(),
             file_path: media_file.file_path,
             container: media_file.container,
             file_size: media_file.file_size,

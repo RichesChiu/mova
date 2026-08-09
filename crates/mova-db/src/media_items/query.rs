@@ -14,7 +14,9 @@ use crate::{
     VisibilityResult,
 };
 use anyhow::{Context, Result};
-use mova_domain::{AudioTrack, Episode, Library, MediaFile, MediaItem, Season, SubtitleFile};
+use mova_domain::{
+    AudioTrack, Episode, Library, MediaFile, MediaItem, MediaSourceKind, Season, SubtitleFile,
+};
 use sqlx::{
     postgres::{PgPool, PgRow},
     Row,
@@ -974,6 +976,8 @@ pub async fn get_media_file(pool: &PgPool, media_file_id: i64) -> Result<Option<
             media_item_id,
             library_id,
             file_path,
+            source_kind,
+            stream_reference_hash,
             container,
             file_size,
             duration_seconds,
@@ -1024,6 +1028,8 @@ pub async fn get_media_file_with_library_visibility(
             mf.media_item_id,
             mf.library_id,
             mf.file_path,
+            mf.source_kind,
+            mf.stream_reference_hash,
             mf.container,
             mf.file_size,
             mf.duration_seconds,
@@ -1090,28 +1096,30 @@ pub async fn update_media_file_metadata(
         update media_files
         set
             file_path = $2,
-            container = $3,
-            file_size = $4,
-            duration_seconds = $5,
-            video_title = $6,
-            video_codec = $7,
-            video_profile = $8,
-            video_level = $9,
-            audio_codec = $10,
-            width = $11,
-            height = $12,
-            bitrate = $13,
-            video_bitrate = $14,
-            video_frame_rate = $15,
-            video_aspect_ratio = $16,
-            video_scan_type = $17,
-            video_color_primaries = $18,
-            video_color_space = $19,
-            video_color_transfer = $20,
-            video_bit_depth = $21,
-            video_pixel_format = $22,
-            video_reference_frames = $23,
-            technical_tags = $24,
+            source_kind = $3,
+            stream_reference_hash = $4,
+            container = $5,
+            file_size = $6,
+            duration_seconds = $7,
+            video_title = $8,
+            video_codec = $9,
+            video_profile = $10,
+            video_level = $11,
+            audio_codec = $12,
+            width = $13,
+            height = $14,
+            bitrate = $15,
+            video_bitrate = $16,
+            video_frame_rate = $17,
+            video_aspect_ratio = $18,
+            video_scan_type = $19,
+            video_color_primaries = $20,
+            video_color_space = $21,
+            video_color_transfer = $22,
+            video_bit_depth = $23,
+            video_pixel_format = $24,
+            video_reference_frames = $25,
+            technical_tags = $26,
             updated_at = now()
         where id = $1
         returning
@@ -1119,6 +1127,8 @@ pub async fn update_media_file_metadata(
             media_item_id,
             library_id,
             file_path,
+            source_kind,
+            stream_reference_hash,
             container,
             file_size,
             duration_seconds,
@@ -1148,6 +1158,8 @@ pub async fn update_media_file_metadata(
     )
     .bind(media_file_id)
     .bind(&params.file_path)
+    .bind(params.source_kind.as_str())
+    .bind(&params.stream_reference_hash)
     .bind(&params.container)
     .bind(params.file_size)
     .bind(params.duration_seconds)
@@ -1189,6 +1201,8 @@ pub async fn list_media_files_for_media_item(
             media_item_id,
             library_id,
             file_path,
+            source_kind,
+            stream_reference_hash,
             container,
             file_size,
             duration_seconds,
@@ -1241,6 +1255,8 @@ pub async fn list_media_item_metadata_refresh_source_files(
             mf.media_item_id,
             mf.library_id,
             mf.file_path,
+            mf.source_kind,
+            mf.stream_reference_hash,
             mf.container,
             mf.file_size,
             mf.duration_seconds,
@@ -2294,6 +2310,8 @@ pub async fn list_existing_media_metadata_for_file_paths(
             mi.backdrop_path,
             mi.logo_path,
             mf.scan_hash,
+            mf.source_kind,
+            mf.stream_reference_hash,
             mf.container,
             mf.file_size,
             mf.duration_seconds,
@@ -2561,11 +2579,17 @@ fn map_global_search_result_row(row: PgRow) -> GlobalSearchResult {
 }
 
 fn map_media_file_row(row: PgRow) -> MediaFile {
+    let source_kind = row
+        .get::<String, _>("source_kind")
+        .parse::<MediaSourceKind>()
+        .expect("media_files.source_kind must satisfy its database constraint");
     MediaFile {
         id: row.get("id"),
         library_id: row.get("library_id"),
         media_item_id: row.get("media_item_id"),
         file_path: row.get("file_path"),
+        source_kind,
+        stream_reference_hash: row.get("stream_reference_hash"),
         container: row.get("container"),
         file_size: row.get("file_size"),
         duration_seconds: row.get("duration_seconds"),
@@ -2595,6 +2619,10 @@ fn map_media_file_row(row: PgRow) -> MediaFile {
 }
 
 fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataSummary {
+    let source_kind = row
+        .get::<String, _>("source_kind")
+        .parse::<MediaSourceKind>()
+        .expect("media_files.source_kind must satisfy its database constraint");
     ExistingMediaMetadataSummary {
         media_item_id: row.get("media_item_id"),
         logical_metadata_owner_id: row.get("logical_metadata_owner_id"),
@@ -2626,6 +2654,8 @@ fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataS
         backdrop_path: row.get("backdrop_path"),
         logo_path: row.get("logo_path"),
         scan_hash: row.get("scan_hash"),
+        source_kind,
+        stream_reference_hash: row.get("stream_reference_hash"),
         container: row.get("container"),
         file_size: row.get("file_size"),
         duration_seconds: row.get("duration_seconds"),

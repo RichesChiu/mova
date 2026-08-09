@@ -186,13 +186,13 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
             </div>
             <p>
               {isChinese
-                ? 'latest 指向当前稳定版本，preview 仅用于后续预发布验证。从任何 Preview 版本首次升级到 1.0，都需要完成最后一次数据库重建并重新扫描。'
-                : 'latest points to the current stable release, while preview is reserved for future pre-release validation. Moving from any Preview release to 1.0 requires one final database rebuild and library rescan.'}
+                ? 'latest 指向当前稳定版本；preview 用于体验仍可能调整的实验功能。两个通道都按顺序执行数据库迁移，发布说明会注明是否需要重新扫描特定媒体库。'
+                : 'latest points to the current stable release; preview provides experimental features that may still change. Both channels apply sequential database migrations, and each release notes any required library rescan.'}
             </p>
           </div>
           <div className="deploy-compose-block">
             <div className="deploy-compose-toolbar">
-              <span>docker-compose.yml · Mova 1.0</span>
+              <span>docker-compose.yml · Mova</span>
               <button type="button" onClick={() => void copyCompose()}>
                 {copyState === 'idle' ? (isChinese ? '复制配置' : 'Copy configuration') : copyLabel}
               </button>
@@ -224,6 +224,13 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
             <p>{t('代理程序必须允许来自 Docker 网络或局域网的连接。不要使用 127.0.0.1 或 localhost，它们在容器内指向 MOVA 容器自身。')}</p>
             <p>{t('如果 MOVA 容器已经能直接访问 TMDB，例如透明代理、TUN 或路由器代理已经对 Docker 生效，则两个变量可以留空。仅在宿主机启动普通代理程序不会自动让容器继承代理。')}</p>
             <p>{t('这里的代理只影响 MOVA 运行时请求；Docker Hub 镜像拉取代理仍需在 Docker Desktop 或 Docker Engine 中配置。')}</p>
+          </div>
+          <div className="deploy-compose-guidance deploy-proxy-guide">
+            <strong>{t('STRM 私网目标白名单（高级）')}</strong>
+            <p>{t('HTTP/HTTPS STRM 默认只允许解析到公网地址的目标。家庭 NAS、AList 或其他可信私网源必须在 app.environment 中按实际主机与端口显式允许。')}</p>
+            <pre><code>{'MOVA_STRM_ALLOWED_HOSTS: "192.168.1.20:5244,media.home:443"'}</code></pre>
+            <p>{t('该值只接受逗号分隔的精确 host:port，不支持通配符、域名后缀或 CIDR。它不能放开 loopback、link-local、multicast、localhost 或云 metadata 地址；每次 DNS 解析和重定向都会重新验证。')}</p>
+            <p>{t('STRM 播放不会继承 HTTP_PROXY 或 HTTPS_PROXY，避免部署代理绕过 DNS 与目标地址安全检查。')}</p>
           </div>
           <p className="deploy-compose-guidance">
             {isChinese
@@ -312,15 +319,15 @@ export function DeploymentPage({ onNavigate }: { onNavigate: (sectionId: string)
           />
           <div className="deploy-after-grid">
             <article>
-              <span>{isChinese ? 'Preview → 1.0' : 'Preview → 1.0'}</span>
-              <strong>{isChinese ? '一次重建并重扫' : 'One rebuild and rescan'}</strong>
+              <span>{isChinese ? 'Preview 通道' : 'Preview channel'}</span>
+              <strong>{isChinese ? '实验功能验证' : 'Experimental validation'}</strong>
             </article>
             <article>
-              <span>{isChinese ? '1.0 数据库基线' : '1.0 database baseline'}</span>
-              <strong>{isChinese ? '正式冻结 0001' : 'Freeze migration 0001'}</strong>
+              <span>{isChinese ? '数据库基线' : 'Database baseline'}</span>
+              <strong>{isChinese ? '0001 已冻结' : 'Migration 0001 is frozen'}</strong>
             </article>
             <article>
-              <span>{isChinese ? '1.0 后续升级' : 'Upgrades after 1.0'}</span>
+              <span>{isChinese ? '版本升级' : 'Version upgrades'}</span>
               <strong>{isChinese ? '顺序迁移' : 'Sequential migrations'}</strong>
             </article>
           </div>

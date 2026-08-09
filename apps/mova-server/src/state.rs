@@ -27,6 +27,7 @@ pub struct AppState {
     pub realtime_hub: RealtimeHub,
     pub realtime_dispatcher: RealtimeDispatcherHandle,
     pub background_jobs: BackgroundJobNotifier,
+    pub strm_streaming: mova_application::StrmStreamingService,
 }
 
 #[derive(Clone, Default)]

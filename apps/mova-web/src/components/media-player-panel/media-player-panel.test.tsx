@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PlaybackProgress } from '../../api/types'
+import type { MediaFile, PlaybackProgress } from '../../api/types'
 import { buildPlaybackSourceErrorMessage, MediaPlayerPanel } from './index'
 
 const clientMocks = vi.hoisted(() => ({
@@ -9,7 +9,7 @@ const clientMocks = vi.hoisted(() => ({
   getMediaItemPlaybackProgress: vi.fn(),
   listMediaFileAudioTracks: vi.fn(),
   listMediaFileSubtitles: vi.fn(),
-  listMediaItemFiles: vi.fn(),
+  listMediaItemFiles: vi.fn<(mediaItemId: number) => Promise<MediaFile[]>>(),
   mediaFileStreamUrl: vi.fn(
     (mediaFileId: number, options?: { audioTrackId?: number | null }) =>
       `/api/media-files/${mediaFileId}/stream${
@@ -153,6 +153,7 @@ describe('MediaPlayerPanel', () => {
       {
         id: 401,
         media_item_id: 31,
+        source_kind: 'local_file',
         file_path: '/media/movies/interstellar.mkv',
         container: 'mkv',
         file_size: 1,
@@ -290,6 +291,7 @@ describe('MediaPlayerPanel', () => {
       {
         id: 401,
         media_item_id: 31,
+        source_kind: 'local_file',
         file_path: '/media/movies/interstellar-1080p.mkv',
         container: 'mkv',
         file_size: 1,
@@ -307,6 +309,7 @@ describe('MediaPlayerPanel', () => {
       {
         id: 402,
         media_item_id: 31,
+        source_kind: 'local_file',
         file_path: '/media/movies/interstellar-2160p.mkv',
         container: 'mkv',
         file_size: 2,
@@ -719,6 +722,7 @@ describe('MediaPlayerPanel', () => {
       {
         id: 401,
         media_item_id: 31,
+        source_kind: 'local_file',
         file_path: '/media/movies/interstellar.mkv',
         container: 'mkv',
         file_size: 1,
@@ -736,6 +740,7 @@ describe('MediaPlayerPanel', () => {
       {
         id: 402,
         media_item_id: 31,
+        source_kind: 'local_file',
         file_path: '/media/movies/interstellar.mp4',
         container: 'mp4',
         file_size: 1,
@@ -821,6 +826,128 @@ describe('MediaPlayerPanel', () => {
     expect(buildPlaybackSourceErrorMessage(failingVideo)).toBe(
       'The selected file could not be streamed. Check the storage mount or network path.',
     )
+  })
+
+  it('uses the unified stream URL for STRM while hiding embedded-audio controls', async () => {
+    clientMocks.listMediaItemFiles.mockResolvedValue([
+      {
+        id: 409,
+        media_item_id: 31,
+        source_kind: 'strm',
+        file_path: '/media/movies/interstellar.strm',
+        container: null,
+        file_size: 128,
+        duration_seconds: null,
+        video_codec: null,
+        audio_codec: null,
+        width: null,
+        height: null,
+        bitrate: null,
+        technical_tags: [],
+        scan_hash: null,
+        created_at: '2026-04-07T00:00:00Z',
+        updated_at: '2026-04-07T00:00:00Z',
+      },
+      {
+        id: 410,
+        media_item_id: 31,
+        source_kind: 'local_file',
+        file_path: '/media/movies/interstellar.mkv',
+        container: 'mkv',
+        file_size: 1,
+        duration_seconds: 7200,
+        video_codec: 'h264',
+        audio_codec: 'aac',
+        width: 1920,
+        height: 1080,
+        bitrate: 1_000_000,
+        technical_tags: [],
+        scan_hash: null,
+        created_at: '2026-04-07T00:00:00Z',
+        updated_at: '2026-04-07T00:00:00Z',
+      },
+    ])
+    clientMocks.getMediaItemPlaybackProgress.mockResolvedValue({
+      id: 71,
+      media_item_id: 31,
+      last_media_file_id: 409,
+      position_seconds: 0,
+      duration_seconds: null,
+      last_watched_at: '2026-04-07T00:00:00Z',
+      is_finished: false,
+    })
+    clientMocks.listMediaFileSubtitles.mockResolvedValue([
+      {
+        id: 901,
+        media_file_id: 409,
+        source_kind: 'external',
+        file_path: '/media/movies/interstellar.zh.srt',
+        stream_index: null,
+        language: 'zh',
+        subtitle_format: 'srt',
+        label: 'External Chinese',
+        is_default: true,
+        is_forced: false,
+        is_hearing_impaired: false,
+        created_at: '2026-04-07T00:00:00Z',
+        updated_at: '2026-04-07T00:00:00Z',
+      },
+      {
+        id: 902,
+        media_file_id: 409,
+        source_kind: 'embedded',
+        file_path: null,
+        stream_index: 2,
+        language: 'en',
+        subtitle_format: 'srt',
+        label: 'Should be hidden',
+        is_default: false,
+        is_forced: false,
+        is_hearing_impaired: false,
+        created_at: '2026-04-07T00:00:00Z',
+        updated_at: '2026-04-07T00:00:00Z',
+      },
+    ])
+
+    const queryClient = createTestQueryClient()
+    const { container, rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <MediaPlayerPanel mediaItemId={31} title="Interstellar" />
+      </QueryClientProvider>,
+    )
+
+    const video = (await waitFor(() => {
+      const element = container.querySelector('video')
+      expect(element).not.toBeNull()
+      return element
+    })) as HTMLVideoElement
+
+    expect(video.getAttribute('src')).toContain('/api/media-files/409/stream')
+    expect(clientMocks.listMediaFileAudioTracks).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Select audio track' })).toBeNull()
+    expect(await screen.findByRole('button', { name: /STRM.*HTTP\(S\) Stream/i })).toBeVisible()
+    await waitFor(() => {
+      expect(clientMocks.listMediaFileSubtitles).toHaveBeenCalledWith(409)
+      expect(container.querySelector('track')?.getAttribute('src')).toContain(
+        '/api/subtitle-files/901/stream',
+      )
+      expect(container.querySelectorAll('track')).toHaveLength(1)
+    })
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <MediaPlayerPanel mediaItemId={31} title="Interstellar" variant="immersive" />
+      </QueryClientProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select subtitles' }))
+    expect(await screen.findByText(/External Chinese/)).toBeInTheDocument()
+    expect(screen.queryByText(/Should be hidden/)).toBeNull()
+
+    fireEvent.error(video)
+    expect(
+      await screen.findByText('The remote media source is temporarily unavailable.'),
+    ).toBeInTheDocument()
   })
 
   it('degrades gracefully when subtitle loading fails', async () => {

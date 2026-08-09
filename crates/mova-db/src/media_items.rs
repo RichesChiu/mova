@@ -4,7 +4,7 @@ mod series;
 mod sync;
 
 use anyhow::Result;
-use mova_domain::{MediaExternalId, MediaRating};
+use mova_domain::{MediaExternalId, MediaRating, MediaSourceKind};
 pub use query::{
     count_media_items_for_library, delete_series_episode_outline_cache, get_audio_track,
     get_library_media_type_counts, get_media_file, get_media_file_with_library_visibility,
@@ -140,6 +140,8 @@ pub struct CreateMediaEntryParams {
     pub backdrop_path: Option<String>,
     pub logo_path: Option<String>,
     pub file_path: String,
+    pub source_kind: MediaSourceKind,
+    pub stream_reference_hash: Option<String>,
     pub container: Option<String>,
     pub file_size: i64,
     pub duration_seconds: Option<i32>,
@@ -903,6 +905,8 @@ pub struct UpdateSeriesEpisodeMetadataParams {
 #[derive(Debug, Clone)]
 pub struct UpdateMediaFileMetadataParams {
     pub file_path: String,
+    pub source_kind: MediaSourceKind,
+    pub stream_reference_hash: Option<String>,
     pub container: Option<String>,
     pub file_size: i64,
     pub duration_seconds: Option<i32>,
@@ -1035,6 +1039,8 @@ pub struct ExistingMediaMetadataSummary {
     pub backdrop_path: Option<String>,
     pub logo_path: Option<String>,
     pub scan_hash: Option<String>,
+    pub source_kind: MediaSourceKind,
+    pub stream_reference_hash: Option<String>,
     pub container: Option<String>,
     pub file_size: i64,
     pub duration_seconds: Option<i32>,

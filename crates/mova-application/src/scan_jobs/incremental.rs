@@ -1052,6 +1052,8 @@ pub(super) fn discovered_file_from_existing_local_analysis(
 
     Ok(DiscoveredMediaFile {
         file_path: inventory.file_path.clone(),
+        source_kind: inventory.source_kind,
+        stream_reference_hash: inventory.stream_reference_hash.clone(),
         file_modified_at_ms: inventory.file_modified_at_ms,
         sidecar_fingerprint: inventory.sidecar_fingerprint.clone(),
         probe_error: None,
@@ -1104,7 +1106,11 @@ pub(super) fn discovered_file_from_existing_local_analysis(
         poster_path,
         backdrop_path,
         logo_path: summary.logo_path.clone(),
-        file_size: inventory.file_size.max(file_size),
+        file_size: if inventory.source_kind == mova_domain::MediaSourceKind::Strm {
+            inventory.file_size
+        } else {
+            inventory.file_size.max(file_size)
+        },
         container: summary.container.clone(),
         duration_seconds: summary.duration_seconds,
         video_title: summary.video_title.clone(),
@@ -1251,7 +1257,7 @@ pub(super) async fn discover_media_files(
 
     let cancellation_for_task = cancellation_flag.clone();
     let result = tokio::task::spawn_blocking(move || {
-        mova_scan::discover_media_file_inventory_with_progress_and_cancel(
+        mova_scan::discover_media_file_inventory_report_with_progress_and_cancel(
             std::path::Path::new(&root_path_for_task),
             |count| {
                 publish_discovery_progress(&latest_discovered, &progress_tx, count);

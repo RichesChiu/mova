@@ -14,13 +14,15 @@ use axum::{
     body::Body,
     extract::{Path, Query, State},
     http::{
-        header::{self, HeaderMap, HeaderValue},
+        header::{self, HeaderMap, HeaderName, HeaderValue},
         Response, StatusCode,
     },
 };
 use axum_extra::extract::cookie::CookieJar;
+use mova_domain::MediaSourceKind;
 use serde::Deserialize;
 use std::{
+    collections::BTreeMap,
     io::ErrorKind,
     path::{Path as StdPath, PathBuf},
     time::Duration,
@@ -30,6 +32,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncSeekExt, SeekFrom},
     process::Command,
 };
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::ReaderStream;
 
 const AUDIO_TRACK_REMUX_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -111,6 +114,35 @@ async fn build_media_file_stream_response(
 ) -> Result<Response<Body>, ApiError> {
     let (media_file, library) =
         require_media_file_with_library_access(&state, user, media_file_id).await?;
+    if media_file.source_kind == MediaSourceKind::Strm {
+        if audio_track_id.is_some() {
+            return Err(ApiError::from(
+                mova_application::ApplicationError::validation(
+                    "strm_audio_track_selection_unsupported",
+                    BTreeMap::new(),
+                    "STRM media does not support embedded audio-track selection",
+                ),
+            ));
+        }
+
+        let carrier_path = resolve_trusted_media_source(&media_file, &library.root_path).await?;
+        let method = if head_only {
+            mova_application::RemoteStreamMethod::Head
+        } else {
+            mova_application::RemoteStreamMethod::Get
+        };
+        let range = remote_request_header(&headers, header::RANGE, "Range")?;
+        let if_range = remote_request_header(&headers, header::IF_RANGE, "If-Range")?;
+        let request = mova_application::RemoteStreamRequest::new(method, range, if_range)
+            .map_err(ApiError::from)?;
+        let upstream = state
+            .strm_streaming
+            .open_carrier(&carrier_path, user.user.id, request)
+            .await
+            .map_err(ApiError::from)?;
+        return build_remote_stream_response(upstream);
+    }
+
     let source_path = resolve_trusted_media_source(&media_file, &library.root_path).await?;
     let content_type = content_type_for_media_file(&media_file);
     let stream_path = match audio_track_id {
@@ -170,6 +202,95 @@ async fn build_media_file_stream_response(
         },
     )
     .await
+}
+
+fn remote_request_header<'a>(
+    headers: &'a HeaderMap,
+    name: HeaderName,
+    display_name: &str,
+) -> Result<Option<&'a str>, ApiError> {
+    let mut values = headers.get_all(name).iter();
+    let first = values.next();
+    if values.next().is_some() {
+        return Err(ApiError::BadRequest(format!(
+            "multiple {display_name} headers are not supported"
+        )));
+    }
+    first
+        .map(|value| {
+            value
+                .to_str()
+                .map_err(|_| ApiError::BadRequest(format!("invalid {display_name} header")))
+        })
+        .transpose()
+}
+
+fn build_remote_stream_response(
+    upstream: mova_application::RemoteStreamResponse,
+) -> Result<Response<Body>, ApiError> {
+    let status = StatusCode::from_u16(upstream.status()).map_err(|_| ApiError::Internal)?;
+    let safe_headers = upstream.headers().to_vec();
+    let body = match upstream.into_body() {
+        Some(mut upstream_body) => {
+            let (sender, receiver) = tokio::sync::mpsc::channel(1);
+            tokio::spawn(async move {
+                loop {
+                    let next_chunk = tokio::select! {
+                        biased;
+                        _ = sender.closed() => break,
+                        next_chunk = upstream_body.next_chunk() => next_chunk,
+                    };
+                    match next_chunk {
+                        Ok(Some(chunk)) => {
+                            if sender.send(Ok(chunk)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Ok(None) => break,
+                        Err(failure) => {
+                            let diagnostics = upstream_body.diagnostics();
+                            tracing::warn!(
+                                scheme = diagnostics.scheme(),
+                                host_fingerprint = diagnostics.host_fingerprint(),
+                                port = diagnostics.port(),
+                                reference_hash_prefix = diagnostics.reference_hash_prefix(),
+                                failure = failure.as_str(),
+                                "remote STRM response body ended before completion"
+                            );
+                            let _ = sender
+                                .send(Err(std::io::Error::other("remote media stream failed")))
+                                .await;
+                            break;
+                        }
+                    }
+                }
+            });
+            Body::from_stream(ReceiverStream::new(receiver))
+        }
+        None => Body::empty(),
+    };
+
+    let mut response = Response::new(body);
+    *response.status_mut() = status;
+    let headers = response.headers_mut();
+    for safe_header in safe_headers {
+        let name = HeaderName::from_static(safe_header.name().as_str());
+        let value = HeaderValue::from_bytes(safe_header.value()).map_err(|_| ApiError::Internal)?;
+        headers.insert(name, value);
+    }
+    apply_remote_response_security_headers(headers);
+    Ok(response)
+}
+
+fn apply_remote_response_security_headers(headers: &mut HeaderMap) {
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
 }
 
 fn build_unmaterialized_audio_track_head_response(content_type: &'static str) -> Response<Body> {
@@ -646,8 +767,9 @@ fn map_stream_file_io_error(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_file_stream_response, build_unmaterialized_audio_track_head_response,
-        parse_requested_range, RequestedRange,
+        apply_remote_response_security_headers, build_file_stream_response,
+        build_unmaterialized_audio_track_head_response, parse_requested_range,
+        remote_request_header, RequestedRange,
     };
     use crate::error::ApiError;
     use axum::http::{
@@ -693,6 +815,31 @@ mod tests {
             error,
             ApiError::RangeNotSatisfiable { file_size: 100, .. }
         ));
+    }
+
+    #[test]
+    fn remote_headers_reject_duplicate_values_before_contacting_upstream() {
+        let mut headers = HeaderMap::new();
+        headers.append(header::RANGE, HeaderValue::from_static("bytes=0-9"));
+        headers.append(header::RANGE, HeaderValue::from_static("bytes=20-29"));
+
+        let error = remote_request_header(&headers, header::RANGE, "Range").unwrap_err();
+        assert!(matches!(error, ApiError::BadRequest(_)));
+    }
+
+    #[test]
+    fn remote_stream_responses_disable_caching_and_content_sniffing() {
+        let mut headers = HeaderMap::new();
+        apply_remote_response_security_headers(&mut headers);
+
+        assert_eq!(
+            headers.get(header::CACHE_CONTROL).unwrap(),
+            "private, no-store"
+        );
+        assert_eq!(
+            headers.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(),
+            "nosniff"
+        );
     }
 
     #[test]

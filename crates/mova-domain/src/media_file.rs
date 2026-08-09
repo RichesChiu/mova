@@ -1,14 +1,18 @@
 use serde::Serialize;
 use time::OffsetDateTime;
 
+use crate::MediaSourceKind;
+
 /// 归属于某个媒体条目的具体物理文件。
-/// 当前最小实现里，一个 media item 只会有一个 media file，但后续可以扩展成多版本文件。
+/// 一个媒体条目可以同时拥有多个本地文件或 STRM 载体作为播放版本。
 #[derive(Debug, Clone, Serialize)]
 pub struct MediaFile {
     pub id: i64,
     pub library_id: i64,
     pub media_item_id: i64,
     pub file_path: String,
+    pub source_kind: MediaSourceKind,
+    pub stream_reference_hash: Option<String>,
     pub container: Option<String>,
     pub file_size: i64,
     pub duration_seconds: Option<i32>,

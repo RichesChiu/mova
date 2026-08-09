@@ -411,7 +411,9 @@ export const PlayerPanelView = ({
                     type="button"
                   >
                     <span className="player-source__title">
-                      {file.container?.toUpperCase() ?? translateCurrent('FILE')}
+                      {file.source_kind === 'strm'
+                        ? 'STRM'
+                        : (file.container?.toUpperCase() ?? translateCurrent('FILE'))}
                     </span>
                     <span className="player-source__meta">
                       {formatVideoMeta(file) || file.file_path}

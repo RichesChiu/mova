@@ -20,12 +20,15 @@ Mova 使用 Rust 构建，用于整理、浏览和播放本地电影与剧集。
 
 - 扫描电影与剧集，识别 NFO 和本地图片，并可通过 TMDB 补齐元数据
 - 支持同一条目的多文件版本、季集结构和独立播放进度
+- 实验性支持将 HTTP/HTTPS `.strm` 远程媒体引用作为媒体库条目的播放版本
 - 多用户、角色权限、媒体库访问控制和会话管理
 - 继续观看、最近添加、搜索、通知与网页播放
 - 后台扫描、增量更新、SSE 实时同步和持久化任务状态
 - 发布 `linux/amd64` 与 `linux/arm64` Docker 镜像
 
 稳定版本和变更记录见 [GitHub Releases](https://github.com/RichesChiu/mova/releases)。
+
+> STRM 当前为实验功能，仅支持 HTTP/HTTPS 直接媒体资源。体验该能力请使用 `richeschiu/mova:preview`。如遇到扫描、匹配、拖动播放或兼容性问题，欢迎通过 [GitHub Issues](https://github.com/RichesChiu/mova/issues) 或 [Telegram](https://t.me/mova_feedback) 反馈。
 
 ## 快速部署
 
@@ -135,6 +138,7 @@ Mova 会按顺序自动执行数据库迁移。媒体目录始终只读挂载，
 - [HTTP API](docs/API.md)
 - [SSE 同步协议](docs/SSE.md)
 - [媒体库扫描与刮削](docs/MEDIA_LIBRARY_SCAN.md)
+- [HTTP/HTTPS STRM 媒体源](docs/STRM.md)
 - [NFO 本地元数据](docs/NFO_METADATA.md)
 - [TMDB 接入契约](docs/TMDB_INTEGRATION.md)
 - [TMDB v3 API 参考](docs/TMDB.md)

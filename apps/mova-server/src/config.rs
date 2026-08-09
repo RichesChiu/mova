@@ -1,6 +1,6 @@
 use crate::{auth_rate_limit::AuthRateLimitSettings, metadata_provider_config};
 use anyhow::{anyhow, Context, Result};
-use mova_application::MetadataProviderConfig;
+use mova_application::{MetadataProviderConfig, StrmStreamingConfig};
 use mova_db::DatabaseSettings;
 use std::{env, net::SocketAddr, path::PathBuf};
 use time::UtcOffset;
@@ -23,6 +23,7 @@ pub struct AppConfig {
     pub session_cookie_secure: bool,
     pub auth_rate_limit: AuthRateLimitSettings,
     pub worker_concurrency: usize,
+    pub strm_streaming: StrmStreamingConfig,
 }
 
 impl AppConfig {
@@ -33,15 +34,20 @@ impl AppConfig {
             .ok()
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(36080);
+        let build_version = option_env!("MOVA_BUILD_VERSION")
+            .unwrap_or(env!("CARGO_PKG_VERSION"))
+            .to_string();
+        let allowed_strm_hosts = env::var("MOVA_STRM_ALLOWED_HOSTS").ok();
+        let strm_streaming =
+            StrmStreamingConfig::new(&build_version, allowed_strm_hosts.as_deref())
+                .map_err(|message| anyhow!(message))?;
 
         Ok(Self {
             host,
             port,
             database: DatabaseSettings::from_env()?,
             api_time: ApiTimeSettings::from_env()?,
-            build_version: option_env!("MOVA_BUILD_VERSION")
-                .unwrap_or(env!("CARGO_PKG_VERSION"))
-                .to_string(),
+            build_version,
             cache_dir: cache_dir_from_env()?,
             web_dist_dir: web_dist_dir_from_env()?,
             metadata_provider: metadata_provider_config::metadata_provider_config_from_env()?,
@@ -52,6 +58,7 @@ impl AppConfig {
                 .and_then(|value| value.parse::<usize>().ok())
                 .filter(|value| *value > 0)
                 .unwrap_or(2),
+            strm_streaming,
         })
     }
 

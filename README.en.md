@@ -20,12 +20,15 @@ Highlights:
 
 - Scan movies and series, read NFO files and local artwork, and optionally enrich metadata through TMDB
 - Support multiple files for one title, season and episode structures, and per-user playback progress
+- Experimentally use HTTP/HTTPS `.strm` remote references as playback variants of library items
 - Manage users, roles, library access, and sessions
 - Continue watching, recently added items, search, notifications, and Web playback
 - Run background scans, incremental updates, SSE synchronization, and persistent jobs
 - Publish Docker images for `linux/amd64` and `linux/arm64`
 
 See [GitHub Releases](https://github.com/RichesChiu/mova/releases) for stable versions and release notes.
+
+> STRM support is experimental and currently accepts direct HTTP/HTTPS media resources only. Use `richeschiu/mova:preview` to try it. Please report scanning, matching, seeking, or compatibility problems through [GitHub Issues](https://github.com/RichesChiu/mova/issues) or [Telegram](https://t.me/mova_feedback).
 
 ## Quick deployment
 
@@ -135,6 +138,7 @@ Mova applies database migrations in order at startup. The media mount remains re
 - [HTTP API](docs/API.md)
 - [SSE synchronization](docs/SSE.md)
 - [Media library scanning and metadata](docs/MEDIA_LIBRARY_SCAN.md)
+- [HTTP/HTTPS STRM media sources](docs/STRM.md)
 - [Local NFO metadata](docs/NFO_METADATA.md)
 - [TMDB integration contract](docs/TMDB_INTEGRATION.md)
 - [TMDB v3 API reference](docs/TMDB.md)

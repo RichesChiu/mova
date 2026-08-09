@@ -32,6 +32,10 @@ export const releasePointerControlFocus = (event: ReactPointerEvent<HTMLElement>
 }
 
 export const formatVideoMeta = (file: MediaFile) => {
+  if (file.source_kind === 'strm') {
+    return translateCurrent('HTTP(S) Stream')
+  }
+
   const parts = [file.container?.toUpperCase()]
 
   if (file.width && file.height) {

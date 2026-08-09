@@ -117,6 +117,20 @@ const websiteEndpointEntries = [
 const sourceEndpoints = new Set(sourceEndpointRows)
 const sourceSections = new Set(sourceEndpointSections)
 const websiteEndpoints = new Set(websiteEndpointEntries)
+const sourceStreamErrors = new Set(
+  [
+    ...sourceDocument.matchAll(
+      /\|\s*`(\d{3})`\s*\|\s*`((?:strm|remote)_[a-z0-9_]+)`\s*\|/g,
+    ),
+  ].map((match) => `${match[1]} ${match[2]}`),
+)
+const websiteStreamErrors = new Set(
+  [
+    ...websiteData.matchAll(
+      /status:\s*'(\d{3})',\s*errorCode:\s*'((?:strm|remote)_[a-z0-9_]+)'/g,
+    ),
+  ].map((match) => `${match[1]} ${match[2]}`),
+)
 
 const missingOnWebsite = [...sourceEndpoints].filter((endpoint) => !websiteEndpoints.has(endpoint)).sort()
 const extraOnWebsite = [...websiteEndpoints].filter((endpoint) => !sourceEndpoints.has(endpoint)).sort()
@@ -133,6 +147,12 @@ const undocumentedDetailedSections = [...sourceSections]
 const duplicateSourceRows = duplicateValues(sourceEndpointRows)
 const duplicateSourceSections = duplicateValues(sourceEndpointSections)
 const duplicateWebsiteEntries = duplicateValues(websiteEndpointEntries)
+const missingStreamErrorsOnWebsite = [...sourceStreamErrors]
+  .filter((error) => !websiteStreamErrors.has(error))
+  .sort()
+const extraStreamErrorsOnWebsite = [...websiteStreamErrors]
+  .filter((error) => !sourceStreamErrors.has(error))
+  .sort()
 
 if (
   missingOnWebsite.length ||
@@ -143,7 +163,9 @@ if (
   undocumentedDetailedSections.length ||
   duplicateSourceRows.length ||
   duplicateSourceSections.length ||
-  duplicateWebsiteEntries.length
+  duplicateWebsiteEntries.length ||
+  missingStreamErrorsOnWebsite.length ||
+  extraStreamErrorsOnWebsite.length
 ) {
   console.error('API documentation is not synchronized.')
 
@@ -175,6 +197,16 @@ if (
   if (undocumentedDetailedSections.length) {
     console.error('\nDetailed endpoint sections missing from the docs/API.md overview:')
     undocumentedDetailedSections.forEach((endpoint) => console.error(`- ${endpoint}`))
+  }
+
+  if (missingStreamErrorsOnWebsite.length) {
+    console.error('\nSTRM playback status and error-code pairs missing on website:')
+    missingStreamErrorsOnWebsite.forEach((error) => console.error(`- ${error}`))
+  }
+
+  if (extraStreamErrorsOnWebsite.length) {
+    console.error('\nSTRM playback status and error-code pairs missing from docs/API.md:')
+    extraStreamErrorsOnWebsite.forEach((error) => console.error(`- ${error}`))
   }
 
   for (const [label, duplicates] of [

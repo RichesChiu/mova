@@ -9,10 +9,10 @@ use crate::{
 };
 use mova_domain::{
     AudioTrack, Library, MediaExternalIdRecord, MediaFile, MediaItem, MediaItemCredit,
-    MediaLocalMetadataSource, MediaLocalMetadataSourceSummary, MediaRating, PlaybackProgress,
-    Season, SubtitleFile, METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED,
-    METADATA_STATUS_MATCHED, METADATA_STATUS_SKIPPED, METADATA_STATUS_UNMATCHED,
-    REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
+    MediaLocalMetadataSource, MediaLocalMetadataSourceSummary, MediaRating, MediaSourceKind,
+    PlaybackProgress, Season, SubtitleFile, METADATA_FAILURE_NO_REMOTE_MATCH,
+    METADATA_FAILURE_PROVIDER_DISABLED, METADATA_STATUS_MATCHED, METADATA_STATUS_SKIPPED,
+    METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE, REMOTE_MEDIA_TYPE_SERIES,
 };
 use sqlx::postgres::PgPool;
 use std::{
@@ -1013,6 +1013,8 @@ pub async fn refresh_media_item_metadata(
         .filter_map(|file_path| {
             mova_scan::inspect_media_file_inventory_shallow(
                 mova_scan::DiscoveredMediaFileInventory {
+                    source_kind: source_kind_for_carrier_path(Path::new(&file_path)),
+                    stream_reference_hash: None,
                     file_path: PathBuf::from(file_path),
                     file_size: 0,
                     file_modified_at_ms: None,
@@ -1252,6 +1254,8 @@ pub async fn refresh_media_item_metadata(
             source_file.id,
             mova_db::UpdateMediaFileMetadataParams {
                 file_path: source_file.file_path.clone(),
+                source_kind: representative_file.source_kind,
+                stream_reference_hash: representative_file.stream_reference_hash.clone(),
                 container: representative_file.container.clone(),
                 file_size,
                 duration_seconds: representative_file.duration_seconds,
@@ -1510,6 +1514,17 @@ pub async fn refresh_media_item_metadata(
     ensure_media_item_cast(pool, &refreshed_media_item, metadata_provider_for_cast).await?;
 
     Ok(refreshed_media_item)
+}
+
+fn source_kind_for_carrier_path(path: &Path) -> MediaSourceKind {
+    if path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("strm"))
+    {
+        MediaSourceKind::Strm
+    } else {
+        MediaSourceKind::LocalFile
+    }
 }
 
 async fn inspect_media_file_path(
@@ -1899,6 +1914,7 @@ mod tests {
     };
     use crate::ApplicationError;
     use crate::{RemoteSeriesEpisode, RemoteSeriesEpisodeOutline, RemoteSeriesSeason};
+    use mova_domain::MediaSourceKind;
     use mova_scan::{
         inspect_media_file_inventory_shallow, DiscoveredMediaFile, DiscoveredMediaFileInventory,
         LocalNfoArtwork, LocalNfoCollection, LocalNfoCredits, LocalNfoKind, LocalNfoMetadata,
@@ -1909,6 +1925,8 @@ mod tests {
     fn discovered_file(path: &str) -> DiscoveredMediaFile {
         inspect_media_file_inventory_shallow(DiscoveredMediaFileInventory {
             file_path: PathBuf::from(path),
+            source_kind: MediaSourceKind::LocalFile,
+            stream_reference_hash: None,
             file_size: 1,
             file_modified_at_ms: Some(1),
             sidecar_fingerprint: String::new(),
