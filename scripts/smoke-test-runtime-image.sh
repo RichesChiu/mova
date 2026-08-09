@@ -9,6 +9,45 @@ if [[ -z "$IMAGE_REF" ]]; then
   exit 2
 fi
 
+resolve_platform_image_ref() {
+  local image_ref="$1"
+  local platform="$2"
+  local platform_os
+  local platform_arch
+  local platform_variant
+  local format
+  local platform_digest
+  local image_repository
+
+  # A local, single-platform CI tag does not have a registry manifest to inspect.
+  # Multi-platform releases are always pinned by their OCI index digest.
+  if [[ "$image_ref" != *@sha256:* ]]; then
+    printf '%s\n' "$image_ref"
+    return 0
+  fi
+
+  if [[ ! "$platform" =~ ^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)?$ ]]; then
+    echo "Invalid Docker platform: $platform" >&2
+    return 2
+  fi
+
+  IFS="/" read -r platform_os platform_arch platform_variant <<< "$platform"
+  if [[ -n "$platform_variant" ]]; then
+    format="{{range .Manifest.Manifests}}{{if and (eq .Platform.OS \"$platform_os\") (eq .Platform.Architecture \"$platform_arch\") (eq .Platform.Variant \"$platform_variant\")}}{{.Digest}}{{end}}{{end}}"
+  else
+    format="{{range .Manifest.Manifests}}{{if and (eq .Platform.OS \"$platform_os\") (eq .Platform.Architecture \"$platform_arch\")}}{{.Digest}}{{end}}{{end}}"
+  fi
+
+  platform_digest="$(docker buildx imagetools inspect "$image_ref" --format "$format")"
+  if [[ ! "$platform_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "Could not resolve a manifest digest for $image_ref on $platform." >&2
+    return 1
+  fi
+
+  image_repository="${image_ref%@*}"
+  printf '%s@%s\n' "$image_repository" "$platform_digest"
+}
+
 IFS="," read -r -a smoke_platforms <<< "$PLATFORMS"
 tested_platforms=0
 for platform in "${smoke_platforms[@]}"; do
@@ -18,13 +57,14 @@ for platform in "${smoke_platforms[@]}"; do
   fi
 
   tested_platforms=$((tested_platforms + 1))
-  echo "Smoke-testing $IMAGE_REF on $platform"
+  platform_image_ref="$(resolve_platform_image_ref "$IMAGE_REF" "$platform")"
+  echo "Smoke-testing $platform_image_ref on $platform"
   # The single-quoted program is intentionally evaluated by /bin/sh inside the container.
   # shellcheck disable=SC2016
   docker run --rm \
     --platform "$platform" \
     --entrypoint /bin/sh \
-    "$IMAGE_REF" \
+    "$platform_image_ref" \
     -ec '
       ! command -v perl
       ! dpkg-query -W perl-base >/dev/null 2>&1
