@@ -719,6 +719,7 @@ jobs:
           docker buildx imagetools inspect "$alias_ref"
 
       - name: Publish GitHub Release
+        id: github_release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
@@ -730,6 +731,7 @@ jobs:
           )"
           if [[ "$is_draft" != "true" ]]; then
             echo "GitHub Release $TAG is already published."
+            echo "published_now=false" >>"$GITHUB_OUTPUT"
             exit 0
           fi
           if [[ "$IS_PRERELEASE" == "true" ]]; then
@@ -739,6 +741,26 @@ jobs:
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" \
               --draft=false --prerelease=false --latest
           fi
+          echo "published_now=true" >>"$GITHUB_OUTPUT"
+
+      - name: Notify Telegram
+        if: steps.github_release.outputs.published_now == 'true'
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          DIGEST: ${{ steps.published.outputs.digest }}
+          IS_PRERELEASE: ${{ needs.prepare.outputs.is_prerelease }}
+        run: >-
+          ./scripts/notify-telegram-release.sh
+          "$VERSION"
+          "$CHANNEL"
+          "$TAG"
+          "$DIGEST"
+          "$IS_PRERELEASE"
 
       - name: Remove promoted release candidate tags
         if: needs.prepare.outputs.reuse == 'false'
