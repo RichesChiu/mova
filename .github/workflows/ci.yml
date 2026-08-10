@@ -156,6 +156,7 @@ jobs:
           ./scripts/tests/test-docker-build-policy.sh
           ./scripts/tests/test-docker-platform-image.sh
           ./scripts/tests/test-release-subject.sh
+          ./scripts/tests/test-telegram-release-notification.sh
 
       - name: Build Web base image
         run: >-
