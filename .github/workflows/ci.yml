@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+env:
+  WEB_BUILD_BASE_TAG: richeschiu/mova-web-build-base:node24-pnpm11
+  RUST_BUILD_BASE_TAG: richeschiu/mova-rust-build-base:1-bookworm
+  RUNTIME_BASE_TAG: richeschiu/mova-runtime-base:trixie-ffmpeg-f944afd
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -142,6 +147,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
 
       - name: Validate Compose configurations
         run: |
@@ -158,35 +165,154 @@ jobs:
           ./scripts/tests/test-release-subject.sh
           ./scripts/tests/test-telegram-release-notification.sh
 
-      - name: Build Web base image
-        run: >-
-          docker build
-          --file docker/base/web-build.Dockerfile
-          --tag mova-web-build-base:ci
-          .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - name: Build Rust base image
-        run: >-
-          docker build
-          --file docker/base/rust-build.Dockerfile
-          --tag mova-rust-build-base:ci
-          .
+      - name: Detect base image changes
+        id: base_changes
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
 
-      - name: Build runtime base image
-        run: >-
-          docker build
-          --file docker/base/runtime.Dockerfile
-          --tag mova-runtime-base:ci
-          .
+          force_rebuild=false
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]] || ! git cat-file -e "${BASE_SHA}^{commit}"; then
+            force_rebuild=true
+          fi
 
-      - name: Build image
+          changed() {
+            local path="$1"
+            if [[ "$force_rebuild" == "true" ]] || ! git diff --quiet "$BASE_SHA" "$GITHUB_SHA" -- "$path"; then
+              printf 'true\n'
+            else
+              printf 'false\n'
+            fi
+          }
+
+          web="$(changed docker/base/web-build.Dockerfile)"
+          rust="$(changed docker/base/rust-build.Dockerfile)"
+          runtime="$(changed docker/base/runtime.Dockerfile)"
+          if [[ "$web" == "true" || "$rust" == "true" || "$runtime" == "true" ]]; then
+            any=true
+          else
+            any=false
+          fi
+
+          {
+            echo "web=$web"
+            echo "rust=$rust"
+            echo "runtime=$runtime"
+            echo "any=$any"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Pin published base images
+        id: base_refs
+        run: |
+          set -euo pipefail
+
+          pin_image() {
+            local image_tag="$1"
+            local digest
+            digest="$(docker buildx imagetools inspect "$image_tag" --format '{{.Manifest.Digest}}')"
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Could not resolve a valid manifest digest for $image_tag: $digest" >&2
+              return 1
+            fi
+            printf '%s@%s\n' "${image_tag%:*}" "$digest"
+          }
+
+          web_ref="$(pin_image "$WEB_BUILD_BASE_TAG")"
+          rust_ref="$(pin_image "$RUST_BUILD_BASE_TAG")"
+          runtime_ref="$(pin_image "$RUNTIME_BASE_TAG")"
+
+          if [[ "${{ steps.base_changes.outputs.web }}" == "true" ]]; then
+            web_ref=mova-web-build-base:ci
+          fi
+          if [[ "${{ steps.base_changes.outputs.rust }}" == "true" ]]; then
+            rust_ref=mova-rust-build-base:ci
+          fi
+          if [[ "${{ steps.base_changes.outputs.runtime }}" == "true" ]]; then
+            runtime_ref=mova-runtime-base:ci
+          fi
+
+          {
+            echo "web=$web_ref"
+            echo "rust=$rust_ref"
+            echo "runtime=$runtime_ref"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build changed Web base image
+        if: steps.base_changes.outputs.web == 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: docker/base/web-build.Dockerfile
+          load: true
+          tags: mova-web-build-base:ci
+          platforms: linux/amd64
+          cache-from: type=gha,scope=mova-ci-web-base-amd64-v1
+          cache-to: type=gha,scope=mova-ci-web-base-amd64-v1,mode=max,ignore-error=true
+          provenance: false
+          sbom: false
+
+      - name: Build changed Rust base image
+        if: steps.base_changes.outputs.rust == 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: docker/base/rust-build.Dockerfile
+          load: true
+          tags: mova-rust-build-base:ci
+          platforms: linux/amd64
+          cache-from: type=gha,scope=mova-ci-rust-base-amd64-v1
+          cache-to: type=gha,scope=mova-ci-rust-base-amd64-v1,mode=max,ignore-error=true
+          provenance: false
+          sbom: false
+
+      - name: Build changed runtime base image
+        if: steps.base_changes.outputs.runtime == 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: docker/base/runtime.Dockerfile
+          load: true
+          tags: mova-runtime-base:ci
+          platforms: linux/amd64
+          cache-from: type=gha,scope=mova-ci-runtime-base-amd64-v1
+          cache-to: type=gha,scope=mova-ci-runtime-base-amd64-v1,mode=max,ignore-error=true
+          provenance: false
+          sbom: false
+
+      - name: Build image with published bases
+        if: steps.base_changes.outputs.any == 'false'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: apps/mova-server/Dockerfile
+          load: true
+          tags: mova:ci
+          platforms: linux/amd64
+          pull: true
+          build-args: |
+            MOVA_WEB_BUILD_BASE=${{ steps.base_refs.outputs.web }}
+            MOVA_RUST_BUILD_BASE=${{ steps.base_refs.outputs.rust }}
+            MOVA_RUNTIME_BASE=${{ steps.base_refs.outputs.runtime }}
+            MOVA_BUILD_VERSION=ci
+            MOVA_BUILD_REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=mova-ci-app-amd64-v1
+          cache-to: type=gha,scope=mova-ci-app-amd64-v1,mode=max,ignore-error=true
+          provenance: false
+          sbom: false
+
+      - name: Build image with changed bases
+        if: steps.base_changes.outputs.any == 'true'
         run: >-
           docker build
           --file apps/mova-server/Dockerfile
-          --build-arg MOVA_WEB_BUILD_BASE=mova-web-build-base:ci
-          --build-arg MOVA_RUST_BUILD_BASE=mova-rust-build-base:ci
-          --build-arg MOVA_RUNTIME_BASE=mova-runtime-base:ci
-          --build-arg MOVA_BUILD_VERSION=ci-${{ github.sha }}
+          --build-arg MOVA_WEB_BUILD_BASE=${{ steps.base_refs.outputs.web }}
+          --build-arg MOVA_RUST_BUILD_BASE=${{ steps.base_refs.outputs.rust }}
+          --build-arg MOVA_RUNTIME_BASE=${{ steps.base_refs.outputs.runtime }}
+          --build-arg MOVA_BUILD_VERSION=ci
           --build-arg MOVA_BUILD_REVISION=${{ github.sha }}
           --tag mova:ci
           .
