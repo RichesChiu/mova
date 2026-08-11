@@ -671,7 +671,7 @@ pub async fn update_media_item_metadata(
     pool: &PgPool,
     media_item_id: i64,
     params: UpdateMediaItemMetadataParams,
-) -> Result<Option<MediaItem>> {
+) -> Result<super::UpdateMediaItemMetadataOutcome> {
     let mut tx = pool
         .begin()
         .await
@@ -695,7 +695,7 @@ pub async fn update_media_item_metadata(
         tx.rollback()
             .await
             .context("failed to roll back missing media metadata update")?;
-        return Ok(None);
+        return Ok(super::UpdateMediaItemMetadataOutcome::Missing);
     };
     let library_id = previous_identity.get::<i64, _>("library_id");
     let previous_media_type = previous_identity.get::<String, _>("media_type");
@@ -703,6 +703,22 @@ pub async fn update_media_item_metadata(
         previous_identity.get::<Option<String>, _>("metadata_provider");
     let previous_metadata_provider_item_id =
         previous_identity.get::<Option<String>, _>("metadata_provider_item_id");
+    // Use the same per-library transaction lock as scan enqueue and library deletion. Once this
+    // lock is held, the active scan row is an authoritative cross-process decision rather than a
+    // best-effort in-memory observation.
+    sqlx::query("select pg_advisory_xact_lock($1)")
+        .bind(library_id)
+        .fetch_one(&mut *tx)
+        .await
+        .context("failed to acquire manual metadata mutation lock")?;
+    if let Some(scan_job) =
+        crate::scan_jobs::get_active_scan_job_for_library_tx(&mut tx, library_id).await?
+    {
+        tx.rollback()
+            .await
+            .context("failed to roll back metadata update blocked by active scan")?;
+        return Ok(super::UpdateMediaItemMetadataOutcome::ActiveScan(scan_job));
+    }
     let superseded_tmdb_series_id = previous_metadata_provider_item_id.filter(|previous_id| {
         previous_media_type.eq_ignore_ascii_case("series")
             && previous_metadata_provider
@@ -886,11 +902,14 @@ pub async fn update_media_item_metadata(
         .await
         .context("failed to commit media metadata update transaction")?;
 
-    let mut media_item = row.map(map_media_item_row);
-    if let Some(media_item) = media_item.as_mut() {
-        attach_media_item_ratings(pool, std::slice::from_mut(media_item)).await?;
-    }
-    Ok(media_item)
+    let Some(row) = row else {
+        return Ok(super::UpdateMediaItemMetadataOutcome::Stale);
+    };
+    let mut media_item = map_media_item_row(row);
+    attach_media_item_ratings(pool, std::slice::from_mut(&mut media_item)).await?;
+    Ok(super::UpdateMediaItemMetadataOutcome::Updated(Box::new(
+        media_item,
+    )))
 }
 
 async fn clear_superseded_tmdb_series_episode_identity_tx(
@@ -2006,7 +2025,7 @@ pub async fn get_series_episode_outline_cache(
         r#"
         select
             cache.series_media_item_id,
-            cache.outline_json,
+            cache.outline_json::text as outline_json,
             cache.fetched_at,
             cache.expires_at,
             cache.updated_at
@@ -2091,7 +2110,7 @@ pub async fn upsert_series_episode_outline_cache(
             'tmdb',
             $2,
             $3,
-            $4,
+            cast($4 as jsonb),
             $5,
             $6
         from media_items media_item
@@ -2109,7 +2128,7 @@ pub async fn upsert_series_episode_outline_cache(
             updated_at = now()
         returning
             series_media_item_id,
-            outline_json,
+            outline_json::text as outline_json,
             fetched_at,
             expires_at,
             updated_at
@@ -3084,11 +3103,13 @@ mod tests {
         let (series_id, episode_id, expected_updated_at) =
             seed_bound_series_episode(&pool, "tmdb", "old-series").await;
 
-        let updated =
+        let outcome =
             update_media_item_metadata(&pool, series_id, replacement_params(expected_updated_at))
                 .await
-                .unwrap()
                 .unwrap();
+        let super::super::UpdateMediaItemMetadataOutcome::Updated(updated) = outcome else {
+            panic!("expected metadata update to succeed");
+        };
         assert_eq!(
             updated.metadata_provider_item_id.as_deref(),
             Some("new-series")
@@ -3166,14 +3187,55 @@ mod tests {
 
     #[sqlx::test(migrations = "../../migrations")]
     #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn active_scan_blocks_manual_metadata_update_in_database(pool: sqlx::PgPool) {
+        let (series_id, _episode_id, expected_updated_at) =
+            seed_bound_series_episode(&pool, "tmdb", "old-series").await;
+        let library_id =
+            sqlx::query_scalar::<_, i64>("select library_id from media_items where id = $1")
+                .bind(series_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let active_scan = crate::enqueue_scan_job(&pool, crate::CreateScanJobParams { library_id })
+            .await
+            .unwrap()
+            .scan_job;
+
+        let outcome =
+            update_media_item_metadata(&pool, series_id, replacement_params(expected_updated_at))
+                .await
+                .unwrap();
+        let super::super::UpdateMediaItemMetadataOutcome::ActiveScan(blocking_scan) = outcome
+        else {
+            panic!("expected active scan to block manual metadata update");
+        };
+        assert_eq!(blocking_scan.id, active_scan.id);
+        assert_eq!(blocking_scan.library_id, library_id);
+
+        let binding = sqlx::query_scalar::<_, Option<String>>(
+            "select metadata_provider_item_id from media_items where id = $1",
+        )
+        .bind(series_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(binding.as_deref(), Some("old-series"));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
     async fn manual_series_binding_change_preserves_nfo_owned_episode(pool: sqlx::PgPool) {
         let (series_id, episode_id, expected_updated_at) =
             seed_bound_series_episode(&pool, "nfo", "nfo-episode").await;
 
-        update_media_item_metadata(&pool, series_id, replacement_params(expected_updated_at))
-            .await
-            .unwrap()
-            .unwrap();
+        let outcome =
+            update_media_item_metadata(&pool, series_id, replacement_params(expected_updated_at))
+                .await
+                .unwrap();
+        assert!(matches!(
+            outcome,
+            super::super::UpdateMediaItemMetadataOutcome::Updated(_)
+        ));
 
         let episode =
             sqlx::query_as::<_, (Option<String>, Option<String>, String, Option<String>)>(

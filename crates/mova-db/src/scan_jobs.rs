@@ -789,7 +789,7 @@ pub(crate) async fn get_scan_job_tx(
     Ok(row.map(map_scan_job_row))
 }
 
-async fn get_active_scan_job_for_library_tx(
+pub(crate) async fn get_active_scan_job_for_library_tx(
     tx: &mut Transaction<'_, Postgres>,
     library_id: i64,
 ) -> Result<Option<ScanJob>> {

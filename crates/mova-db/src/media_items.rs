@@ -4,7 +4,7 @@ mod series;
 mod sync;
 
 use anyhow::Result;
-use mova_domain::{MediaExternalId, MediaRating, MediaSourceKind};
+use mova_domain::{MediaExternalId, MediaItem, MediaRating, MediaSourceKind, ScanJob};
 pub use query::{
     count_media_items_for_library, delete_series_episode_outline_cache, get_audio_track,
     get_library_media_type_counts, get_media_file, get_media_file_with_library_visibility,
@@ -212,6 +212,18 @@ pub struct UpdateMediaItemMetadataParams {
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
     pub logo_path: Option<String>,
+}
+
+/// Result of an administrator-initiated metadata mutation.
+///
+/// The database is authoritative for active-scan exclusion so separate server instances cannot
+/// write manual metadata while a worker is reconciling the same library.
+#[derive(Debug)]
+pub enum UpdateMediaItemMetadataOutcome {
+    Updated(Box<MediaItem>),
+    Missing,
+    Stale,
+    ActiveScan(ScanJob),
 }
 
 pub(super) async fn persist_local_metadata_snapshot_tx(

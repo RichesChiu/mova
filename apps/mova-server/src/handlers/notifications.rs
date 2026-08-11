@@ -1,15 +1,13 @@
 use crate::{
-    auth::require_user,
+    auth::AuthenticatedUser,
     error::ApiError,
     response::{ok, ok_message, ApiJson, NotificationFeedResponse},
     state::AppState,
 };
 use axum::{
     extract::{Path, Query, State},
-    http::HeaderMap,
     Json,
 };
-use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Default)]
@@ -26,11 +24,9 @@ pub struct MarkAllNotificationsReadRequest {
 
 pub async fn list_notifications(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Query(query): Query<ListNotificationsQuery>,
 ) -> Result<ApiJson<NotificationFeedResponse>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     let feed = mova_application::list_notifications(
         &state.db,
         &user,
@@ -49,11 +45,9 @@ pub async fn list_notifications(
 
 pub async fn mark_notification_read(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(notification_id): Path<i64>,
 ) -> Result<ApiJson<()>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     mova_application::mark_notification_read(&state.db, &user, notification_id)
         .await
         .map_err(ApiError::from)?;
@@ -62,11 +56,9 @@ pub async fn mark_notification_read(
 
 pub async fn mark_all_notifications_read(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Json(request): Json<MarkAllNotificationsReadRequest>,
 ) -> Result<ApiJson<u64>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     let marked_count = mova_application::mark_all_notifications_read(
         &state.db,
         &user,

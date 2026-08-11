@@ -1,5 +1,5 @@
 use crate::artwork::{read_trusted_local_artwork, LocalArtworkError};
-use crate::auth::{require_season_with_library_access, require_user};
+use crate::auth::{require_season_with_library_access, AuthenticatedUser};
 use crate::error::ApiError;
 use crate::state::AppState;
 use axum::{
@@ -7,31 +7,26 @@ use axum::{
     extract::{Path, State},
     http::{
         header::{self, HeaderValue},
-        HeaderMap, Response, StatusCode,
+        Response, StatusCode,
     },
 };
-use axum_extra::extract::cookie::CookieJar;
 const ARTWORK_CACHE_CONTROL: &str = "private, max-age=31536000, immutable";
 
 /// 返回某一季的封面图内容。
 pub async fn get_season_poster(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(season_id): Path<i64>,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     serve_season_artwork(state, &user, season_id, SeasonArtworkKind::Poster).await
 }
 
 /// 返回某一季的背景图内容。
 pub async fn get_season_backdrop(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(season_id): Path<i64>,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     serve_season_artwork(state, &user, season_id, SeasonArtworkKind::Backdrop).await
 }
 

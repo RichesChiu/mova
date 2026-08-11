@@ -1,7 +1,7 @@
 use crate::{
     auth::{
-        attach_session_cookie, clear_session_cookie, request_auth_credential, require_user,
-        AuthCredential, NATIVE_ACCESS_TOKEN_TTL, NATIVE_REFRESH_TOKEN_TTL, SESSION_TTL,
+        attach_session_cookie, clear_session_cookie, request_auth_credential, AuthCredential,
+        AuthenticatedUser, NATIVE_ACCESS_TOKEN_TTL, NATIVE_REFRESH_TOKEN_TTL, SESSION_TTL,
     },
     error::ApiError,
     response::{
@@ -229,21 +229,16 @@ fn parse_logout_request(body: &[u8]) -> Result<Option<LogoutRequest>, ApiError> 
 
 pub async fn current_user(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
 ) -> Result<ApiJson<UserResponse>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
-
     Ok(ok(UserResponse::from_domain(user, state.api_time_offset)))
 }
 
 pub async fn update_own_profile(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(current_user): AuthenticatedUser,
     Json(request): Json<UpdateOwnProfileRequest>,
 ) -> Result<ApiJson<UserResponse>, ApiError> {
-    let current_user = require_user(&state, &headers, &jar).await?;
     let user = mova_application::update_own_profile(
         &state.db,
         current_user.user.id,
@@ -259,11 +254,10 @@ pub async fn update_own_profile(
 
 pub async fn change_password(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    AuthenticatedUser(current_user): AuthenticatedUser,
     jar: CookieJar,
     Json(request): Json<ChangePasswordRequest>,
 ) -> Result<(CookieJar, ApiJson<UserResponse>), ApiError> {
-    let current_user = require_user(&state, &headers, &jar).await?;
     let rate_limit_key = format!("password:{}", current_user.user.id);
     enforce_auth_rate_limit(&state, &rate_limit_key)?;
     let session = resolve_auth_attempt(

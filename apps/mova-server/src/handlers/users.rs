@@ -1,15 +1,14 @@
 use crate::{
-    auth::require_admin,
+    auth::AdminUser,
     error::ApiError,
     response::{created, ok, ok_message, ApiJson, UserResponse},
     state::AppState,
 };
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     Json,
 };
-use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -37,11 +36,8 @@ pub struct ResetUserPasswordRequest {
 
 pub async fn list_users(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    _admin: AdminUser,
 ) -> Result<ApiJson<Vec<UserResponse>>, ApiError> {
-    require_admin(&state, &headers, &jar).await?;
-
     let users = mova_application::list_users(&state.db)
         .await
         .map_err(ApiError::from)?;
@@ -54,12 +50,9 @@ pub async fn list_users(
 
 pub async fn create_user(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AdminUser(current_user): AdminUser,
     Json(request): Json<CreateUserRequest>,
 ) -> Result<(StatusCode, ApiJson<UserResponse>), ApiError> {
-    let current_user = require_admin(&state, &headers, &jar).await?;
-
     let user = mova_application::create_user(
         &state.db,
         current_user.user.id,
@@ -82,13 +75,10 @@ pub async fn create_user(
 
 pub async fn update_user(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AdminUser(current_user): AdminUser,
     Path(user_id): Path<i64>,
     Json(request): Json<UpdateUserRequest>,
 ) -> Result<ApiJson<UserResponse>, ApiError> {
-    let current_user = require_admin(&state, &headers, &jar).await?;
-
     let user = mova_application::update_user(
         &state.db,
         current_user.user.id,
@@ -107,13 +97,10 @@ pub async fn update_user(
 
 pub async fn reset_user_password(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AdminUser(current_user): AdminUser,
     Path(user_id): Path<i64>,
     Json(request): Json<ResetUserPasswordRequest>,
 ) -> Result<ApiJson<()>, ApiError> {
-    let current_user = require_admin(&state, &headers, &jar).await?;
-
     mova_application::reset_user_password(
         &state.db,
         current_user.user.id,
@@ -130,12 +117,9 @@ pub async fn reset_user_password(
 
 pub async fn delete_user(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AdminUser(current_user): AdminUser,
     Path(user_id): Path<i64>,
 ) -> Result<ApiJson<()>, ApiError> {
-    let current_user = require_admin(&state, &headers, &jar).await?;
-
     mova_application::delete_user(&state.db, current_user.user.id, user_id)
         .await
         .map_err(ApiError::from)?;
@@ -147,7 +131,7 @@ pub async fn delete_user(
 mod tests {
     use super::{delete_user, update_user, CreateUserRequest, UpdateUserRequest};
     use crate::{
-        auth::{attach_session_cookie, SESSION_TTL},
+        auth::{attach_session_cookie, require_admin, AdminUser, SESSION_TTL},
         error::ApiError,
         state::{
             AppState, BackgroundJobNotifier, RealtimeDispatcherHandle, RealtimeHub, ScanRegistry,
@@ -185,6 +169,10 @@ mod tests {
             background_jobs: BackgroundJobNotifier::default(),
             strm_streaming: Default::default(),
         }
+    }
+
+    async fn authenticated_admin(state: &AppState, jar: &CookieJar) -> AdminUser {
+        AdminUser(require_admin(state, &HeaderMap::new(), jar).await.unwrap())
     }
 
     #[test]
@@ -295,11 +283,11 @@ mod tests {
             "viewer-session",
         )
         .await;
+        let admin = authenticated_admin(&state, &admin_jar).await;
 
         let Json(response) = update_user(
             State(state),
-            HeaderMap::new(),
-            admin_jar,
+            admin,
             Path(viewer_id),
             Json(UpdateUserRequest {
                 is_enabled: Some(false),
@@ -333,11 +321,11 @@ mod tests {
             "admin-session",
         )
         .await;
+        let admin = authenticated_admin(&state, &admin_jar).await;
 
         let error = update_user(
             State(state),
-            HeaderMap::new(),
-            admin_jar,
+            admin,
             Path(admin_id),
             Json(UpdateUserRequest {
                 is_enabled: Some(false),
@@ -379,11 +367,11 @@ mod tests {
             "admin-session",
         )
         .await;
+        let admin = authenticated_admin(&state, &admin_jar).await;
 
         let error = update_user(
             State(state),
-            HeaderMap::new(),
-            admin_jar,
+            admin,
             Path(admin_id),
             Json(UpdateUserRequest {
                 role: Some("viewer".to_string()),
@@ -433,11 +421,11 @@ mod tests {
             "viewer-session",
         )
         .await;
+        let admin = authenticated_admin(&state, &admin_jar).await;
 
         let Json(response) = update_user(
             State(state),
-            HeaderMap::new(),
-            admin_jar,
+            admin,
             Path(viewer_id),
             Json(UpdateUserRequest {
                 library_ids: Some(vec![second_library_id]),
@@ -485,11 +473,11 @@ mod tests {
             "peer-admin-session",
         )
         .await;
+        let admin = authenticated_admin(&state, &admin_jar).await;
 
         let error = update_user(
             State(state),
-            HeaderMap::new(),
-            admin_jar,
+            admin,
             Path(peer_admin_id),
             Json(UpdateUserRequest {
                 is_enabled: Some(false),
@@ -529,8 +517,9 @@ mod tests {
             "admin-session",
         )
         .await;
+        let admin = authenticated_admin(&state, &admin_jar).await;
 
-        let error = delete_user(State(state), HeaderMap::new(), admin_jar, Path(admin_id))
+        let error = delete_user(State(state), admin, Path(admin_id))
             .await
             .unwrap_err();
 
@@ -570,11 +559,11 @@ mod tests {
             "viewer-session",
         )
         .await;
+        let admin = authenticated_admin(&state, &admin_jar).await;
 
-        let Json(response) =
-            delete_user(State(state), HeaderMap::new(), admin_jar, Path(viewer_id))
-                .await
-                .unwrap();
+        let Json(response) = delete_user(State(state), admin, Path(viewer_id))
+            .await
+            .unwrap();
 
         assert_eq!(response.message, "user deleted");
         assert!(mova_db::get_user(&pool, viewer_id).await.unwrap().is_none());

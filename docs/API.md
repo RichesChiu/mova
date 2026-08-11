@@ -119,8 +119,8 @@
 | Method | Path | 作用 |
 | --- | --- | --- |
 | `GET` | `/api/health` | 健康检查 |
-| `GET` | `/api/auth/bootstrap-status` | 查询是否需要初始化首个管理员 |
-| `POST` | `/api/auth/bootstrap-admin` | 初始化首个管理员并登录 |
+| `GET` | `/api/auth/bootstrap-status` | 查询是否需要初始化系统所有者 |
+| `POST` | `/api/auth/bootstrap-admin` | 初始化系统所有者并登录 |
 | `POST` | `/api/auth/login` | 登录 |
 | `POST` | `/api/auth/token-login` | 为原生客户端创建 access token 和 refresh token |
 | `POST` | `/api/auth/refresh` | 使用 refresh token 轮换并获取新的 token |
@@ -133,23 +133,23 @@
 | `PUT` | `/api/auth/password` | 当前用户修改自己的密码 |
 | `GET` | `/api/users` | 查询用户列表（管理员） |
 | `POST` | `/api/users` | 创建用户（管理员） |
-| `PATCH` | `/api/users/{id}` | 更新低权限用户的角色、状态和媒体库权限（管理员） |
+| `PATCH` | `/api/users/{id}` | 更新低权限用户的角色、启用状态与媒体库权限（管理员） |
 | `DELETE` | `/api/users/{id}` | 删除用户（管理员） |
 | `PUT` | `/api/users/{id}/password` | 管理员重置指定用户密码 |
-| `GET` | `/api/notifications` | 查询当前用户可见的通用通知，可选仅返回未读项 |
+| `GET` | `/api/notifications` | 查询当前用户可见的通知，可选仅返回未读项 |
 | `PUT` | `/api/notifications` | 批量标记当前用户的通知为已读 |
 | `PUT` | `/api/notifications/{id}/read` | 标记一条可见通知为已读 |
-| `GET` | `/api/server/media-tree` | 查询服务端当前可用于建库的媒体文件夹树 |
+| `GET` | `/api/server/media-tree` | 查询服务端当前可用于建库的媒体文件夹树（管理员） |
 | `GET` | `/api/libraries` | 查询媒体库列表 |
 | `GET` | `/api/libraries/recently-added` | 查询按库分组的最新添加内容 |
-| `POST` | `/api/libraries` | 创建媒体库 |
+| `POST` | `/api/libraries` | 创建媒体库（管理员） |
 | `GET` | `/api/libraries/{id}` | 查询单个媒体库详情 |
-| `PATCH` | `/api/libraries/{id}` | 更新媒体库基础配置 |
-| `DELETE` | `/api/libraries/{id}` | 删除媒体库 |
+| `PATCH` | `/api/libraries/{id}` | 更新媒体库基础配置（管理员） |
+| `DELETE` | `/api/libraries/{id}` | 删除媒体库（管理员） |
 | `GET` | `/api/libraries/{id}/media-items` | 查询媒体库下的媒体条目列表 |
-| `GET` | `/api/libraries/{id}/scan-jobs` | 查询媒体库扫描历史 |
-| `GET` | `/api/libraries/{id}/scan-jobs/{scan_job_id}` | 查询单个扫描任务状态 |
-| `POST` | `/api/libraries/{id}/scan` | 触发异步扫描 |
+| `GET` | `/api/libraries/{id}/scan-jobs` | 查询媒体库扫描历史（管理员） |
+| `GET` | `/api/libraries/{id}/scan-jobs/{scan_job_id}` | 查询单个扫描任务状态（管理员） |
+| `POST` | `/api/libraries/{id}/scan` | 触发异步扫描（管理员） |
 | `GET` | `/api/search` | 搜索当前用户可见库下的电影、剧集和集条目 |
 | `GET` | `/api/media-items/{id}` | 查询单个媒体条目详情 |
 | `GET` | `/api/media-items/{id}/metadata-sources` | 查询条目的元数据来源摘要（管理员） |
@@ -160,7 +160,7 @@
 | `GET` | `/api/media-items/{id}/episode-outline` | 查询剧集全集大纲并标记本地可用集 |
 | `GET` | `/api/media-items/{id}/metadata-search` | 手动搜索单条媒体的候选元数据（管理员） |
 | `POST` | `/api/media-items/{id}/metadata-match` | 选择候选结果并替换当前媒体元数据（管理员） |
-| `POST` | `/api/media-items/{id}/refresh-metadata` | 手动重拉单个媒体条目元数据 |
+| `POST` | `/api/media-items/{id}/refresh-metadata` | 手动重拉单个媒体条目元数据（管理员） |
 | `GET` | `/api/media-items/{id}/poster` | 读取媒体条目海报图 |
 | `GET` | `/api/media-items/{id}/backdrop` | 读取媒体条目背景图 |
 | `GET` | `/api/media-items/{id}/logo` | 读取媒体条目透明标题 Logo |
@@ -172,9 +172,9 @@
 | `GET` | `/api/media-files/{id}/audio-tracks` | 查询媒体文件可切换的内嵌音轨列表 |
 | `GET` | `/api/media-files/{id}/subtitles` | 查询媒体文件可切换字幕列表 |
 | `GET` | `/api/media-files/{id}/stream` | 播放媒体文件 |
-| `HEAD` | `/api/media-files/{id}/stream` | 查询媒体文件播放头信息 |
+| `HEAD` | `/api/media-files/{id}/stream` | 只读查询播放头信息，不生成音轨缓存 |
 | `GET` | `/api/subtitle-files/{id}/stream` | 输出单条字幕轨道的 WebVTT 内容 |
-| `HEAD` | `/api/subtitle-files/{id}/stream` | 只读查询字幕 WebVTT 头信息 |
+| `HEAD` | `/api/subtitle-files/{id}/stream` | 只读查询字幕 WebVTT 头信息，不生成字幕缓存 |
 
 ## 1. 健康检查
 
@@ -504,6 +504,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 作用：
 - 管理员查看当前所有用户
 
+权限：
+- `owner` 和 `admin` 可用
+
 说明：
 - `owner` / `admin` 用户的 `library_ids` 始终为空数组，语义上表示“默认拥有全部媒体库访问权”
 - `viewer` 用户的 `library_ids` 表示允许访问的媒体库 ID 列表
@@ -513,6 +516,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 作用：
 - 管理员创建一个新用户
+
+权限：
+- `owner` 和 `admin` 可用；可创建的角色仍受下方权限层级约束
 
 请求体：
 
@@ -540,6 +546,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 作用：
 - 管理员更新低权限用户的角色、启用状态和媒体库访问范围
+
+权限：
+- `owner` 和 `admin` 可用；只能管理权限层级严格低于自己的用户
 
 请求体：
 
@@ -569,6 +578,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 作用：
 - 管理员删除指定用户
+
+权限：
+- `owner` 和 `admin` 可用；只能删除权限层级严格低于自己的用户
 
 说明：
 - 当前用户不能删除自己
@@ -950,6 +962,8 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `name`：媒体库名称
 - `description`：媒体库描述，可为空
 - `media_count`：当前库中的媒体数量
+- `movie_count`：当前库中的电影数量
+- `series_count`：当前库中的剧集数量；单集不单独计入该字段
 - `last_scan`：最近一次扫描摘要，没有时为 `null`
 - `last_scan.phase`：持久化的最近扫描阶段，使用 `discovering` / `processing` / `finalizing` / `finished`，尚未被 worker 领取的 `pending` 任务为 `null`；服务重启后可通过 HTTP 恢复
 - `last_scan.progress_percent`：与扫描任务接口和 SSE 相同的服务端任务级权威进度；客户端从任意入口恢复后都直接使用该值
@@ -1059,6 +1073,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 ### `GET /api/libraries/{id}/scan-jobs`
 
+权限：
+- 仅 `admin`
+
 作用：
 - 查询某个媒体库的扫描历史
 
@@ -1078,6 +1095,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 按创建时间倒序返回
 
 ### `GET /api/libraries/{id}/scan-jobs/{scan_job_id}`
+
+权限：
+- 仅 `admin`
 
 作用：
 - 查询某个媒体库下的单个扫描任务状态
@@ -1112,6 +1132,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 ### `POST /api/libraries/{id}/scan`
 
 扫描工作流、名称拆分、分组、事务和 TMDB 调用规则见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md)。
+
+权限：
+- 仅 `admin`
 
 作用：
 - 为指定媒体库创建异步扫描任务
@@ -1370,9 +1393,11 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 
 作用：
 - 查询单个媒体条目的完整演员列表
-- 服务端会先读取本地已持久化的演员列表
-- 如果当前条目还没有演员信息，会在这个请求里按需拉一次远端演员并直接写库
+- 已选中的手动 / NFO 演员是该条目的权威本地来源；只要该来源含有效演员，就完整返回它，不与提供方演员混合
+- 没有有效的已选本地演员时，服务端读取仍在有效期内的提供方演员缓存
+- 本地来源和缓存都没有演员信息时，会在这个请求里按需拉一次远端演员并直接写库
 - 服务端保存并返回元数据提供方返回的全部有效演员，不按人数截断
+- 本地来源与提供方缓存分别保留来源所有权；后续切换本地来源或刷新远端缓存时，不会互相覆盖
 - 拉取失败不会阻断详情页，其它主体信息仍可正常展示；只是这次演员列表可能为空
 
 路径参数：
@@ -1390,7 +1415,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 ```json
 [
   {
-    "person_id": 12345,
+    "person_id": "12345",
     "sort_order": 0,
     "name": "Ella Purnell",
     "character_name": "Jinx",
@@ -1407,6 +1432,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 说明：
 - 电影返回电影标题
 - 单集返回“剧名 + 季集号 + 单集标题”所需的结构化字段
+- `series_media_item_id`：电影返回 `null`；单集返回所属剧集的 `media_item_id`，客户端据此读取剧集大纲或返回剧集详情
 - `logo_path` 返回当前作品的透明标题 Logo；播放电影时属于电影条目，播放单集时属于其剧集条目。缺失时客户端回退文字标题
 - 如果该条目已经完成 TMDB 元数据增强，这里的标题会优先使用增强后的标题
 - 播放本地剧集且当前没有可用片头区间时，请求路径只执行一次轻量、幂等的 season 级持久化任务入队；FFmpeg、输入指纹计算、代表集分析和重试均由 worker 执行，不阻断本次播放
@@ -1420,6 +1446,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
   "media_item_id": 42,
   "library_id": 1,
   "media_type": "episode",
+  "series_media_item_id": 7,
   "title": "Severance",
   "original_title": "Severance",
   "year": 2022,
@@ -1459,6 +1486,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `video_color_primaries` / `video_color_space` / `video_color_transfer`：色彩原色、色域、传递特性
 - `video_bit_depth` / `video_pixel_format` / `video_reference_frames`：位深、像素格式、参考帧
 - `technical_tags`：从 `ffprobe` 探测结果归一化出来的资源技术标签，例如 `HDR10`、`HDR10+`、`Dolby Vision`、`HLG`、`DTS`、`DTS-HD`、`Atmos`
+- `scan_hash`：服务端增量扫描使用的不透明指纹，可能为 `null`；客户端只能回显或忽略，不能解析、比较其内部格式或据此决定播放与刷新行为
 
 说明：
 - 客户端播放前应先从这个接口取得 `media_file_id`
@@ -1516,7 +1544,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `seasons[].intro_start_seconds` / `seasons[].intro_end_seconds` 承载按需检测并持久化的 season 级片头区间；`episodes[].intro_*` 默认为空。输入变化和算法版本规则见 [`INTRO_DETECTION.md`](INTRO_DETECTION.md)。
 - `episodes[].playback_progress` 会带上该集最近一次播放快照；`last_media_file_id` 用于在同一集存在多个物理版本时恢复最近播放的版本。前端可以据此显示集卡进度、已看完状态，以及“最近一集已播完则默认跳下一集”的续播入口。
 - 可直接用于前端“可播放集高亮、缺失集置灰”的展示逻辑。
-- TMDB 剧集大纲缓存在 PostgreSQL `series_episode_outline_cache`，默认 TTL 为 24 小时。
+- TMDB 剧集大纲缓存在 PostgreSQL `series_episode_outline_cache` 的 `jsonb` 文档中，数据库会拒绝无效 JSON；默认 TTL 为 24 小时。
 - 缓存过期且 TMDB 临时不可用时，接口返回最近一次可用缓存。
 
 ### `GET /api/media-items/{id}/metadata-search`
@@ -1593,6 +1621,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 返回更新后的 `MediaItemResponse`
 
 ### `POST /api/media-items/{id}/refresh-metadata`
+
+权限：
+- 仅 `admin`
 
 作用：
 - 手动重拉单个媒体条目的 metadata
@@ -1823,9 +1854,30 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
       "library_id": 1,
       "media_type": "movie",
       "title": "The Matrix",
+      "source_title": "The Matrix",
       "original_title": null,
       "sort_title": null,
+      "metadata_provider": "tmdb",
+      "metadata_provider_item_id": "603",
+      "metadata_status": "matched",
+      "metadata_failure_reason": null,
+      "remote_media_type": "movie",
       "year": 1999,
+      "ratings": [
+        {
+          "source": "tmdb",
+          "kind": "user",
+          "retrieved_via": "provider",
+          "score": 8.2,
+          "scale": 10.0,
+          "rating_count": 27111,
+          "attributes": {},
+          "fetched_at": "..."
+        }
+      ],
+      "country": "United States",
+      "genres": "Action · Science Fiction",
+      "studio": "Warner Bros. Pictures",
       "overview": null,
       "poster_path": "/api/media-items/5/poster",
       "backdrop_path": "/api/media-items/5/backdrop",

@@ -30,10 +30,7 @@ impl AppConfig {
     /// 从环境变量收集 HTTP 监听配置和数据库配置。
     pub fn from_env() -> Result<Self> {
         let host = env::var("MOVA_HTTP_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-        let port = env::var("MOVA_HTTP_PORT")
-            .ok()
-            .and_then(|value| value.parse::<u16>().ok())
-            .unwrap_or(36080);
+        let port = parse_positive_env("MOVA_HTTP_PORT", 36080_u16)?;
         let build_version = option_env!("MOVA_BUILD_VERSION")
             .unwrap_or(env!("CARGO_PKG_VERSION"))
             .to_string();
@@ -53,11 +50,7 @@ impl AppConfig {
             metadata_provider: metadata_provider_config::metadata_provider_config_from_env()?,
             session_cookie_secure: parse_boolean_env("MOVA_SESSION_COOKIE_SECURE", false)?,
             auth_rate_limit: auth_rate_limit_settings_from_env()?,
-            worker_concurrency: env::var("MOVA_WORKER_CONCURRENCY")
-                .ok()
-                .and_then(|value| value.parse::<usize>().ok())
-                .filter(|value| *value > 0)
-                .unwrap_or(2),
+            worker_concurrency: parse_positive_env("MOVA_WORKER_CONCURRENCY", 2_usize)?,
             strm_streaming,
         })
     }
@@ -330,6 +323,22 @@ mod tests {
         }
         let result = parse_positive_env::<u32>("MOVA_TEST_POSITIVE", 5);
         assert!(result.is_err());
+
+        unsafe {
+            std::env::remove_var("MOVA_TEST_POSITIVE");
+        }
+    }
+
+    #[test]
+    fn positive_environment_values_reject_invalid_text_instead_of_using_default() {
+        let _guard = env_lock().lock().unwrap();
+        unsafe {
+            std::env::set_var("MOVA_TEST_POSITIVE", "two");
+        }
+        let error = parse_positive_env::<usize>("MOVA_TEST_POSITIVE", 2).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("invalid MOVA_TEST_POSITIVE value"));
 
         unsafe {
             std::env::remove_var("MOVA_TEST_POSITIVE");

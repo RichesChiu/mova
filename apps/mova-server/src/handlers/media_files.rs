@@ -3,7 +3,7 @@ use crate::audio_track_cache::{
     reserve_audio_track_cache, try_admit_audio_track_remux,
 };
 use crate::auth::{
-    require_media_file_access, require_media_file_with_library_access, require_user,
+    require_media_file_access, require_media_file_with_library_access, AuthenticatedUser,
 };
 use crate::bounded_process::{run_with_bounded_stderr, BoundedCommandError};
 use crate::error::ApiError;
@@ -18,7 +18,6 @@ use axum::{
         Response, StatusCode,
     },
 };
-use axum_extra::extract::cookie::CookieJar;
 use mova_domain::MediaSourceKind;
 use serde::Deserialize;
 use std::{
@@ -48,11 +47,9 @@ pub struct MediaFileStreamQuery {
 /// 返回某个媒体文件可切换的内嵌音轨列表。
 pub async fn list_media_file_audio_tracks(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(media_file_id): Path<i64>,
 ) -> Result<ApiJson<Vec<AudioTrackResponse>>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     require_media_file_access(&state, &user, media_file_id).await?;
     let audio_tracks = mova_application::list_audio_tracks_for_media_file(&state.db, media_file_id)
         .await
@@ -67,12 +64,11 @@ pub async fn list_media_file_audio_tracks(
 /// 读取媒体文件内容，支持 HTTP Range 请求，供浏览器视频播放使用。
 pub async fn stream_media_file(
     State(state): State<AppState>,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(media_file_id): Path<i64>,
     Query(query): Query<MediaFileStreamQuery>,
     headers: HeaderMap,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     build_media_file_stream_response(
         state,
         &user,
@@ -87,12 +83,11 @@ pub async fn stream_media_file(
 /// 返回媒体文件的响应头，不返回实体内容。
 pub async fn head_media_file(
     State(state): State<AppState>,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(media_file_id): Path<i64>,
     Query(query): Query<MediaFileStreamQuery>,
     headers: HeaderMap,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     build_media_file_stream_response(
         state,
         &user,

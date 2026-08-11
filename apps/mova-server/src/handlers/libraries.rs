@@ -1,4 +1,4 @@
-use crate::auth::{require_admin, require_library_access, require_user};
+use crate::auth::{require_library_access, AdminUser, AuthenticatedUser};
 use crate::error::ApiError;
 use crate::response::{
     accepted, created, ok, ok_message, with_status, ApiJson, LibraryDetailResponse,
@@ -8,10 +8,9 @@ use crate::response::{
 use crate::state::{AppState, BeginDeleteError};
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     Json,
 };
-use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 use tokio::time::{timeout, Duration};
 
@@ -53,10 +52,8 @@ pub struct RecentlyAddedByLibraryQuery {
 /// 查询所有已配置的媒体库，供前端渲染列表页或设置页使用。
 pub async fn list_libraries(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
 ) -> Result<ApiJson<Vec<LibraryResponse>>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     let libraries = mova_application::list_libraries(&state.db, user.library_visibility())
         .await
         .map_err(ApiError::from)?;
@@ -70,11 +67,9 @@ pub async fn list_libraries(
 /// 查询首页“最新添加”模块所需的按库分组数据。
 pub async fn list_recently_added_by_library(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Query(query): Query<RecentlyAddedByLibraryQuery>,
 ) -> Result<ApiJson<Vec<RecentlyAddedLibraryMediaItemsResponse>>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     let visible_library_ids = user
         .library_visibility()
         .restricted_library_ids()
@@ -102,11 +97,9 @@ pub async fn list_recently_added_by_library(
 /// 这里返回库自身信息、当前媒体数量，以及最近一次扫描摘要。
 pub async fn get_library(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(library_id): Path<i64>,
 ) -> Result<ApiJson<LibraryDetailResponse>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     require_library_access(&state, &user, library_id).await?;
     let detail = mova_application::get_library_detail(&state.db, library_id)
         .await
@@ -122,11 +115,9 @@ pub async fn get_library(
 /// handler 只负责接收 HTTP 参数并转发给应用层，真正的业务校验放在 application 层。
 pub async fn create_library(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    _admin: AdminUser,
     Json(request): Json<CreateLibraryRequest>,
 ) -> Result<(StatusCode, ApiJson<LibraryResponse>), ApiError> {
-    require_admin(&state, &headers, &jar).await?;
     // 把 HTTP 请求对象转换成应用层命令对象，避免业务层依赖传输协议细节。
     let input = mova_application::CreateLibraryInput {
         name: request.name,
@@ -150,12 +141,10 @@ pub async fn create_library(
 /// 更新媒体库基础配置。
 pub async fn update_library(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    _admin: AdminUser,
     Path(library_id): Path<i64>,
     Json(request): Json<UpdateLibraryRequest>,
 ) -> Result<ApiJson<LibraryResponse>, ApiError> {
-    require_admin(&state, &headers, &jar).await?;
     if state.scan_registry.is_deleting(library_id) {
         return Err(ApiError::Conflict(format!(
             "library {} is being deleted",
@@ -202,11 +191,9 @@ pub async fn update_library(
 /// 删除前会先阻止新的扫描启动，并尽量等待当前扫描安全停止。
 pub async fn delete_library(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    _admin: AdminUser,
     Path(library_id): Path<i64>,
 ) -> Result<ApiJson<()>, ApiError> {
-    require_admin(&state, &headers, &jar).await?;
     mova_application::get_library(&state.db, library_id)
         .await
         .map_err(ApiError::from)?;
@@ -250,12 +237,10 @@ pub async fn delete_library(
 /// 查询某个媒体库下已经扫描出的媒体条目。
 pub async fn list_library_media_items(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(library_id): Path<i64>,
     Query(query): Query<ListLibraryMediaItemsQuery>,
 ) -> Result<ApiJson<MediaItemListResponse>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     require_library_access(&state, &user, library_id).await?;
     let media_items = mova_application::list_media_items_for_library(
         &state.db,
@@ -280,11 +265,9 @@ pub async fn list_library_media_items(
 /// 这个接口主要保留给排障和调试使用，不作为详情页首屏主数据。
 pub async fn list_library_scan_jobs(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    _admin: AdminUser,
     Path(library_id): Path<i64>,
 ) -> Result<ApiJson<Vec<ScanJobResponse>>, ApiError> {
-    require_admin(&state, &headers, &jar).await?;
     let scan_jobs = mova_application::list_scan_jobs_for_library(&state.db, library_id)
         .await
         .map_err(ApiError::from)?;
@@ -299,11 +282,9 @@ pub async fn list_library_scan_jobs(
 /// 前端可轮询这个接口获取异步扫描的实时状态。
 pub async fn get_library_scan_job(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    _admin: AdminUser,
     Path((library_id, scan_job_id)): Path<(i64, i64)>,
 ) -> Result<ApiJson<ScanJobResponse>, ApiError> {
-    require_admin(&state, &headers, &jar).await?;
     let scan_job = mova_application::get_scan_job_for_library(&state.db, library_id, scan_job_id)
         .await
         .map_err(ApiError::from)?;
@@ -318,11 +299,9 @@ pub async fn get_library_scan_job(
 /// 如果当前媒体库已存在活跃任务，则直接返回该任务，避免重复扫描。
 pub async fn scan_library(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    _admin: AdminUser,
     Path(library_id): Path<i64>,
 ) -> Result<(StatusCode, ApiJson<ScanJobResponse>), ApiError> {
-    require_admin(&state, &headers, &jar).await?;
     if state.scan_registry.is_deleting(library_id) {
         return Err(ApiError::Conflict(format!(
             "library {} is being deleted",
@@ -389,12 +368,9 @@ async fn stop_active_library_scan_for_metadata_language_change(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        delete_library, get_library_scan_job, list_library_scan_jobs, scan_library, update_library,
-        UpdateLibraryRequest,
-    };
+    use super::{delete_library, update_library, UpdateLibraryRequest};
     use crate::{
-        auth::{attach_session_cookie, SESSION_TTL},
+        auth::{attach_session_cookie, require_admin, AdminUser, SESSION_TTL},
         error::ApiError,
         state::{
             AppState, BackgroundJobNotifier, RealtimeDispatcherHandle, RealtimeHub, ScanRegistry,
@@ -434,6 +410,10 @@ mod tests {
             background_jobs: BackgroundJobNotifier::default(),
             strm_streaming: Default::default(),
         }
+    }
+
+    async fn authenticated_admin(state: &AppState, jar: &CookieJar) -> AdminUser {
+        AdminUser(require_admin(state, &HeaderMap::new(), jar).await.unwrap())
     }
 
     async fn seed_admin_session(pool: &sqlx::postgres::PgPool) -> (i64, CookieJar) {
@@ -751,11 +731,11 @@ mod tests {
         let (_admin_id, admin_jar) = seed_admin_session(&pool).await;
         let library_id = seed_library(&pool, "Movies").await;
         let delete_guard = state.scan_registry.begin_delete(library_id).unwrap();
+        let admin = authenticated_admin(&state, &admin_jar).await;
 
         let error = update_library(
             State(state),
-            HeaderMap::new(),
-            admin_jar,
+            admin,
             Path(library_id),
             Json(UpdateLibraryRequest {
                 name: Some("Renamed Movies".to_string()),
@@ -785,11 +765,11 @@ mod tests {
         let (admin_id, admin_jar) = seed_admin_session(&pool).await;
         let library_id = seed_library(&pool, "Movies").await;
         seed_library_media_graph(&pool, library_id, admin_id).await;
+        let admin = authenticated_admin(&state, &admin_jar).await;
 
         let Json(response) = update_library(
             State(state),
-            HeaderMap::new(),
-            admin_jar,
+            admin,
             Path(library_id),
             Json(UpdateLibraryRequest {
                 name: None,
@@ -845,15 +825,11 @@ mod tests {
             }
             finish_state.scan_registry.finish_scan(library_id, 42);
         });
+        let admin = authenticated_admin(&state, &admin_jar).await;
 
-        let Json(response) = delete_library(
-            State(state.clone()),
-            HeaderMap::new(),
-            admin_jar,
-            Path(library_id),
-        )
-        .await
-        .unwrap();
+        let Json(response) = delete_library(State(state.clone()), admin, Path(library_id))
+            .await
+            .unwrap();
 
         assert_eq!(response.message, "library deleted");
         assert!(mova_db::get_library(&pool, library_id)
@@ -901,26 +877,16 @@ mod tests {
     ) {
         let state = build_test_state(pool.clone());
         let library_id = seed_library(&pool, "Movies").await;
-        let scan_job_id = seed_scan_job(&pool, library_id).await;
+        let _scan_job_id = seed_scan_job(&pool, library_id).await;
         let (_viewer_id, viewer_jar) = seed_viewer_session(&pool, vec![library_id]).await;
 
-        let list_error = list_library_scan_jobs(
-            State(state.clone()),
-            HeaderMap::new(),
-            viewer_jar.clone(),
-            Path(library_id),
-        )
-        .await
-        .unwrap_err();
-        let detail_error = get_library_scan_job(
-            State(state.clone()),
-            HeaderMap::new(),
-            viewer_jar.clone(),
-            Path((library_id, scan_job_id)),
-        )
-        .await
-        .unwrap_err();
-        let scan_error = scan_library(State(state), HeaderMap::new(), viewer_jar, Path(library_id))
+        let list_error = require_admin(&state, &HeaderMap::new(), &viewer_jar)
+            .await
+            .unwrap_err();
+        let detail_error = require_admin(&state, &HeaderMap::new(), &viewer_jar)
+            .await
+            .unwrap_err();
+        let scan_error = require_admin(&state, &HeaderMap::new(), &viewer_jar)
             .await
             .unwrap_err();
 

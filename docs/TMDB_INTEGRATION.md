@@ -286,7 +286,7 @@ API 响应只直接透出不带 query/fragment 的 TMDB 官方 HTTPS 图片地�
 - `source_title`、`sort_title`、媒体类型、文件、版本关系和季集坐标始终保持本地权威。
 - 首次为旧 binding 建立快照时，已有非空标题、简介、年份、国家、题材和制作方若与 direct-ID 响应不同则视为本地值并保留；与响应完全相同的值会在快照提交后建立 ownership。artwork 只有在已位于当前媒体库 `artwork/tmdb` 命名空间，或与随后提交的响应快照一致时才建立 ownership，路径外 sidecar 不会被接管。
 - 后续复核只有在当前字段仍等于上一份 TMDB 快照时才更新或清空它；NFO、sidecar 或其它本地流程写成不同值后继续保留。
-- 剧集的已持久化季标题、季简介、季 artwork、单集标题、单集简介、单集 artwork，以及 `series_episode_outline_cache` 使用同一快照和 150/180 天生命周期；季集坐标、源标题、文件和播放状态始终保持本地权威。
+- 剧集的已持久化季标题、季简介、季 artwork、单集标题、单集简介、单集 artwork，以及 `series_episode_outline_cache` 中经过数据库校验的 `jsonb` 大纲缓存，使用同一快照和 150/180 天生命周期；季集坐标、源标题、文件和播放状态始终保持本地权威。
 - TMDB 详情响应产生的 external IDs 和 `source=tmdb` 评分具有明确远端来源，成功复核时权威替换。评分自身的 `fetched_at` 与复核状态的 `verified_at` 分别记录评分和完整详情的获取时间。
 - 已存在的 cast cache 通过同一 provider ID 重新获取并更新 `fetched_at`；没有 cast cache 的条目保持按需加载，不因后台任务预取。
 - 新 poster、backdrop 和 Logo 必须先通过既有安全下载与原子发布流程进入本地缓存，图片缓存失败会让整次复核进入退避，不会用失败结果替换当前图片。成功换图后，仅删除不再被任何媒体或季引用、且来自上一份 TMDB 快照的缓存文件。
