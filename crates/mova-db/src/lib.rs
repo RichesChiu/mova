@@ -69,8 +69,9 @@ pub use media_items::{
     ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult, MediaItemPlaybackHeader,
     RecentlyAddedLibraryMediaItems, ScanGroupCommitStage, SeriesEpisodeOutlineCacheEntry,
     SyncLibraryMediaBestEffortOutcome, UpdateMediaFileMetadataParams,
-    UpdateMediaItemMetadataParams, UpdateSeasonMetadataParams, UpdateSeriesEpisodeMetadataParams,
-    UpdateSeriesSeasonMetadataParams, UpsertSeriesEpisodeOutlineCacheParams,
+    UpdateMediaItemMetadataOutcome, UpdateMediaItemMetadataParams, UpdateSeasonMetadataParams,
+    UpdateSeriesEpisodeMetadataParams, UpdateSeriesSeasonMetadataParams,
+    UpsertSeriesEpisodeOutlineCacheParams,
 };
 pub use notifications::{list_notifications, mark_all_notifications_read, mark_notification_read};
 pub use playback_progress::{

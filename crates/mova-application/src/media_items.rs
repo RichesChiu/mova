@@ -1427,7 +1427,7 @@ pub async fn refresh_media_item_metadata(
             discovered_file.metadata_failure_reason,
             media_item.metadata_failure_reason.clone(),
         );
-        mova_db::update_media_item_metadata(
+        let outcome = mova_db::update_media_item_metadata(
             pool,
             media_item_id,
             mova_db::UpdateMediaItemMetadataParams {
@@ -1494,10 +1494,8 @@ pub async fn refresh_media_item_metadata(
             },
         )
         .await
-        .map_err(ApplicationError::from)?
-        .ok_or_else(|| {
-            ApplicationError::NotFound(format!("media item not found: {}", media_item_id))
-        })
+        .map_err(ApplicationError::from)?;
+        resolve_manual_metadata_update_outcome(outcome, media_item_id)
     }
     .await;
     let refreshed_media_item = crate::tmdb_revalidation::finish_tmdb_artwork_publication(
@@ -1514,6 +1512,27 @@ pub async fn refresh_media_item_metadata(
     ensure_media_item_cast(pool, &refreshed_media_item, metadata_provider_for_cast).await?;
 
     Ok(refreshed_media_item)
+}
+
+pub(crate) fn resolve_manual_metadata_update_outcome(
+    outcome: mova_db::UpdateMediaItemMetadataOutcome,
+    media_item_id: i64,
+) -> ApplicationResult<MediaItem> {
+    match outcome {
+        mova_db::UpdateMediaItemMetadataOutcome::Updated(media_item) => Ok(*media_item),
+        mova_db::UpdateMediaItemMetadataOutcome::Missing => Err(ApplicationError::NotFound(
+            format!("media item not found: {media_item_id}"),
+        )),
+        mova_db::UpdateMediaItemMetadataOutcome::Stale => Err(ApplicationError::Conflict(format!(
+            "media item {media_item_id} changed while metadata was being prepared"
+        ))),
+        mova_db::UpdateMediaItemMetadataOutcome::ActiveScan(scan_job) => {
+            Err(ApplicationError::Conflict(format!(
+                "library {} is being scanned by job {}",
+                scan_job.library_id, scan_job.id
+            )))
+        }
+    }
 }
 
 fn source_kind_for_carrier_path(path: &Path) -> MediaSourceKind {

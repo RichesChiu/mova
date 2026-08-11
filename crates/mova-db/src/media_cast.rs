@@ -449,4 +449,73 @@ mod tests {
             0
         );
     }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn selected_nfo_cast_takes_precedence_over_provider_cache(pool: sqlx::postgres::PgPool) {
+        let (media_item_id, media_item_updated_at) = seed_media_item(&pool).await;
+        let library_id =
+            sqlx::query_scalar::<_, i64>("select library_id from media_items where id = $1")
+                .bind(media_item_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let now = OffsetDateTime::now_utc();
+        replace_media_item_cast(
+            &pool,
+            ReplaceMediaItemCastParams {
+                media_item_id,
+                expected_provider_item_id: "42".to_string(),
+                expected_media_item_updated_at: media_item_updated_at,
+                members: vec![ReplaceMediaItemCastMember {
+                    person_id: Some("provider-person".to_string()),
+                    sort_order: 0,
+                    name: "Provider Actor".to_string(),
+                    character_name: Some("Provider Role".to_string()),
+                    profile_path: None,
+                }],
+                fetched_at: now,
+                expires_at: now,
+            },
+        )
+        .await
+        .unwrap();
+
+        let source_id = sqlx::query_scalar::<_, i64>(
+            r#"
+            insert into media_local_metadata_sources (
+                library_id, media_item_id, source_path, document_type, is_selected, payload
+            )
+            values ($1, $2, '/media/cast/movie.nfo', 'movie', true, '{}')
+            returning id
+            "#,
+        )
+        .bind(library_id)
+        .bind(media_item_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"
+            insert into media_item_credits (
+                media_item_id, local_metadata_source_id, credit_type, retrieved_via,
+                sort_order, person_provider, provider_person_id, name, role
+            )
+            values ($1, $2, 'actor', 'nfo', 0, 'tmdb', 'nfo-person', 'NFO Actor', 'NFO Role')
+            "#,
+        )
+        .bind(media_item_id)
+        .bind(source_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let members = list_media_item_cast_members(&pool, media_item_id)
+            .await
+            .unwrap();
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].name, "NFO Actor");
+        assert_eq!(members[0].person_id.as_deref(), Some("nfo-person"));
+        assert_eq!(members[0].character_name.as_deref(), Some("NFO Role"));
+    }
 }

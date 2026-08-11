@@ -1,16 +1,14 @@
 use crate::realtime::REALTIME_PROTOCOL_VERSION;
 use crate::{
-    auth::{require_auth_context, require_user, AuthContext},
+    auth::{authenticate_credential, AuthContext, AuthenticatedContext, AuthenticatedUser},
     error::ApiError,
     response::{ok, ApiJson, ScanJobResponse},
     state::AppState,
 };
 use axum::{
     extract::State,
-    http::HeaderMap,
     response::sse::{Event, KeepAlive, Sse},
 };
-use axum_extra::extract::cookie::CookieJar;
 use serde::Serialize;
 use std::{
     collections::BTreeMap,
@@ -40,10 +38,8 @@ pub(crate) struct RealtimeResourceSnapshot {
 
 pub async fn state(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
 ) -> Result<ApiJson<RealtimeStateResponse>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     let snapshot = load_realtime_resource_snapshot(&state, &user).await?;
     let visible_library_ids = user.library_visibility().restricted_library_ids();
     let active_scans = mova_db::list_active_scan_jobs(&state.db, visible_library_ids)
@@ -97,10 +93,9 @@ pub(crate) async fn load_realtime_resource_snapshot(
 
 pub async fn events(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    authenticated: AuthenticatedContext,
 ) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    let (auth, subscribed_receivers) = authenticate_and_subscribe(&state, &headers, &jar).await?;
+    let (auth, subscribed_receivers) = authenticate_and_subscribe(&state, authenticated).await?;
     let realtime_session_key = auth.realtime_session_key;
     let mut receivers = StreamMap::new();
     for (index, receiver) in subscribed_receivers.into_iter().enumerate() {
@@ -126,8 +121,7 @@ pub async fn events(
 
 async fn authenticate_and_subscribe(
     state: &AppState,
-    headers: &HeaderMap,
-    jar: &CookieJar,
+    authenticated: AuthenticatedContext,
 ) -> Result<
     (
         AuthContext,
@@ -135,12 +129,13 @@ async fn authenticate_and_subscribe(
     ),
     ApiError,
 > {
-    let mut auth = require_auth_context(state, headers, jar).await?;
+    let mut auth = authenticated.context;
+    let credential = authenticated.credential;
 
     for _ in 0..3 {
         let session_key = auth.realtime_session_key.clone();
         let receivers = state.realtime_hub.subscribe(&auth.user, &session_key);
-        match require_auth_context(state, headers, jar).await {
+        match authenticate_credential(state, &credential).await {
             Ok(revalidated)
                 if revalidated.realtime_session_key == session_key
                     && same_authorization_snapshot(&auth, &revalidated) =>

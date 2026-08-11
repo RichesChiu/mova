@@ -1,5 +1,5 @@
 use crate::auth::{
-    require_media_file_access, require_media_file_with_library_access, require_user,
+    require_media_file_access, require_media_file_with_library_access, AuthenticatedUser,
 };
 use crate::error::ApiError;
 use crate::media_path::{resolve_regular_file_within_library, LibraryMediaPathError};
@@ -10,10 +10,9 @@ use axum::{
     extract::{Path, State},
     http::{
         header::{self, HeaderValue},
-        HeaderMap, Response, StatusCode,
+        Response, StatusCode,
     },
 };
-use axum_extra::extract::cookie::CookieJar;
 use serde_json::json;
 use std::{
     collections::BTreeMap,
@@ -45,11 +44,9 @@ static SUBTITLE_MATERIALIZATION_PERMITS: Semaphore =
 /// 返回某个媒体文件可切换的字幕轨道列表。
 pub async fn list_media_file_subtitles(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(media_file_id): Path<i64>,
 ) -> Result<ApiJson<Vec<SubtitleFileResponse>>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     require_media_file_access(&state, &user, media_file_id).await?;
     let subtitles = mova_application::list_subtitle_files_for_media_file(&state.db, media_file_id)
         .await
@@ -123,11 +120,9 @@ async fn trusted_subtitle_stream(
 /// 把外挂/内嵌字幕统一转换成 WebVTT，供浏览器自定义播放器挂载。
 pub async fn stream_subtitle_file(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(subtitle_file_id): Path<i64>,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     let stream = trusted_subtitle_stream(&state, &user, subtitle_file_id).await?;
     let cache_dir = stream.cached_path.parent().ok_or(ApiError::Internal)?;
     fs::create_dir_all(cache_dir)
@@ -171,11 +166,9 @@ pub async fn stream_subtitle_file(
 /// 返回字幕缓存的准确响应头，不生成或转换字幕。
 pub async fn head_subtitle_file(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(subtitle_file_id): Path<i64>,
 ) -> Result<Response<Body>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     let stream = trusted_subtitle_stream(&state, &user, subtitle_file_id).await?;
 
     Ok(build_subtitle_head_response(&stream.cached_path).await)

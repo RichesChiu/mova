@@ -1025,7 +1025,7 @@ pub async fn complete_tmdb_metadata_revalidation(
                 fetched_at,
                 expires_at
             )
-            values ($1, $2, 'tmdb', $3, $4, $5, $4, $4 + interval '24 hours')
+            values ($1, $2, 'tmdb', $3, $4, cast($5 as jsonb), $4, $4 + interval '24 hours')
             on conflict (series_media_item_id)
             do update set
                 library_id = excluded.library_id,
@@ -1549,7 +1549,7 @@ pub async fn is_artwork_path_referenced_tx(
             or exists (
                 select 1
                 from series_episode_outline_cache outline_cache
-                where position($1 in outline_cache.outline_json) > 0
+                where position($1 in outline_cache.outline_json::text) > 0
             )
         "#,
     )
@@ -1851,7 +1851,7 @@ mod tests {
                 outline_json,
                 expires_at
             )
-            values ($1, $2, 'tmdb', $3, $4, $5, now() + interval '1 day')
+            values ($1, $2, 'tmdb', $3, $4, cast($5 as jsonb), now() + interval '1 day')
             "#,
         )
         .bind(media_item_id)

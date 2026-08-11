@@ -1,13 +1,11 @@
-use crate::auth::{require_media_item_access, require_user};
+use crate::auth::{require_media_item_access, AuthenticatedUser};
 use crate::error::ApiError;
 use crate::response::{ok, ApiJson, ContinueWatchingItemResponse, PlaybackProgressResponse};
 use crate::state::AppState;
 use axum::{
     extract::{Path, Query, State},
-    http::HeaderMap,
     Json,
 };
-use axum_extra::extract::cookie::CookieJar;
 use serde::Deserialize;
 
 /// 更新播放进度接口接收的请求体。
@@ -28,11 +26,9 @@ pub struct ContinueWatchingQuery {
 /// 读取当前登录用户的“继续观看”列表。
 pub async fn list_continue_watching(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Query(query): Query<ContinueWatchingQuery>,
 ) -> Result<ApiJson<Vec<ContinueWatchingItemResponse>>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     let visible_library_ids = user
         .library_visibility()
         .restricted_library_ids()
@@ -55,11 +51,9 @@ pub async fn list_continue_watching(
 /// 读取某个媒体条目的最近播放进度。
 pub async fn get_media_item_playback_progress(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(media_item_id): Path<i64>,
 ) -> Result<ApiJson<Option<PlaybackProgressResponse>>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let progress = mova_application::get_playback_progress_for_media_item(
         &state.db,
@@ -77,12 +71,10 @@ pub async fn get_media_item_playback_progress(
 /// 写入某个媒体条目的播放进度。
 pub async fn update_media_item_playback_progress(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Path(media_item_id): Path<i64>,
     Json(request): Json<UpdatePlaybackProgressRequest>,
 ) -> Result<ApiJson<PlaybackProgressResponse>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     require_media_item_access(&state, &user, media_item_id).await?;
     let progress = mova_application::update_playback_progress_for_media_item(
         &state.db,
@@ -118,7 +110,7 @@ mod tests {
         update_media_item_playback_progress, ContinueWatchingQuery, UpdatePlaybackProgressRequest,
     };
     use crate::{
-        auth::{attach_session_cookie, SESSION_TTL},
+        auth::{attach_session_cookie, require_user, AuthenticatedUser, SESSION_TTL},
         state::{
             AppState, BackgroundJobNotifier, RealtimeDispatcherHandle, RealtimeHub, ScanRegistry,
         },
@@ -154,6 +146,10 @@ mod tests {
             background_jobs: BackgroundJobNotifier::default(),
             strm_streaming: Default::default(),
         }
+    }
+
+    async fn authenticated_user(state: &AppState, jar: &CookieJar) -> AuthenticatedUser {
+        AuthenticatedUser(require_user(state, &HeaderMap::new(), jar).await.unwrap())
     }
 
     async fn seed_playback_context(pool: &sqlx::postgres::PgPool) -> (CookieJar, i64, i64, i64) {
@@ -246,15 +242,12 @@ mod tests {
     ) {
         let state = build_test_state(pool.clone());
         let (jar, _user_id, media_item_id, _media_file_id) = seed_playback_context(&pool).await;
+        let user = authenticated_user(&state, &jar).await;
 
-        let Json(response) = get_media_item_playback_progress(
-            State(state),
-            HeaderMap::new(),
-            jar,
-            Path(media_item_id),
-        )
-        .await
-        .unwrap();
+        let Json(response) =
+            get_media_item_playback_progress(State(state), user, Path(media_item_id))
+                .await
+                .unwrap();
 
         assert!(response.data.is_none());
     }
@@ -266,11 +259,11 @@ mod tests {
     ) {
         let state = build_test_state(pool.clone());
         let (jar, _user_id, media_item_id, media_file_id) = seed_playback_context(&pool).await;
+        let user = authenticated_user(&state, &jar).await;
 
         let Json(progress_response) = update_media_item_playback_progress(
             State(state.clone()),
-            HeaderMap::new(),
-            jar.clone(),
+            user.clone(),
             Path(media_item_id),
             Json(UpdatePlaybackProgressRequest {
                 media_file_id,
@@ -287,8 +280,7 @@ mod tests {
 
         let Json(initial_continue_watching) = list_continue_watching(
             State(state.clone()),
-            HeaderMap::new(),
-            jar.clone(),
+            user.clone(),
             Query(ContinueWatchingQuery { limit: Some(10) }),
         )
         .await
@@ -304,8 +296,7 @@ mod tests {
 
         let Json(finished_progress_response) = update_media_item_playback_progress(
             State(state.clone()),
-            HeaderMap::new(),
-            jar.clone(),
+            user.clone(),
             Path(media_item_id),
             Json(UpdatePlaybackProgressRequest {
                 media_file_id,
@@ -321,8 +312,7 @@ mod tests {
 
         let Json(read_back_progress) = get_media_item_playback_progress(
             State(state.clone()),
-            HeaderMap::new(),
-            jar.clone(),
+            user.clone(),
             Path(media_item_id),
         )
         .await
@@ -345,8 +335,7 @@ mod tests {
 
         let Json(finished_continue_watching) = list_continue_watching(
             State(state.clone()),
-            HeaderMap::new(),
-            jar.clone(),
+            user,
             Query(ContinueWatchingQuery { limit: Some(10) }),
         )
         .await

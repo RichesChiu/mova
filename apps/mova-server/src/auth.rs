@@ -1,7 +1,11 @@
 use crate::{error::ApiError, state::AppState};
-use axum::http::{header, HeaderMap};
+use axum::{
+    extract::FromRequestParts,
+    http::{header, request::Parts, HeaderMap},
+};
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use mova_domain::{Library, MediaFile, MediaItem, Season, UserProfile};
+use std::ops::Deref;
 use time::{Duration, OffsetDateTime};
 
 pub const SESSION_TTL: Duration = Duration::days(30);
@@ -22,6 +26,83 @@ pub struct AuthContext {
     pub realtime_session_key: String,
 }
 
+/// Authenticated request user extracted before the handler runs.
+///
+/// Protected handlers should accept this extractor instead of manually reading
+/// headers and cookies. That keeps authentication visible in the handler
+/// signature and makes it harder to add an accidentally unprotected route.
+#[derive(Debug, Clone)]
+pub struct AuthenticatedUser(pub UserProfile);
+
+impl Deref for AuthenticatedUser {
+    type Target = UserProfile;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// Authenticated administrator extracted before the handler runs.
+#[derive(Debug, Clone)]
+pub struct AdminUser(pub UserProfile);
+
+impl Deref for AdminUser {
+    type Target = UserProfile;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// Full authentication state for transports that must retain credential
+/// expiration or revalidate the exact credential while establishing a stream.
+#[derive(Clone)]
+pub struct AuthenticatedContext {
+    pub context: AuthContext,
+    pub credential: AuthCredential,
+}
+
+impl FromRequestParts<AppState> for AuthenticatedUser {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let jar = CookieJar::from_headers(&parts.headers);
+        require_user(state, &parts.headers, &jar).await.map(Self)
+    }
+}
+
+impl FromRequestParts<AppState> for AdminUser {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let jar = CookieJar::from_headers(&parts.headers);
+        require_admin(state, &parts.headers, &jar).await.map(Self)
+    }
+}
+
+impl FromRequestParts<AppState> for AuthenticatedContext {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let jar = CookieJar::from_headers(&parts.headers);
+        let credential = request_auth_credential(&parts.headers, &jar)?;
+        let context = authenticate_credential(state, &credential).await?;
+        Ok(Self {
+            context,
+            credential,
+        })
+    }
+}
+
 pub async fn require_user(
     state: &AppState,
     headers: &HeaderMap,
@@ -35,14 +116,22 @@ pub async fn require_auth_context(
     headers: &HeaderMap,
     jar: &CookieJar,
 ) -> Result<AuthContext, ApiError> {
-    let session = match request_auth_credential(headers, jar)? {
+    let credential = request_auth_credential(headers, jar)?;
+    authenticate_credential(state, &credential).await
+}
+
+pub async fn authenticate_credential(
+    state: &AppState,
+    credential: &AuthCredential,
+) -> Result<AuthContext, ApiError> {
+    let session = match credential {
         AuthCredential::Bearer(token) => {
-            mova_application::get_native_access_session(&state.db, &token)
+            mova_application::get_native_access_session(&state.db, token)
                 .await
                 .map_err(ApiError::from)
         }
         AuthCredential::SessionCookie(token) => {
-            mova_application::get_user_session(&state.db, &token)
+            mova_application::get_user_session(&state.db, token)
                 .await
                 .map_err(ApiError::from)
         }

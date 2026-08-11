@@ -1,12 +1,8 @@
-use crate::auth::require_user;
+use crate::auth::AuthenticatedUser;
 use crate::error::ApiError;
 use crate::response::{ok, ApiJson, GlobalSearchResultResponse};
 use crate::state::AppState;
-use axum::{
-    extract::{Query, State},
-    http::HeaderMap,
-};
-use axum_extra::extract::cookie::CookieJar;
+use axum::extract::{Query, State};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Default)]
@@ -18,11 +14,9 @@ pub struct GlobalSearchQuery {
 /// 搜索当前用户可见媒体库下的电影、剧集和本地集条目。
 pub async fn global_search(
     State(state): State<AppState>,
-    headers: HeaderMap,
-    jar: CookieJar,
+    AuthenticatedUser(user): AuthenticatedUser,
     Query(query): Query<GlobalSearchQuery>,
 ) -> Result<ApiJson<Vec<GlobalSearchResultResponse>>, ApiError> {
-    let user = require_user(&state, &headers, &jar).await?;
     let visible_library_ids = user
         .library_visibility()
         .restricted_library_ids()

@@ -205,7 +205,7 @@ pub async fn apply_media_item_metadata_match(
         )
         .map_err(ApplicationError::Unexpected)?;
 
-        let updated_media_item = mova_db::update_media_item_metadata(
+        let outcome = mova_db::update_media_item_metadata(
             pool,
             media_item_id,
             mova_db::UpdateMediaItemMetadataParams {
@@ -243,10 +243,9 @@ pub async fn apply_media_item_metadata_match(
             },
         )
         .await
-        .map_err(ApplicationError::from)?
-        .ok_or_else(|| {
-            ApplicationError::NotFound(format!("media item not found: {}", media_item_id))
-        })?;
+        .map_err(ApplicationError::from)?;
+        let updated_media_item =
+            crate::media_items::resolve_manual_metadata_update_outcome(outcome, media_item_id)?;
 
         if let Some(remote_outline) = remote_outline.as_ref() {
             apply_selected_series_episode_metadata(pool, &updated_media_item, remote_outline)

@@ -289,6 +289,8 @@ const translations: Record<string, string> = {
   '客户端不得把本机文件系统路径作为服务端 root_path。':
     'Clients must not send a local filesystem path as the server root_path.',
   查询服务端当前可用于建库的媒体文件夹树: 'Get the server media folder tree available for libraries',
+  '查询服务端当前可用于建库的媒体文件夹树（管理员）':
+    'Get the server media folder tree available for libraries (administrator)',
   媒体库与搜索: 'Libraries and search',
   '围绕媒体库配置、最新添加、列表详情、扫描历史、异步扫描和全局搜索展开。':
     'Covers library configuration, recently added items, details, scan history, asynchronous scanning, and global search.',
@@ -308,16 +310,24 @@ const translations: Record<string, string> = {
     'Search matches movies, series, and locally available episodes in libraries visible to the current user.',
   '搜索结果会返回条目自身的来源原生 ratings 数组；远端评分来自 TMDB，本地 NFO 评分保留自身 source。':
     'Search results include the item’s source-native ratings array; remote ratings come from TMDB, while local NFO ratings retain their own source.',
+  '媒体库详情同时返回 media_count、movie_count 和 series_count。':
+    'Library details return media_count, movie_count, and series_count together.',
   查询媒体库列表: 'List media libraries',
   查询按库分组的最新添加内容: 'Get recently added content grouped by library',
   创建媒体库: 'Create a media library',
+  '创建媒体库（管理员）': 'Create a media library (administrator)',
   查询单个媒体库详情: 'Get media library details',
   更新媒体库基础配置: 'Update media library configuration',
+  '更新媒体库基础配置（管理员）': 'Update media library configuration (administrator)',
   删除媒体库: 'Delete a media library',
+  '删除媒体库（管理员）': 'Delete a media library (administrator)',
   查询媒体库下的媒体条目列表: 'List media items in a library',
   查询媒体库扫描历史: 'Get media library scan history',
+  '查询媒体库扫描历史（管理员）': 'Get media library scan history (administrator)',
   查询单个扫描任务状态: 'Get scan job status',
+  '查询单个扫描任务状态（管理员）': 'Get scan job status (administrator)',
   触发异步扫描: 'Start an asynchronous scan',
+  '触发异步扫描（管理员）': 'Start an asynchronous scan (administrator)',
   '搜索当前用户可见库下的电影、剧集和集条目': 'Search movies, series, and episodes in visible libraries',
   媒体条目: 'Media items',
   '提供电影、剧集、季、集、演员、播放头、文件列表、元数据匹配与图片资源读取。':
@@ -346,6 +356,14 @@ const translations: Record<string, string> = {
     'episode-outline playback snapshots include last_media_file_id so clients can restore the exact last-used file when an episode has multiple variants.',
   '文件列表的 source_kind 是必填字段，用于区分 local_file 与 strm；STRM 的 file_path / file_size 只描述本地引用载体，API 永不返回远端 URL，容器、时长、编码、码率、分辨率和技术标签均为空。':
     'source_kind is required in file lists and distinguishes local_file from strm. STRM file_path and file_size describe only the local reference carrier; the API never returns the remote URL, while container, duration, codecs, bitrate, resolution, and technical tags are empty.',
+  '文件列表的 scan_hash 是服务端增量扫描使用的不透明指纹；客户端不得解析或使用其内部格式决定业务行为。':
+    'scan_hash in file lists is an opaque server-side incremental-scan fingerprint; clients must not parse it or use its internal format to make product decisions.',
+  '播放头对单集返回 series_media_item_id，供客户端读取所属剧集大纲或返回剧集详情。':
+    'Playback headers return series_media_item_id for episodes so clients can load the parent series outline or navigate back to its details.',
+  'TMDB 剧集大纲以经过数据库 JSON 校验的 jsonb 文档持久化，默认缓存 24 小时。':
+    'TMDB episode outlines are persisted as database-validated jsonb documents and cached for 24 hours by default.',
+  '演员列表优先返回已选中的手动 / NFO 演员；没有有效本地演员时才读取或按需刷新提供方缓存，两类来源不会混合覆盖。':
+    'Cast lists prefer actors from the selected manual or NFO source. Provider cache data is read or refreshed only when no valid local actors exist, and the two source classes never overwrite each other.',
   'playback-header 只轻量入队持久化片头任务；FFmpeg 与分析由 worker 按需执行，完成后通过 catalog revision 通知客户端定向刷新，不阻塞首次播放。':
     'playback-header only performs a lightweight persistent-job enqueue; a worker runs FFmpeg and intro analysis on demand, then publishes a catalog revision for targeted client refresh without blocking first playback.',
   'poster/backdrop/logo 返回经过媒体库边界、大小和图片内容校验的本地图片流；详情只透出可信的 TMDB 官方远程图片地址。':
@@ -361,6 +379,8 @@ const translations: Record<string, string> = {
   '手动搜索单条媒体的候选元数据（管理员）': 'Search metadata candidates for one media item (admin)',
   '选择候选结果并替换当前媒体元数据（管理员）': 'Select a candidate and replace current metadata (admin)',
   手动重拉单个媒体条目元数据: 'Refresh metadata for one media item',
+  '手动重拉单个媒体条目元数据（管理员）':
+    'Refresh metadata for one media item (administrator)',
   读取媒体条目海报图: 'Read a media item poster',
   读取媒体条目背景图: 'Read a media item backdrop',
   '读取媒体条目透明标题 Logo': 'Read a media item transparent title logo',
