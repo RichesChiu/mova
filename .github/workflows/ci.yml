@@ -7,7 +7,9 @@ on:
       - master
 
 permissions:
+  actions: read
   contents: read
+  pull-requests: read
 
 env:
   WEB_BUILD_BASE_TAG: richeschiu/mova-web-build-base:node24-pnpm11
@@ -19,15 +21,133 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  source:
+    name: >-
+      Source provenance [PR #${{ github.event.pull_request.number || 0 }}
+      base ${{ github.event.pull_request.base.sha || 'push' }}
+      head ${{ github.event.pull_request.head.sha || github.sha }}]
+    runs-on: ubuntu-latest
+    outputs:
+      reuse_pr_ci: ${{ steps.decide.outputs.reuse_pr_ci }}
+      release_only: ${{ steps.decide.outputs.release_only }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Classify release-only pull request
+        id: release_scope
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
+          PR_TITLE: ${{ github.event.pull_request.title || '' }}
+        run: |
+          set -euo pipefail
+
+          release_only=false
+          trusted_classifier_directory="$(mktemp -d)"
+          trap 'rm -rf "$trusted_classifier_directory"' EXIT
+          mkdir -p "$trusted_classifier_directory/scripts/lib"
+          if git show "$PR_BASE_SHA:scripts/classify-release-only-pr.sh" \
+              > "$trusted_classifier_directory/scripts/classify-release-only-pr.sh" &&
+            git show "$PR_BASE_SHA:scripts/lib/release-subject.sh" \
+              > "$trusted_classifier_directory/scripts/lib/release-subject.sh" &&
+            git show "$PR_BASE_SHA:scripts/lib/semver.sh" \
+              > "$trusted_classifier_directory/scripts/lib/semver.sh"; then
+            chmod +x "$trusted_classifier_directory/scripts/classify-release-only-pr.sh"
+            if ! release_only="$(
+              MOVA_REPOSITORY_ROOT="$GITHUB_WORKSPACE" \
+              MOVA_BASE_SHA="$PR_BASE_SHA" \
+              MOVA_HEAD_SHA="$PR_HEAD_SHA" \
+              MOVA_PR_TITLE="$PR_TITLE" \
+                "$trusted_classifier_directory/scripts/classify-release-only-pr.sh"
+            )"; then
+              echo "Release-only classification failed unexpectedly; running the full CI." >&2
+              release_only=false
+            fi
+          else
+            echo "Trusted release-only classifier is unavailable; running the full CI." >&2
+          fi
+          [[ "$release_only" == "true" || "$release_only" == "false" ]] || release_only=false
+          echo "release_only=$release_only" >> "$GITHUB_OUTPUT"
+
+      - name: Verify reusable pull request CI
+        id: reuse_scope
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          reuse_pr_ci=false
+          trusted_verifier_directory="$(mktemp -d)"
+          trap 'rm -rf "$trusted_verifier_directory"' EXIT
+          mkdir -p "$trusted_verifier_directory/scripts"
+          source_parent="$(git rev-parse "${GITHUB_SHA}^")"
+          if git show "$source_parent:scripts/verify-pull-request-ci-reuse.sh" \
+              > "$trusted_verifier_directory/scripts/verify-pull-request-ci-reuse.sh"; then
+            chmod +x "$trusted_verifier_directory/scripts/verify-pull-request-ci-reuse.sh"
+            if ! reuse_pr_ci="$(
+              GH_TOKEN="$GITHUB_TOKEN" \
+              MOVA_REPOSITORY_ROOT="$GITHUB_WORKSPACE" \
+                "$trusted_verifier_directory/scripts/verify-pull-request-ci-reuse.sh"
+            )"; then
+              echo "PR CI reuse verification failed unexpectedly; running the full master CI." >&2
+              reuse_pr_ci=false
+            fi
+          else
+            echo "Trusted PR CI reuse verifier is unavailable; running the full master CI." >&2
+          fi
+          if ! git diff --quiet "$source_parent" "$GITHUB_SHA" -- \
+            .github/workflows/ci.yml \
+            scripts/verify-pull-request-ci-reuse.sh \
+            scripts/classify-release-only-pr.sh \
+            scripts/lib/release-subject.sh \
+            scripts/lib/semver.sh; then
+            echo "CI proof boundary changed; running the full master CI." >&2
+            reuse_pr_ci=false
+          fi
+          [[ "$reuse_pr_ci" == "true" || "$reuse_pr_ci" == "false" ]] || reuse_pr_ci=false
+          echo "reuse_pr_ci=$reuse_pr_ci" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve validation scope
+        id: decide
+        env:
+          RELEASE_ONLY: ${{ steps.release_scope.outputs.release_only || 'false' }}
+          REUSE_PR_CI: ${{ steps.reuse_scope.outputs.reuse_pr_ci || 'false' }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "reuse_pr_ci=$REUSE_PR_CI"
+            echo "release_only=$RELEASE_ONLY"
+          } >> "$GITHUB_OUTPUT"
+          if [[ "$REUSE_PR_CI" == "true" ]]; then
+            echo "The exact master tree already passed this workflow on its merged PR." >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$RELEASE_ONLY" == "true" ]]; then
+            echo "This PR contains only the verified workspace version and release-note changes." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The full validation suite is required for this revision." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   web:
     name: Web
+    needs: source
+    if: >-
+      needs.source.outputs.reuse_pr_ci != 'true' &&
+      needs.source.outputs.release_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
 
@@ -50,13 +170,17 @@ jobs:
 
   site:
     name: Website
+    needs: source
+    if: >-
+      needs.source.outputs.reuse_pr_ci != 'true' &&
+      needs.source.outputs.release_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           cache: npm
@@ -79,6 +203,8 @@ jobs:
 
   rust:
     name: Rust and PostgreSQL
+    needs: source
+    if: needs.source.outputs.reuse_pr_ci != 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -133,16 +259,27 @@ jobs:
           exit 1
 
       - name: Check formatting
+        if: needs.source.outputs.release_only != 'true'
         run: cargo fmt --all -- --check
 
       - name: Lint
+        if: needs.source.outputs.release_only != 'true'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Test
+        if: needs.source.outputs.release_only != 'true'
         run: cargo test --workspace --locked -- --include-ignored --test-threads=1
+
+      - name: Verify release workspace metadata
+        if: needs.source.outputs.release_only == 'true'
+        run: |
+          cargo metadata --locked --no-deps --format-version 1 >/dev/null
+          ./scripts/resolve-release-version.sh >/dev/null
 
   docker:
     name: Docker image
+    needs: source
+    if: needs.source.outputs.reuse_pr_ci != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -159,16 +296,21 @@ jobs:
         run: |
           bash -n scripts/*.sh scripts/lib/*.sh scripts/tests/*.sh
           ./scripts/tests/test-cleanup-docker-candidate-tags.sh
+          ./scripts/tests/test-classify-release-only-pr.sh
           ./scripts/tests/test-docker-attestation-policy.sh
           ./scripts/tests/test-docker-build-policy.sh
           ./scripts/tests/test-docker-platform-image.sh
           ./scripts/tests/test-release-subject.sh
+          ./scripts/tests/test-semver.sh
           ./scripts/tests/test-telegram-release-notification.sh
+          ./scripts/tests/test-verify-pull-request-ci-reuse.sh
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        if: needs.source.outputs.release_only != 'true'
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Detect base image changes
+        if: needs.source.outputs.release_only != 'true'
         id: base_changes
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
@@ -206,6 +348,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Pin published base images
+        if: needs.source.outputs.release_only != 'true'
         id: base_refs
         run: |
           set -euo pipefail
@@ -242,7 +385,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build changed Web base image
-        if: steps.base_changes.outputs.web == 'true'
+        if: >-
+          needs.source.outputs.release_only != 'true' &&
+          steps.base_changes.outputs.web == 'true'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
@@ -256,7 +401,9 @@ jobs:
           sbom: false
 
       - name: Build changed Rust base image
-        if: steps.base_changes.outputs.rust == 'true'
+        if: >-
+          needs.source.outputs.release_only != 'true' &&
+          steps.base_changes.outputs.rust == 'true'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
@@ -270,7 +417,9 @@ jobs:
           sbom: false
 
       - name: Build changed runtime base image
-        if: steps.base_changes.outputs.runtime == 'true'
+        if: >-
+          needs.source.outputs.release_only != 'true' &&
+          steps.base_changes.outputs.runtime == 'true'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
@@ -284,7 +433,9 @@ jobs:
           sbom: false
 
       - name: Build image with published bases
-        if: steps.base_changes.outputs.any == 'false'
+        if: >-
+          needs.source.outputs.release_only != 'true' &&
+          steps.base_changes.outputs.any == 'false'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
@@ -305,7 +456,9 @@ jobs:
           sbom: false
 
       - name: Build image with changed bases
-        if: steps.base_changes.outputs.any == 'true'
+        if: >-
+          needs.source.outputs.release_only != 'true' &&
+          steps.base_changes.outputs.any == 'true'
         run: >-
           docker build
           --file apps/mova-server/Dockerfile
@@ -318,10 +471,61 @@ jobs:
           .
 
       - name: Verify image revision
+        if: needs.source.outputs.release_only != 'true'
         run: >-
           test "$(docker image inspect mova:ci
           --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
           = "${{ github.sha }}"
 
       - name: Test runtime tools
+        if: needs.source.outputs.release_only != 'true'
         run: ./scripts/smoke-test-runtime-image.sh mova:ci linux/amd64
+
+  gate:
+    name: CI gate
+    if: always()
+    needs:
+      - source
+      - web
+      - site
+      - rust
+      - docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required checks
+        env:
+          REUSE_PR_CI: ${{ needs.source.outputs.reuse_pr_ci }}
+          RELEASE_ONLY: ${{ needs.source.outputs.release_only }}
+          SOURCE_RESULT: ${{ needs.source.result }}
+          WEB_RESULT: ${{ needs.web.result }}
+          SITE_RESULT: ${{ needs.site.result }}
+          RUST_RESULT: ${{ needs.rust.result }}
+          DOCKER_RESULT: ${{ needs.docker.result }}
+        run: |
+          set -euo pipefail
+
+          [[ "$SOURCE_RESULT" == "success" ]] || {
+            echo "Source provenance failed: $SOURCE_RESULT" >&2
+            exit 1
+          }
+          if [[ "$REUSE_PR_CI" == "true" ]]; then
+            expected=skipped
+          elif [[ "$RELEASE_ONLY" == "true" ]]; then
+            [[ "$WEB_RESULT" == "skipped" && "$SITE_RESULT" == "skipped" ]] || {
+              echo "Release-only Web/Website jobs must be skipped." >&2
+              exit 1
+            }
+            [[ "$RUST_RESULT" == "success" && "$DOCKER_RESULT" == "success" ]] || {
+              echo "Release-only metadata and script checks must succeed." >&2
+              exit 1
+            }
+            exit 0
+          else
+            expected=success
+          fi
+          for result in "$WEB_RESULT" "$SITE_RESULT" "$RUST_RESULT" "$DOCKER_RESULT"; do
+            if [[ "$result" != "$expected" ]]; then
+              echo "Expected component result '$expected', received '$result'." >&2
+              exit 1
+            fi
+          done

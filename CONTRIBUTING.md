@@ -112,7 +112,10 @@ PR 标题使用 Conventional Commit，因为它会成为 squash 提交信息。�
 chore(release): prepare X.Y.Z
 ```
 
-该 PR 合并且对应的 `master` CI 全部通过后，`Release` 工作流会自动：
+仅包含工作区版本、锁文件版本和同版本发布说明的发布 PR 会进入严格的快速校验；一旦包含
+其他改动，就会自动运行完整 CI。该 PR 通过并合并后，`master` CI 会校验合并提交与已验证
+的 PR 树、来源和检查结果完全一致；无法证明一致时会自动回退到完整 CI。该门禁通过后，
+`Release` 工作流会自动：
 
 1. 从通过验证的提交创建带注释的 `vX.Y.Z` 标签；
 2. 构建、冒烟验证并安全扫描 Linux `amd64` 和 `arm64` 镜像；

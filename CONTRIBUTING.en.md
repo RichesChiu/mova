@@ -113,7 +113,12 @@ version in `Cargo.toml` and `Cargo.lock`, and opens a Pull Request titled exactl
 chore(release): prepare X.Y.Z
 ```
 
-After that Pull Request is merged and the resulting `master` CI run passes, the `Release` workflow:
+A release Pull Request containing only the workspace version, matching lockfile versions, and an
+optional same-version release note uses a strict reduced validation path; any other change falls
+back to the full CI suite. After that Pull Request passes and is merged, the `master` CI verifies that
+the merge commit exactly matches the tested Pull Request tree, source, and check results. It also
+falls back to the full CI suite whenever that proof is unavailable. After this gate passes, the
+`Release` workflow:
 
 1. creates an annotated `vX.Y.Z` tag from the verified commit;
 2. builds, smoke-tests, and security-checks Linux `amd64` and `arm64` images;
