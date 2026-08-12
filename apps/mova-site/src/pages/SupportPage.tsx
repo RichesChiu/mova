@@ -1,6 +1,6 @@
 import { useI18n } from '../i18n-context'
 import { githubUrl, telegramUrl } from '../data/homeContent'
-import './LegalPage.css'
+import './LegalPage.scss'
 
 const supportEmail = 'riches.chiu@gmail.com'
 const issueUrl = `${githubUrl}/issues/new`

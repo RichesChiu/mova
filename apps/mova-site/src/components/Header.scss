@@ -1,3 +1,5 @@
+@use '../styles/tokens' as t;
+
 @layer redesign {
   .site-header {
     position: fixed;
@@ -13,7 +15,9 @@
     min-height: var(--header-height);
     padding-inline: var(--content-inline);
     transform: translateY(0);
-    transition: opacity 180ms ease, transform 220ms ease;
+    transition:
+      opacity t.$motion-fast t.$ease-standard,
+      transform t.$motion-standard t.$ease-standard;
   }
 
   .site-header::before {
@@ -83,12 +87,14 @@
     bottom: -16px;
     left: 0;
     height: 2px;
-    border-radius: 999px;
+    border-radius: t.$radius-full;
     background: #5d61f4;
     content: '';
     opacity: 0;
     transform: scaleX(0.4);
-    transition: opacity 180ms ease, transform 180ms ease;
+    transition:
+      opacity t.$motion-fast t.$ease-standard,
+      transform t.$motion-fast t.$ease-standard;
   }
 
   .site-nav button.active,
@@ -115,11 +121,14 @@
     height: 36px;
     place-items: center;
     border: 1px solid #e2e5ed;
-    border-radius: 10px;
+    border-radius: t.$radius-control;
     color: #46506a;
     background: rgba(249, 250, 252, 0.94);
     text-decoration: none;
-    transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
+    transition:
+      color t.$motion-fast t.$ease-standard,
+      border-color t.$motion-fast t.$ease-standard,
+      background t.$motion-fast t.$ease-standard;
   }
 
   .header-icon-link:hover {
@@ -183,7 +192,7 @@
     color: var(--ink);
   }
 
-  @media (max-width: 900px) {
+  @media (max-width: t.$breakpoint-tablet) {
     .site-header {
       gap: 18px;
     }
@@ -193,7 +202,7 @@
     }
   }
 
-  @media (max-width: 760px) {
+  @media (max-width: t.$breakpoint-navigation) {
     .site-header {
       grid-template-columns: auto 1fr;
       gap: 14px;
@@ -222,7 +231,7 @@
     }
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: t.$breakpoint-mobile) {
     .site-header {
       grid-template-columns: 1fr auto;
       gap: 4px 14px;

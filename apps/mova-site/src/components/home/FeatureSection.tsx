@@ -2,7 +2,7 @@ import { MovaIcon } from '../MovaIcon'
 import { SectionTitle } from '../SectionTitle'
 import { features } from '../../data/homeContent'
 import { useI18n } from '../../i18n-context'
-import './FeatureSection.css'
+import './FeatureSection.scss'
 
 export function FeatureSection() {
   const { t } = useI18n()

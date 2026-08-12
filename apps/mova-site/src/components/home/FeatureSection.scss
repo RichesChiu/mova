@@ -1,3 +1,5 @@
+@use '../../styles/tokens' as t;
+
 @layer redesign {
   #features.section-block {
     display: grid;
@@ -60,7 +62,7 @@
     min-height: 42px;
   }
 
-  @media (max-width: 1120px) {
+  @media (max-width: t.$breakpoint-wide) {
     #features.section-block {
       grid-template-columns: 1fr;
     }
@@ -70,14 +72,14 @@
     }
   }
 
-  @media (max-width: 900px) {
+  @media (max-width: t.$breakpoint-tablet) {
     .feature-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 32px;
     }
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: t.$breakpoint-mobile) {
     .feature-grid {
       grid-template-columns: 1fr;
       gap: 34px;

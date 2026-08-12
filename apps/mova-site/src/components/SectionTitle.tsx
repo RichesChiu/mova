@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import './SectionTitle.css'
+import './SectionTitle.scss'
 
 export function SectionTitle({ id, title }: { id?: string; title: ReactNode }) {
   return (

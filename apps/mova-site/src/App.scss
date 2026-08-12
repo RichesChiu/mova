@@ -1,3 +1,5 @@
+@use './styles/tokens' as t;
+
 @layer redesign {
   .app-shell {
     --header-height: 76px;
@@ -5,18 +7,18 @@
     --panel-max: 1440px;
     --page-gutter: clamp(20px, 3vw, 48px);
     --content-inline: max(var(--page-gutter), calc((100vw - var(--page-max)) / 2));
-    --ink: #111936;
-    --muted: #65708b;
-    --line: #e7eaf2;
-    --surface: #ffffff;
-    --surface-soft: #f5f7fb;
-    --brand: #6748f5;
-    --brand-blue: #22aaf0;
+    --ink: #{t.$color-ink};
+    --muted: #{t.$color-muted};
+    --line: #{t.$color-line};
+    --surface: #{t.$color-surface};
+    --surface-soft: #{t.$color-surface-soft};
+    --brand: #{t.$color-brand};
+    --brand-blue: #{t.$color-brand-blue};
 
     min-height: 100svh;
     overflow-x: clip;
     color: var(--ink);
-    background: #f8f9fc;
+    background: t.$color-page;
   }
 
   main {
@@ -49,14 +51,14 @@
     margin: 0;
     padding: 16px;
     overflow-x: auto;
-    border-radius: 14px;
+    border-radius: t.$radius-code;
     color: #dbe7ff;
-    background: #111936;
+    background: t.$color-ink;
     line-height: 1.55;
   }
 
   code {
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    font-family: t.$font-mono;
   }
 
   .eyebrow {
@@ -68,7 +70,7 @@
     text-transform: uppercase;
   }
 
-  @media (max-width: 760px) {
+  @media (max-width: t.$breakpoint-navigation) {
     .app-shell {
       --header-height: 132px;
       --page-gutter: 18px;
@@ -79,7 +81,7 @@
     }
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: t.$breakpoint-mobile) {
     .app-shell {
       --header-height: 116px;
       --page-gutter: 20px;

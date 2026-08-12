@@ -2,7 +2,7 @@ import { MovaIcon } from '../MovaIcon'
 import { SectionTitle } from '../SectionTitle'
 import { devices } from '../../data/homeContent'
 import { useI18n } from '../../i18n-context'
-import './DeviceSection.css'
+import './DeviceSection.scss'
 
 export function DeviceSection() {
   const macDevice = devices.find((device) => device.id === 'macos')

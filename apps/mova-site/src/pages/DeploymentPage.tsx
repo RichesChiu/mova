@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { MovaIcon } from '../components/MovaIcon'
 import { dockerUrl } from '../data/homeContent'
 import { useI18n } from '../i18n-context'
-import './DeploymentPage.css'
+import './DeploymentPage.scss'
 
 const composeExampleZh = `services:
   app:

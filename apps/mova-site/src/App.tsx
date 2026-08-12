@@ -8,7 +8,7 @@ import { HomePage } from './pages/HomePage'
 import { PrivacyPage } from './pages/PrivacyPage'
 import { SupportPage } from './pages/SupportPage'
 import { useI18n } from './i18n-context'
-import './App.css'
+import './App.scss'
 
 type Page = 'home' | 'deploy' | 'api' | 'credits' | 'privacy' | 'support'
 

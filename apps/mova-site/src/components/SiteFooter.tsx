@@ -1,5 +1,5 @@
 import { useI18n } from '../i18n-context'
-import './SiteFooter.css'
+import './SiteFooter.scss'
 
 export function SiteFooter({
   onOpenCredits,

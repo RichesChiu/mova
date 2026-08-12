@@ -1,7 +1,7 @@
 import { navItems } from '../data/homeContent'
 import { useI18n } from '../i18n-context'
 import { HeaderBrandLinks } from './HeaderBrandLinks'
-import './Header.css'
+import './Header.scss'
 
 export function Header({
   activeSection,

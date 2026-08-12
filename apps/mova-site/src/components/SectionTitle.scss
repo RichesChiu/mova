@@ -1,3 +1,5 @@
+@use '../styles/tokens' as t;
+
 @layer redesign {
   .section-title {
     display: grid;
@@ -21,7 +23,7 @@
     width: 44px;
     height: 3px;
     margin: 22px 0 0;
-    border-radius: 999px;
+    border-radius: t.$radius-full;
     background: linear-gradient(90deg, #6846f4, #20b3ed);
   }
 
@@ -47,7 +49,7 @@
     font-size: clamp(30px, 2.5vw, 36px);
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: t.$breakpoint-mobile) {
     .section-title h2 {
       font-size: 34px;
     }

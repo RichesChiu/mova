@@ -1,0 +1,120 @@
+@use './styles/tokens' as t;
+
+:root {
+  font-family: t.$font-sans;
+  color: t.$color-root-ink;
+  background: t.$color-surface;
+  font-synthesis-style: none;
+  font-synthesis-weight: auto;
+  line-height: 1.5;
+  tab-size: 4;
+  text-rendering: optimizeLegibility;
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100svh;
+  margin: 0;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure,
+blockquote,
+dl,
+dd {
+  margin: 0;
+}
+
+ol,
+ul,
+menu {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+img,
+svg,
+video,
+canvas,
+audio,
+iframe,
+embed,
+object {
+  display: block;
+  vertical-align: middle;
+}
+
+img,
+video {
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: inherit;
+  text-decoration: inherit;
+}
+
+button,
+input,
+optgroup,
+select,
+textarea {
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+button,
+select {
+  text-transform: none;
+}
+
+button,
+input:is([type='button'], [type='reset'], [type='submit']) {
+  appearance: button;
+}
+
+button,
+[role='button'] {
+  cursor: pointer;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid t.$color-focus-ring;
+  outline-offset: 3px;
+}
+
+table {
+  border-color: inherit;
+  border-collapse: collapse;
+}
+
+[hidden] {
+  display: none !important;
+}
