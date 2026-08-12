@@ -1381,8 +1381,8 @@ async fn update_episode_record(
 pub(super) async fn cleanup_orphan_series_structure(
     tx: &mut Transaction<'_, Postgres>,
     library_id: i64,
-) -> Result<()> {
-    sqlx::query(
+) -> Result<usize> {
+    let removed_seasons = sqlx::query(
         r#"
         delete from seasons s
         where s.series_id in (
@@ -1403,7 +1403,7 @@ pub(super) async fn cleanup_orphan_series_structure(
     .await
     .context("failed to delete orphan seasons")?;
 
-    sqlx::query(
+    let removed_series = sqlx::query(
         r#"
         delete from media_items mi
         where mi.library_id = $1
@@ -1420,7 +1420,12 @@ pub(super) async fn cleanup_orphan_series_structure(
     .await
     .context("failed to delete orphan series items")?;
 
-    Ok(())
+    Ok(usize::try_from(
+        removed_seasons
+            .rows_affected()
+            .saturating_add(removed_series.rows_affected()),
+    )
+    .unwrap_or(usize::MAX))
 }
 
 #[cfg(test)]

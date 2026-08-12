@@ -507,6 +507,7 @@ pub async fn series_episode_outline_for_media_item(
     // 剧集 outline 的语言跟库配置走，避免同一部剧在不同库里混出中英双语季集信息。
     let library = get_library(pool, media_item.library_id).await?;
     let local_inventory = load_local_series_inventory(pool, media_item_id).await?;
+    let local_season_numbers = local_inventory.keys().copied().collect::<Vec<_>>();
     let playback_progress_by_media_item =
         load_series_episode_playback_progress(pool, user_id, &local_inventory).await?;
     let Some(provider_item_id) = validated_tmdb_binding(&media_item).map(str::to_string) else {
@@ -543,7 +544,7 @@ pub async fn series_episode_outline_for_media_item(
     };
 
     let remote_outline = match metadata_provider
-        .lookup_series_episode_outline(&lookup)
+        .lookup_series_episode_outline(&lookup, &local_season_numbers)
         .await
     {
         Ok(remote_outline) => {
@@ -708,15 +709,22 @@ async fn load_local_series_inventory(
     let seasons = mova_db::list_seasons_for_series(pool, series_id)
         .await
         .map_err(ApplicationError::from)?;
+    let episodes = mova_db::list_episodes_for_series(pool, series_id)
+        .await
+        .map_err(ApplicationError::from)?;
+    let mut episodes_by_season = episodes.into_iter().fold(
+        HashMap::<i64, Vec<mova_domain::Episode>>::new(),
+        |mut grouped, episode| {
+            grouped.entry(episode.season_id).or_default().push(episode);
+            grouped
+        },
+    );
     let mut inventory = BTreeMap::new();
 
     for season in seasons {
-        let episodes = mova_db::list_episodes_for_season(pool, season.id)
-            .await
-            .map_err(ApplicationError::from)?;
         let mut season_episodes = BTreeMap::new();
 
-        for episode in episodes {
+        for episode in episodes_by_season.remove(&season.id).unwrap_or_default() {
             season_episodes.insert(
                 episode.episode_number,
                 LocalSeriesEpisode {
@@ -1174,7 +1182,7 @@ pub async fn refresh_media_item_metadata(
         library.metadata_language,
     );
     // Remote enrichment may mutate fields before a later request fails (for
-    // example, series details can succeed before the complete outline times
+    // example, series details can succeed before the local-season outline times
     // out). Preserve the fully inspected local/NFO state and restore it with
     // the same trusted-binding policy used by a full scan.
     let mut files_before_enrichment = discovered_files.clone();

@@ -56,7 +56,9 @@ https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca
 
 实现位于 `crates/mova-application/src/metadata.rs`。默认 API base URL 为 `https://api.themoviedb.org/3`，默认图片 base URL 为 `https://image.tmdb.org/t/p/original`；连接超时 4 秒、单次请求超时 12 秒。媒体库语言当前支持 `zh-CN` 和 `en-US`。
 
-扫描任务在内存中维护有界请求缓存。已有 provider ID 的请求以“媒体类型 + 语言 + provider ID”为唯一键，不受不同本地文件标题、年份或季提示影响；搜索请求则使用规范化标题、严格年份、季验证提示、媒体类型和语言。元数据详情与剧集季集大纲分别缓存，明确未命中也可以复用，临时网络或 provider 错误不进入缓存。该缓存只负责一次扫描执行内的请求去重，不替代数据库中的 provider binding，也不跨进程提供可靠状态。
+所有 TMDB API 调用共享进程内节流器，默认最小请求间隔为 25ms。`429` 与 `5xx`、连接失败和超时最多执行三次总尝试；`429` 优先遵循服务端 `Retry-After`（秒数或 HTTP 日期），缺失时使用带抖动的指数退避，单次等待最长 30 秒。认证失败、参数错误和其他非暂时性 `4xx` 立即返回，不进入重试。节流器只约束 TMDB API，不改变图片下载自身的并发、大小与安全边界。
+
+扫描任务在内存中维护有界请求缓存。已有 provider ID 的详情请求以“媒体类型 + 语言 + provider ID”为唯一键，不受不同本地文件标题、年份或季提示影响；搜索请求则使用规范化标题、严格年份、季验证提示、媒体类型和语言。剧集季集大纲的缓存键还包含本地实际存在的季号集合，避免把一个局部季集合的响应复用于另一个集合。明确未命中可以复用，临时网络或 provider 错误不进入缓存。该缓存只负责一次扫描执行内的请求去重，不替代数据库中的 provider binding，也不跨进程提供可靠状态。
 
 | Endpoint | 当前用途 |
 | --- | --- |
@@ -65,8 +67,8 @@ https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca
 | `GET /3/movie/{id}/alternative_titles` | 直接标题均未严格命中时验证电影别名 |
 | `GET /3/tv/{id}/alternative_titles` | 直接标题均未严格命中时验证剧集别名 |
 | `GET /3/movie/{id}?append_to_response=external_ids,images` | 电影详情、评分、外部 ID 和图片集合 |
-| `GET /3/tv/{id}?append_to_response=external_ids,images` | 剧集详情、评分、外部 ID、图片集合和季摘要 |
-| `GET /3/tv/{id}/season/{season_number}` | 后续季年份验证及本地季集大纲 |
+| `GET /3/tv/{id}?append_to_response=external_ids,images` | 剧集详情、评分、外部 ID 和图片集合 |
+| `GET /3/tv/{id}/season/{season_number}` | 后续季年份验证，以及仅为本地实际存在季生成的季集大纲 |
 | `GET /3/movie/{id}/credits` | 电影演员首次按需加载 |
 | `GET /3/tv/{id}/aggregate_credits` | 剧集演员首次按需加载 |
 
@@ -270,7 +272,7 @@ API 响应只直接透出不带 query/fragment 的 TMDB 官方 HTTPS 图片地�
 
 ### 9.1 后台复核与 180 天保留边界
 
-成功写入 TMDB binding 后，服务端维护独立的持久化复核状态。首次 binding 以写入时间建立 150/180 天窗口，不会紧接扫描再做一次重复网络抓取；正常扫描、人工匹配和人工刷新会在写入远端字段的同一数据库事务中保存本次实际响应的 ownership 快照，但不会移动该时钟。只有专用后台复核使用当前已接受 ID 取得 movie details，或同时取得 TV details 与全部季详情，并再次通过 binding/generation CAS 后，才续期。正常目标是在首次 binding 或最近一次严格复核后的第 150 天开始静默复核，为 180 天本地保留上限留出失败重试窗口。复核固定使用当前已经接受的 provider ID、媒体类型和媒体库语言调用 movie 或 TV details endpoint；它不调用 search、alternative titles，也不改变 provider ID、电影/剧集类型、物理版本关系或季集坐标。
+成功写入 TMDB binding 后，服务端维护独立的持久化复核状态。首次 binding 以写入时间建立 150/180 天窗口，不会紧接扫描再做一次重复网络抓取；正常扫描、人工匹配和人工刷新会在写入远端字段的同一数据库事务中保存本次实际响应的 ownership 快照，但不会移动该时钟。只有专用后台复核使用当前已接受 ID 取得 movie details，或同时取得 TV details 与本地实际存在的全部季详情，并再次通过 binding/generation CAS 后，才续期。正常目标是在首次 binding 或最近一次严格复核后的第 150 天开始静默复核，为 180 天本地保留上限留出失败重试窗口。复核固定使用当前已经接受的 provider ID、媒体类型和媒体库语言调用 movie 或 TV details endpoint；它不调用 search、alternative titles，也不改变 provider ID、电影/剧集类型、物理版本关系或季集坐标。
 
 调度与限流：
 
@@ -278,7 +280,7 @@ API 响应只直接透出不带 query/fragment 的 TMDB 官方 HTTPS 图片地�
 - 普通复核排在扫描和缓存清理之后；同库扫描运行时不并发写 metadata。180 天到期的本地清理优先于尚未开始的扫描，运行中的扫描仍需先完成当前有 fence 的写入。
 - 单次失败任务立即让出全局执行位，条目状态按 15 分钟、1 小时、6 小时、24 小时退避后重新具备入队资格；重启不会丢失该状态。
 - Token 缺失时调度器仍运行本地 retention 检查，但不会创建 150 天网络复核任务，也不会发 TMDB 请求；只有条目达到 180 天保留期限时才入队执行本地清理。
-- 正常剧集扫描保持部分成功容错：某一季请求失败时，已经取得的季集字段仍可入库并记录实际 ownership 快照，但不会续期整个剧集；条目保持立即可复核，由后续 direct-ID 完整复核补齐。
+- 剧集大纲只请求本地已经存在的正数季号，不读取或预抓远端独有季，也没有远端季的按需加载路径。正常扫描保持部分成功容错：某个本地季请求失败时，已经取得的季集字段仍可入库并记录实际 ownership 快照，但不会续期整个剧集；条目保持立即可复核，由后续 direct-ID 完整复核补齐本地季。
 - 扫描、人工写入和复核都以媒体项及季集的 `updated_at` 做 compare-and-swap；复核时间统一取 PostgreSQL 时钟。相同 provider ID 的 NFO、扫描或人工修改也会让旧复核结果失效，避免晚到响应覆盖新数据。
 
 字段所有权通过上一份成功复核的 TMDB 快照判断，不通过文件路径或字段是否非空猜测：

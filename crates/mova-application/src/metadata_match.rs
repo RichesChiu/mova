@@ -126,12 +126,19 @@ pub async fn apply_media_item_metadata_match(
         .cache_remote_metadata_artwork(&mut remote_metadata)
         .await;
     let remote_outline_result = if media_item.media_type.eq_ignore_ascii_case("series") {
+        let local_season_numbers = mova_db::list_seasons_for_series(pool, media_item_id)
+            .await
+            .map_err(ApplicationError::from)?
+            .into_iter()
+            .map(|season| season.season_number)
+            .filter(|season_number| *season_number > 0)
+            .collect::<Vec<_>>();
         metadata_provider
-            .lookup_complete_series_episode_outline(&lookup)
+            .lookup_complete_series_episode_outline(&lookup, &local_season_numbers)
             .await
             .map_err(|error| {
                 ApplicationError::Unexpected(anyhow::anyhow!(
-                    "failed to fetch the complete selected series outline for media item {}: {}",
+                    "failed to fetch the selected series outline for all local seasons of media item {}: {}",
                     media_item_id,
                     error
                 ))
@@ -139,7 +146,7 @@ pub async fn apply_media_item_metadata_match(
             .and_then(|outline| {
                 outline.map(Some).ok_or_else(|| {
                     ApplicationError::Unexpected(anyhow::anyhow!(
-                        "selected series {} omitted its complete season and episode outline",
+                        "selected series {} omitted the season and episode outline requested for local seasons",
                         input.provider_item_id
                     ))
                 })

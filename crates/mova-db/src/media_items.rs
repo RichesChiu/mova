@@ -11,7 +11,7 @@ pub use query::{
     get_media_item, get_media_item_playback_header, get_media_item_with_library_visibility,
     get_season, get_season_with_library_visibility, get_series_episode_outline_cache,
     get_subtitle_file, global_search, list_audio_tracks_for_media_file,
-    list_audio_tracks_for_media_files, list_episodes_for_season,
+    list_audio_tracks_for_media_files, list_episodes_for_season, list_episodes_for_series,
     list_existing_media_metadata_for_file_paths, list_library_media_file_memberships,
     list_library_media_file_paths, list_media_files_for_media_item,
     list_media_item_metadata_refresh_source_files, list_media_item_previews_by_library,
@@ -27,11 +27,14 @@ pub(crate) use ratings::replace_media_item_remote_data;
 use serde_json::Value;
 use sqlx::{Postgres, Row, Transaction};
 pub use sync::{
-    delete_library_media_by_file_path, delete_library_media_by_path_prefix,
-    patch_library_media_entries_remote_by_file_path, sync_library_media,
+    cleanup_library_orphan_series_after_scan, delete_library_media_by_file_path,
+    delete_library_media_by_path_prefix, patch_library_media_entries_remote_by_file_path,
+    patch_library_media_entries_remote_by_file_path_with_progress, sync_library_media,
     sync_library_media_best_effort, sync_library_media_changes,
-    upsert_library_media_entries_by_file_path, upsert_library_media_entry_by_file_path,
-    ScanGroupCommitStage, SyncLibraryMediaBestEffortOutcome,
+    upsert_library_media_entries_by_file_path,
+    upsert_library_media_entries_by_file_path_with_progress,
+    upsert_library_media_entry_by_file_path, ScanGroupCommitOutcome, ScanGroupCommitStage,
+    SyncLibraryMediaBestEffortOutcome,
 };
 use time::OffsetDateTime;
 

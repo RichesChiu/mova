@@ -24,6 +24,10 @@ use sqlx::{
 use std::collections::HashMap;
 use time::OffsetDateTime;
 
+// Keep path arrays well below PostgreSQL's message and parameter limits while
+// still amortizing scan planning into a small, deterministic query budget.
+const EXISTING_METADATA_PATH_BATCH_SIZE: usize = 2_000;
+
 /// 读取某个媒体库下当前已经入库的媒体条目。
 pub async fn list_media_items_for_library(
     pool: &PgPool,
@@ -1738,6 +1742,38 @@ pub async fn list_episodes_for_season(pool: &PgPool, season_id: i64) -> Result<V
     Ok(rows.into_iter().map(map_episode_row).collect())
 }
 
+/// Loads the complete local episode inventory for a series in one query.
+/// Consumers can group by `season_id`; this avoids one round trip per season
+/// when building a series outline.
+pub async fn list_episodes_for_series(pool: &PgPool, series_id: i64) -> Result<Vec<Episode>> {
+    let rows = sqlx::query(
+        r#"
+        select
+            e.media_item_id,
+            s.series_id,
+            e.season_id,
+            e.episode_number,
+            mi.title,
+            mi.overview,
+            mi.poster_path,
+            mi.backdrop_path,
+            e.intro_start_seconds,
+            e.intro_end_seconds
+        from seasons s
+        join episodes e on e.season_id = s.id
+        join media_items mi on mi.id = e.media_item_id
+        where s.series_id = $1
+        order by s.season_number asc, e.episode_number asc, e.media_item_id asc
+        "#,
+    )
+    .bind(series_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to list episodes for series")?;
+
+    Ok(rows.into_iter().map(map_episode_row).collect())
+}
+
 pub async fn list_series_media_item_ids_for_library(
     pool: &PgPool,
     library_id: i64,
@@ -2273,8 +2309,10 @@ pub async fn list_existing_media_metadata_for_file_paths(
         return Ok(Vec::new());
     }
 
-    let rows = sqlx::query(
-        r#"
+    let mut summaries = Vec::with_capacity(file_paths.len());
+    for file_path_batch in file_paths.chunks(EXISTING_METADATA_PATH_BATCH_SIZE) {
+        let rows = sqlx::query(
+            r#"
         select
             mi.id as media_item_id,
             coalesce(s.series_id, mi.id) as logical_metadata_owner_id,
@@ -2286,33 +2324,10 @@ pub async fn list_existing_media_metadata_for_file_paths(
             mi.metadata_status,
             mi.metadata_failure_reason,
             mi.remote_media_type,
-            exists (
-                select 1
-                from media_local_metadata_sources local_source
-                where local_source.media_item_id = mi.id
-            ) as has_local_nfo,
-            (
-                select selected_source.source_path
-                from media_local_metadata_sources selected_source
-                where selected_source.media_item_id = mi.id
-                  and selected_source.is_selected
-                order by selected_source.id
-                limit 1
-            ) as local_nfo_source_path,
-            (
-                select selected_source.payload
-                from media_local_metadata_sources selected_source
-                where selected_source.media_item_id = mi.id
-                  and selected_source.is_selected
-                order by selected_source.id
-                limit 1
-            ) as local_nfo_payload,
-            (
-                select revalidation.remote_snapshot
-                from tmdb_metadata_revalidations revalidation
-                where revalidation.media_item_id = mi.id
-                limit 1
-            ) as tmdb_remote_snapshot,
+            false as has_local_nfo,
+            null::text as local_nfo_source_path,
+            null::jsonb as local_nfo_payload,
+            null::jsonb as tmdb_remote_snapshot,
             mi.title,
             mi.source_title,
             mi.original_title,
@@ -2354,50 +2369,27 @@ pub async fn list_existing_media_metadata_for_file_paths(
             mf.video_reference_frames,
             mf.technical_tags,
             mf.local_analysis_version,
-            series_mi.title as series_title,
-            series_mi.metadata_provider as series_metadata_provider,
-            series_mi.metadata_provider_item_id as series_metadata_provider_item_id,
-            exists (
-                select 1
-                from media_local_metadata_sources series_local_source
-                where series_local_source.media_item_id = series_mi.id
-            ) as series_has_local_nfo,
-            (
-                select selected_series_source.source_path
-                from media_local_metadata_sources selected_series_source
-                where selected_series_source.media_item_id = series_mi.id
-                  and selected_series_source.is_selected
-                order by selected_series_source.id
-                limit 1
-            ) as series_local_nfo_source_path,
-            (
-                select selected_series_source.payload
-                from media_local_metadata_sources selected_series_source
-                where selected_series_source.media_item_id = series_mi.id
-                  and selected_series_source.is_selected
-                order by selected_series_source.id
-                limit 1
-            ) as series_local_nfo_payload,
-            (
-                select series_revalidation.remote_snapshot
-                from tmdb_metadata_revalidations series_revalidation
-                where series_revalidation.media_item_id = series_mi.id
-                limit 1
-            ) as series_tmdb_remote_snapshot,
-            series_mi.source_title as series_source_title,
-            series_mi.original_title as series_original_title,
-            series_mi.sort_title as series_sort_title,
-            series_mi.year as series_year,
-            series_mi.tagline as series_tagline,
-            series_mi.premiere_date as series_premiere_date,
-            series_mi.content_rating as series_content_rating,
-            series_mi.country as series_country,
-            series_mi.genres as series_genres,
-            series_mi.studio as series_studio,
-            series_mi.overview as series_overview,
-            series_mi.poster_path as series_poster_path,
-            series_mi.backdrop_path as series_backdrop_path,
-            series_mi.logo_path as series_logo_path,
+            null::text as series_title,
+            null::text as series_metadata_provider,
+            null::text as series_metadata_provider_item_id,
+            false as series_has_local_nfo,
+            null::text as series_local_nfo_source_path,
+            null::jsonb as series_local_nfo_payload,
+            null::jsonb as series_tmdb_remote_snapshot,
+            null::text as series_source_title,
+            null::text as series_original_title,
+            null::text as series_sort_title,
+            null::integer as series_year,
+            null::text as series_tagline,
+            null::date as series_premiere_date,
+            null::text as series_content_rating,
+            null::text as series_country,
+            null::text as series_genres,
+            null::text as series_studio,
+            null::text as series_overview,
+            null::text as series_poster_path,
+            null::text as series_backdrop_path,
+            null::text as series_logo_path,
             s.title as season_title,
             s.season_number,
             s.overview as season_overview,
@@ -2409,22 +2401,185 @@ pub async fn list_existing_media_metadata_for_file_paths(
         join media_items mi on mi.id = mf.media_item_id
         left join episodes e on e.media_item_id = mi.id
         left join seasons s on s.id = e.season_id
-        left join media_items series_mi on series_mi.id = s.series_id
         where mf.library_id = $1
           and mf.file_path = any($2)
         order by mf.file_path asc
         "#,
-    )
-    .bind(library_id)
-    .bind(file_paths)
-    .fetch_all(pool)
-    .await
-    .context("failed to list existing media metadata for file paths")?;
+        )
+        .bind(library_id)
+        .bind(file_path_batch)
+        .fetch_all(pool)
+        .await
+        .context("failed to list existing media metadata for file path batch")?;
+        summaries.extend(
+            rows.into_iter()
+                .map(map_existing_media_metadata_summary_row),
+        );
+    }
+    summaries.sort_by(|left, right| left.file_path.cmp(&right.file_path));
+    hydrate_existing_metadata_owner_payloads(pool, &mut summaries).await?;
+    Ok(summaries)
+}
 
-    Ok(rows
+#[derive(Debug)]
+struct ExistingMetadataOwnerPayload {
+    title: String,
+    metadata_provider: Option<String>,
+    metadata_provider_item_id: Option<String>,
+    has_local_nfo: bool,
+    local_nfo_source_path: Option<String>,
+    local_nfo_payload: Option<serde_json::Value>,
+    tmdb_remote_snapshot: Option<serde_json::Value>,
+    source_title: String,
+    original_title: Option<String>,
+    sort_title: Option<String>,
+    year: Option<i32>,
+    tagline: Option<String>,
+    premiere_date: Option<time::Date>,
+    content_rating: Option<String>,
+    country: Option<String>,
+    genres: Option<String>,
+    studio: Option<String>,
+    overview: Option<String>,
+    poster_path: Option<String>,
+    backdrop_path: Option<String>,
+    logo_path: Option<String>,
+}
+
+async fn hydrate_existing_metadata_owner_payloads(
+    pool: &PgPool,
+    summaries: &mut [ExistingMediaMetadataSummary],
+) -> Result<()> {
+    let mut owner_ids = summaries
+        .iter()
+        .flat_map(|summary| [summary.media_item_id, summary.logical_metadata_owner_id])
+        .collect::<std::collections::HashSet<_>>()
         .into_iter()
-        .map(map_existing_media_metadata_summary_row)
-        .collect())
+        .collect::<Vec<_>>();
+    owner_ids.sort_unstable();
+    if owner_ids.is_empty() {
+        return Ok(());
+    }
+
+    let mut payloads = HashMap::with_capacity(owner_ids.len());
+    for owner_id_batch in owner_ids.chunks(EXISTING_METADATA_PATH_BATCH_SIZE) {
+        let rows = sqlx::query(
+            r#"
+        select
+            media_item.id as media_item_id,
+            media_item.title,
+            media_item.metadata_provider,
+            media_item.metadata_provider_item_id,
+            media_item.source_title,
+            media_item.original_title,
+            media_item.sort_title,
+            media_item.year,
+            media_item.tagline,
+            media_item.premiere_date,
+            media_item.content_rating,
+            media_item.country,
+            media_item.genres,
+            media_item.studio,
+            media_item.overview,
+            media_item.poster_path,
+            media_item.backdrop_path,
+            media_item.logo_path,
+            selected_source.source_path as local_nfo_source_path,
+            selected_source.payload as local_nfo_payload,
+            coalesce(source_count.has_local_nfo, false) as has_local_nfo,
+            revalidation.remote_snapshot as tmdb_remote_snapshot
+        from media_items media_item
+        left join lateral (
+            select source.source_path, source.payload
+            from media_local_metadata_sources source
+            where source.media_item_id = media_item.id
+              and source.is_selected
+            order by source.id
+            limit 1
+        ) selected_source on true
+        left join lateral (
+            select true as has_local_nfo
+            from media_local_metadata_sources source
+            where source.media_item_id = media_item.id
+            limit 1
+        ) source_count on true
+        left join tmdb_metadata_revalidations revalidation
+          on revalidation.media_item_id = media_item.id
+        where media_item.id = any($1)
+        "#,
+        )
+        .bind(owner_id_batch)
+        .fetch_all(pool)
+        .await
+        .context("failed to batch-load existing metadata-owner payloads")?;
+
+        payloads.extend(rows.into_iter().map(|row| {
+            let media_item_id = row.get::<i64, _>("media_item_id");
+            (
+                media_item_id,
+                ExistingMetadataOwnerPayload {
+                    title: row.get("title"),
+                    metadata_provider: row.get("metadata_provider"),
+                    metadata_provider_item_id: row.get("metadata_provider_item_id"),
+                    has_local_nfo: row.get("has_local_nfo"),
+                    local_nfo_source_path: row.get("local_nfo_source_path"),
+                    local_nfo_payload: row.get("local_nfo_payload"),
+                    tmdb_remote_snapshot: row.get("tmdb_remote_snapshot"),
+                    source_title: row.get("source_title"),
+                    original_title: row.get("original_title"),
+                    sort_title: row.get("sort_title"),
+                    year: row.get("year"),
+                    tagline: row.get("tagline"),
+                    premiere_date: row.get("premiere_date"),
+                    content_rating: row.get("content_rating"),
+                    country: row.get("country"),
+                    genres: row.get("genres"),
+                    studio: row.get("studio"),
+                    overview: row.get("overview"),
+                    poster_path: row.get("poster_path"),
+                    backdrop_path: row.get("backdrop_path"),
+                    logo_path: row.get("logo_path"),
+                },
+            )
+        }));
+    }
+
+    for summary in summaries {
+        if let Some(payload) = payloads.get(&summary.media_item_id) {
+            summary.has_local_nfo = payload.has_local_nfo;
+            summary.local_nfo_source_path = payload.local_nfo_source_path.clone();
+            summary.local_nfo_payload = payload.local_nfo_payload.clone();
+            summary.tmdb_remote_snapshot = payload.tmdb_remote_snapshot.clone();
+        }
+        if summary.media_type.eq_ignore_ascii_case("episode") {
+            if let Some(payload) = payloads.get(&summary.logical_metadata_owner_id) {
+                summary.series_title = Some(payload.title.clone());
+                summary.series_metadata_provider = payload.metadata_provider.clone();
+                summary.series_metadata_provider_item_id =
+                    payload.metadata_provider_item_id.clone();
+                summary.series_has_local_nfo = payload.has_local_nfo;
+                summary.series_local_nfo_source_path = payload.local_nfo_source_path.clone();
+                summary.series_local_nfo_payload = payload.local_nfo_payload.clone();
+                summary.series_tmdb_remote_snapshot = payload.tmdb_remote_snapshot.clone();
+                summary.series_source_title = Some(payload.source_title.clone());
+                summary.series_original_title = payload.original_title.clone();
+                summary.series_sort_title = payload.sort_title.clone();
+                summary.series_year = payload.year;
+                summary.series_tagline = payload.tagline.clone();
+                summary.series_premiere_date = payload.premiere_date;
+                summary.series_content_rating = payload.content_rating.clone();
+                summary.series_country = payload.country.clone();
+                summary.series_genres = payload.genres.clone();
+                summary.series_studio = payload.studio.clone();
+                summary.series_overview = payload.overview.clone();
+                summary.series_poster_path = payload.poster_path.clone();
+                summary.series_backdrop_path = payload.backdrop_path.clone();
+                summary.series_logo_path = payload.logo_path.clone();
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn map_media_item_row(row: PgRow) -> MediaItem {
@@ -2782,9 +2937,23 @@ mod tests {
     use super::{
         get_series_episode_outline_cache, list_media_item_metadata_refresh_source_files,
         update_media_item_metadata, upsert_series_episode_outline_cache,
+        EXISTING_METADATA_PATH_BATCH_SIZE,
     };
     use crate::{UpdateMediaItemMetadataParams, UpsertSeriesEpisodeOutlineCacheParams};
     use time::{Duration, OffsetDateTime};
+
+    #[test]
+    fn existing_metadata_path_batches_bound_large_scan_queries() {
+        assert_eq!(EXISTING_METADATA_PATH_BATCH_SIZE, 2_000);
+        let simulated_large_library = vec![String::new(); 5_001];
+        assert_eq!(
+            simulated_large_library
+                .chunks(EXISTING_METADATA_PATH_BATCH_SIZE)
+                .map(<[String]>::len)
+                .collect::<Vec<_>>(),
+            vec![2_000, 2_000, 1_001]
+        );
+    }
 
     async fn seed_bound_series_episode(
         pool: &sqlx::PgPool,
