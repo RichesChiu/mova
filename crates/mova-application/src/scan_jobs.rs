@@ -6,10 +6,11 @@ use crate::{
     },
     media_enrichment::{
         sanitize_file_artwork_sources, trusted_artwork_bases, MetadataEnrichmentContext,
-        MetadataEnrichmentStage,
+        MetadataEnrichmentOutcome, MetadataEnrichmentStage,
     },
     metadata::{MetadataProvider, MetadataSeasonAirYearHint, TMDB_PROVIDER_NAME},
 };
+use futures_util::{stream, StreamExt, TryStreamExt};
 use mova_db::BackgroundJobFence;
 use mova_domain::{
     Library, ScanJob, ScanNotificationIssue, ScanNotificationSummary, MAX_SCAN_NOTIFICATION_ISSUES,
@@ -172,10 +173,39 @@ struct QueuedScanGroup {
     total_items: i32,
 }
 
+struct PreparedRemoteScanGroup {
+    group: ScanDiscoveredGroup,
+    item_index: i32,
+    total_items: i32,
+    artwork_publication: Option<mova_db::TmdbArtworkPublicationGuard>,
+    enrichment_outcome: Option<MetadataEnrichmentOutcome>,
+    failure_detail: Option<String>,
+    materialized_artwork: std::collections::BTreeSet<String>,
+    allow_artwork_clear: bool,
+    replace_remote_data: bool,
+    retain_materialized_artwork: bool,
+}
+
 #[derive(Debug, Default)]
 struct RemoteScanPipelineOutcome {
     sync: mova_db::SyncLibraryMediaBestEffortOutcome,
     notification_summary: ScanNotificationSummary,
+    elapsed_ms: u64,
+    processed_groups: usize,
+}
+
+#[derive(Debug, Default)]
+struct LocalScanPipelineOutcome {
+    sync: mova_db::SyncLibraryMediaBestEffortOutcome,
+    elapsed_ms: u64,
+    processed_groups: usize,
+    subtitle_directories: usize,
+}
+
+#[derive(Debug)]
+struct ScanGroupSyncOutcome {
+    sync: mova_db::SyncLibraryMediaBestEffortOutcome,
+    scan_job: ScanJob,
 }
 
 #[derive(Debug)]
@@ -237,6 +267,16 @@ const SCAN_ITEM_STAGE_COMPLETED: &str = "completed";
 const SCAN_PHASE_INITIALIZING: &str = "initializing";
 const SCAN_DISCOVERY_PROGRESS_MIN_FILE_DELTA: i32 = 25;
 const SCAN_DISCOVERY_PROGRESS_MIN_INTERVAL: Duration = Duration::from_millis(500);
+// Four remote slots are the deliberately conservative production default.
+// The deterministic 120-group capacity model measured 3.82x over one slot at
+// four workers, while eight slots have not been validated against real TMDB,
+// artwork bandwidth, memory, and database pressure. One uncontrolled real A/B
+// proved correctness but not wall-clock speedup, so it is not evidence for
+// raising this limit. Keep each queue at two: increasing it to sixteen did not
+// improve modeled wall time and raised p95 queue latency at four slots. Keep
+// this rationale and the measurements synchronized with SCAN_PERFORMANCE.md.
+const REMOTE_ENRICHMENT_CONCURRENCY: usize = 4;
+const REMOTE_ENRICHMENT_QUEUE_CAPACITY: usize = 2;
 pub(crate) const LOCAL_ANALYSIS_VERSION: i32 = 9;
 
 fn should_flush_discovery_progress(
@@ -356,6 +396,7 @@ pub async fn execute_scan_job_with_cancellation(
     metadata_provider: Arc<dyn MetadataProvider>,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> ApplicationResult<ExecuteScanJobOutcome> {
+    let scan_started_at = Instant::now();
     if is_cancelled(&cancellation_flag) {
         if let Some(scan_job) =
             finalize_cancelled_scan(pool, library_id, scan_job_id, 0, 0, &fence).await?
@@ -446,6 +487,7 @@ pub async fn execute_scan_job_with_cancellation(
 
     let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
 
+    let discovery_started_at = Instant::now();
     let discovery_report = match discover_media_files(
         pool,
         scan_job_id,
@@ -484,6 +526,7 @@ pub async fn execute_scan_job_with_cancellation(
             return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
     };
+    let discovery_elapsed_ms = elapsed_millis(discovery_started_at);
 
     let total_files = i32::try_from(
         discovery_report
@@ -522,6 +565,7 @@ pub async fn execute_scan_job_with_cancellation(
         }
     }
 
+    let planning_started_at = Instant::now();
     let IncrementalScanPlan {
         discovered_paths,
         scan_files,
@@ -564,6 +608,7 @@ pub async fn execute_scan_job_with_cancellation(
             return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
     };
+    let planning_elapsed_ms = elapsed_millis(planning_started_at);
     let pending_file_count = pending_groups
         .iter()
         .map(|group| group.files.len())
@@ -608,8 +653,9 @@ pub async fn execute_scan_job_with_cancellation(
     }
 
     let total_items = i32::try_from(pending_groups.len()).unwrap_or(i32::MAX);
-    let (group_sender, group_receiver) = mpsc::channel(2);
+    let (group_sender, group_receiver) = mpsc::channel(REMOTE_ENRICHMENT_QUEUE_CAPACITY);
     let local_artwork_trust = trusted_artwork_bases(metadata_provider.as_ref());
+    let pipeline_started_at = Instant::now();
     let pipeline_result = tokio::try_join!(
         analyze_pending_scan_groups(
             LocalScanPipelineContext {
@@ -638,13 +684,40 @@ pub async fn execute_scan_job_with_cancellation(
         )
     );
 
-    let mut notification_summary = match pipeline_result {
+    let pipeline_elapsed_ms = elapsed_millis(pipeline_started_at);
+    let (mut notification_summary, local_metrics, remote_metrics) = match pipeline_result {
         Ok((local_outcome, remote_outcome)) => {
-            merge_sync_outcome(&mut sync_outcome, local_outcome);
+            merge_sync_outcome(&mut sync_outcome, local_outcome.sync);
             merge_sync_outcome(&mut sync_outcome, remote_outcome.sync);
-            remote_outcome.notification_summary
+            let local_metrics = (
+                local_outcome.elapsed_ms,
+                local_outcome.processed_groups,
+                local_outcome.subtitle_directories,
+            );
+            let remote_metrics = (remote_outcome.elapsed_ms, remote_outcome.processed_groups);
+            (
+                remote_outcome.notification_summary,
+                local_metrics,
+                remote_metrics,
+            )
         }
         Err(error) => {
+            if let Err(cleanup_error) = mova_db::cleanup_library_orphan_series_after_scan(
+                pool,
+                library.id,
+                scan_job_id,
+                &fence,
+                false,
+            )
+            .await
+            {
+                tracing::warn!(
+                    library_id = library.id,
+                    scan_job_id,
+                    error = ?cleanup_error,
+                    "failed to clean hierarchy after interrupted scan pipeline"
+                );
+            }
             let message = format_scan_phase_error(
                 SCAN_PHASE_PROCESSING,
                 format!("Failed to process scan pipeline: {}", error),
@@ -656,6 +729,22 @@ pub async fn execute_scan_job_with_cancellation(
     record_media_discovery_issues(&mut notification_summary, &discovery_issues);
 
     if is_cancelled(&cancellation_flag) {
+        if let Err(cleanup_error) = mova_db::cleanup_library_orphan_series_after_scan(
+            pool,
+            library.id,
+            scan_job_id,
+            &fence,
+            true,
+        )
+        .await
+        {
+            tracing::warn!(
+                library_id = library.id,
+                scan_job_id,
+                error = ?cleanup_error,
+                "failed to clean hierarchy after cancelled scan pipeline"
+            );
+        }
         if let Some(scan_job) = finalize_cancelled_scan(
             pool,
             library_id,
@@ -684,12 +773,27 @@ pub async fn execute_scan_job_with_cancellation(
     )
     .await?;
 
-    let retained_local_metadata_source_paths =
-        authoritative_local_metadata_source_paths(Path::new(&library.root_path), &discovered_paths);
+    let finalization_io_started_at = Instant::now();
+    let authoritative_root_path = PathBuf::from(&library.root_path);
+    let authoritative_discovered_paths = discovered_paths.clone();
+    let retained_local_metadata_source_paths = tokio::task::spawn_blocking(move || {
+        authoritative_local_metadata_source_paths(
+            &authoritative_root_path,
+            &authoritative_discovered_paths,
+        )
+    })
+    .await
+    .map_err(|error| {
+        ApplicationError::Unexpected(anyhow::anyhow!(
+            "The local metadata finalization worker exited unexpectedly: {error}"
+        ))
+    })?;
+    let finalization_io_elapsed_ms = elapsed_millis(finalization_io_started_at);
 
     // Only a complete discovery result is authoritative enough to remove missing paths.
     // A cancelled or failed traversal returns before this point, so transient mount,
     // permission, or I/O failures cannot be mistaken for deleted media files.
+    let finalization_db_started_at = Instant::now();
     let removal_outcome = match mova_db::sync_library_media_changes(
         pool,
         library.id,
@@ -712,6 +816,7 @@ pub async fn execute_scan_job_with_cancellation(
             return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
     };
+    let finalization_db_elapsed_ms = elapsed_millis(finalization_db_started_at);
     merge_sync_outcome(&mut sync_outcome, removal_outcome);
 
     if sync_outcome.failed_count > 0 {
@@ -750,6 +855,31 @@ pub async fn execute_scan_job_with_cancellation(
     .await
     {
         Ok(Some(scan_job)) => {
+            tracing::info!(
+                event = "library_scan_performance",
+                library_id = library.id,
+                scan_job_id,
+                total_files,
+                pending_files = pending_file_count,
+                pending_groups = total_items,
+                local_groups = local_metrics.1,
+                remote_groups = remote_metrics.1,
+                remote_concurrency = REMOTE_ENRICHMENT_CONCURRENCY,
+                remote_queue_capacity = REMOTE_ENRICHMENT_QUEUE_CAPACITY,
+                subtitle_directories = local_metrics.2,
+                discovery_ms = discovery_elapsed_ms,
+                planning_ms = planning_elapsed_ms,
+                pipeline_wall_ms = pipeline_elapsed_ms,
+                local_pipeline_ms = local_metrics.0,
+                remote_pipeline_ms = remote_metrics.0,
+                finalization_io_ms = finalization_io_elapsed_ms,
+                finalization_db_ms = finalization_db_elapsed_ms,
+                total_ms = elapsed_millis(scan_started_at),
+                removed_count = sync_outcome.removed_count,
+                upserted_count = sync_outcome.upserted_count,
+                failed_count = sync_outcome.failed_count,
+                "library scan performance summary"
+            );
             event_listener(ScanJobEvent::Finished(build_scan_job_progress_update(
                 scan_job.clone(),
                 SCAN_PHASE_FINISHED,
@@ -1060,7 +1190,8 @@ struct LocalScanPipelineContext<'a> {
 async fn analyze_pending_scan_groups(
     context: LocalScanPipelineContext<'_>,
     pending_groups: Vec<PendingScanGroup>,
-) -> ApplicationResult<mova_db::SyncLibraryMediaBestEffortOutcome> {
+) -> ApplicationResult<LocalScanPipelineOutcome> {
+    let started_at = Instant::now();
     let LocalScanPipelineContext {
         pool,
         library,
@@ -1075,6 +1206,23 @@ async fn analyze_pending_scan_groups(
     let mut processed_items = 0_i32;
     let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
     let mut completed_all_local_groups = true;
+    let subtitle_video_paths = pending_groups
+        .iter()
+        .flat_map(|group| group.files.iter())
+        .map(|file| file.inventory.file_path.clone())
+        .collect::<Vec<_>>();
+    let subtitle_index = tokio::task::spawn_blocking(move || {
+        Arc::new(mova_scan::SubtitleDirectoryIndex::build(
+            subtitle_video_paths.iter().map(PathBuf::as_path),
+        ))
+    })
+    .await
+    .map_err(|error| {
+        ApplicationError::Unexpected(anyhow::anyhow!(
+            "The subtitle directory index worker exited unexpectedly: {error}"
+        ))
+    })?;
+    let subtitle_directories = subtitle_index.directory_count();
 
     'pending_groups: for pending_group in pending_groups {
         if is_cancelled(&cancellation_flag) {
@@ -1105,6 +1253,7 @@ async fn analyze_pending_scan_groups(
             PathBuf::from(&library.root_path),
             eligible_generic_movie_nfo_sources,
             eligible_series_nfo_sources,
+            subtitle_index.clone(),
             cancellation_flag.clone(),
         )
         .await?
@@ -1182,7 +1331,7 @@ async fn analyze_pending_scan_groups(
                 fence,
             )
             .await?;
-            merge_sync_outcome(&mut sync_outcome, group_outcome);
+            merge_sync_outcome(&mut sync_outcome, group_outcome.sync);
 
             event_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
                 scan_job_id,
@@ -1194,7 +1343,10 @@ async fn analyze_pending_scan_groups(
                 ScanItemStage::PendingCommitted,
             )));
 
-            emit_current_scan_job_update(pool, scan_job_id, &event_listener).await;
+            event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
+                group_outcome.scan_job,
+                SCAN_PHASE_PROCESSING,
+            )));
             if is_cancelled(&cancellation_flag) {
                 completed_all_local_groups = false;
                 break 'pending_groups;
@@ -1229,7 +1381,12 @@ async fn analyze_pending_scan_groups(
         }
     }
 
-    Ok(sync_outcome)
+    Ok(LocalScanPipelineOutcome {
+        sync: sync_outcome,
+        elapsed_ms: elapsed_millis(started_at),
+        processed_groups: usize::try_from(processed_items).unwrap_or(usize::MAX),
+        subtitle_directories,
+    })
 }
 
 fn prepare_scan_groups_for_metadata_lookup(groups: &mut [ScanDiscoveredGroup]) {
@@ -1265,71 +1422,150 @@ async fn enrich_discovered_groups(
     library: &Library,
     scan_job_id: i64,
     fence: &BackgroundJobFence,
-    mut group_receiver: mpsc::Receiver<QueuedScanGroup>,
+    group_receiver: mpsc::Receiver<QueuedScanGroup>,
     total_items: i32,
     cancellation_flag: Arc<AtomicBool>,
     artwork_cache_dir: PathBuf,
     metadata_provider: Arc<dyn MetadataProvider>,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> ApplicationResult<RemoteScanPipelineOutcome> {
-    let mut enrichment = MetadataEnrichmentContext::new(
+    let started_at = Instant::now();
+    let enrichment = MetadataEnrichmentContext::new(
         artwork_cache_dir.clone(),
         library.id,
         metadata_provider.clone(),
         library.metadata_language.clone(),
     );
-    let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
-    let mut notification_summary = ScanNotificationSummary::default();
-
-    while let Some(queued_group) = group_receiver.recv().await {
-        if is_cancelled(&cancellation_flag) {
-            break;
-        }
-
-        let QueuedScanGroup {
-            mut group,
-            item_index,
-            total_items: queued_total_items,
-        } = queued_group;
-        let total_items = total_items.max(queued_total_items).max(item_index);
-
-        let metadata_decision =
-            resolve_group_metadata_lookup_type(metadata_provider.as_ref(), &group);
-        if group.files.is_empty() {
-            continue;
-        }
-        let progress_listener = event_listener.clone();
-        let mut presentation = group.presentation.clone();
-
-        let Some(lookup_type) = metadata_decision.lookup_type else {
-            for file in &mut group.files {
-                clear_remote_metadata_for_review(
-                    file,
-                    metadata_decision.metadata_status,
-                    metadata_decision.metadata_failure_reason,
-                    metadata_decision.remote_media_type,
-                );
+    // Remote network and artwork work is bounded, while publication stays in
+    // one coordinator below. This provides the measured network overlap
+    // without multiplying database writers or making authoritative progress
+    // events race each other. The second bounded channel keeps polling remote
+    // futures while the coordinator awaits a database commit; without it,
+    // buffer_unordered would pause the other in-flight HTTP requests whenever
+    // one completed group was being committed.
+    let (prepared_sender, mut prepared_receiver) = mpsc::channel(REMOTE_ENRICHMENT_QUEUE_CAPACITY);
+    let preparation_cancellation = cancellation_flag.clone();
+    let preparation_event_listener = event_listener.clone();
+    let preparation_artwork_cache_dir = artwork_cache_dir.clone();
+    let preparation = async move {
+        let result = stream::unfold(group_receiver, |mut receiver| async move {
+            let next = receiver.recv().await;
+            next.map(|group| (group, receiver))
+        })
+        .map(|queued_group| {
+            let enrichment = enrichment.clone();
+            let cancellation_flag = preparation_cancellation.clone();
+            let event_listener = preparation_event_listener.clone();
+            let metadata_provider = metadata_provider.clone();
+            let artwork_cache_dir = preparation_artwork_cache_dir.clone();
+            async move {
+                prepare_remote_scan_group(
+                    library,
+                    scan_job_id,
+                    queued_group,
+                    total_items,
+                    cancellation_flag,
+                    enrichment,
+                    metadata_provider,
+                    artwork_cache_dir,
+                    pool,
+                    event_listener,
+                )
+                .await
             }
-            crate::local_metadata::apply_group_local_metadata(
-                &mut group.files,
-                scan_presentation_lookup_type(&group.presentation),
-            );
-            let group_outcome = sync_scan_group_media_entries(
+        })
+        .buffer_unordered(REMOTE_ENRICHMENT_CONCURRENCY)
+        .try_for_each(|prepared_group| {
+            let prepared_sender = prepared_sender.clone();
+            let cancellation_flag = preparation_cancellation.clone();
+            async move {
+                match prepared_sender.send(prepared_group).await {
+                    Ok(()) => Ok(()),
+                    // Cancellation is an expected terminal state. The commit
+                    // coordinator closes its receiver first, so preparation
+                    // must not convert that orderly shutdown into a failed
+                    // scan merely because a completed worker can no longer
+                    // enqueue its result.
+                    Err(_) if is_cancelled(&cancellation_flag) => Ok(()),
+                    Err(_) => Err(ApplicationError::Unexpected(anyhow::anyhow!(
+                        "remote scan commit coordinator stopped before preparation completed"
+                    ))),
+                }
+            }
+        })
+        .await;
+        drop(prepared_sender);
+        result
+    };
+
+    let commit_cancellation = cancellation_flag.clone();
+    let commit_event_listener = event_listener.clone();
+    let commit_artwork_cache_dir = artwork_cache_dir.clone();
+    let commit = async move {
+        let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
+        let mut notification_summary = ScanNotificationSummary::default();
+        let mut processed_groups = 0_usize;
+
+        while let Some(prepared_group) = prepared_receiver.recv().await {
+            if is_cancelled(&commit_cancellation) {
+                break;
+            }
+
+            let PreparedRemoteScanGroup {
+                group,
+                item_index,
+                total_items,
+                artwork_publication,
+                enrichment_outcome,
+                failure_detail,
+                materialized_artwork,
+                allow_artwork_clear,
+                replace_remote_data,
+                retain_materialized_artwork,
+            } = prepared_group;
+            if group.files.is_empty() {
+                continue;
+            }
+            processed_groups = processed_groups.saturating_add(1);
+            let group_result = sync_scan_group_media_entries(
                 pool,
                 scan_job_id,
                 library,
                 &group,
                 mova_db::ScanGroupCommitStage::Remote,
-                true,
-                true,
-                None,
-                false,
+                allow_artwork_clear,
+                replace_remote_data,
+                enrichment_outcome
+                    .as_ref()
+                    .and_then(|outcome| outcome.tmdb_remote_snapshot_json.as_deref()),
+                enrichment_outcome
+                    .as_ref()
+                    .is_some_and(|outcome| outcome.tmdb_remote_snapshot_renews_retention),
                 fence,
             )
-            .await?;
-            merge_sync_outcome(&mut sync_outcome, group_outcome);
-            record_scan_notification_group(&mut notification_summary, &group, None);
-            progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
+            .await;
+            let group_outcome = match artwork_publication {
+                Some(artwork_publication) => {
+                    crate::tmdb_revalidation::finish_tmdb_artwork_publication(
+                        artwork_publication,
+                        group_result,
+                        pool,
+                        &commit_artwork_cache_dir,
+                        library.id,
+                        materialized_artwork,
+                        retain_materialized_artwork,
+                    )
+                    .await?
+                }
+                None => group_result?,
+            };
+            merge_sync_outcome(&mut sync_outcome, group_outcome.sync);
+            record_scan_notification_group(
+                &mut notification_summary,
+                &group,
+                failure_detail.as_deref(),
+            );
+            commit_event_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
                 scan_job_id,
                 library.id,
                 &group.presentation,
@@ -1338,39 +1574,113 @@ async fn enrich_discovered_groups(
                 total_items,
                 ScanItemStage::Completed,
             )));
-            emit_current_scan_job_update(pool, scan_job_id, &progress_listener).await;
-            continue;
-        };
-
-        let enrichment_progress_listener = progress_listener.clone();
-        let season_air_year = group.presentation.season_air_year;
-        // Remote enrichment can update several fields before a later provider
-        // request fails (for example, series metadata may succeed before the
-        // episode outline request times out). Keep the locally committed state
-        // so a transient provider failure cannot partially replace trusted
-        // metadata or NFO values.
-        let mut files_before_enrichment = group.files.clone();
-        for file in &mut files_before_enrichment {
-            enrichment.sanitize_file_artwork_sources(file);
+            commit_event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
+                group_outcome.scan_job,
+                SCAN_PHASE_PROCESSING,
+            )));
         }
-        let artwork_publication = mova_db::TmdbArtworkPublicationGuard::acquire(pool, library.id)
-            .await
-            .map_err(ApplicationError::from)?;
-        let enrichment_result = enrichment
-            .enrich_group_with_lookup_hint_and_progress(
-                lookup_type,
-                &mut group.files,
-                season_air_year,
-                group.metadata_lookup_hint.as_deref(),
-                move |stage, file| {
-                    if stage != MetadataEnrichmentStage::Metadata && !file.title.trim().is_empty() {
-                        presentation.title = file.title.clone();
-                    }
 
-                    if stage == MetadataEnrichmentStage::Completed {
-                        return;
-                    }
+        Ok::<_, ApplicationError>(RemoteScanPipelineOutcome {
+            sync: sync_outcome,
+            notification_summary,
+            elapsed_ms: elapsed_millis(started_at),
+            processed_groups,
+        })
+    };
 
+    let (_, outcome) = tokio::try_join!(preparation, commit)?;
+    Ok(outcome)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn prepare_remote_scan_group(
+    library: &Library,
+    scan_job_id: i64,
+    queued_group: QueuedScanGroup,
+    total_items: i32,
+    cancellation_flag: Arc<AtomicBool>,
+    mut enrichment: MetadataEnrichmentContext,
+    metadata_provider: Arc<dyn MetadataProvider>,
+    artwork_cache_dir: PathBuf,
+    pool: &PgPool,
+    event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
+) -> ApplicationResult<PreparedRemoteScanGroup> {
+    let QueuedScanGroup {
+        mut group,
+        item_index,
+        total_items: queued_total_items,
+    } = queued_group;
+    let total_items = total_items.max(queued_total_items).max(item_index);
+    if group.files.is_empty() || is_cancelled(&cancellation_flag) {
+        return Ok(PreparedRemoteScanGroup {
+            group,
+            item_index,
+            total_items,
+            artwork_publication: None,
+            enrichment_outcome: None,
+            failure_detail: None,
+            materialized_artwork: std::collections::BTreeSet::new(),
+            allow_artwork_clear: false,
+            replace_remote_data: false,
+            retain_materialized_artwork: false,
+        });
+    }
+
+    let metadata_decision = resolve_group_metadata_lookup_type(metadata_provider.as_ref(), &group);
+    let Some(lookup_type) = metadata_decision.lookup_type else {
+        for file in &mut group.files {
+            clear_remote_metadata_for_review(
+                file,
+                metadata_decision.metadata_status,
+                metadata_decision.metadata_failure_reason,
+                metadata_decision.remote_media_type,
+            );
+        }
+        crate::local_metadata::apply_group_local_metadata(
+            &mut group.files,
+            scan_presentation_lookup_type(&group.presentation),
+        );
+        return Ok(PreparedRemoteScanGroup {
+            group,
+            item_index,
+            total_items,
+            artwork_publication: None,
+            enrichment_outcome: None,
+            failure_detail: None,
+            materialized_artwork: std::collections::BTreeSet::new(),
+            allow_artwork_clear: true,
+            replace_remote_data: true,
+            retain_materialized_artwork: true,
+        });
+    };
+
+    // Remote enrichment can update several fields before a later provider
+    // request fails. Keep the locally committed state so a transient provider
+    // failure cannot partially replace trusted metadata or NFO values.
+    let mut files_before_enrichment = group.files.clone();
+    for file in &mut files_before_enrichment {
+        enrichment.sanitize_file_artwork_sources(file);
+    }
+    // The guard starts before any artwork may be materialized and travels
+    // with the prepared result until the single coordinator has committed all
+    // references. It uses a standalone connection, so four concurrent remote
+    // preparations cannot exhaust the application database pool.
+    let artwork_publication = mova_db::TmdbArtworkPublicationGuard::acquire(pool, library.id)
+        .await
+        .map_err(ApplicationError::from)?;
+    let mut presentation = group.presentation.clone();
+    let enrichment_progress_listener = event_listener.clone();
+    let enrichment_result = enrichment
+        .enrich_group_with_lookup_hint_and_progress(
+            lookup_type,
+            &mut group.files,
+            group.presentation.season_air_year,
+            group.metadata_lookup_hint.as_deref(),
+            move |stage, file| {
+                if stage != MetadataEnrichmentStage::Metadata && !file.title.trim().is_empty() {
+                    presentation.title = file.title.clone();
+                }
+                if stage != MetadataEnrichmentStage::Completed {
                     enrichment_progress_listener(ScanJobEvent::ItemUpdated(
                         build_scan_group_progress_update(
                             scan_job_id,
@@ -1382,136 +1692,75 @@ async fn enrich_discovered_groups(
                             stage.into(),
                         ),
                     ));
-                },
-            )
-            .await;
-        let materialized_artwork =
-            crate::tmdb_revalidation::materialized_tmdb_artwork_paths_from_files(
-                &group.files,
-                &artwork_cache_dir,
-                library.id,
-            );
-
-        let remote_media_type = metadata_decision.remote_media_type;
-        let enrichment_outcome = match enrichment_result {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                let failure_detail = compact_scan_failure_detail(error.root_cause().to_string());
-                tracing::warn!(
-                    library_id = library.id,
-                    scan_job_id,
-                    title = %group.presentation.lookup_title,
-                    year = group.presentation.year,
-                    media_type = %group.presentation.media_type,
-                    error = ?error,
-                    "metadata enrichment failed for scan group"
-                );
-
-                restore_group_after_provider_error(
-                    &mut group.files,
-                    files_before_enrichment,
-                    remote_media_type,
-                );
-
-                let group_result = sync_scan_group_media_entries(
-                    pool,
-                    scan_job_id,
-                    library,
-                    &group,
-                    mova_db::ScanGroupCommitStage::Remote,
-                    false,
-                    false,
-                    None,
-                    false,
-                    fence,
-                )
-                .await;
-                let group_outcome = crate::tmdb_revalidation::finish_tmdb_artwork_publication(
-                    artwork_publication,
-                    group_result,
-                    pool,
-                    &artwork_cache_dir,
-                    library.id,
-                    materialized_artwork,
-                    false,
-                )
-                .await?;
-                merge_sync_outcome(&mut sync_outcome, group_outcome);
-                record_scan_notification_group(
-                    &mut notification_summary,
-                    &group,
-                    Some(&failure_detail),
-                );
-                progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
-                    scan_job_id,
-                    library.id,
-                    &group.presentation,
-                    group.files.first(),
-                    item_index,
-                    total_items,
-                    ScanItemStage::Completed,
-                )));
-                emit_current_scan_job_update(pool, scan_job_id, &progress_listener).await;
-                continue;
-            }
-        };
-
-        for file in &mut group.files {
-            finalize_file_metadata_status(
-                file,
-                metadata_provider.is_enabled(),
-                remote_media_type_for_lookup_type(lookup_type),
-            );
-        }
-        crate::local_metadata::apply_group_local_metadata(&mut group.files, lookup_type);
-
-        if let Some(primary_file) = group.files.first() {
-            if !primary_file.title.trim().is_empty() {
-                group.presentation.title = primary_file.title.clone();
-            }
-        }
-
-        let group_result = sync_scan_group_media_entries(
-            pool,
-            scan_job_id,
-            library,
-            &group,
-            mova_db::ScanGroupCommitStage::Remote,
-            enrichment_outcome.remote_metadata_applied,
-            enrichment_outcome.remote_metadata_applied,
-            enrichment_outcome.tmdb_remote_snapshot_json.as_deref(),
-            enrichment_outcome.tmdb_remote_snapshot_renews_retention,
-            fence,
+                }
+            },
         )
         .await;
-        let group_outcome = crate::tmdb_revalidation::finish_tmdb_artwork_publication(
-            artwork_publication,
-            group_result,
-            pool,
-            &artwork_cache_dir,
-            library.id,
-            materialized_artwork,
-            true,
-        )
-        .await?;
-        merge_sync_outcome(&mut sync_outcome, group_outcome);
-        record_scan_notification_group(&mut notification_summary, &group, None);
-        progress_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
-            scan_job_id,
-            library.id,
-            &group.presentation,
-            group.files.first(),
-            item_index,
-            total_items,
-            ScanItemStage::Completed,
-        )));
-        emit_current_scan_job_update(pool, scan_job_id, &progress_listener).await;
+    let materialized_artwork = crate::tmdb_revalidation::materialized_tmdb_artwork_paths_from_files(
+        &group.files,
+        &artwork_cache_dir,
+        library.id,
+    );
+
+    let mut failure_detail = None;
+    let enrichment_outcome = match enrichment_result {
+        Ok(outcome) => {
+            for file in &mut group.files {
+                finalize_file_metadata_status(
+                    file,
+                    metadata_provider.is_enabled(),
+                    remote_media_type_for_lookup_type(lookup_type),
+                );
+            }
+            crate::local_metadata::apply_group_local_metadata(&mut group.files, lookup_type);
+            Some(outcome)
+        }
+        Err(error) => {
+            let detail = compact_scan_failure_detail(error.root_cause().to_string());
+            tracing::warn!(
+                library_id = library.id,
+                scan_job_id,
+                title = %group.presentation.lookup_title,
+                year = group.presentation.year,
+                media_type = %group.presentation.media_type,
+                error = ?error,
+                "metadata enrichment failed for scan group"
+            );
+            restore_group_after_provider_error(
+                &mut group.files,
+                files_before_enrichment,
+                metadata_decision.remote_media_type,
+            );
+            failure_detail = Some(detail);
+            None
+        }
+    };
+    if let Some(primary_file) = group.files.first() {
+        if !primary_file.title.trim().is_empty() {
+            group.presentation.title = primary_file.title.clone();
+        }
     }
 
-    Ok(RemoteScanPipelineOutcome {
-        sync: sync_outcome,
-        notification_summary,
+    Ok(PreparedRemoteScanGroup {
+        group,
+        item_index,
+        total_items,
+        artwork_publication: Some(artwork_publication),
+        allow_artwork_clear: enrichment_outcome
+            .as_ref()
+            .is_some_and(|outcome| outcome.remote_metadata_applied),
+        replace_remote_data: enrichment_outcome
+            .as_ref()
+            .is_some_and(|outcome| outcome.remote_metadata_applied),
+        retain_materialized_artwork: failure_detail.is_none(),
+        enrichment_outcome,
+        failure_detail,
+        materialized_artwork,
     })
+}
+
+fn elapsed_millis(started_at: Instant) -> u64 {
+    u64::try_from(started_at.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1526,7 +1775,7 @@ async fn sync_scan_group_media_entries(
     tmdb_remote_snapshot_json: Option<&str>,
     tmdb_remote_snapshot_renews_retention: bool,
     fence: &BackgroundJobFence,
-) -> ApplicationResult<mova_db::SyncLibraryMediaBestEffortOutcome> {
+) -> ApplicationResult<ScanGroupSyncOutcome> {
     let entries = build_media_entries(
         library,
         group.files.clone(),
@@ -1535,9 +1784,9 @@ async fn sync_scan_group_media_entries(
         tmdb_remote_snapshot_json,
         tmdb_remote_snapshot_renews_retention,
     )?;
-    let upserted_count = match stage {
+    let commit_outcome = match stage {
         mova_db::ScanGroupCommitStage::Local => {
-            mova_db::upsert_library_media_entries_by_file_path(
+            mova_db::upsert_library_media_entries_by_file_path_with_progress(
                 pool,
                 scan_job_id,
                 library.id,
@@ -1549,7 +1798,7 @@ async fn sync_scan_group_media_entries(
             .await
         }
         mova_db::ScanGroupCommitStage::Remote => {
-            mova_db::patch_library_media_entries_remote_by_file_path(
+            mova_db::patch_library_media_entries_remote_by_file_path_with_progress(
                 pool,
                 scan_job_id,
                 library.id,
@@ -1562,9 +1811,12 @@ async fn sync_scan_group_media_entries(
     }
     .map_err(ApplicationError::Unexpected)?;
 
-    Ok(mova_db::SyncLibraryMediaBestEffortOutcome {
-        upserted_count,
-        ..Default::default()
+    Ok(ScanGroupSyncOutcome {
+        sync: mova_db::SyncLibraryMediaBestEffortOutcome {
+            upserted_count: commit_outcome.upserted_count,
+            ..Default::default()
+        },
+        scan_job: commit_outcome.scan_job,
     })
 }
 
@@ -2175,29 +2427,6 @@ async fn emit_scan_job_phase(
     Ok(())
 }
 
-async fn emit_current_scan_job_update(
-    pool: &PgPool,
-    scan_job_id: i64,
-    event_listener: &Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
-) {
-    match mova_db::get_scan_job(pool, scan_job_id).await {
-        Ok(Some(scan_job)) => {
-            event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
-                scan_job,
-                SCAN_PHASE_PROCESSING,
-            )));
-        }
-        Ok(None) => {}
-        Err(error) => {
-            tracing::warn!(
-                scan_job_id,
-                error = ?error,
-                "failed to load authoritative scan pipeline progress"
-            );
-        }
-    }
-}
-
 async fn record_failed_scan_attempt(
     pool: &PgPool,
     scan_job_id: i64,
@@ -2250,3 +2479,7 @@ async fn finalize_cancelled_scan(
 #[cfg(test)]
 #[path = "scan_jobs/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "scan_jobs/performance_tests.rs"]
+mod performance_tests;

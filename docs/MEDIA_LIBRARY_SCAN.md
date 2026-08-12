@@ -14,7 +14,7 @@ HTTP 接口见 [`API.md`](API.md)，SSE 事件见 [`SSE.md`](SSE.md)，NFO 本�
 - 完整季集坐标使用 TMDB TV；其他文件使用 TMDB movie。
 - 本地有年份时采用严格名称与年份规则；无年份时先采用 TMDB 首屏精准标题命中，没有命中再回退首个结果。两者都不计算相似度分数，也不跨类型兜底。
 - 同一扫描组的本地写入和远端写入分别使用短事务。
-- local worker 与 remote worker 通过有界队列形成流水线。
+- local worker 与远端准备池通过有界队列形成流水线；权威提交由单协调器串行执行。
 - 服务端持久化任务级权威进度，客户端不得自行估算。
 - SSE 只提供临时扫描展示和资源失效通知，最终业务数据通过 HTTP API 读取。
 - 扫描重试必须幂等，不得生成重复媒体项、季、集或物理文件。
@@ -31,21 +31,26 @@ flowchart TD
     Plan --> Local["local worker：完整本地分析"]
     Local --> LocalCommit["组级 pending 短事务"]
     LocalCommit --> Queue["容量为 2 的 remote 队列"]
-    Queue --> Remote["remote worker：TMDB 与图片处理"]
-    Remote --> RemoteCommit["组级最终短事务"]
+    Queue --> Remote["最多 4 个 remote preparation：TMDB 与图片处理"]
+    Remote --> CommitQueue["容量为 2 的提交队列"]
+    CommitQueue --> RemoteCommit["单协调器：组级最终短事务"]
     RemoteCommit --> Finalize["库存对齐与任务收口"]
     Finalize --> Finished["100% + revisions + scan.finished"]
 ```
 
-local 与 remote 不是独立进程或容器，而是 `mova-server` 内同一个扫描任务的两个 Tokio 异步执行角色。
+local、remote preparation 与 commit coordinator 不是独立进程或容器，而是 `mova-server`
+内同一个扫描任务的 Tokio 异步执行角色。
 
 ```text
-Local:  A 本地分析 -> B 本地分析 -> C 本地分析
-                    |              |
-Remote:             A TMDB        B TMDB        C TMDB
+Local:     A 本地分析 -> B 本地分析 -> C 本地分析
+                       |              |
+Remote(4):             A/B/C 的 TMDB 与图片可重叠
+                       |              |
+Commit(1):             按完成顺序串行提交权威状态
 ```
 
-扫描组完成 pending 事务后即可进入 remote 队列，同时 local worker 继续分析下一个组。队列满时 local worker 等待，形成自然背压。
+扫描组完成 pending 事务后即可进入 remote 队列，同时 local worker 继续分析下一个组。输入队列、
+远端并发和提交队列均有硬上限；任一段饱和时上游等待，形成自然背压。
 
 ## 3. 后台任务与并发
 
@@ -65,17 +70,20 @@ MOVA_WORKER_CONCURRENCY=2
 每个扫描任务包含：
 
 - 一个 local worker。
-- 一个 remote worker。
-- 一个容量为 2 的 `tokio::mpsc` 队列。
+- 最多 4 个 remote preparation future。
+- 一个容量为 2 的 local→remote `tokio::mpsc` 队列。
+- 一个容量为 2 的 remote→commit `tokio::mpsc` 队列。
+- 一个串行 commit coordinator。
 - 一个扫描取消标记。
 - 一个后台任务 lease 心跳。
 
 资源上限：
 
 - 单个扫描任务只串行执行一个本地扫描组。
-- 单个扫描任务只串行执行一个远端扫描组。
+- 单个扫描任务最多并行准备 4 个远端扫描组，只串行提交一个完成组。
 - 每个文件的 `ffprobe` 串行执行。
-- 单个任务最多保留当前 local 组、当前 remote 组和两个排队组的完整分析上下文。
+- 单个任务最多保留当前 local 组、两个输入排队组、四个远端准备组、两个提交排队组和一个
+  正在提交组的完整分析上下文；每一段都受固定容量约束，不随媒体库规模增长。
 - 单次执行的 TMDB 元数据查询缓存最多保留 512 项，剧集季集概览缓存最多保留 128 项，图片 URL 结果缓存最多保留 2048 项。
 - 三类内存缓存均按插入顺序淘汰最早项；命中不改变淘汰顺序。图片文件保留在磁盘缓存中，内存索引淘汰后会先重新校验磁盘文件，不会因此重复下载有效图片。
 - 多媒体库总并发由 `MOVA_WORKER_CONCURRENCY` 控制。
@@ -295,9 +303,12 @@ STRM 完整本地分析继续复用文件名、目录、NFO、本地图片和外
 
 本地缓存恢复固定使用批量查询：
 
-1. 一次查询媒体摘要。
-2. 一次查询全部相关音轨。
-3. 一次查询全部相关字幕。
+1. 文件级媒体摘要和轻量 owner 字段按最多 2,000 个路径分批查询，避免超大路径数组；
+   常规扫描仍只需一个批次。
+2. 按最多 2,000 个唯一 owner ID 分批查询 NFO payload 与 TMDB retention snapshot，
+   避免同一剧集的大对象随每一集重复返回。
+3. 一次查询全部相关音轨。
+4. 一次查询全部相关字幕。
 
 禁止按每个文件分别查询音轨和字幕。
 
@@ -434,7 +445,7 @@ Local worker 按扫描组串行执行：
 9. 将扫描组发送到 remote 队列。
 
 单个组内的文件按稳定路径顺序处理。`ffprobe` 通过 blocking worker 执行，不阻塞 Tokio reactor。
-进入完整分析前，local worker 按目录建立一次字幕索引；索引一次读取目录并预解析支持的字幕候选，同时统计完整季集坐标的歧义数量。目录内所有视频复用该索引，禁止为每个视频再次扫描目录。字幕候选按路径排序，保证相同文件树产生确定性输出。
+进入完整分析前，local worker 按整次扫描涉及的目录建立一个任务级字幕索引；索引对每个唯一目录只读取一次并预解析支持的字幕候选，同时统计完整季集坐标的歧义数量。所有扫描组复用该索引，禁止为每组或每个视频再次扫描同一目录。字幕候选按路径排序，保证相同文件树产生确定性输出。
 单个 `ffprobe` 最长运行 90 秒；stdout 最多保留 8 MiB，stderr 最多保留 256 KiB，超出任一上限会终止并回收子进程。超时或输出越界把该文件记录为可诊断的 probe warning 后继续扫描。收到任务取消标记时会立即终止当前 `ffprobe`，并把任务转入取消终态。
 
 ## 10. Sidecar、图片与字幕
@@ -516,7 +527,10 @@ set_config('mova.defer_catalog_revision', 'on', true)
 
 ## 12. Remote worker
 
-Remote worker 从有界队列领取已经完成 pending 事务的扫描组：
+Remote 阶段从容量为 2 的有界队列领取已经完成 pending 事务的扫描组。最多 4 个远端准备
+任务并行执行 TMDB 请求和图片下载，完成结果进入容量为 2 的提交队列；单一协调器串行执行
+数据库事务、图片发布锁释放、任务级权威进度更新和完成事件。因此网络等待可以重叠，而
+`remote_completed_files`、`progress_percent` 与 catalog revision 仍只有一个写入顺序：
 
 1. 根据本地结构确定唯一 TMDB media type。
 2. 检查当前条目的可信 provider binding，以及显式容器 ID、层级正确的 NFO TMDB ID和同容器唯一既有 binding。
@@ -524,7 +538,7 @@ Remote worker 从有界队列领取已经完成 pending 事务的扫描组：
 4. 存在唯一且类型一致的 direct lookup ID 时只按 ID 获取详情，不执行标题搜索；直接查询未命中时也不执行标题回退。
 5. 没有任何 provider ID 时才按 NFO、文件名或受限容器提供的标题与当前年份策略执行搜索。
 6. 选中 provider ID 后按 ID 获取详情。
-7. 获取需要的季和集 metadata。
+7. 只按本地扫描组实际存在的正数季号获取对应季和集 metadata；不预抓远端独有季。
 8. 从同一 TMDB 详情响应读取 `vote_average / vote_count`，不增加评分请求。
 9. 下载并缓存海报、背景图、季海报和单集剧照。
 10. 生成 metadata 终态并执行最终组事务。
@@ -535,7 +549,7 @@ Remote worker 从有界队列领取已经完成 pending 事务的扫描组：
 
 - 已有 provider ID 或直接查询提示时，请求键只由媒体类型、语言和 provider ID 组成，本地标题、年份或季提示差异不会重复请求同一远端条目。
 - 尚无 provider ID 时，请求键由规范化标题、作品年份、季验证提示、媒体类型和语言组成。
-- 元数据详情、剧集季集大纲和图片结果分别使用有界缓存。
+- 元数据详情、剧集季集大纲和图片结果分别使用有界缓存；季集大纲缓存键包含本地季号集合。
 - 成功和明确的未命中结果可以复用；临时 provider 错误不缓存，允许后续扫描组重试。
 
 ## 13. TMDB 身份匹配
@@ -647,7 +661,7 @@ local 与 remote 可以同时增加各自计数，因此进度不要求停留在
 1. 对齐发现路径和正式 `media_files`。
 2. 删除确认缺失的物理文件记录。
 3. 清理没有资源的电影、单集、季和剧集。
-4. 接收 remote worker 已累计的扫描通知摘要。
+4. 接收 remote 阶段协调器已累计的扫描通知摘要。
 5. 将 phase 写为 `finalizing`，进度写为 99。
 6. 成功时将任务写为 `success / finished / 100`。
 7. 在任务终态事务中把扫描摘要直接写入一条 `scan` 类通用通知。
@@ -706,7 +720,7 @@ library:{id}:notifications
 
 - 单实例通过进程内 local/remote 队列发送临时进度。
 - background job、scan job 和 revisions 保存在 PostgreSQL。
-- `MOVA_TMDB_ACCESS_TOKEN` 为空或只含空白时 metadata provider 处于 disabled 状态。服务和扫描任务仍正常运行，local worker 继续完成名称解析、sidecar、`ffprobe` 和 pending 写入；remote worker 不发起 TMDB 请求，只完成本地图片缓存和 `skipped / metadata_provider_disabled` 终态提交。
+- `MOVA_TMDB_ACCESS_TOKEN` 为空或只含空白时 metadata provider 处于 disabled 状态。服务和扫描任务仍正常运行，local worker 继续完成名称解析、sidecar、`ffprobe` 和 pending 写入；remote preparation 不发起 TMDB 请求，只完成本地图片缓存和 `skipped / metadata_provider_disabled` 终态提交。
 - 后续配置 Token 并重启服务后，重新扫描会把此前 `skipped` 且缺少 provider binding 的条目纳入远端补全，不需要重建数据库。
 - 服务重启后可以重新领取未完成 background job。
 - 扫描组完整分析上下文不做跨进程恢复，重试会重新建立文件计划。
@@ -734,6 +748,9 @@ library:{id}:notifications
 - 中间重试失败不发送终态。
 - 最终媒体写入与 `remote_completed` 检查点必须原子提交，通知摘要只在该事务成功后累计。
 - provider 超时必须归类为 `metadata_provider_error`，不得伪装成身份匹配失败。
+- TMDB 请求在进程内共享限速；`429`、`5xx`、连接失败和超时最多执行三次总尝试。
+  `429` 优先遵循 `Retry-After`，否则使用带抖动的指数退避；认证、参数和其他非暂时性
+  `4xx` 不重试。
 - `ffprobe` 失败必须作为非阻断警告进入扫描通知摘要。
 
 ### 23.2 性能
@@ -741,14 +758,35 @@ library:{id}:notifications
 - 缓存恢复不产生音轨和字幕 `2N` 查询。
 - 同容器 binding 索引必须复用增量计划已批量读取的媒体摘要，不得按目录或新增文件发起额外 `N` 次数据库查询。
 - 完整本地分析对每个目录最多建立一次字幕索引。
+- 扫描组写入先批量预取组内现有文件；音轨和字幕分别使用单条批量 insert，不按轨道逐条写入。
+- local/remote 组事务直接返回同一事务更新后的任务进度，不再为每组额外回读 `scan_jobs`。
+- 全库孤儿 season/series 清理只在权威最终对账事务执行一次，不随每个 local/remote 组重复运行。
+- 本地剧集大纲用一次 series 级 episode 查询构建，不按季产生 N+1 查询。
 - NFO、本地图片和外挂字幕变化必须通过 sidecar 指纹使增量计划失效。
 - `ffprobe` 不阻塞 Tokio reactor。
-- local/remote 队列容量固定。
+- local→remote 与 remote→commit 队列容量都固定为 2，远端准备并发固定为 4；队列负责
+  背压，不按媒体库大小扩容。
 - 扫描普通 SSE 进度按 200ms 合并。
 - 扫描组数据库写入只增加一次 catalog revision。
 - 同一 TMDB 搜索结果不执行第二次标题搜索。
-- 相同 provider ID 的详情和季集大纲请求在单次扫描内各执行一次。
+- 相同 provider ID 的详情请求在单次扫描内执行一次；相同 provider ID 与本地季号集合的季集大纲请求执行一次。
 - Remote 事务不得替换 `media_files` 探测字段、音轨或字幕。
+
+每次成功扫描写入一条结构化 `library_scan_performance` 日志，至少包含文件数、待处理文件和
+组数量、字幕目录数、discovery/planning/local/remote/finalization/total 耗时，以及
+远端并发/队列容量和 upsert/remove/failure 数。性能回归测试不得依赖墙钟阈值；应断言可重复的查询次数、目录
+索引基数、批量边界和输出结果，真实耗时由该日志在目标设备上比较。
+
+远端阶段的确定性容量模型可用以下命令执行。输出事件名为
+`library_scan_performance_simulation`，仅用于比较相同合成负载下的并发与队列策略，不能替代
+目标设备产生的真实 `library_scan_performance` 日志。
+
+```bash
+cargo test -p mova-application \
+  selected_remote_pipeline_configuration_is_evidence_backed -- --nocapture
+```
+
+容量选型的基准、假设和真实扫描样本见 [`SCAN_PERFORMANCE.md`](SCAN_PERFORMANCE.md)。
 
 ### 23.3 客户端
 

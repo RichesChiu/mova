@@ -59,6 +59,10 @@ impl SubtitleDirectoryIndex {
 
         index
     }
+
+    pub fn directory_count(&self) -> usize {
+        self.directories.len()
+    }
 }
 
 pub(crate) fn discover_subtitle_tracks(
@@ -458,6 +462,7 @@ mod tests {
         fs::write(&second_subtitle, b"second").unwrap();
 
         let index = SubtitleDirectoryIndex::build([first_video.as_path(), second_video.as_path()]);
+        assert_eq!(index.directory_count(), 1);
         let first_tracks = discover_subtitle_tracks_with_index(&first_video, &[], &index);
         let second_tracks = discover_subtitle_tracks_with_index(&second_video, &[], &index);
 
@@ -465,5 +470,20 @@ mod tests {
         assert_eq!(first_tracks[0].file_path.as_ref(), Some(&first_subtitle));
         assert_eq!(second_tracks.len(), 1);
         assert_eq!(second_tracks[0].file_path.as_ref(), Some(&second_subtitle));
+    }
+
+    #[test]
+    fn directory_index_size_depends_on_unique_directories_not_video_count() {
+        let root = temp_dir();
+        let video_paths = (0..200)
+            .map(|episode| {
+                root.join(format!("season-{}", episode % 4))
+                    .join(format!("show.S01E{episode:03}.mkv"))
+            })
+            .collect::<Vec<_>>();
+
+        let index = SubtitleDirectoryIndex::build(video_paths.iter().map(PathBuf::as_path));
+
+        assert_eq!(index.directory_count(), 4);
     }
 }

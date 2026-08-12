@@ -1046,7 +1046,7 @@ async fn ensure_scan_group_file_count(
     }
 }
 
-fn map_scan_job_row(row: PgRow) -> ScanJob {
+pub(crate) fn map_scan_job_row(row: PgRow) -> ScanJob {
     map_scan_job_row_ref(&row)
 }
 

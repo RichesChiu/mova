@@ -1,12 +1,20 @@
 use anyhow::Context;
 use async_trait::async_trait;
 use reqwest::{
-    header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION},
-    Client,
+    header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, RETRY_AFTER},
+    Client, RequestBuilder, StatusCode,
 };
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::{Duration, SystemTime},
+};
 use time::OffsetDateTime;
+use tokio::sync::Mutex;
 
 use mova_domain::{MediaExternalId, MediaRating, RATING_KIND_AUDIENCE, RATING_SOURCE_TMDB};
 
@@ -19,6 +27,10 @@ const TMDB_MAX_AUTO_MATCH_PAGES: u32 = 20;
 const TMDB_MAX_ALTERNATIVE_TITLE_CANDIDATES: usize = 40;
 const METADATA_PROVIDER_CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
 const METADATA_PROVIDER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
+const TMDB_REQUEST_MIN_INTERVAL: Duration = Duration::from_millis(25);
+const TMDB_REQUEST_MAX_ATTEMPTS: u32 = 3;
+const TMDB_RETRY_BASE_DELAY: Duration = Duration::from_millis(250);
+const TMDB_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
 
 /// 服务启动时解析出的元数据 provider 配置。
 #[derive(Debug, Clone)]
@@ -127,21 +139,27 @@ pub trait MetadataProvider: Send + Sync {
 
     async fn lookup(&self, lookup: &MetadataLookup) -> anyhow::Result<Option<RemoteMetadata>>;
 
+    /// Fetches only the positive local seasons listed by the caller. Providers
+    /// normalize the list defensively and must not discover remote-only seasons.
     async fn lookup_series_episode_outline(
         &self,
         _lookup: &MetadataLookup,
+        _season_numbers: &[i32],
     ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
         Ok(None)
     }
 
     /// Compliance revalidation must not renew a series retention window from
-    /// a partial outline. Providers that can return partial data should
-    /// override this with an all-or-error implementation.
+    /// a partial response for the requested local seasons. Providers that can
+    /// return partial data should override this with an all-or-error
+    /// implementation.
     async fn lookup_complete_series_episode_outline(
         &self,
         lookup: &MetadataLookup,
+        season_numbers: &[i32],
     ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
-        self.lookup_series_episode_outline(lookup).await
+        self.lookup_series_episode_outline(lookup, season_numbers)
+            .await
     }
 
     async fn lookup_cast(
@@ -157,6 +175,17 @@ pub trait MetadataProvider: Send + Sync {
     ) -> anyhow::Result<Vec<RemoteMetadataSearchResult>> {
         Ok(Vec::new())
     }
+}
+
+fn normalize_requested_season_numbers(season_numbers: &[i32]) -> Vec<i32> {
+    let mut season_numbers = season_numbers
+        .iter()
+        .copied()
+        .filter(|season_number| *season_number > 0)
+        .collect::<Vec<_>>();
+    season_numbers.sort_unstable();
+    season_numbers.dedup();
+    season_numbers
 }
 
 /// 未配置第三方元数据时使用的空实现。
@@ -207,6 +236,57 @@ pub struct TmdbMetadataProvider {
     language: String,
     api_base_url: String,
     image_base_url: String,
+    request_gate: Arc<TmdbRequestGate>,
+}
+
+#[derive(Debug)]
+struct TmdbRequestGate {
+    next_request_at: Mutex<tokio::time::Instant>,
+    retry_sequence: AtomicU64,
+}
+
+impl Default for TmdbRequestGate {
+    fn default() -> Self {
+        Self {
+            next_request_at: Mutex::new(tokio::time::Instant::now()),
+            retry_sequence: AtomicU64::new(0),
+        }
+    }
+}
+
+impl TmdbRequestGate {
+    async fn wait_turn(&self) {
+        let scheduled = {
+            let mut next_request_at = self.next_request_at.lock().await;
+            let now = tokio::time::Instant::now();
+            let scheduled = (*next_request_at).max(now);
+            *next_request_at = scheduled + TMDB_REQUEST_MIN_INTERVAL;
+            scheduled
+        };
+        tokio::time::sleep_until(scheduled).await;
+    }
+
+    async fn defer_for(&self, delay: Duration) {
+        let mut next_request_at = self.next_request_at.lock().await;
+        let deferred_until = tokio::time::Instant::now() + delay;
+        if deferred_until > *next_request_at {
+            *next_request_at = deferred_until;
+        }
+    }
+
+    fn retry_delay(&self, attempt: u32, retry_after: Option<Duration>) -> Duration {
+        if let Some(delay) = retry_after {
+            return delay.min(TMDB_RETRY_MAX_DELAY);
+        }
+
+        let multiplier = 1_u32 << attempt.min(6);
+        let base = TMDB_RETRY_BASE_DELAY
+            .saturating_mul(multiplier)
+            .min(TMDB_RETRY_MAX_DELAY);
+        let jitter_ms = self.retry_sequence.fetch_add(1, Ordering::Relaxed) % 101;
+        base.saturating_add(Duration::from_millis(jitter_ms))
+            .min(TMDB_RETRY_MAX_DELAY)
+    }
 }
 
 impl TmdbMetadataProvider {
@@ -230,7 +310,79 @@ impl TmdbMetadataProvider {
             language: config.language.trim().to_string(),
             api_base_url: config.api_base_url.trim_end_matches('/').to_string(),
             image_base_url: config.image_base_url.trim_end_matches('/').to_string(),
+            request_gate: Arc::new(TmdbRequestGate::default()),
         })
+    }
+
+    async fn send_json<T>(&self, request: RequestBuilder) -> anyhow::Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        for attempt in 0..TMDB_REQUEST_MAX_ATTEMPTS {
+            self.request_gate.wait_turn().await;
+            let request = request
+                .try_clone()
+                .context("failed to clone TMDB request for retry")?;
+
+            match request.send().await {
+                Ok(response) => {
+                    let status = response.status();
+                    if is_retryable_tmdb_status(status) && attempt + 1 < TMDB_REQUEST_MAX_ATTEMPTS {
+                        let delay = self.request_gate.retry_delay(
+                            attempt,
+                            response
+                                .headers()
+                                .get(RETRY_AFTER)
+                                .and_then(parse_retry_after),
+                        );
+                        self.request_gate.defer_for(delay).await;
+                        tracing::warn!(
+                            status = status.as_u16(),
+                            attempt = attempt + 1,
+                            retry_delay_ms = delay.as_millis(),
+                            "retrying transient TMDB response"
+                        );
+                        continue;
+                    }
+
+                    let response = response.error_for_status()?;
+                    match response.json::<T>().await {
+                        Ok(payload) => return Ok(payload),
+                        Err(error)
+                            if is_retryable_tmdb_transport_error(&error)
+                                && attempt + 1 < TMDB_REQUEST_MAX_ATTEMPTS =>
+                        {
+                            let delay = self.request_gate.retry_delay(attempt, None);
+                            self.request_gate.defer_for(delay).await;
+                            tracing::warn!(
+                                attempt = attempt + 1,
+                                retry_delay_ms = delay.as_millis(),
+                                error = ?error,
+                                "retrying transient TMDB response body failure"
+                            );
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+                Err(error) => {
+                    let retryable = is_retryable_tmdb_transport_error(&error);
+                    if !retryable || attempt + 1 == TMDB_REQUEST_MAX_ATTEMPTS {
+                        return Err(error.into());
+                    }
+
+                    let delay = self.request_gate.retry_delay(attempt, None);
+                    self.request_gate.defer_for(delay).await;
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        retry_delay_ms = delay.as_millis(),
+                        error = ?error,
+                        "retrying transient TMDB transport failure"
+                    );
+                }
+            }
+        }
+
+        unreachable!("TMDB retry loop always returns on its final attempt")
     }
 
     async fn lookup_movie(
@@ -307,13 +459,11 @@ impl TmdbMetadataProvider {
         }
 
         let response = self
-            .client
-            .get(format!("{}/search/movie", self.api_base_url))
-            .query(&query)
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<TmdbSearchResponse<TmdbMovieSearchResult>>()
+            .send_json::<TmdbSearchResponse<TmdbMovieSearchResult>>(
+                self.client
+                    .get(format!("{}/search/movie", self.api_base_url))
+                    .query(&query),
+            )
             .await?;
 
         Ok(response)
@@ -381,13 +531,11 @@ impl TmdbMetadataProvider {
         }
 
         let response = self
-            .client
-            .get(format!("{}/search/tv", self.api_base_url))
-            .query(&query)
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<TmdbSearchResponse<TmdbTvSearchResult>>()
+            .send_json::<TmdbSearchResponse<TmdbTvSearchResult>>(
+                self.client
+                    .get(format!("{}/search/tv", self.api_base_url))
+                    .query(&query),
+            )
             .await?;
 
         Ok(response)
@@ -395,15 +543,10 @@ impl TmdbMetadataProvider {
 
     async fn fetch_movie_alternative_titles(&self, movie_id: i64) -> anyhow::Result<Vec<String>> {
         let response = self
-            .client
-            .get(format!(
+            .send_json::<TmdbMovieAlternativeTitlesResponse>(self.client.get(format!(
                 "{}/movie/{}/alternative_titles",
                 self.api_base_url, movie_id
-            ))
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<TmdbMovieAlternativeTitlesResponse>()
+            )))
             .await?;
 
         Ok(response
@@ -415,15 +558,10 @@ impl TmdbMetadataProvider {
 
     async fn fetch_tv_alternative_titles(&self, tv_id: i64) -> anyhow::Result<Vec<String>> {
         let response = self
-            .client
-            .get(format!(
+            .send_json::<TmdbTvAlternativeTitlesResponse>(self.client.get(format!(
                 "{}/tv/{}/alternative_titles",
                 self.api_base_url, tv_id
-            ))
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<TmdbTvAlternativeTitlesResponse>()
+            )))
             .await?;
 
         Ok(response
@@ -650,17 +788,15 @@ impl TmdbMetadataProvider {
     ) -> anyhow::Result<TmdbMovieDetails> {
         let image_languages = tmdb_image_languages(language);
         let details = self
-            .client
-            .get(format!("{}/movie/{}", self.api_base_url, movie_id))
-            .query(&[
-                ("language", language),
-                ("append_to_response", "external_ids,images"),
-                ("include_image_language", image_languages.as_str()),
-            ])
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<TmdbMovieDetails>()
+            .send_json::<TmdbMovieDetails>(
+                self.client
+                    .get(format!("{}/movie/{}", self.api_base_url, movie_id))
+                    .query(&[
+                        ("language", language),
+                        ("append_to_response", "external_ids,images"),
+                        ("include_image_language", image_languages.as_str()),
+                    ]),
+            )
             .await?;
 
         Ok(details)
@@ -669,17 +805,15 @@ impl TmdbMetadataProvider {
     async fn fetch_tv_details(&self, tv_id: i64, language: &str) -> anyhow::Result<TmdbTvDetails> {
         let image_languages = tmdb_image_languages(language);
         let details = self
-            .client
-            .get(format!("{}/tv/{}", self.api_base_url, tv_id))
-            .query(&[
-                ("language", language),
-                ("append_to_response", "external_ids,images"),
-                ("include_image_language", image_languages.as_str()),
-            ])
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<TmdbTvDetails>()
+            .send_json::<TmdbTvDetails>(
+                self.client
+                    .get(format!("{}/tv/{}", self.api_base_url, tv_id))
+                    .query(&[
+                        ("language", language),
+                        ("append_to_response", "external_ids,images"),
+                        ("include_image_language", image_languages.as_str()),
+                    ]),
+            )
             .await?;
 
         Ok(details)
@@ -692,16 +826,14 @@ impl TmdbMetadataProvider {
         language: &str,
     ) -> anyhow::Result<TmdbTvSeasonDetails> {
         let season_details = self
-            .client
-            .get(format!(
-                "{}/tv/{}/season/{}",
-                self.api_base_url, tv_id, season_number
-            ))
-            .query(&[("language", language)])
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<TmdbTvSeasonDetails>()
+            .send_json::<TmdbTvSeasonDetails>(
+                self.client
+                    .get(format!(
+                        "{}/tv/{}/season/{}",
+                        self.api_base_url, tv_id, season_number
+                    ))
+                    .query(&[("language", language)]),
+            )
             .await?;
 
         Ok(season_details)
@@ -713,13 +845,11 @@ impl TmdbMetadataProvider {
         language: &str,
     ) -> anyhow::Result<TmdbCreditsResponse> {
         let credits = self
-            .client
-            .get(format!("{}/movie/{}/credits", self.api_base_url, movie_id))
-            .query(&[("language", language)])
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<TmdbCreditsResponse>()
+            .send_json::<TmdbCreditsResponse>(
+                self.client
+                    .get(format!("{}/movie/{}/credits", self.api_base_url, movie_id))
+                    .query(&[("language", language)]),
+            )
             .await?;
 
         Ok(credits)
@@ -731,16 +861,14 @@ impl TmdbMetadataProvider {
         language: &str,
     ) -> anyhow::Result<TmdbTvAggregateCreditsResponse> {
         let credits = self
-            .client
-            .get(format!(
-                "{}/tv/{}/aggregate_credits",
-                self.api_base_url, tv_id
-            ))
-            .query(&[("language", language)])
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<TmdbTvAggregateCreditsResponse>()
+            .send_json::<TmdbTvAggregateCreditsResponse>(
+                self.client
+                    .get(format!(
+                        "{}/tv/{}/aggregate_credits",
+                        self.api_base_url, tv_id
+                    ))
+                    .query(&[("language", language)]),
+            )
             .await?;
 
         Ok(credits)
@@ -788,8 +916,14 @@ impl TmdbMetadataProvider {
     async fn lookup_tv_episode_outline(
         &self,
         lookup: &MetadataLookup,
+        season_numbers: &[i32],
         require_complete: bool,
     ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
+        let season_numbers = normalize_requested_season_numbers(season_numbers);
+        if season_numbers.is_empty() {
+            return Ok(Some(RemoteSeriesEpisodeOutline::default()));
+        }
+
         let tv_id = match lookup.provider_item_id.as_deref() {
             Some(tv_id) => parse_tmdb_provider_item_id(tv_id)?,
             None => {
@@ -802,16 +936,11 @@ impl TmdbMetadataProvider {
         };
 
         let request_language = self.request_language(lookup);
-        let details = self.fetch_tv_details(tv_id, request_language).await?;
         let mut seasons = Vec::new();
 
-        for season in details
-            .seasons
-            .into_iter()
-            .filter(|season| season.season_number >= 1)
-        {
+        for season_number in season_numbers {
             let season_details = match self
-                .fetch_tv_season_details(tv_id, season.season_number, request_language)
+                .fetch_tv_season_details(tv_id, season_number, request_language)
                 .await
             {
                 Ok(season_details) => season_details,
@@ -819,14 +948,14 @@ impl TmdbMetadataProvider {
                     return Err(error).with_context(|| {
                         format!(
                             "failed to fetch complete TMDB outline for series {tv_id}, season {}",
-                            season.season_number
+                            season_number
                         )
                     });
                 }
                 Err(error) => {
                     tracing::warn!(
                         tv_id,
-                        season_number = season.season_number,
+                        season_number,
                         error = ?error,
                         "failed to fetch tmdb season details"
                     );
@@ -861,14 +990,9 @@ impl TmdbMetadataProvider {
                 .map(|path| self.build_image_url(path));
 
             seasons.push(RemoteSeriesSeason {
-                season_number: season.season_number,
-                title: empty_to_none(season_details.name).or_else(|| empty_to_none(season.name)),
-                year: parse_year(
-                    season_details
-                        .air_date
-                        .as_deref()
-                        .or(season.air_date.as_deref()),
-                ),
+                season_number,
+                title: empty_to_none(season_details.name),
+                year: parse_year(season_details.air_date.as_deref()),
                 overview: empty_to_none(season_details.overview),
                 poster_path: season_poster_path,
                 backdrop_path: None,
@@ -1065,6 +1189,7 @@ impl MetadataProvider for TmdbMetadataProvider {
     async fn lookup_series_episode_outline(
         &self,
         lookup: &MetadataLookup,
+        season_numbers: &[i32],
     ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
         if (lookup.title.trim().is_empty() && lookup.provider_item_id.is_none())
             || !lookup.library_type.eq_ignore_ascii_case("series")
@@ -1072,12 +1197,14 @@ impl MetadataProvider for TmdbMetadataProvider {
             return Ok(None);
         }
 
-        self.lookup_tv_episode_outline(lookup, false).await
+        self.lookup_tv_episode_outline(lookup, season_numbers, false)
+            .await
     }
 
     async fn lookup_complete_series_episode_outline(
         &self,
         lookup: &MetadataLookup,
+        season_numbers: &[i32],
     ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
         if (lookup.title.trim().is_empty() && lookup.provider_item_id.is_none())
             || !lookup.library_type.eq_ignore_ascii_case("series")
@@ -1085,7 +1212,8 @@ impl MetadataProvider for TmdbMetadataProvider {
             return Ok(None);
         }
 
-        self.lookup_tv_episode_outline(lookup, true).await
+        self.lookup_tv_episode_outline(lookup, season_numbers, true)
+            .await
     }
 
     async fn lookup_cast(
@@ -1415,8 +1543,6 @@ struct TmdbTvDetails {
     images: Option<TmdbImagesResponse>,
     vote_average: Option<f64>,
     vote_count: Option<i64>,
-    #[serde(default)]
-    seasons: Vec<TmdbTvSeasonSummary>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1454,13 +1580,6 @@ struct TmdbLogo {
     height: Option<i64>,
     vote_average: Option<f64>,
     vote_count: Option<i64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct TmdbTvSeasonSummary {
-    season_number: i32,
-    name: Option<String>,
-    air_date: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2013,12 +2132,35 @@ fn pick_primary_character_name(roles: &[TmdbTvAggregateRole]) -> Option<String> 
 /// 扫描任务内部使用的查询缓存。
 pub type MetadataLookupCache = HashMap<MetadataLookup, Option<RemoteMetadata>>;
 
+fn parse_retry_after(value: &HeaderValue) -> Option<Duration> {
+    let value = value.to_str().ok()?.trim();
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
+    }
+
+    let retry_at = httpdate::parse_http_date(value).ok()?;
+    Some(
+        retry_at
+            .duration_since(SystemTime::now())
+            .unwrap_or(Duration::ZERO),
+    )
+}
+
+fn is_retryable_tmdb_status(status: StatusCode) -> bool {
+    status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+}
+
+fn is_retryable_tmdb_transport_error(error: &reqwest::Error) -> bool {
+    error.is_connect() || error.is_timeout() || error.is_body()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         apply_remote_metadata, build_metadata_provider, deduplicate_search_results,
-        format_country_codes, normalize_base_url, normalize_metadata_language,
-        normalize_optional_value, normalize_title, parse_year, pick_primary_character_name,
+        format_country_codes, is_retryable_tmdb_status, normalize_base_url,
+        normalize_metadata_language, normalize_optional_value, normalize_requested_season_numbers,
+        normalize_title, parse_retry_after, parse_year, pick_primary_character_name,
         select_strict_candidate, select_strict_tv_candidate, select_tmdb_logo,
         strongest_alternative_title_match, strongest_direct_title_matches, titles_match_exactly,
         titles_match_numbered_subtitle, tmdb_external_ids, tmdb_image_languages, tmdb_ratings,
@@ -2029,6 +2171,7 @@ mod tests {
         TmdbTvEpisodeDetails, TmdbTvSearchResult, TmdbTvSeasonDetails, TMDB_PROVIDER_NAME,
     };
     use mova_domain::{MediaExternalId, MediaRating};
+    use reqwest::header::HeaderValue;
     use time::OffsetDateTime;
 
     #[test]
@@ -2045,6 +2188,48 @@ mod tests {
             normalize_optional_value(Some(" token ".to_string())),
             Some("token".to_string())
         );
+    }
+
+    #[test]
+    fn requested_seasons_are_positive_sorted_and_deduplicated() {
+        assert_eq!(
+            normalize_requested_season_numbers(&[3, 1, 0, 2, 3, -4]),
+            vec![1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn retry_after_supports_delta_seconds() {
+        assert_eq!(
+            parse_retry_after(&HeaderValue::from_static("7")),
+            Some(std::time::Duration::from_secs(7))
+        );
+    }
+
+    #[test]
+    fn retry_after_supports_http_dates_and_treats_past_dates_as_immediate() {
+        let retry_at = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        let header = HeaderValue::from_str(&httpdate::fmt_http_date(retry_at)).unwrap();
+        let delay = parse_retry_after(&header).unwrap();
+        assert!(delay <= std::time::Duration::from_secs(5));
+        assert!(delay >= std::time::Duration::from_secs(3));
+
+        assert_eq!(
+            parse_retry_after(&HeaderValue::from_static("Sun, 06 Nov 1994 08:49:37 GMT")),
+            Some(std::time::Duration::ZERO)
+        );
+    }
+
+    #[test]
+    fn tmdb_retry_statuses_are_limited_to_rate_limits_and_server_failures() {
+        assert!(is_retryable_tmdb_status(
+            reqwest::StatusCode::TOO_MANY_REQUESTS
+        ));
+        assert!(is_retryable_tmdb_status(
+            reqwest::StatusCode::SERVICE_UNAVAILABLE
+        ));
+        assert!(!is_retryable_tmdb_status(reqwest::StatusCode::UNAUTHORIZED));
+        assert!(!is_retryable_tmdb_status(reqwest::StatusCode::NOT_FOUND));
     }
 
     #[test]

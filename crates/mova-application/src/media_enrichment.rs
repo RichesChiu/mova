@@ -17,9 +17,10 @@ use std::{
     },
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
+use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
 const ARTWORK_CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
 const ARTWORK_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -28,6 +29,10 @@ const OFFICIAL_TMDB_ARTWORK_PREFIX: &str = "https://image.tmdb.org/t/p";
 const METADATA_LOOKUP_CACHE_CAPACITY: usize = 512;
 const SERIES_OUTLINE_CACHE_CAPACITY: usize = 128;
 const ARTWORK_RESULT_CACHE_CAPACITY: usize = 2_048;
+
+type SeriesOutlineRequestKey = (MetadataLookup, Vec<i32>);
+type SeriesOutlineResult = Option<RemoteSeriesEpisodeOutline>;
+type RequestLockMap<K> = Mutex<HashMap<K, Weak<AsyncMutex<()>>>>;
 
 /// An insertion-ordered cache used for scan-local request reuse.
 ///
@@ -38,6 +43,62 @@ struct BoundedCache<K, V> {
     values: HashMap<K, V>,
     insertion_order: VecDeque<K>,
     capacity: usize,
+}
+
+struct SharedEnrichmentCaches {
+    metadata: Mutex<BoundedCache<MetadataLookup, Option<RemoteMetadata>>>,
+    series_outline: Mutex<BoundedCache<SeriesOutlineRequestKey, SeriesOutlineResult>>,
+    complete_series_outline: Mutex<BoundedCache<SeriesOutlineRequestKey, SeriesOutlineResult>>,
+    artwork: Mutex<BoundedCache<String, Option<String>>>,
+    metadata_requests: RequestLockMap<MetadataLookup>,
+    series_outline_requests: RequestLockMap<SeriesOutlineRequestKey>,
+    complete_series_outline_requests: RequestLockMap<SeriesOutlineRequestKey>,
+}
+
+impl std::fmt::Debug for SharedEnrichmentCaches {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("SharedEnrichmentCaches")
+    }
+}
+
+impl Default for SharedEnrichmentCaches {
+    fn default() -> Self {
+        Self {
+            metadata: Mutex::new(BoundedCache::new(METADATA_LOOKUP_CACHE_CAPACITY)),
+            series_outline: Mutex::new(BoundedCache::new(SERIES_OUTLINE_CACHE_CAPACITY)),
+            complete_series_outline: Mutex::new(BoundedCache::new(SERIES_OUTLINE_CACHE_CAPACITY)),
+            artwork: Mutex::new(BoundedCache::new(ARTWORK_RESULT_CACHE_CAPACITY)),
+            metadata_requests: Mutex::new(HashMap::new()),
+            series_outline_requests: Mutex::new(HashMap::new()),
+            complete_series_outline_requests: Mutex::new(HashMap::new()),
+        }
+    }
+}
+
+async fn lock_shared_request<K>(
+    locks: &Mutex<HashMap<K, Weak<AsyncMutex<()>>>>,
+    key: &K,
+) -> OwnedMutexGuard<()>
+where
+    K: Clone + Eq + Hash,
+{
+    let lock = {
+        let mut locks = locks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        locks.retain(|_, lock| lock.strong_count() > 0);
+
+        match locks.get(key).and_then(Weak::upgrade) {
+            Some(lock) => lock,
+            None => {
+                let lock = Arc::new(AsyncMutex::new(()));
+                locks.insert(key.clone(), Arc::downgrade(&lock));
+                lock
+            }
+        }
+    };
+
+    lock.lock_owned().await
 }
 
 impl<K, V> BoundedCache<K, V>
@@ -95,13 +156,12 @@ where
 }
 
 /// 复用扫描和手动刷新共用的 metadata 补全与图片缓存逻辑。
+#[derive(Clone)]
 pub struct MetadataEnrichmentContext {
     artwork_cache_dir: PathBuf,
     metadata_provider: Arc<dyn MetadataProvider>,
     metadata_language: String,
-    metadata_cache: BoundedCache<MetadataLookup, Option<RemoteMetadata>>,
-    series_outline_cache: BoundedCache<MetadataLookup, Option<RemoteSeriesEpisodeOutline>>,
-    artwork_cache: BoundedCache<String, Option<String>>,
+    caches: Arc<SharedEnrichmentCaches>,
     trusted_artwork_bases: Arc<Vec<Url>>,
     artwork_client: Client,
 }
@@ -124,6 +184,7 @@ pub(crate) struct MetadataEnrichmentOutcome {
 impl MetadataEnrichmentContext {
     /// 扫描和手动刷新都会复用这个上下文。
     /// 语言在创建时就绑定下来，确保同一个库的所有 TMDB 请求都落在同一语言版本上。
+    /// Clone 仅复制轻量配置；扫描内的有界结果缓存仍由所有远端 worker 共享。
     pub fn new(
         cache_dir: PathBuf,
         library_id: i64,
@@ -135,9 +196,7 @@ impl MetadataEnrichmentContext {
             artwork_cache_dir: library_artwork_cache_dir(&cache_dir, library_id),
             metadata_provider,
             metadata_language,
-            metadata_cache: BoundedCache::new(METADATA_LOOKUP_CACHE_CAPACITY),
-            series_outline_cache: BoundedCache::new(SERIES_OUTLINE_CACHE_CAPACITY),
-            artwork_cache: BoundedCache::new(ARTWORK_RESULT_CACHE_CAPACITY),
+            caches: Arc::new(SharedEnrichmentCaches::default()),
             artwork_client: build_artwork_client(trusted_artwork_bases.clone()),
             trusted_artwork_bases,
         }
@@ -240,6 +299,7 @@ impl MetadataEnrichmentContext {
             provider_item_id_hint,
         );
         let mut episode_outline_lookup = primary_lookup.clone();
+        let local_season_numbers = local_season_numbers(files);
 
         on_progress(MetadataEnrichmentStage::Metadata, &files[0]);
 
@@ -277,28 +337,26 @@ impl MetadataEnrichmentContext {
             && resolved_remote_metadata.is_some()
         {
             match self
-                .metadata_provider
-                .lookup_complete_series_episode_outline(&episode_outline_lookup)
+                .lookup_complete_series_outline_cached(
+                    &episode_outline_lookup,
+                    &local_season_numbers,
+                )
                 .await
             {
-                Ok(Some(outline)) => {
-                    self.series_outline_cache.insert(
-                        canonical_metadata_request_key(&episode_outline_lookup),
-                        Some(outline.clone()),
-                    );
-                    Some(outline)
-                }
-                Ok(None) => None,
+                Ok(outline) => outline,
                 Err(error) => {
                     tracing::warn!(
                         title = %episode_outline_lookup.title,
                         year = episode_outline_lookup.year,
                         provider_item_id = episode_outline_lookup.provider_item_id,
                         error = ?error,
-                        "complete remote series outline was unavailable; retaining partial scan enrichment without renewing TMDB ownership"
+                        "the remote outline was incomplete for the local season set; retaining partial scan enrichment without renewing TMDB ownership"
                     );
-                    self.lookup_series_outline_cached(&episode_outline_lookup)
-                        .await?
+                    self.lookup_series_outline_cached(
+                        &episode_outline_lookup,
+                        &local_season_numbers,
+                    )
+                    .await?
                 }
             }
         } else {
@@ -376,8 +434,31 @@ impl MetadataEnrichmentContext {
         lookup: &MetadataLookup,
     ) -> anyhow::Result<Option<RemoteMetadata>> {
         let cache_key = canonical_metadata_request_key(lookup);
-        if let Some(metadata) = self.metadata_cache.get(&cache_key) {
-            return Ok(metadata.clone());
+        if let Some(metadata) = self
+            .caches
+            .metadata
+            .lock()
+            .expect("metadata cache lock")
+            .get(&cache_key)
+            .cloned()
+        {
+            return Ok(metadata);
+        }
+
+        // Cloned enrichment contexts share this per-key lock. Distinct titles
+        // still run concurrently, while identical provider requests collapse
+        // to one call even when separate remote workers miss the cache at the
+        // same instant.
+        let _request_guard = lock_shared_request(&self.caches.metadata_requests, &cache_key).await;
+        if let Some(metadata) = self
+            .caches
+            .metadata
+            .lock()
+            .expect("metadata cache lock")
+            .get(&cache_key)
+            .cloned()
+        {
+            return Ok(metadata);
         }
 
         let metadata = match self.metadata_provider.lookup(lookup).await {
@@ -394,22 +475,47 @@ impl MetadataEnrichmentContext {
             }
         };
 
-        self.metadata_cache.insert(cache_key, metadata.clone());
+        self.caches
+            .metadata
+            .lock()
+            .expect("metadata cache lock")
+            .insert(cache_key, metadata.clone());
         Ok(metadata)
     }
 
     async fn lookup_series_outline_cached(
         &mut self,
         lookup: &MetadataLookup,
+        season_numbers: &[i32],
     ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
-        let cache_key = canonical_metadata_request_key(lookup);
-        if let Some(outline) = self.series_outline_cache.get(&cache_key) {
-            return Ok(outline.clone());
+        let cache_key = series_outline_request_key(lookup, season_numbers);
+        if let Some(outline) = self
+            .caches
+            .series_outline
+            .lock()
+            .expect("series outline cache lock")
+            .get(&cache_key)
+            .cloned()
+        {
+            return Ok(outline);
+        }
+
+        let _request_guard =
+            lock_shared_request(&self.caches.series_outline_requests, &cache_key).await;
+        if let Some(outline) = self
+            .caches
+            .series_outline
+            .lock()
+            .expect("series outline cache lock")
+            .get(&cache_key)
+            .cloned()
+        {
+            return Ok(outline);
         }
 
         let outline = match self
             .metadata_provider
-            .lookup_series_episode_outline(lookup)
+            .lookup_series_episode_outline(lookup, season_numbers)
             .await
         {
             Ok(outline) => outline,
@@ -425,7 +531,53 @@ impl MetadataEnrichmentContext {
             }
         };
 
-        self.series_outline_cache.insert(cache_key, outline.clone());
+        self.caches
+            .series_outline
+            .lock()
+            .expect("series outline cache lock")
+            .insert(cache_key, outline.clone());
+        Ok(outline)
+    }
+
+    async fn lookup_complete_series_outline_cached(
+        &mut self,
+        lookup: &MetadataLookup,
+        season_numbers: &[i32],
+    ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
+        let cache_key = series_outline_request_key(lookup, season_numbers);
+        if let Some(outline) = self
+            .caches
+            .complete_series_outline
+            .lock()
+            .expect("complete series outline cache lock")
+            .get(&cache_key)
+            .cloned()
+        {
+            return Ok(outline);
+        }
+
+        let _request_guard =
+            lock_shared_request(&self.caches.complete_series_outline_requests, &cache_key).await;
+        if let Some(outline) = self
+            .caches
+            .complete_series_outline
+            .lock()
+            .expect("complete series outline cache lock")
+            .get(&cache_key)
+            .cloned()
+        {
+            return Ok(outline);
+        }
+
+        let outline = self
+            .metadata_provider
+            .lookup_complete_series_episode_outline(lookup, season_numbers)
+            .await?;
+        self.caches
+            .complete_series_outline
+            .lock()
+            .expect("complete series outline cache lock")
+            .insert(cache_key, outline.clone());
         Ok(outline)
     }
 
@@ -437,7 +589,10 @@ impl MetadataEnrichmentContext {
         allow_remote_outline: bool,
     ) -> anyhow::Result<()> {
         if allow_remote_outline && self.metadata_provider.is_enabled() {
-            let outline = self.lookup_series_outline_cached(lookup).await?;
+            let season_numbers = local_season_numbers(std::slice::from_ref(file));
+            let outline = self
+                .lookup_series_outline_cached(lookup, &season_numbers)
+                .await?;
             apply_remote_episode_outline_to_file(outline.as_ref(), file);
         }
         Ok(())
@@ -542,8 +697,15 @@ impl MetadataEnrichmentContext {
             return None;
         }
 
-        if let Some(cached_path) = self.artwork_cache.get(source_url) {
-            return cached_path.clone();
+        if let Some(cached_path) = self
+            .caches
+            .artwork
+            .lock()
+            .expect("artwork cache lock")
+            .get(source_url)
+            .cloned()
+        {
+            return cached_path;
         }
 
         let cache_path = build_artwork_cache_path(&self.artwork_cache_dir, source_url, kind);
@@ -551,7 +713,10 @@ impl MetadataEnrichmentContext {
 
         if is_valid_artwork_cache_file(&cache_path).await {
             let cached = Some(cache_path.to_string_lossy().to_string());
-            self.artwork_cache
+            self.caches
+                .artwork
+                .lock()
+                .expect("artwork cache lock")
                 .insert(source_url.to_string(), cached.clone());
             return cached;
         }
@@ -567,7 +732,7 @@ impl MetadataEnrichmentContext {
                     error = ?error,
                     "failed to create artwork cache directory"
                 );
-                self.artwork_cache.insert(source_url.to_string(), None);
+                self.cache_artwork_result(source_url, None);
                 return None;
             }
         }
@@ -581,7 +746,7 @@ impl MetadataEnrichmentContext {
                     error = ?error,
                     "failed to download artwork"
                 );
-                self.artwork_cache.insert(source_url.to_string(), None);
+                self.cache_artwork_result(source_url, None);
                 return None;
             }
         };
@@ -595,7 +760,7 @@ impl MetadataEnrichmentContext {
                     error = ?error,
                     "artwork request returned non-success status"
                 );
-                self.artwork_cache.insert(source_url.to_string(), None);
+                self.cache_artwork_result(source_url, None);
                 return None;
             }
         };
@@ -616,7 +781,7 @@ impl MetadataEnrichmentContext {
                 content_type = ?content_type,
                 "artwork response has an unsupported content type"
             );
-            self.artwork_cache.insert(source_url.to_string(), None);
+            self.cache_artwork_result(source_url, None);
             return None;
         }
         let expected_content_type =
@@ -629,7 +794,7 @@ impl MetadataEnrichmentContext {
                 expected_content_type,
                 "artwork response type does not match its cache file extension"
             );
-            self.artwork_cache.insert(source_url.to_string(), None);
+            self.cache_artwork_result(source_url, None);
             return None;
         }
 
@@ -643,7 +808,7 @@ impl MetadataEnrichmentContext {
                 content_length = response.content_length(),
                 "artwork response exceeds the configured size limit"
             );
-            self.artwork_cache.insert(source_url.to_string(), None);
+            self.cache_artwork_result(source_url, None);
             return None;
         }
 
@@ -663,7 +828,7 @@ impl MetadataEnrichmentContext {
                         error = ?error,
                         "failed to read artwork response body"
                     );
-                    self.artwork_cache.insert(source_url.to_string(), None);
+                    self.cache_artwork_result(source_url, None);
                     return None;
                 }
             };
@@ -676,7 +841,7 @@ impl MetadataEnrichmentContext {
                     source_url,
                     "artwork response exceeded the configured size limit while streaming"
                 );
-                self.artwork_cache.insert(source_url.to_string(), None);
+                self.cache_artwork_result(source_url, None);
                 return None;
             }
             bytes.extend_from_slice(&chunk);
@@ -689,7 +854,7 @@ impl MetadataEnrichmentContext {
                 content_type = ?content_type,
                 "artwork response body does not match its declared image type"
             );
-            self.artwork_cache.insert(source_url.to_string(), None);
+            self.cache_artwork_result(source_url, None);
             return None;
         }
 
@@ -701,14 +866,21 @@ impl MetadataEnrichmentContext {
                 error = ?error,
                 "failed to write artwork cache file"
             );
-            self.artwork_cache.insert(source_url.to_string(), None);
+            self.cache_artwork_result(source_url, None);
             return None;
         }
 
         let cached = Some(cache_path.to_string_lossy().to_string());
-        self.artwork_cache
-            .insert(source_url.to_string(), cached.clone());
+        self.cache_artwork_result(source_url, cached.clone());
         cached
+    }
+
+    fn cache_artwork_result(&self, source_url: &str, value: Option<String>) {
+        self.caches
+            .artwork
+            .lock()
+            .expect("artwork cache lock")
+            .insert(source_url.to_string(), value);
     }
 }
 
@@ -754,6 +926,31 @@ fn canonical_metadata_request_key(lookup: &MetadataLookup) -> MetadataLookup {
         language,
         provider_item_id: None,
     }
+}
+
+fn local_season_numbers(files: &[DiscoveredMediaFile]) -> Vec<i32> {
+    let mut season_numbers = files
+        .iter()
+        .filter_map(|file| file.season_number)
+        .filter(|season_number| *season_number > 0)
+        .collect::<Vec<_>>();
+    season_numbers.sort_unstable();
+    season_numbers.dedup();
+    season_numbers
+}
+
+fn series_outline_request_key(
+    lookup: &MetadataLookup,
+    season_numbers: &[i32],
+) -> (MetadataLookup, Vec<i32>) {
+    let mut season_numbers = season_numbers
+        .iter()
+        .copied()
+        .filter(|season_number| *season_number > 0)
+        .collect::<Vec<_>>();
+    season_numbers.sort_unstable();
+    season_numbers.dedup();
+    (canonical_metadata_request_key(lookup), season_numbers)
 }
 
 fn normalize_metadata_cache_title(value: &str) -> String {
@@ -1646,9 +1843,10 @@ mod tests {
         is_allowed_remote_artwork_url, is_generated_episode_still_path,
         is_generic_backdrop_artwork_path, is_generic_poster_artwork_path,
         metadata_lookup_candidates_with_provider_item_id_hint, needs_remote_metadata,
-        needs_remote_title_refresh, should_replace_episode_artwork, stable_artwork_cache_key,
-        trusted_artwork_bases, MetadataEnrichmentContext, ARTWORK_RESULT_CACHE_CAPACITY,
-        METADATA_LOOKUP_CACHE_CAPACITY, SERIES_OUTLINE_CACHE_CAPACITY,
+        needs_remote_title_refresh, series_outline_request_key, should_replace_episode_artwork,
+        stable_artwork_cache_key, trusted_artwork_bases, MetadataEnrichmentContext,
+        ARTWORK_RESULT_CACHE_CAPACITY, METADATA_LOOKUP_CACHE_CAPACITY,
+        SERIES_OUTLINE_CACHE_CAPACITY,
     };
     use crate::metadata::{
         MetadataLookup, MetadataProvider, MetadataSeasonAirYearHint, NullMetadataProvider,
@@ -1847,7 +2045,7 @@ mod tests {
     #[test]
     fn scan_local_caches_stay_bounded_and_evict_the_oldest_insertion() {
         let provider: Arc<dyn MetadataProvider> = Arc::new(NullMetadataProvider);
-        let mut context = MetadataEnrichmentContext::new(
+        let context = MetadataEnrichmentContext::new(
             std::env::temp_dir().join("mova-bounded-enrichment-cache-test"),
             1,
             provider,
@@ -1863,58 +2061,60 @@ mod tests {
         };
 
         for index in 0..METADATA_LOOKUP_CACHE_CAPACITY {
-            context.metadata_cache.insert(lookup(index), None);
+            context
+                .caches
+                .metadata
+                .lock()
+                .expect("metadata cache lock")
+                .insert(lookup(index), None);
         }
         let oldest_metadata_lookup = lookup(0);
         assert!(context
-            .metadata_cache
+            .caches
+            .metadata
+            .lock()
+            .expect("metadata cache lock")
             .get(&oldest_metadata_lookup)
             .is_some());
         context
-            .metadata_cache
+            .caches
+            .metadata
+            .lock()
+            .expect("metadata cache lock")
             .insert(lookup(METADATA_LOOKUP_CACHE_CAPACITY), None);
-        assert_eq!(context.metadata_cache.len(), METADATA_LOOKUP_CACHE_CAPACITY);
-        assert!(!context.metadata_cache.contains_key(&oldest_metadata_lookup));
-        assert!(context
-            .metadata_cache
-            .contains_key(&lookup(METADATA_LOOKUP_CACHE_CAPACITY)));
+        let metadata_cache = context.caches.metadata.lock().expect("metadata cache lock");
+        assert_eq!(metadata_cache.len(), METADATA_LOOKUP_CACHE_CAPACITY);
+        assert!(!metadata_cache.contains_key(&oldest_metadata_lookup));
+        assert!(metadata_cache.contains_key(&lookup(METADATA_LOOKUP_CACHE_CAPACITY)));
+        drop(metadata_cache);
 
+        let mut outline_cache = context
+            .caches
+            .series_outline
+            .lock()
+            .expect("series outline cache lock");
         for index in 0..SERIES_OUTLINE_CACHE_CAPACITY {
-            context.series_outline_cache.insert(lookup(index), None);
+            outline_cache.insert((lookup(index), vec![1]), None);
         }
-        let oldest_outline_lookup = lookup(0);
-        assert!(context
-            .series_outline_cache
-            .get(&oldest_outline_lookup)
-            .is_some());
-        context
-            .series_outline_cache
-            .insert(lookup(SERIES_OUTLINE_CACHE_CAPACITY), None);
-        assert_eq!(
-            context.series_outline_cache.len(),
-            SERIES_OUTLINE_CACHE_CAPACITY
-        );
-        assert!(!context
-            .series_outline_cache
-            .contains_key(&oldest_outline_lookup));
-        assert!(context
-            .series_outline_cache
-            .contains_key(&lookup(SERIES_OUTLINE_CACHE_CAPACITY)));
+        let oldest_outline_lookup = (lookup(0), vec![1]);
+        assert!(outline_cache.get(&oldest_outline_lookup).is_some());
+        outline_cache.insert((lookup(SERIES_OUTLINE_CACHE_CAPACITY), vec![1]), None);
+        assert_eq!(outline_cache.len(), SERIES_OUTLINE_CACHE_CAPACITY);
+        assert!(!outline_cache.contains_key(&oldest_outline_lookup));
+        assert!(outline_cache.contains_key(&(lookup(SERIES_OUTLINE_CACHE_CAPACITY), vec![1])));
+        drop(outline_cache);
 
+        let mut artwork_cache = context.caches.artwork.lock().expect("artwork cache lock");
         for index in 0..ARTWORK_RESULT_CACHE_CAPACITY {
-            context
-                .artwork_cache
-                .insert(format!("artwork-{index}"), None);
+            artwork_cache.insert(format!("artwork-{index}"), None);
         }
-        assert!(context.artwork_cache.get("artwork-0").is_some());
-        context
-            .artwork_cache
-            .insert(format!("artwork-{ARTWORK_RESULT_CACHE_CAPACITY}"), None);
-        assert_eq!(context.artwork_cache.len(), ARTWORK_RESULT_CACHE_CAPACITY);
-        assert!(!context.artwork_cache.contains_key("artwork-0"));
-        assert!(context
-            .artwork_cache
-            .contains_key(format!("artwork-{ARTWORK_RESULT_CACHE_CAPACITY}").as_str()));
+        assert!(artwork_cache.get("artwork-0").is_some());
+        artwork_cache.insert(format!("artwork-{ARTWORK_RESULT_CACHE_CAPACITY}"), None);
+        assert_eq!(artwork_cache.len(), ARTWORK_RESULT_CACHE_CAPACITY);
+        assert!(!artwork_cache.contains_key("artwork-0"));
+        assert!(
+            artwork_cache.contains_key(format!("artwork-{ARTWORK_RESULT_CACHE_CAPACITY}").as_str())
+        );
     }
 
     #[test]
@@ -2261,6 +2461,7 @@ mod tests {
         let provider = Arc::new(PartialOutlineMetadataProvider {
             complete_lookup_count: AtomicUsize::new(0),
             partial_lookup_count: AtomicUsize::new(0),
+            season_requests: Mutex::new(Vec::new()),
         });
         let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
         let mut context = MetadataEnrichmentContext::new(
@@ -2269,7 +2470,11 @@ mod tests {
             provider_for_context,
             "zh-CN".to_string(),
         );
-        let mut files = vec![build_discovered_episode()];
+        let first_season = build_discovered_episode();
+        let mut third_season = first_season.clone();
+        third_season.file_path = PathBuf::from("/media/series/Show/Season 03/Show.S03E01.mkv");
+        third_season.season_number = Some(3);
+        let mut files = vec![first_season, third_season];
 
         let outcome = context
             .enrich_group_with_progress("series", &mut files, None, |_, _| {})
@@ -2289,6 +2494,10 @@ mod tests {
         );
         assert_eq!(provider.complete_lookup_count.load(Ordering::SeqCst), 1);
         assert_eq!(provider.partial_lookup_count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            *provider.season_requests.lock().expect("season requests"),
+            vec![vec![1, 3], vec![1, 3]]
+        );
     }
 
     #[tokio::test]
@@ -2420,6 +2629,43 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(provider.lookup_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn cloned_contexts_collapse_concurrent_identical_provider_requests() {
+        let provider = Arc::new(DelayedCountingMetadataProvider {
+            lookup_count: AtomicUsize::new(0),
+        });
+        let provider_for_context: Arc<dyn MetadataProvider> = provider.clone();
+        let mut first_context = MetadataEnrichmentContext::new(
+            std::env::temp_dir().join("mova-concurrent-enrichment-cache-test"),
+            1,
+            provider_for_context,
+            "zh-CN".to_string(),
+        );
+        let mut second_context = first_context.clone();
+        let lookup = MetadataLookup {
+            title: "Shared title".to_string(),
+            year: Some(2025),
+            season_air_year: None,
+            library_type: "movie".to_string(),
+            language: Some("zh-CN".to_string()),
+            provider_item_id: None,
+        };
+
+        let (first_result, second_result) = tokio::join!(
+            first_context.lookup_remote_metadata_cached(&lookup),
+            second_context.lookup_remote_metadata_cached(&lookup),
+        );
+        let first_result = first_result.expect("first request");
+        let second_result = second_result.expect("second request");
+
+        assert_eq!(first_result, second_result);
+        assert_eq!(
+            first_result.and_then(|metadata| metadata.provider_item_id),
+            Some("259909".to_string())
+        );
         assert_eq!(provider.lookup_count.load(Ordering::SeqCst), 1);
     }
 
@@ -2627,9 +2873,28 @@ mod tests {
     }
 
     #[derive(Debug)]
+    struct DelayedCountingMetadataProvider {
+        lookup_count: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl MetadataProvider for DelayedCountingMetadataProvider {
+        async fn lookup(&self, _lookup: &MetadataLookup) -> anyhow::Result<Option<RemoteMetadata>> {
+            self.lookup_count.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            Ok(Some(RemoteMetadata {
+                provider_item_id: Some("259909".to_string()),
+                title: Some("Shared result".to_string()),
+                ..RemoteMetadata::default()
+            }))
+        }
+    }
+
+    #[derive(Debug)]
     struct PartialOutlineMetadataProvider {
         complete_lookup_count: AtomicUsize,
         partial_lookup_count: AtomicUsize,
+        season_requests: Mutex<Vec<Vec<i32>>>,
     }
 
     #[async_trait]
@@ -2645,8 +2910,13 @@ mod tests {
         async fn lookup_series_episode_outline(
             &self,
             _lookup: &MetadataLookup,
+            season_numbers: &[i32],
         ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
             self.partial_lookup_count.fetch_add(1, Ordering::SeqCst);
+            self.season_requests
+                .lock()
+                .expect("season requests")
+                .push(season_numbers.to_vec());
             Ok(Some(RemoteSeriesEpisodeOutline {
                 seasons: vec![RemoteSeriesSeason {
                     season_number: 1,
@@ -2664,8 +2934,13 @@ mod tests {
         async fn lookup_complete_series_episode_outline(
             &self,
             _lookup: &MetadataLookup,
+            season_numbers: &[i32],
         ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
             self.complete_lookup_count.fetch_add(1, Ordering::SeqCst);
+            self.season_requests
+                .lock()
+                .expect("season requests")
+                .push(season_numbers.to_vec());
             anyhow::bail!("one TMDB season request failed")
         }
     }
@@ -2699,6 +2974,7 @@ mod tests {
         async fn lookup_series_episode_outline(
             &self,
             _lookup: &MetadataLookup,
+            _season_numbers: &[i32],
         ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
             Ok(Some(RemoteSeriesEpisodeOutline {
                 seasons: vec![RemoteSeriesSeason {
@@ -2728,6 +3004,7 @@ mod tests {
         async fn lookup_series_episode_outline(
             &self,
             _lookup: &MetadataLookup,
+            _season_numbers: &[i32],
         ) -> anyhow::Result<Option<RemoteSeriesEpisodeOutline>> {
             Ok(Some(RemoteSeriesEpisodeOutline {
                 seasons: vec![RemoteSeriesSeason {
@@ -2759,6 +3036,19 @@ mod tests {
             language: Some("zh-CN".to_string()),
             provider_item_id: Some("123".to_string()),
         }
+    }
+
+    #[test]
+    fn series_outline_cache_key_normalizes_local_seasons() {
+        let (lookup, season_numbers) =
+            series_outline_request_key(&series_lookup(), &[3, 1, 3, 0, -1, 2]);
+
+        assert_eq!(season_numbers, vec![1, 2, 3]);
+        assert_eq!(lookup.provider_item_id.as_deref(), Some("123"));
+        assert_eq!(lookup.library_type, "series");
+        assert_eq!(lookup.language.as_deref(), Some("zh-cn"));
+        assert!(lookup.title.is_empty());
+        assert_eq!(lookup.year, None);
     }
 
     fn build_discovered_episode() -> DiscoveredMediaFile {

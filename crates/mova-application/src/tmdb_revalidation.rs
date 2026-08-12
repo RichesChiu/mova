@@ -218,8 +218,14 @@ pub async fn execute_tmdb_metadata_revalidation(
         .await;
     let mut materialized_artwork_paths = remote_artwork_paths(&remote_metadata);
     let mut remote_series_outline = if target.media_type == "series" {
+        let local_season_numbers = target
+            .seasons
+            .iter()
+            .map(|season| season.season_number)
+            .filter(|season_number| *season_number > 0)
+            .collect::<Vec<_>>();
         match metadata_provider
-            .lookup_complete_series_episode_outline(&lookup)
+            .lookup_complete_series_episode_outline(&lookup, &local_season_numbers)
             .await
         {
             Ok(Some(outline)) => Some(outline),
@@ -233,7 +239,7 @@ pub async fn execute_tmdb_metadata_revalidation(
                 )
                 .await;
                 return Err(anyhow::anyhow!(
-                    "TMDB series {} omitted its complete season and episode outline",
+                    "TMDB series {} omitted the season and episode outline requested for local seasons",
                     input.expected_provider_item_id
                 ));
             }

@@ -508,8 +508,15 @@ pub(super) async fn inspect_incremental_scan_files(
     changed_files: Vec<IncrementalScanFile>,
     cancellation_flag: Arc<AtomicBool>,
 ) -> ApplicationResult<InspectIncrementalScanFilesOutcome> {
-    inspect_incremental_scan_files_with_root(changed_files, None, None, None, cancellation_flag)
-        .await
+    inspect_incremental_scan_files_with_root(
+        changed_files,
+        None,
+        None,
+        None,
+        None,
+        cancellation_flag,
+    )
+    .await
 }
 
 pub(super) async fn inspect_incremental_scan_files_within_root(
@@ -517,6 +524,7 @@ pub(super) async fn inspect_incremental_scan_files_within_root(
     root_path: PathBuf,
     eligible_generic_movie_nfo_sources: HashSet<PathBuf>,
     eligible_series_nfo_sources: HashSet<PathBuf>,
+    subtitle_index: Arc<mova_scan::SubtitleDirectoryIndex>,
     cancellation_flag: Arc<AtomicBool>,
 ) -> ApplicationResult<InspectIncrementalScanFilesOutcome> {
     inspect_incremental_scan_files_with_root(
@@ -524,6 +532,7 @@ pub(super) async fn inspect_incremental_scan_files_within_root(
         Some(root_path),
         Some(eligible_generic_movie_nfo_sources),
         Some(eligible_series_nfo_sources),
+        Some(subtitle_index),
         cancellation_flag,
     )
     .await
@@ -534,16 +543,19 @@ async fn inspect_incremental_scan_files_with_root(
     root_path: Option<PathBuf>,
     eligible_generic_movie_nfo_sources: Option<HashSet<PathBuf>>,
     eligible_series_nfo_sources: Option<HashSet<PathBuf>>,
+    subtitle_index: Option<Arc<mova_scan::SubtitleDirectoryIndex>>,
     cancellation_flag: Arc<AtomicBool>,
 ) -> ApplicationResult<InspectIncrementalScanFilesOutcome> {
     tokio::task::spawn_blocking(move || {
         let mut discovered_files = Vec::with_capacity(changed_files.len());
         let mut series_sidecars = HashMap::<String, mova_scan::LocalNfoObservation>::new();
-        let subtitle_index = mova_scan::SubtitleDirectoryIndex::build(
-            changed_files
-                .iter()
-                .map(|file| file.inventory.file_path.as_path()),
-        );
+        let subtitle_index = subtitle_index.unwrap_or_else(|| {
+            Arc::new(mova_scan::SubtitleDirectoryIndex::build(
+                changed_files
+                    .iter()
+                    .map(|file| file.inventory.file_path.as_path()),
+            ))
+        });
 
         for changed_file in changed_files {
             if is_cancelled(&cancellation_flag) {
@@ -585,14 +597,14 @@ async fn inspect_incremental_scan_files_with_root(
                     mova_scan::inspect_media_file_inventory_within_root_with_cancel_and_subtitle_index_and_nfo_policy(
                         changed_file.inventory,
                         root_path,
-                        &subtitle_index,
+                        subtitle_index.as_ref(),
                         allow_generic_movie_nfo,
                         || is_cancelled(&cancellation_flag),
                     )
                 }
                 None => mova_scan::inspect_media_file_inventory_with_cancel_and_subtitle_index(
                     changed_file.inventory,
-                    &subtitle_index,
+                    subtitle_index.as_ref(),
                     || is_cancelled(&cancellation_flag),
                 ),
             };

@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use mova_domain::{
     METADATA_FAILURE_PROVIDER_DISABLED, METADATA_FAILURE_PROVIDER_ERROR, METADATA_STATUS_MATCHED,
 };
-use sqlx::{postgres::PgPool, Postgres, Row, Transaction};
+use sqlx::{postgres::PgPool, Postgres, QueryBuilder, Row, Transaction};
 use std::collections::{HashMap, HashSet};
 
 use crate::{
@@ -27,6 +27,12 @@ pub struct SyncLibraryMediaBestEffortOutcome {
     pub removed_count: usize,
     pub upserted_count: usize,
     pub failed_count: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScanGroupCommitOutcome {
+    pub upserted_count: usize,
+    pub scan_job: mova_domain::ScanJob,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,11 +238,17 @@ pub async fn sync_library_media_changes(
     .await
     .context("failed to reconcile local metadata source paths")?;
 
+    // Group commits intentionally defer whole-library orphan cleanup to this
+    // authoritative finalization transaction. Running it once per scan avoids
+    // two full-library anti-join deletes for every local and remote group.
+    let removed_orphan_structure_count =
+        series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
+
     if outcome.removed_count > 0
         || outcome.upserted_count > 0
         || removed_local_metadata_source_count > 0
+        || removed_orphan_structure_count > 0
     {
-        series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
         sqlx::query("select mova_bump_realtime_revision($1)")
             .bind(format!("library:{library_id}:catalog"))
             .fetch_one(&mut *tx)
@@ -249,6 +261,52 @@ pub async fn sync_library_media_changes(
         .context("failed to commit authoritative media reconciliation")?;
 
     Ok(outcome)
+}
+
+/// Cleans hierarchy left by scan groups when a pipeline exits before the
+/// authoritative final reconciliation. The same fencing rule prevents a
+/// stale worker from cleaning data owned by a replacement scan.
+pub async fn cleanup_library_orphan_series_after_scan(
+    pool: &PgPool,
+    library_id: i64,
+    scan_job_id: i64,
+    fence: &BackgroundJobFence,
+    allow_cancel_requested: bool,
+) -> Result<usize> {
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to start interrupted scan hierarchy cleanup")?;
+    lock_library_scan_background_job_fence(
+        &mut tx,
+        fence,
+        scan_job_id,
+        Some(library_id),
+        if allow_cancel_requested {
+            LibraryScanFenceMode::Active
+        } else {
+            LibraryScanFenceMode::Running
+        },
+    )
+    .await?;
+    lock_library_tmdb_artwork_reference_write(&mut tx, library_id).await?;
+    sqlx::query("select set_config('mova.defer_catalog_revision', 'on', true)")
+        .fetch_one(&mut *tx)
+        .await
+        .context("failed to defer catalog revision during hierarchy cleanup")?;
+
+    let removed_count = series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
+    if removed_count > 0 {
+        sqlx::query("select mova_bump_realtime_revision($1)")
+            .bind(format!("library:{library_id}:catalog"))
+            .fetch_one(&mut *tx)
+            .await
+            .context("failed to bump catalog revision after hierarchy cleanup")?;
+    }
+    tx.commit()
+        .await
+        .context("failed to commit interrupted scan hierarchy cleanup")?;
+    Ok(removed_count)
 }
 
 fn validate_authoritative_discovery(
@@ -307,6 +365,59 @@ pub async fn upsert_library_media_entries_by_file_path(
     if entries.is_empty() {
         return Ok(0);
     }
+    Ok(upsert_library_media_entries_by_file_path_internal(
+        pool,
+        scan_job_id,
+        library_id,
+        group_key,
+        stage,
+        entries,
+        fence,
+        true,
+    )
+    .await?
+    .upserted_count)
+}
+
+/// Scan-pipeline variant that returns the authoritative task counters written
+/// by the same transaction and defers whole-library orphan cleanup to the
+/// final reconciliation transaction.
+pub async fn upsert_library_media_entries_by_file_path_with_progress(
+    pool: &PgPool,
+    scan_job_id: i64,
+    library_id: i64,
+    group_key: &str,
+    stage: ScanGroupCommitStage,
+    entries: &[CreateMediaEntryParams],
+    fence: &BackgroundJobFence,
+) -> Result<ScanGroupCommitOutcome> {
+    upsert_library_media_entries_by_file_path_internal(
+        pool,
+        scan_job_id,
+        library_id,
+        group_key,
+        stage,
+        entries,
+        fence,
+        false,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn upsert_library_media_entries_by_file_path_internal(
+    pool: &PgPool,
+    scan_job_id: i64,
+    library_id: i64,
+    group_key: &str,
+    stage: ScanGroupCommitStage,
+    entries: &[CreateMediaEntryParams],
+    fence: &BackgroundJobFence,
+    cleanup_orphans: bool,
+) -> Result<ScanGroupCommitOutcome> {
+    if entries.is_empty() {
+        anyhow::bail!("scan group media upsert requires at least one entry");
+    }
 
     let mut tx = pool
         .begin()
@@ -328,14 +439,21 @@ pub async fn upsert_library_media_entries_by_file_path(
         .context("failed to defer row-level catalog revisions for scan group")?;
 
     let preserve_existing_parent = should_preserve_existing_parent(stage, entries);
+    let entry_paths = entries
+        .iter()
+        .map(|entry| entry.file_path.clone())
+        .collect::<Vec<_>>();
+    let mut existing_by_path =
+        list_library_media_files_for_paths(&mut tx, library_id, &entry_paths).await?;
     for entry in entries_ordered_for_local_metadata(entries) {
-        let existing =
-            get_existing_library_media_file_by_path(&mut tx, library_id, &entry.file_path).await?;
+        let existing = existing_by_path.remove(entry.file_path.as_str());
         upsert_media_entry_with_policy(&mut tx, entry, existing, preserve_existing_parent).await?;
     }
 
-    series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
-    advance_scan_group_progress(
+    if cleanup_orphans {
+        series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
+    }
+    let scan_job = advance_scan_group_progress(
         &mut tx,
         scan_job_id,
         group_key,
@@ -352,7 +470,10 @@ pub async fn upsert_library_media_entries_by_file_path(
         .await
         .context("failed to commit scan group media upsert transaction")?;
 
-    Ok(entries.len())
+    Ok(ScanGroupCommitOutcome {
+        upserted_count: entries.len(),
+        scan_job,
+    })
 }
 
 /// Persist unselected sidecars before the selected projection. This keeps the
@@ -392,6 +513,51 @@ pub async fn patch_library_media_entries_remote_by_file_path(
     if entries.is_empty() {
         return Ok(0);
     }
+    Ok(patch_library_media_entries_remote_by_file_path_internal(
+        pool,
+        scan_job_id,
+        library_id,
+        group_key,
+        entries,
+        fence,
+        true,
+    )
+    .await?
+    .upserted_count)
+}
+
+pub async fn patch_library_media_entries_remote_by_file_path_with_progress(
+    pool: &PgPool,
+    scan_job_id: i64,
+    library_id: i64,
+    group_key: &str,
+    entries: &[CreateMediaEntryParams],
+    fence: &BackgroundJobFence,
+) -> Result<ScanGroupCommitOutcome> {
+    patch_library_media_entries_remote_by_file_path_internal(
+        pool,
+        scan_job_id,
+        library_id,
+        group_key,
+        entries,
+        fence,
+        false,
+    )
+    .await
+}
+
+async fn patch_library_media_entries_remote_by_file_path_internal(
+    pool: &PgPool,
+    scan_job_id: i64,
+    library_id: i64,
+    group_key: &str,
+    entries: &[CreateMediaEntryParams],
+    fence: &BackgroundJobFence,
+    cleanup_orphans: bool,
+) -> Result<ScanGroupCommitOutcome> {
+    if entries.is_empty() {
+        anyhow::bail!("remote scan patch requires at least one entry");
+    }
 
     let mut tx = pool
         .begin()
@@ -413,6 +579,12 @@ pub async fn patch_library_media_entries_remote_by_file_path(
 
     let preserve_existing_parent =
         should_preserve_existing_parent(ScanGroupCommitStage::Remote, entries);
+    let entry_paths = entries
+        .iter()
+        .map(|entry| entry.file_path.clone())
+        .collect::<Vec<_>>();
+    let mut existing_by_path =
+        list_library_media_files_for_paths(&mut tx, library_id, &entry_paths).await?;
     for entry in entries {
         if entry.library_id != library_id {
             anyhow::bail!(
@@ -420,15 +592,14 @@ pub async fn patch_library_media_entries_remote_by_file_path(
                 entry.library_id
             );
         }
-        let existing =
-            get_existing_library_media_file_by_path(&mut tx, library_id, &entry.file_path)
-                .await?
-                .with_context(|| {
-                    format!(
-                        "remote scan patch requires a locally committed media path: {}",
-                        entry.file_path
-                    )
-                })?;
+        let existing = existing_by_path
+            .remove(entry.file_path.as_str())
+            .with_context(|| {
+                format!(
+                    "remote scan patch requires a locally committed media path: {}",
+                    entry.file_path
+                )
+            })?;
         if entry.media_type.eq_ignore_ascii_case("episode") {
             series::patch_episode_remote_entry(&mut tx, entry, existing, preserve_existing_parent)
                 .await?;
@@ -442,8 +613,10 @@ pub async fn patch_library_media_entries_remote_by_file_path(
         }
     }
 
-    series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
-    advance_scan_group_progress(
+    if cleanup_orphans {
+        series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
+    }
+    let scan_job = advance_scan_group_progress(
         &mut tx,
         scan_job_id,
         group_key,
@@ -460,7 +633,10 @@ pub async fn patch_library_media_entries_remote_by_file_path(
         .await
         .context("failed to commit scan group remote patch transaction")?;
 
-    Ok(entries.len())
+    Ok(ScanGroupCommitOutcome {
+        upserted_count: entries.len(),
+        scan_job,
+    })
 }
 
 async fn patch_movie_remote_entry(
@@ -652,7 +828,7 @@ async fn advance_scan_group_progress(
     group_key: &str,
     file_count: i32,
     stage: ScanGroupCommitStage,
-) -> Result<()> {
+) -> Result<mova_domain::ScanJob> {
     let previous = sqlx::query_as::<_, (i32, bool, bool, bool)>(
         r#"
         select file_count, local_analyzed, local_committed, remote_completed
@@ -738,7 +914,7 @@ async fn advance_scan_group_progress(
         .context("failed to checkpoint remote scan group completion")?,
     };
 
-    let result = sqlx::query(
+    let counter_update = sqlx::query(
         r#"
         update scan_jobs
         set phase = 'processing',
@@ -765,13 +941,13 @@ async fn advance_scan_group_progress(
     .execute(&mut **tx)
     .await
     .context("failed to advance scan group work counters")?;
-    if result.rows_affected() != 1 {
+    if counter_update.rows_affected() != 1 {
         anyhow::bail!(
             "scan job {scan_job_id} is no longer running while committing group {group_key}"
         );
     }
 
-    let result = sqlx::query(
+    let row = sqlx::query(
         r#"
         update scan_jobs
         set progress_percent = greatest(
@@ -788,19 +964,31 @@ async fn advance_scan_group_progress(
         )
         where id = $1
           and status = 'running'
+        returning
+            id,
+            library_id,
+            status,
+            phase,
+            total_files,
+            scanned_files,
+            local_analyzed_files,
+            local_committed_files,
+            remote_completed_files,
+            progress_percent,
+            created_at,
+            started_at,
+            finished_at,
+            error_message
         "#,
     )
     .bind(scan_job_id)
-    .execute(&mut **tx)
+    .fetch_optional(&mut **tx)
     .await
     .context("failed to calculate authoritative scan pipeline progress")?;
-    if result.rows_affected() != 1 {
-        anyhow::bail!(
-            "scan job {scan_job_id} is no longer running while calculating group progress"
-        );
-    }
-
-    Ok(())
+    row.map(crate::scan_jobs::map_scan_job_row)
+        .with_context(|| {
+            format!("scan job {scan_job_id} is no longer running while calculating group progress")
+        })
 }
 
 /// 删除某个库中指定文件路径对应的媒体记录。
@@ -1346,6 +1534,48 @@ pub(super) async fn list_library_media_files_for_sync(
         .collect())
 }
 
+async fn list_library_media_files_for_paths(
+    tx: &mut Transaction<'_, Postgres>,
+    library_id: i64,
+    file_paths: &[String],
+) -> Result<HashMap<String, ExistingLibraryMediaFileRecord>> {
+    if file_paths.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let rows = sqlx::query(
+        r#"
+        select
+            mi.id as media_item_id,
+            mf.id as media_file_id,
+            mi.media_type,
+            mf.file_path
+        from media_files mf
+        join media_items mi on mi.id = mf.media_item_id
+        where mf.library_id = $1
+          and mf.file_path = any($2)
+        "#,
+    )
+    .bind(library_id)
+    .bind(file_paths)
+    .fetch_all(&mut **tx)
+    .await
+    .context("failed to prefetch existing scan-group media files")?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let record = ExistingLibraryMediaFileRecord {
+                media_item_id: row.get("media_item_id"),
+                media_file_id: row.get("media_file_id"),
+                media_type: row.get("media_type"),
+                file_path: row.get("file_path"),
+            };
+            (record.file_path.clone(), record)
+        })
+        .collect())
+}
+
 pub(super) async fn get_existing_library_media_file_by_path(
     tx: &mut Transaction<'_, Postgres>,
     library_id: i64,
@@ -1747,8 +1977,8 @@ async fn replace_audio_tracks_for_media_file_tx(
     .await
     .context("failed to delete audio tracks during media sync")?;
 
-    for audio_track in audio_tracks {
-        sqlx::query(
+    if !audio_tracks.is_empty() {
+        let mut query = QueryBuilder::<Postgres>::new(
             r#"
             insert into audio_tracks (
                 media_file_id,
@@ -1761,23 +1991,26 @@ async fn replace_audio_tracks_for_media_file_tx(
                 bitrate,
                 sample_rate,
                 is_default
-            )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            "#,
-        )
-        .bind(media_file_id)
-        .bind(audio_track.stream_index)
-        .bind(&audio_track.language)
-        .bind(&audio_track.audio_codec)
-        .bind(&audio_track.label)
-        .bind(&audio_track.channel_layout)
-        .bind(audio_track.channels)
-        .bind(audio_track.bitrate)
-        .bind(audio_track.sample_rate)
-        .bind(audio_track.is_default)
-        .execute(&mut **tx)
-        .await
-        .context("failed to insert audio track during media sync")?;
+            ) "#,
+        );
+        query.push_values(audio_tracks, |mut values, audio_track| {
+            values
+                .push_bind(media_file_id)
+                .push_bind(audio_track.stream_index)
+                .push_bind(&audio_track.language)
+                .push_bind(&audio_track.audio_codec)
+                .push_bind(&audio_track.label)
+                .push_bind(&audio_track.channel_layout)
+                .push_bind(audio_track.channels)
+                .push_bind(audio_track.bitrate)
+                .push_bind(audio_track.sample_rate)
+                .push_bind(audio_track.is_default);
+        });
+        query
+            .build()
+            .execute(&mut **tx)
+            .await
+            .context("failed to batch insert audio tracks during media sync")?;
     }
 
     Ok(())
@@ -1799,8 +2032,8 @@ async fn replace_subtitle_files_for_media_file_tx(
     .await
     .context("failed to delete subtitle files during media sync")?;
 
-    for subtitle in subtitles {
-        sqlx::query(
+    if !subtitles.is_empty() {
+        let mut query = QueryBuilder::<Postgres>::new(
             r#"
             insert into subtitle_files (
                 media_file_id,
@@ -1813,23 +2046,26 @@ async fn replace_subtitle_files_for_media_file_tx(
                 is_default,
                 is_forced,
                 is_hearing_impaired
-            )
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            "#,
-        )
-        .bind(media_file_id)
-        .bind(&subtitle.source_kind)
-        .bind(&subtitle.file_path)
-        .bind(subtitle.stream_index)
-        .bind(&subtitle.language)
-        .bind(&subtitle.subtitle_format)
-        .bind(&subtitle.label)
-        .bind(subtitle.is_default)
-        .bind(subtitle.is_forced)
-        .bind(subtitle.is_hearing_impaired)
-        .execute(&mut **tx)
-        .await
-        .context("failed to insert subtitle file during media sync")?;
+            ) "#,
+        );
+        query.push_values(subtitles, |mut values, subtitle| {
+            values
+                .push_bind(media_file_id)
+                .push_bind(&subtitle.source_kind)
+                .push_bind(&subtitle.file_path)
+                .push_bind(subtitle.stream_index)
+                .push_bind(&subtitle.language)
+                .push_bind(&subtitle.subtitle_format)
+                .push_bind(&subtitle.label)
+                .push_bind(subtitle.is_default)
+                .push_bind(subtitle.is_forced)
+                .push_bind(subtitle.is_hearing_impaired);
+        });
+        query
+            .build()
+            .execute(&mut **tx)
+            .await
+            .context("failed to batch insert subtitle files during media sync")?;
     }
 
     Ok(())
