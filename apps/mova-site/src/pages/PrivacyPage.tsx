@@ -1,5 +1,5 @@
 import { useI18n } from '../i18n-context'
-import './LegalPage.css'
+import './LegalPage.scss'
 
 const supportEmail = 'riches.chiu@gmail.com'
 

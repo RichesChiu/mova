@@ -1,6 +1,6 @@
 import { MovaIcon } from '../components/MovaIcon'
 import { useI18n } from '../i18n-context'
-import './ApiDocsPage.css'
+import './ApiDocsPage.scss'
 import {
   apiCommonNotes,
   apiEndpointGroups,

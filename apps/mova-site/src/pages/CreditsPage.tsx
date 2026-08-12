@@ -1,5 +1,5 @@
 import { useI18n } from '../i18n-context'
-import './LegalPage.css'
+import './LegalPage.scss'
 
 const TMDB_HOME_URL = 'https://www.themoviedb.org'
 const TMDB_LOGO_PATH = '/assets/tmdb/tmdb-logo-blue-short.svg'

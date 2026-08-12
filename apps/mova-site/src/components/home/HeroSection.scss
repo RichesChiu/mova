@@ -1,3 +1,5 @@
+@use '../../styles/tokens' as t;
+
 @layer redesign {
   .hero-section {
     position: relative;
@@ -68,14 +70,17 @@
     min-height: 48px;
     padding: 0 22px;
     border: 1px solid transparent;
-    border-radius: 10px;
+    border-radius: t.$radius-control;
     appearance: none;
     font: inherit;
     font-size: 14px;
     font-weight: 800;
     text-decoration: none;
     cursor: pointer;
-    transition: transform 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    transition:
+      transform t.$motion-fast t.$ease-standard,
+      box-shadow t.$motion-fast t.$ease-standard,
+      background t.$motion-fast t.$ease-standard;
   }
 
   .hero-actions > :is(a, button):hover {
@@ -208,7 +213,7 @@
     }
   }
 
-  @media (max-width: 1120px) {
+  @media (max-width: t.$breakpoint-wide) {
     .hero-stage {
       grid-template-columns: minmax(340px, 0.85fr) minmax(460px, 1.15fr);
       gap: 34px;
@@ -219,7 +224,7 @@
     }
   }
 
-  @media (max-width: 900px) {
+  @media (max-width: t.$breakpoint-tablet) {
     .hero-stage {
       grid-template-columns: 1fr;
       padding-top: 62px;
@@ -242,13 +247,13 @@
     }
   }
 
-  @media (max-width: 760px) {
+  @media (max-width: t.$breakpoint-navigation) {
     .hero-actions > :is(a, button) {
       width: 100%;
     }
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: t.$breakpoint-mobile) {
     .hero-stage {
       gap: 44px;
       min-height: auto;

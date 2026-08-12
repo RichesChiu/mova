@@ -1,3 +1,5 @@
+@use '../styles/tokens' as t;
+
 .site-footer {
   border-top: 1px solid var(--line, #e7eaf2);
   background: #fff;
@@ -42,7 +44,7 @@
   color: var(--brand, #6748f5);
 }
 
-@media (max-width: 720px) {
+@media (max-width: t.$breakpoint-compact) {
   .site-footer-inner {
     flex-direction: column;
     gap: 10px;

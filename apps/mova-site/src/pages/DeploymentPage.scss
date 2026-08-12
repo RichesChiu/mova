@@ -1,3 +1,5 @@
+@use '../styles/tokens' as t;
+
 @layer redesign {
   .deploy-page {
     min-height: 100svh;
@@ -62,7 +64,7 @@
     min-height: 46px;
     padding: 0 18px;
     border: 1px solid #dfe3ec;
-    border-radius: 10px;
+    border-radius: t.$radius-control;
     color: var(--ink);
     background: #ffffff;
     box-shadow: 0 10px 24px rgba(30, 40, 76, 0.05);
@@ -92,7 +94,7 @@
   .deploy-code {
     margin: 0;
     overflow: visible;
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    font-family: t.$font-mono;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     word-break: break-word;
@@ -217,7 +219,7 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     color: #929dbb;
     background: #151e34;
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: t.$font-mono;
     font-size: 12px;
     font-weight: 750;
   }
@@ -309,7 +311,7 @@
     border-radius: 8px;
     color: #4338a8;
     background: rgba(103, 75, 226, 0.05);
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: t.$font-mono;
     font-size: 11px;
     line-height: 1.7;
     overflow-wrap: anywhere;
@@ -392,19 +394,19 @@
 
   .deploy-after-grid strong {
     color: #4f46c7;
-    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-family: t.$font-mono;
     font-size: 13px;
     overflow-wrap: anywhere;
   }
 
-  @media (max-width: 1120px) {
+  @media (max-width: t.$breakpoint-wide) {
     .deploy-requirement-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
   }
 
-  @media (max-width: 720px) {
+  @media (max-width: t.$breakpoint-compact) {
     .deploy-page {
       padding-bottom: 56px;
     }

@@ -1,3 +1,5 @@
+@use '../styles/tokens' as t;
+
 @layer redesign {
   .api-page {
     min-height: 100svh;
@@ -54,7 +56,7 @@
     min-height: 48px;
     padding: 0 20px;
     border: 1px solid #dfe3ec;
-    border-radius: 10px;
+    border-radius: t.$radius-control;
     color: var(--ink);
     background: #ffffff;
     box-shadow: 0 10px 24px rgba(30, 40, 76, 0.05);
@@ -63,7 +65,9 @@
     font-weight: 800;
     text-decoration: none;
     cursor: pointer;
-    transition: transform 180ms ease, box-shadow 180ms ease;
+    transition:
+      transform t.$motion-fast t.$ease-standard,
+      box-shadow t.$motion-fast t.$ease-standard;
   }
 
   .api-hero-actions > :is(a, button):hover { transform: translateY(-2px); }
@@ -144,7 +148,7 @@
     min-height: 26px;
     padding: 0 10px;
     border: 1px solid #dce9e2;
-    border-radius: 999px;
+    border-radius: t.$radius-full;
     color: #397357;
     background: #f3fbf6;
     font-size: 11px;
@@ -397,7 +401,7 @@
     border-radius: 9px;
     color: #e8edff;
     background: #11192c;
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    font-family: t.$font-mono;
     font-size: 12px;
     line-height: 1.7;
   }
@@ -459,7 +463,7 @@
     min-width: 0;
     overflow-wrap: anywhere;
     color: #202945;
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    font-family: t.$font-mono;
     font-size: 11px;
     font-weight: 800;
   }
@@ -483,7 +487,9 @@
     border: 1px solid #e5e8ef;
     border-radius: 10px;
     background: #ffffff;
-    transition: border-color 160ms ease, background 160ms ease;
+    transition:
+      border-color t.$motion-fast t.$ease-standard,
+      background t.$motion-fast t.$ease-standard;
   }
 
   .endpoint-row:hover {
@@ -515,7 +521,7 @@
     min-width: 0;
     overflow-wrap: anywhere;
     color: #202945;
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    font-family: t.$font-mono;
     font-size: 12px;
     font-weight: 800;
   }
@@ -540,13 +546,13 @@
     margin: 0;
     padding-left: 22px;
     color: #313b58;
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+    font-family: t.$font-mono;
     font-size: 12px;
     font-weight: 760;
     line-height: 1.55;
   }
 
-  @media (max-width: 1120px) {
+  @media (max-width: t.$breakpoint-wide) {
     .api-hero { grid-template-columns: 1fr; gap: 40px; }
     .api-hero-panel { max-width: 760px; }
     .api-source-notice { grid-template-columns: 1fr; }
@@ -569,7 +575,7 @@
     .api-error-code-list p { grid-column: 2; }
   }
 
-  @media (max-width: 720px) {
+  @media (max-width: t.$breakpoint-compact) {
     .api-page { padding-bottom: 56px; }
 
     .api-hero {

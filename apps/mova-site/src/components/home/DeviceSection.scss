@@ -1,3 +1,5 @@
+@use '../../styles/tokens' as t;
+
 @layer redesign {
   .platform-section {
     padding: 0 0 50px;
@@ -295,7 +297,7 @@
     font-size: 13px;
   }
 
-  @media (max-width: 1280px) {
+  @media (max-width: t.$breakpoint-desktop) {
     .device-grid {
       gap: 24px;
       width: min(calc(100% - (var(--page-gutter) * 2)), 1120px);
@@ -307,7 +309,7 @@
     }
   }
 
-  @media (max-width: 1120px) {
+  @media (max-width: t.$breakpoint-wide) {
     .macos-showcase {
       grid-template-columns: minmax(280px, 0.64fr) minmax(560px, 1.36fr);
       gap: 24px;
@@ -318,7 +320,7 @@
     }
   }
 
-  @media (max-width: 900px) {
+  @media (max-width: t.$breakpoint-tablet) {
     .macos-showcase {
       grid-template-columns: 1fr;
       padding-top: 72px;
@@ -339,7 +341,7 @@
     }
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: t.$breakpoint-mobile) {
     .platform-section {
       padding-bottom: 36px;
     }

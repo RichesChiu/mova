@@ -1,4 +1,4 @@
-import './MovaIcon.css'
+import './MovaIcon.scss'
 
 const ICON_SPRITE = '/assets/mova-icons/sprite/mova-icons-sprite.svg'
 

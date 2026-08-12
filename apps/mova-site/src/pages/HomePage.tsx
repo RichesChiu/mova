@@ -1,7 +1,7 @@
 import { DeviceSection } from '../components/home/DeviceSection'
 import { FeatureSection } from '../components/home/FeatureSection'
 import { HeroSection } from '../components/home/HeroSection'
-import './HomePage.css'
+import './HomePage.scss'
 
 export function HomePage({
   onOpenDeployment,

@@ -1,7 +1,7 @@
 import { MovaIcon } from '../MovaIcon'
 import { heroBadges } from '../../data/homeContent'
 import { useI18n } from '../../i18n-context'
-import './HeroSection.css'
+import './HeroSection.scss'
 
 const heroBadgeIconSources = {
   'data-shield': '/assets/mova-icons/hero/privacy.svg',

@@ -1,0 +1,31 @@
+$color-root-ink: #121948;
+$color-ink: #111936;
+$color-muted: #65708b;
+$color-line: #e7eaf2;
+$color-surface: #ffffff;
+$color-surface-soft: #f5f7fb;
+$color-page: #f8f9fc;
+$color-brand: #6748f5;
+$color-brand-blue: #22aaf0;
+$color-focus-ring: rgba(38, 108, 255, 0.34);
+
+$radius-control: 10px;
+$radius-code: 14px;
+$radius-dialog: 22px;
+$radius-full: 999px;
+
+$motion-fast: 180ms;
+$motion-standard: 220ms;
+$ease-standard: ease;
+
+$breakpoint-desktop: 1280px;
+$breakpoint-wide: 1120px;
+$breakpoint-tablet: 900px;
+$breakpoint-navigation: 760px;
+$breakpoint-compact: 720px;
+$breakpoint-mobile: 640px;
+
+$font-sans:
+  Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'PingFang SC',
+  'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Segoe UI', sans-serif;
+$font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
