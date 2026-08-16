@@ -31,12 +31,12 @@ pub use parse::{
     SeriesFileMetadata, SeriesSidecarMetadata,
 };
 pub use sidecar::{
-    observe_media_nfo, observe_media_nfo_for_kind, observe_media_nfo_for_kind_within_root,
-    observe_nfo_file, observe_nfo_file_within_root, observe_series_nfo,
-    observe_series_nfo_within_root, LocalNfoActor, LocalNfoArtwork, LocalNfoCollection,
-    LocalNfoCredits, LocalNfoErrorCode, LocalNfoImage, LocalNfoImageKind, LocalNfoKind,
-    LocalNfoMetadata, LocalNfoNamedSeason, LocalNfoObservation, LocalNfoRating, LocalNfoRatingKind,
-    LocalNfoUniqueId, MediaNfoKind,
+    discover_local_series_artwork, observe_media_nfo, observe_media_nfo_for_kind,
+    observe_media_nfo_for_kind_within_root, observe_nfo_file, observe_nfo_file_within_root,
+    observe_series_nfo, observe_series_nfo_within_root, LocalNfoActor, LocalNfoArtwork,
+    LocalNfoCollection, LocalNfoCredits, LocalNfoErrorCode, LocalNfoImage, LocalNfoImageKind,
+    LocalNfoKind, LocalNfoMetadata, LocalNfoNamedSeason, LocalNfoObservation, LocalNfoRating,
+    LocalNfoRatingKind, LocalNfoUniqueId, LocalSeriesArtwork, MediaNfoKind,
 };
 pub use strm::{
     parse_http_strm_reference, read_http_strm_reference, HttpStrmReference,

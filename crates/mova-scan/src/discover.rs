@@ -1,3 +1,4 @@
+use crate::sidecar::is_generic_series_artwork_path;
 use crate::{
     parse::{
         episode_identity_for_path, extension_lowercase, parse_media_metadata_with_sidecar,
@@ -904,14 +905,62 @@ fn sidecar_fingerprint_for_directory(directory: &Path, root_path: Option<&Path>)
             .map(|ancestor| ancestor.join("tvshow.nfo"))
             .find(|path| path.is_file()),
     };
-    if let Some(series_nfo) = series_nfo {
-        if let Ok(metadata) = fs::metadata(&series_nfo) {
-            facts.push(sidecar_file_fact(&series_nfo, &metadata));
+    if let Some(series_nfo) = series_nfo.as_ref() {
+        if let Ok(metadata) = fs::metadata(series_nfo) {
+            facts.push(sidecar_file_fact(series_nfo, &metadata));
         }
     }
+    facts.extend(series_container_artwork_facts(
+        directory,
+        root_path,
+        series_nfo.as_deref(),
+    ));
 
     facts.sort();
     stable_sidecar_fingerprint(&facts)
+}
+
+/// Include only conventional series artwork beside the nearest ancestor
+/// tvshow.nfo. This is an invalidation hint, not an ownership decision: actual
+/// projection still requires the parsed NFO to pass the application-layer
+/// source eligibility checks.
+fn series_container_artwork_facts(
+    directory: &Path,
+    root_path: Option<&Path>,
+    series_nfo: Option<&Path>,
+) -> Vec<String> {
+    let Some(series_nfo) = series_nfo else {
+        return Vec::new();
+    };
+    let Some(container) = series_nfo.parent() else {
+        return Vec::new();
+    };
+    // Artwork in the video directory is already part of the direct sidecar
+    // facts. Only add facts from an ancestor tvshow.nfo container here.
+    if container == directory {
+        return Vec::new();
+    }
+    if directory.strip_prefix(container).is_err() {
+        return Vec::new();
+    }
+    if root_path.is_some_and(|root_path| container.strip_prefix(root_path).is_err()) {
+        return Vec::new();
+    }
+
+    let Ok(entries) = fs::read_dir(container) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| is_generic_series_artwork_path(path))
+        .filter_map(|path| {
+            fs::metadata(&path)
+                .ok()
+                .filter(fs::Metadata::is_file)
+                .map(|metadata| sidecar_file_fact(&path, &metadata))
+        })
+        .collect()
 }
 
 fn is_local_analysis_sidecar(path: &Path) -> bool {

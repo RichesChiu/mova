@@ -2490,6 +2490,92 @@ fn inventory_sidecar_fingerprint_only_tracks_tvshow_nfo_within_library_root() {
 }
 
 #[test]
+fn inventory_fingerprint_tracks_conventional_artwork_beside_ancestor_tvshow_nfo() {
+    let root = unique_temp_path("series-container-artwork-fingerprint");
+    let series_root = root.join("Severance");
+    let season_root = series_root.join("Season 01");
+    let video_path = season_root.join("Severance.S01E01.mkv");
+    fs::create_dir_all(&season_root).unwrap();
+    fs::write(&video_path, b"same video").unwrap();
+    fs::write(
+        series_root.join("tvshow.nfo"),
+        b"<tvshow><title>Severance</title></tvshow>",
+    )
+    .unwrap();
+
+    let baseline = discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+        .unwrap()
+        .pop()
+        .unwrap();
+
+    fs::write(series_root.join("poster.jpg"), b"poster").unwrap();
+    fs::write(series_root.join("fanart.jpg"), b"fanart").unwrap();
+    fs::write(series_root.join("clearlogo.png"), b"logo").unwrap();
+    let artwork_added =
+        discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+            .unwrap()
+            .pop()
+            .unwrap();
+
+    fs::write(series_root.join("poster.jpg"), b"larger poster").unwrap();
+    let poster_changed =
+        discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+            .unwrap()
+            .pop()
+            .unwrap();
+
+    fs::remove_file(series_root.join("poster.jpg")).unwrap();
+    fs::remove_file(series_root.join("fanart.jpg")).unwrap();
+    fs::remove_file(series_root.join("clearlogo.png")).unwrap();
+    let artwork_removed =
+        discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+            .unwrap()
+            .pop()
+            .unwrap();
+
+    let _ = fs::remove_dir_all(root);
+    assert_ne!(
+        baseline.sidecar_fingerprint,
+        artwork_added.sidecar_fingerprint
+    );
+    assert_ne!(
+        artwork_added.sidecar_fingerprint,
+        poster_changed.sidecar_fingerprint
+    );
+    assert_eq!(
+        baseline.sidecar_fingerprint,
+        artwork_removed.sidecar_fingerprint
+    );
+}
+
+#[test]
+fn inventory_fingerprint_does_not_promote_ancestor_artwork_without_tvshow_nfo() {
+    let root = unique_temp_path("unanchored-series-artwork-fingerprint");
+    let series_root = root.join("Unknown Show");
+    let season_root = series_root.join("Season 01");
+    let video_path = season_root.join("Unknown.Show.S01E01.mkv");
+    fs::create_dir_all(&season_root).unwrap();
+    fs::write(&video_path, b"same video").unwrap();
+
+    let baseline = discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+        .unwrap()
+        .pop()
+        .unwrap();
+    fs::write(series_root.join("poster.jpg"), b"unowned poster").unwrap();
+    let with_unowned_artwork =
+        discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+            .unwrap()
+            .pop()
+            .unwrap();
+
+    let _ = fs::remove_dir_all(root);
+    assert_eq!(
+        baseline.sidecar_fingerprint,
+        with_unowned_artwork.sidecar_fingerprint
+    );
+}
+
+#[test]
 fn inventory_scan_hash_tracks_episode_version_count_changes() {
     let root = unique_temp_path("episode-version-fingerprint");
     let first_video_path = root.join("Show.1080p.S01E01.mkv");
