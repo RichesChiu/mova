@@ -1,3 +1,4 @@
+import { selectPrimaryRating } from '../lib/media-ratings'
 import { isMockApiEnabled } from './mock-control'
 import type {
   AudioTrack,
@@ -252,14 +253,70 @@ const sortedMediaItems = (items: MediaItem[]) =>
     return createdDiff === 0 ? right.id - left.id : createdDiff
   })
 
+const primaryRatingRatio = (item: MediaItem) => {
+  const rating = selectPrimaryRating(item.ratings)
+  return rating && Number.isFinite(rating.score) && rating.scale > 0
+    ? rating.score / rating.scale
+    : null
+}
+
+const effectiveSortTitle = (item: MediaItem) =>
+  (item.sort_title?.trim() || item.title.trim() || item.source_title.trim()).toLocaleLowerCase()
+
+const mockLibraryMediaCategory = (item: MediaItem) => {
+  const needsReview =
+    ['skipped', 'unmatched', 'failed'].includes(item.metadata_status) ||
+    (item.remote_media_type !== null && item.remote_media_type !== item.media_type)
+  return needsReview ? 'needs_review' : item.media_type
+}
+
+const sortedLibraryMediaItems = (items: MediaItem[], url: URL) => {
+  const sortBy = url.searchParams.get('sort_by') ?? 'title'
+  const direction = url.searchParams.get('sort_order') === 'desc' ? -1 : 1
+
+  return [...items].sort((left, right) => {
+    if (sortBy === 'rating') {
+      const leftRating = primaryRatingRatio(left)
+      const rightRating = primaryRatingRatio(right)
+      if (leftRating === null || rightRating === null) {
+        if (leftRating !== rightRating) {
+          return leftRating === null ? 1 : -1
+        }
+      } else if (leftRating !== rightRating) {
+        return (leftRating - rightRating) * direction
+      }
+    } else if (sortBy === 'year') {
+      if (left.year === null || right.year === null) {
+        if (left.year !== right.year) {
+          return left.year === null ? 1 : -1
+        }
+      } else if (left.year !== right.year) {
+        return (left.year - right.year) * direction
+      }
+    }
+
+    const leftTitle = effectiveSortTitle(left)
+    const rightTitle = effectiveSortTitle(right)
+    const titleDifference = leftTitle < rightTitle ? -1 : leftTitle > rightTitle ? 1 : 0
+    if (titleDifference !== 0) {
+      return sortBy === 'title' ? titleDifference * direction : titleDifference
+    }
+    return sortBy === 'title' ? (left.id - right.id) * direction : left.id - right.id
+  })
+}
+
 const listLibraryMediaItems = (libraryId: number, url: URL): MediaItemListResponse => {
   const page = Math.max(1, Number(url.searchParams.get('page') ?? 1))
   const pageSize = Math.max(1, Number(url.searchParams.get('page_size') ?? 50))
   const query = url.searchParams.get('query')?.trim().toLowerCase() ?? ''
+  const category = url.searchParams.get('category')
   const year = Number(url.searchParams.get('year') ?? Number.NaN)
-  const filtered = sortedMediaItems(
+  const filtered = sortedLibraryMediaItems(
     mockMediaItems.filter((item) => {
       if (item.library_id !== libraryId) {
+        return false
+      }
+      if (category && mockLibraryMediaCategory(item) !== category) {
         return false
       }
       if (
@@ -272,6 +329,7 @@ const listLibraryMediaItems = (libraryId: number, url: URL): MediaItemListRespon
       }
       return Number.isFinite(year) ? item.year === year : true
     }),
+    url,
   )
   const offset = (page - 1) * pageSize
 

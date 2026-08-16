@@ -5,6 +5,7 @@ import {
   formatRatingValue,
   isDisplayableRating,
   selectDisplayRatings,
+  selectPrimaryRating,
 } from './media-ratings'
 
 const rating = (overrides: Partial<MediaRating> = {}): MediaRating => ({
@@ -54,5 +55,26 @@ describe('media ratings', () => {
       rating({ score: 9.2, retrieved_via: 'manual' }),
       rating({ source: 'tmdb', kind: 'critic', score: 81, scale: 100 }),
     ])
+  })
+
+  it('selects the same deterministic ownership and brand order as the server', () => {
+    const remoteImdb = rating({ source: 'imdb', retrieved_via: 'tmdb', score: 8.8 })
+    const remoteTmdb = rating({ retrieved_via: 'tmdb', score: 7.7 })
+    const nfoImdb = rating({ source: 'imdb', retrieved_via: 'nfo', score: 8.1 })
+    const manualMetacritic = rating({
+      source: 'metacritic',
+      retrieved_via: 'manual',
+      score: 86,
+      scale: 100,
+    })
+
+    expect(selectDisplayRatings([remoteImdb, remoteTmdb, nfoImdb, manualMetacritic], 4)).toEqual([
+      manualMetacritic,
+      nfoImdb,
+      remoteTmdb,
+    ])
+    expect(selectPrimaryRating([remoteImdb, remoteTmdb, nfoImdb, manualMetacritic])).toEqual(
+      manualMetacritic,
+    )
   })
 })

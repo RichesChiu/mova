@@ -39,6 +39,9 @@ pub struct UpdateLibraryRequest {
 pub struct ListLibraryMediaItemsQuery {
     pub query: Option<String>,
     pub year: Option<i32>,
+    pub category: Option<String>,
+    pub sort_by: Option<String>,
+    pub sort_order: Option<String>,
     pub page: Option<i64>,
     pub page_size: Option<i64>,
 }
@@ -248,6 +251,9 @@ pub async fn list_library_media_items(
         mova_application::ListMediaItemsForLibraryInput {
             query: query.query,
             year: query.year,
+            category: query.category,
+            sort_by: query.sort_by,
+            sort_order: query.sort_order,
             page: query.page,
             page_size: query.page_size,
         },

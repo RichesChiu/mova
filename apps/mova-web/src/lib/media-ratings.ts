@@ -32,12 +32,35 @@ export const isDisplayableRating = (rating: MediaRating) =>
 const ratingSourcePriority = (retrievedVia: string) => {
   switch (retrievedVia.trim().toLowerCase()) {
     case 'manual':
-      return 3
+      return 0
     case 'nfo':
-      return 2
-    default:
       return 1
+    default:
+      return 100
   }
+}
+
+const ratingBrandPriority = (source: string) => (source.trim().toLowerCase() === 'tmdb' ? 0 : 100)
+
+const compareRatings = (left: MediaRating, right: MediaRating) => {
+  const ownershipDifference =
+    ratingSourcePriority(left.retrieved_via) - ratingSourcePriority(right.retrieved_via)
+  if (ownershipDifference !== 0) {
+    return ownershipDifference
+  }
+
+  const brandDifference = ratingBrandPriority(left.source) - ratingBrandPriority(right.source)
+  if (brandDifference !== 0) {
+    return brandDifference
+  }
+
+  const sourceDifference = left.source
+    .trim()
+    .toLowerCase()
+    .localeCompare(right.source.trim().toLowerCase())
+  return sourceDifference !== 0
+    ? sourceDifference
+    : left.kind.trim().toLowerCase().localeCompare(right.kind.trim().toLowerCase())
 }
 
 export const selectDisplayRatings = (ratings: MediaRating[], limit: number) => {
@@ -48,11 +71,14 @@ export const selectDisplayRatings = (ratings: MediaRating[], limit: number) => {
     const current = selected.get(key)
     if (
       !current ||
-      ratingSourcePriority(rating.retrieved_via) > ratingSourcePriority(current.retrieved_via)
+      ratingSourcePriority(rating.retrieved_via) < ratingSourcePriority(current.retrieved_via)
     ) {
       selected.set(key, rating)
     }
   }
 
-  return [...selected.values()].slice(0, Math.max(0, limit))
+  return [...selected.values()].sort(compareRatings).slice(0, Math.max(0, limit))
 }
+
+export const selectPrimaryRating = (ratings: MediaRating[]) =>
+  selectDisplayRatings(ratings, 1)[0] ?? null

@@ -12,6 +12,8 @@ import type {
   HomeResponse,
   Library,
   LibraryDetail,
+  LibraryMediaCategory,
+  LibraryMediaSortBy,
   LoginInput,
   MediaCastMember,
   MediaFile,
@@ -28,6 +30,7 @@ import type {
   RecentlyAddedLibraryMediaItems,
   ScanJob,
   ServerMediaDirectoryNode,
+  SortOrder,
   SubtitleFile,
   UpdateLibraryInput,
   UpdateOwnProfileInput,
@@ -35,10 +38,13 @@ import type {
   UserAccount,
 } from './types'
 
-interface ListMediaItemsParams {
+export interface ListMediaItemsParams {
   page: number
   pageSize: number
+  category?: Exclude<LibraryMediaCategory, 'all'>
   query?: string
+  sortBy?: LibraryMediaSortBy
+  sortOrder?: SortOrder
   year?: number
 }
 
@@ -340,8 +346,20 @@ export const listLibraryMediaItems = (libraryId: number, params: ListMediaItemsP
     searchParams.set('query', params.query)
   }
 
+  if (params.category) {
+    searchParams.set('category', params.category)
+  }
+
   if (typeof params.year === 'number' && Number.isFinite(params.year)) {
     searchParams.set('year', String(params.year))
+  }
+
+  if (params.sortBy) {
+    searchParams.set('sort_by', params.sortBy)
+  }
+
+  if (params.sortOrder) {
+    searchParams.set('sort_order', params.sortOrder)
   }
 
   return requestJson<MediaItemListResponse>(

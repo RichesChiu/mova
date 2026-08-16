@@ -1049,8 +1049,11 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 查询参数：
 - `page`：可选，页码，默认 `1`
 - `page_size`：可选，每页条数，默认 `50`，最大 `100`
-- `query`：可选，按名称筛选，会匹配 `title` 和 `original_title`
+- `query`：可选，按标题筛选，会匹配 `title`、`source_title` 和 `original_title`
 - `year`：可选，按发行年精确筛选
+- `category`：可选，服务端定义的目录分类，支持 `movie` / `series` / `needs_review`；不传时返回全部顶层条目
+- `sort_by`：可选，排序字段，支持 `title` / `year` / `rating`，默认 `title`
+- `sort_order`：可选，排序方向，支持 `asc` / `desc`，默认 `asc`
 
 返回：
 - `200 OK`
@@ -1066,10 +1069,14 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 ```
 
 说明：
-- 列表返回顶层媒体条目，即电影和剧；剧集的单集不会直接出现在这个列表里
-- `items[]` 使用 `MediaItemResponse`，会返回 `metadata_status` / `metadata_failure_reason` / `remote_media_type`；`pending` 条目按本地 `media_type` 进入 Movies / Series。身份匹配成功后 `remote_media_type` 与唯一查询类型一致；`skipped` / `unmatched` / `failed` 且没有远端确认的条目进入 `Other`
-- 默认按名称升序返回
-- 查询参数支持名称筛选和发行年筛选
+- 列表返回顶层媒体条目，即电影和剧；剧集的单集不会直接出现在这个列表里。分类筛选、名称与年份筛选、排序和分页全部由服务端按此顺序处理，客户端不得把分页结果重新拆组后解释为全局排名
+- `category` 是服务端根据条目类型和元数据处理状态计算的投影，不是 `media_type` 的别名。`pending` 和已成功确认的条目按条目 `media_type` 进入 `movie` / `series`；`metadata_status` 为 `skipped` / `unmatched` / `failed`，或已有远端类型与本地类型冲突的条目进入 `needs_review`
+- 客户端不得根据 `metadata_status`、`remote_media_type` 或当前分页结果重新推导分类；筛选、计数、排序和分页均以服务端结果为准
+- 默认按名称升序返回；名称排序依次使用 NFO `sort_title`、展示标题 `title` 和源标题 `source_title`。所有排序都追加稳定的名称和条目 ID 次级顺序，因此分页过程中不会因同分或同年份随机换位
+- `year` 和 `rating` 缺失的条目始终排在有值条目之后，不受升序或降序影响
+- `rating` 使用服务端定义的首选评分：手动值优先于 NFO，NFO 优先于远端值；同级来源优先 TMDB，再按来源和评分类型稳定排序。客户端使用同一顺序选择卡片主评分。排序前会按 `score / scale` 归一化，不会把不同满分制的原始分数直接比较
+- 查询参数支持标题筛选和发行年筛选；筛选、排序在分页之前由服务端对完整结果集执行
+- 不支持的 `category`、`sort_by`、`sort_order`，以及非正数 `year` 返回 `400 Bad Request`
 
 ### `GET /api/libraries/{id}/scan-jobs`
 

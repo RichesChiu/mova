@@ -951,8 +951,32 @@ pub struct ListMediaItemsForLibraryParams {
     pub library_id: i64,
     pub query: Option<String>,
     pub year: Option<i32>,
+    pub category: LibraryMediaCategory,
+    pub sort_by: MediaItemSortBy,
+    pub sort_order: SortOrder,
     pub limit: i64,
     pub offset: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryMediaCategory {
+    All,
+    Movie,
+    Series,
+    NeedsReview,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaItemSortBy {
+    Title,
+    Year,
+    Rating,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortOrder {
+    Asc,
+    Desc,
 }
 
 #[derive(Debug, Clone)]

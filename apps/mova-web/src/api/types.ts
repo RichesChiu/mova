@@ -247,6 +247,10 @@ export interface MediaItemListResponse {
   page_size: number
 }
 
+export type LibraryMediaSortBy = 'title' | 'year' | 'rating'
+export type LibraryMediaCategory = 'all' | 'movie' | 'series' | 'needs_review'
+export type SortOrder = 'asc' | 'desc'
+
 export interface RecentlyAddedLibraryMediaItems {
   library: Library
   items: MediaItem[]

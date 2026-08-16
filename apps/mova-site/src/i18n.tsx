@@ -310,6 +310,8 @@ const translations: Record<string, string> = {
     'Search matches movies, series, and locally available episodes in libraries visible to the current user.',
   '搜索结果会返回条目自身的来源原生 ratings 数组；远端评分来自 TMDB，本地 NFO 评分保留自身 source。':
     'Search results include the item’s source-native ratings array; remote ratings come from TMDB, while local NFO ratings retain their own source.',
+  '媒体库条目列表由服务端按全部、电影、剧集或待复核条目分类，并支持标题、发行年筛选以及标题、年份或归一化首选评分的稳定排序；客户端不重新推导分类，所有分类、筛选和排序都先于分页。':
+    'Library item lists are classified by the server as all media, movies, series, or items that need review, and support title or release-year filters plus stable title, year, or normalized preferred-rating ordering. Clients do not re-derive categories; all classification, filtering, and sorting happen before pagination.',
   '媒体库详情同时返回 media_count、movie_count 和 series_count。':
     'Library details return media_count, movie_count, and series_count together.',
   查询媒体库列表: 'List media libraries',

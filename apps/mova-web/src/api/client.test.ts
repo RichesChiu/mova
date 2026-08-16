@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getBootstrapStatus, listNotifications, logout } from './client'
+import { getBootstrapStatus, listLibraryMediaItems, listNotifications, logout } from './client'
 
 describe('API client request headers', () => {
   afterEach(() => {
@@ -42,6 +42,38 @@ describe('API client request headers', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/notifications?limit=20&unread_only=true',
+      expect.any(Object),
+    )
+  })
+
+  it('serializes library media filters and ordering into the public API contract', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 200,
+          data: { items: [], page: 2, page_size: 24, total: 0 },
+          message: 'ok',
+        }),
+        {
+          headers: { 'Content-Type': 'application/json' },
+          status: 200,
+        },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await listLibraryMediaItems(7, {
+      page: 2,
+      pageSize: 24,
+      category: 'needs_review',
+      query: 'Dune',
+      sortBy: 'rating',
+      sortOrder: 'desc',
+      year: 2024,
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/libraries/7/media-items?page=2&page_size=24&query=Dune&category=needs_review&year=2024&sort_by=rating&sort_order=desc',
       expect.any(Object),
     )
   })
