@@ -233,7 +233,7 @@ source_kind
 stream_reference_hash
 ```
 
-`sidecar_fingerprint` 只读取文件名、大小和修改时间，不读取 sidecar 内容。每个包含视频的目录只建立一次索引，按稳定路径顺序汇总 NFO、可作为本地海报或背景图的图片、支持的外挂字幕，以及视频目录向上五层内最近的 `tvshow.nfo`。
+`sidecar_fingerprint` 只读取文件名、大小和修改时间，不读取 sidecar 内容。每个包含视频的目录只建立一次索引，按稳定路径顺序汇总 NFO、可作为本地海报或背景图的图片、支持的外挂字幕，以及视频目录向上五层内最近的 `tvshow.nfo`。最近 `tvshow.nfo` 位于祖先容器时，还汇总该 NFO 同目录中的标准系列图片 `poster / folder / cover`、`fanart / backdrop / background` 和 `clearlogo / logo`；这些候选只用于增量失效，实际投影仍必须通过通用 NFO 的全库归属校验。
 
 NFO、同名图片或外挂字幕的新增、删除、大小变化和修改时间变化会让受影响目录中的视频重新进入本地分析。发现阶段不执行 sidecar 内容解析、`ffprobe`、TMDB 或图片下载。普通视频的 `source_kind` 为 `local_file`；`.strm` 的 `source_kind` 为 `strm`，引用哈希由校验后的 URL 文本计算，数据库只保存哈希而不保存 URL。
 
@@ -472,7 +472,7 @@ NFO 本地图片引用在规范化真实路径后必须仍位于 NFO 所在目�
 - NFO 明确引用的有效本地图片优先于同目录按命名约定自动发现的图片；本地来源缺失时才由 TMDB 补齐。
 - 单集剧照只在视频直接目录中按完整视频 stem 匹配 `<stem>-thumb`；兼容 `<stem> - thumb` 的固定分隔形式，但不执行前缀、相似标题或仅季集坐标的模糊匹配。
 - 平铺剧集目录中的季图片必须携带明确季号，仅接受 `season01-poster` 或 `season1-poster`。无季号的 `season-poster`、`poster` 只有在视频直接父目录严格命名为匹配的 `Season 01`、`S01` 或 `第1季` 时才作为季海报。
-- 明确季目录中的图片不得提升为 series 图片，也不会跨到上一级目录猜测 series 或季图片。图片解析不会递归向上搜索；更高层级的图片必须由通过归属校验的 `tvshow.nfo` 明确引用。
+- 明确季目录自身的图片不得提升为 series 图片，也不会从单集路径盲目向上猜测 series 容器。通过全库归属校验并被稳定选中的 `tvshow.nfo` 所在目录是唯一允许的 series 容器锚点；即使 NFO 没有图片元素，也会从该目录一次性发现 `poster / folder / cover`、`fanart / backdrop / background` 和 `clearlogo / logo`，再投影到同一扫描组。NFO 明确引用的图片仍优先于这些命名约定图片。
 - 电影海报只写电影海报字段。
 - 剧集海报只写 series 海报字段。
 - 电影标题 Logo 只写电影 `logo_path`，剧集标题 Logo 只写 series `logo_path`；单集播放复用所属剧集 Logo。

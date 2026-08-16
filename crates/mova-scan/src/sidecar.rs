@@ -326,10 +326,47 @@ pub struct LocalNfoMetadata {
     pub locked_fields: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LocalSeriesArtwork {
+    pub poster_path: Option<String>,
+    pub backdrop_path: Option<String>,
+    pub logo_path: Option<String>,
+    container_path: Option<PathBuf>,
+}
+
+impl LocalSeriesArtwork {
+    pub fn owns_conventional_poster_path(&self, value: &str) -> bool {
+        self.owns_conventional_path(value, ArtworkKind::Poster)
+    }
+
+    pub fn owns_conventional_backdrop_path(&self, value: &str) -> bool {
+        self.owns_conventional_path(value, ArtworkKind::Backdrop)
+    }
+
+    pub fn owns_conventional_logo_path(&self, value: &str) -> bool {
+        self.owns_conventional_path(value, ArtworkKind::Logo)
+    }
+
+    fn owns_conventional_path(&self, value: &str, kind: ArtworkKind) -> bool {
+        let Some(container) = self.container_path.as_deref() else {
+            return false;
+        };
+        let path = Path::new(value);
+        generic_series_artwork_names(kind).iter().any(|name| {
+            LOCAL_ARTWORK_EXTENSIONS
+                .iter()
+                .any(|extension| path == container.join(format!("{name}.{extension}")))
+        })
+    }
+}
+
+const LOCAL_ARTWORK_EXTENSIONS: [&str; 5] = ["jpg", "jpeg", "png", "webp", "avif"];
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ArtworkKind {
     Poster,
     Backdrop,
+    Logo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1827,6 +1864,44 @@ pub(crate) fn find_local_season_artwork(
     find_local_artwork_in_directory(parent, &generic_names)
 }
 
+/// Discover convention-based series artwork beside an already selected
+/// `tvshow.nfo` source.
+///
+/// The caller owns source eligibility and boundary validation. Anchoring the
+/// lookup to that selected NFO is what makes crossing an explicit season
+/// directory safe: this function never walks ancestors or guesses a series
+/// container from an episode path.
+pub fn discover_local_series_artwork(metadata: &LocalNfoMetadata) -> LocalSeriesArtwork {
+    if metadata.kind != LocalNfoKind::TvShow {
+        return LocalSeriesArtwork::default();
+    }
+    let Some(container) = metadata.source_path.parent() else {
+        return LocalSeriesArtwork::default();
+    };
+    // Only reconcile missing convention-based files after the container was
+    // readable. A transient directory error must not erase last-known-good
+    // artwork during an incremental scan.
+    let inspected_container = fs::read_dir(container)
+        .ok()
+        .map(|_| container.to_path_buf());
+
+    LocalSeriesArtwork {
+        poster_path: find_local_artwork_in_directory(
+            container,
+            generic_series_artwork_names(ArtworkKind::Poster),
+        ),
+        backdrop_path: find_local_artwork_in_directory(
+            container,
+            generic_series_artwork_names(ArtworkKind::Backdrop),
+        ),
+        logo_path: find_local_artwork_in_directory(
+            container,
+            generic_series_artwork_names(ArtworkKind::Logo),
+        ),
+        container_path: inspected_container,
+    }
+}
+
 /// Resolve generic series artwork only from the video's direct directory.
 /// An explicit season directory is never crossed: its parent has not been
 /// proven to be the series container at this layer.
@@ -1835,15 +1910,7 @@ pub(crate) fn find_local_series_artwork(video_path: &Path, kind: ArtworkKind) ->
     if explicit_season_directory_number(parent).is_some() {
         return None;
     }
-    let names = match kind {
-        ArtworkKind::Poster => vec!["poster", "folder", "cover"],
-        ArtworkKind::Backdrop => vec!["fanart", "backdrop", "background"],
-    };
-    let names = names
-        .iter()
-        .map(|name| (*name).to_string())
-        .collect::<Vec<_>>();
-    find_local_artwork_in_directory(parent, &names)
+    find_local_artwork_in_directory(parent, generic_series_artwork_names(kind))
 }
 
 pub(crate) fn find_local_artwork_with_scope(
@@ -1879,17 +1946,53 @@ pub(crate) fn find_local_artwork_with_scope(
             "backdrop".to_string(),
             "background".to_string(),
         ],
+        (ArtworkKind::Logo, ArtworkScope::FileSpecific) => vec![format!("{stem}-clearlogo")],
+        (ArtworkKind::Logo, ArtworkScope::Generic) => {
+            vec!["clearlogo".to_string(), "logo".to_string()]
+        }
     };
 
     find_local_artwork_in_directory(parent, &name_candidates)
 }
 
-fn find_local_artwork_in_directory(directory: &Path, name_candidates: &[String]) -> Option<String> {
-    const IMAGE_EXTENSIONS: [&str; 5] = ["jpg", "jpeg", "png", "webp", "avif"];
+fn generic_series_artwork_names(kind: ArtworkKind) -> &'static [&'static str] {
+    match kind {
+        ArtworkKind::Poster => &["poster", "folder", "cover"],
+        ArtworkKind::Backdrop => &["fanart", "backdrop", "background"],
+        ArtworkKind::Logo => &["clearlogo", "logo"],
+    }
+}
 
+pub(crate) fn is_generic_series_artwork_path(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    if !LOCAL_ARTWORK_EXTENSIONS
+        .iter()
+        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+    {
+        return false;
+    }
+    let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    [
+        ArtworkKind::Poster,
+        ArtworkKind::Backdrop,
+        ArtworkKind::Logo,
+    ]
+    .into_iter()
+    .flat_map(generic_series_artwork_names)
+    .any(|candidate| stem.eq_ignore_ascii_case(candidate))
+}
+
+fn find_local_artwork_in_directory<S: AsRef<str>>(
+    directory: &Path,
+    name_candidates: &[S],
+) -> Option<String> {
     for name in name_candidates {
-        for extension in IMAGE_EXTENSIONS {
-            let candidate = directory.join(format!("{name}.{extension}"));
+        for extension in LOCAL_ARTWORK_EXTENSIONS {
+            let candidate = directory.join(format!("{}.{extension}", name.as_ref()));
             if is_non_empty_file(&candidate) {
                 return Some(candidate.to_string_lossy().to_string());
             }

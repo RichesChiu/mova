@@ -1,7 +1,10 @@
 use crate::metadata::TMDB_PROVIDER_NAME;
 use mova_db::{CreateLocalMetadataSnapshotParams, ReplaceMediaItemCreditParams};
 use mova_domain::{MediaExternalId, MediaRating};
-use mova_scan::{DiscoveredMediaFile, LocalNfoKind, LocalNfoMetadata};
+use mova_scan::{
+    discover_local_series_artwork, DiscoveredMediaFile, LocalNfoKind, LocalNfoMetadata,
+    LocalSeriesArtwork,
+};
 use serde_json::json;
 use std::{collections::BTreeMap, path::Path};
 use time::{Date, Month, OffsetDateTime};
@@ -235,6 +238,13 @@ pub(crate) fn apply_group_local_metadata(
                 .and_then(|selected| selected.tmdb_id.clone())
         })
         .flatten();
+    // Resolve convention-based series artwork once per group from the same
+    // selected, ownership-validated tvshow.nfo container. Do not repeat
+    // filesystem discovery for every episode and do not guess an ancestor
+    // from a season directory.
+    let series_container_artwork = selected
+        .filter(|_| expected_kind == LocalNfoKind::TvShow)
+        .map(|selected| discover_local_series_artwork(&selected.metadata));
     if let Some(selected) = selected.cloned() {
         for file in files.iter_mut() {
             match expected_kind {
@@ -246,6 +256,11 @@ pub(crate) fn apply_group_local_metadata(
                                 is_selected && identity_conflict;
                             is_selected
                         });
+                    if let Some(artwork) = series_container_artwork.as_ref() {
+                        apply_series_container_artwork(file, artwork);
+                    }
+                    // Explicit NFO artwork retains ownership over conventional
+                    // sibling files when both are present.
                     apply_parent_projection(file, &selected.metadata, true);
                 }
                 LocalNfoKind::Movie => {
@@ -266,6 +281,42 @@ pub(crate) fn apply_group_local_metadata(
     LocalMetadataSelection {
         tmdb_id_hint,
         identity_conflict,
+    }
+}
+
+fn apply_series_container_artwork(file: &mut DiscoveredMediaFile, artwork: &LocalSeriesArtwork) {
+    clear_missing_conventional_artwork(
+        &mut file.series_poster_path,
+        artwork.poster_path.as_deref(),
+        |value| artwork.owns_conventional_poster_path(value),
+    );
+    clear_missing_conventional_artwork(
+        &mut file.series_backdrop_path,
+        artwork.backdrop_path.as_deref(),
+        |value| artwork.owns_conventional_backdrop_path(value),
+    );
+    clear_missing_conventional_artwork(
+        &mut file.series_logo_path,
+        artwork.logo_path.as_deref(),
+        |value| artwork.owns_conventional_logo_path(value),
+    );
+    replace_optional(&mut file.series_poster_path, artwork.poster_path.as_deref());
+    replace_optional(
+        &mut file.series_backdrop_path,
+        artwork.backdrop_path.as_deref(),
+    );
+    replace_optional(&mut file.series_logo_path, artwork.logo_path.as_deref());
+}
+
+fn clear_missing_conventional_artwork<F>(
+    target: &mut Option<String>,
+    replacement: Option<&str>,
+    owns_path: F,
+) where
+    F: FnOnce(&str) -> bool,
+{
+    if replacement.is_none() && target.as_deref().is_some_and(owns_path) {
+        *target = None;
     }
 }
 
@@ -746,11 +797,13 @@ mod tests {
         PROVIDER_IDENTIFIER_MAX_CHARACTERS, PROVIDER_KEY_MAX_CHARACTERS,
     };
     use mova_scan::{
-        inspect_media_file_inventory_shallow, DiscoveredMediaFile, DiscoveredMediaFileInventory,
-        LocalNfoActor, LocalNfoArtwork, LocalNfoCredits, LocalNfoKind, LocalNfoMetadata,
-        LocalNfoNamedSeason, LocalNfoRating, LocalNfoRatingKind, LocalNfoUniqueId,
+        inspect_media_file_inventory_shallow, observe_series_nfo_within_root, DiscoveredMediaFile,
+        DiscoveredMediaFileInventory, LocalNfoActor, LocalNfoArtwork, LocalNfoCredits,
+        LocalNfoKind, LocalNfoMetadata, LocalNfoNamedSeason, LocalNfoObservation, LocalNfoRating,
+        LocalNfoRatingKind, LocalNfoUniqueId,
     };
-    use std::path::PathBuf;
+    use std::{fs, path::PathBuf};
+    use uuid::Uuid;
 
     fn metadata(ids: &[&str]) -> LocalNfoMetadata {
         metadata_at(LocalNfoKind::Movie, "/media/movie.nfo", None, ids)
@@ -1025,6 +1078,97 @@ mod tests {
             file.season_backdrop_path.as_deref(),
             Some("/media/Show/season02-fanart.jpg")
         );
+    }
+
+    #[test]
+    fn selected_series_nfo_container_supplies_conventional_series_artwork() {
+        let root =
+            std::env::temp_dir().join(format!("mova-series-container-artwork-{}", Uuid::new_v4()));
+        let season_root = root.join("Season 01");
+        let video_path = season_root.join("Severance.S01E01.mkv");
+        let nfo_path = root.join("tvshow.nfo");
+        let conventional_poster = root.join("poster.jpg");
+        let conventional_backdrop = root.join("fanart.jpg");
+        let conventional_logo = root.join("clearlogo.png");
+        let explicit_poster = root.join("explicit-poster.jpg");
+        fs::create_dir_all(&season_root).unwrap();
+        fs::write(&video_path, b"video").unwrap();
+        fs::write(&nfo_path, b"<tvshow><title>Severance</title></tvshow>").unwrap();
+        fs::write(&conventional_poster, b"poster").unwrap();
+        fs::write(&conventional_backdrop, b"backdrop").unwrap();
+        fs::write(&conventional_logo, b"logo").unwrap();
+        fs::write(&explicit_poster, b"explicit poster").unwrap();
+        let resolved_conventional_poster = conventional_poster.canonicalize().unwrap();
+        let resolved_conventional_backdrop = conventional_backdrop.canonicalize().unwrap();
+        let resolved_conventional_logo = conventional_logo.canonicalize().unwrap();
+
+        let mut file = discovered_file(video_path.to_string_lossy().as_ref());
+        file.season_number = Some(1);
+        file.episode_number = Some(1);
+        let LocalNfoObservation::Valid(nfo) = observe_series_nfo_within_root(&video_path, &root)
+        else {
+            panic!("the fixture tvshow.nfo must parse as a valid series source");
+        };
+        assert!(nfo.artwork.posters.is_empty());
+        assert!(nfo.artwork.backdrops.is_empty());
+        assert!(nfo.artwork.logos.is_empty());
+        file.series_local_nfo = Some(*nfo);
+
+        apply_group_local_metadata(std::slice::from_mut(&mut file), "series");
+
+        assert_eq!(
+            file.series_poster_path.as_deref(),
+            Some(resolved_conventional_poster.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            file.series_backdrop_path.as_deref(),
+            Some(resolved_conventional_backdrop.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            file.series_logo_path.as_deref(),
+            Some(resolved_conventional_logo.to_string_lossy().as_ref())
+        );
+
+        fs::remove_file(&conventional_poster).unwrap();
+        apply_group_local_metadata(std::slice::from_mut(&mut file), "series");
+        assert_eq!(
+            file.series_poster_path, None,
+            "removing a convention-based image must not preserve its stale local path"
+        );
+
+        file.series_local_nfo.as_mut().unwrap().artwork.posters =
+            vec![explicit_poster.to_string_lossy().to_string()];
+        apply_group_local_metadata(std::slice::from_mut(&mut file), "series");
+        assert_eq!(
+            file.series_poster_path.as_deref(),
+            Some(explicit_poster.to_string_lossy().as_ref()),
+            "an explicit NFO reference must retain priority"
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn unowned_ancestor_artwork_is_not_projected_without_a_selected_series_nfo() {
+        let root =
+            std::env::temp_dir().join(format!("mova-unowned-series-artwork-{}", Uuid::new_v4()));
+        let season_root = root.join("Season 01");
+        let video_path = season_root.join("Unknown.S01E01.mkv");
+        fs::create_dir_all(&season_root).unwrap();
+        fs::write(&video_path, b"video").unwrap();
+        fs::write(root.join("poster.jpg"), b"unowned poster").unwrap();
+
+        let mut file = discovered_file(video_path.to_string_lossy().as_ref());
+        file.season_number = Some(1);
+        file.episode_number = Some(1);
+
+        apply_group_local_metadata(std::slice::from_mut(&mut file), "series");
+
+        assert_eq!(file.series_poster_path, None);
+        assert_eq!(file.series_backdrop_path, None);
+        assert_eq!(file.series_logo_path, None);
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

@@ -205,6 +205,8 @@ MOVA 只读取完整、良构的 UTF-8 XML 文档。“完整 XML”表示文档
 </set>
 ```
 
+`tvshow.nfo` 不需要显式列出本地图片。一个通用 `tvshow.nfo` 通过全库归属校验并被选为系列来源后，其所在目录同时成为系列图片容器：`poster / folder / cover` 投影为系列海报，`fanart / backdrop / background` 投影为系列背景，`clearlogo / logo` 投影为系列标题 Logo；支持 `.jpg`、`.jpeg`、`.png`、`.webp` 和 `.avif`。每次系列组投影只发现一次容器图片，不按每一集重复查找；显式 NFO 图片引用具有更高优先级。单集位于 `Season 01`、`S01` 或 `第1季` 等季目录时，不会直接把季目录或任意上级目录的图片提升为系列图片；跨目录只允许落到已选中 `tvshow.nfo` 所证明的容器。
+
 ## 5. 多集文件兼容边界
 
 Kodi v21 及更早版本允许在一个 NFO 中顺序堆叠多个 `episodedetails`，该内容不是单根良构 XML。Kodi v22 改为一个多集视频对应多份带 `-SxxEyy` 后缀的独立 episode NFO 和图片。
