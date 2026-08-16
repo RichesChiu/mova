@@ -37,6 +37,9 @@ const SERIES_EPISODE_OUTLINE_CACHE_TTL_SECONDS: i64 = 24 * 60 * 60;
 pub struct ListMediaItemsForLibraryInput {
     pub query: Option<String>,
     pub year: Option<i32>,
+    pub category: Option<String>,
+    pub sort_by: Option<String>,
+    pub sort_order: Option<String>,
     pub page: Option<i64>,
     pub page_size: Option<i64>,
 }
@@ -180,6 +183,9 @@ pub async fn list_media_items_for_library(
     get_library(pool, library_id).await?;
     let query = normalize_query(input.query);
     let year = normalize_year(input.year)?;
+    let category = normalize_library_media_category(input.category)?;
+    let sort_by = normalize_media_item_sort_by(input.sort_by)?;
+    let sort_order = normalize_sort_order(input.sort_order)?;
     let page = normalize_page(input.page)?;
     let page_size = normalize_page_size(input.page_size)?;
     let offset = (page - 1) * page_size;
@@ -190,6 +196,9 @@ pub async fn list_media_items_for_library(
             library_id,
             query,
             year,
+            category,
+            sort_by,
+            sort_order,
             limit: page_size,
             offset,
         },
@@ -1881,6 +1890,55 @@ fn normalize_year(year: Option<i32>) -> ApplicationResult<Option<i32>> {
     }
 }
 
+fn normalize_media_item_sort_by(
+    sort_by: Option<String>,
+) -> ApplicationResult<mova_db::MediaItemSortBy> {
+    match sort_by
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        None | Some("title") => Ok(mova_db::MediaItemSortBy::Title),
+        Some("year") => Ok(mova_db::MediaItemSortBy::Year),
+        Some("rating") => Ok(mova_db::MediaItemSortBy::Rating),
+        Some(_) => Err(ApplicationError::Validation(
+            "sort_by must be one of: title, year, rating".to_string(),
+        )),
+    }
+}
+
+fn normalize_library_media_category(
+    category: Option<String>,
+) -> ApplicationResult<mova_db::LibraryMediaCategory> {
+    match category
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        None => Ok(mova_db::LibraryMediaCategory::All),
+        Some("movie") => Ok(mova_db::LibraryMediaCategory::Movie),
+        Some("series") => Ok(mova_db::LibraryMediaCategory::Series),
+        Some("needs_review") => Ok(mova_db::LibraryMediaCategory::NeedsReview),
+        Some(_) => Err(ApplicationError::Validation(
+            "category must be one of: movie, series, needs_review".to_string(),
+        )),
+    }
+}
+
+fn normalize_sort_order(sort_order: Option<String>) -> ApplicationResult<mova_db::SortOrder> {
+    match sort_order
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        None | Some("asc") => Ok(mova_db::SortOrder::Asc),
+        Some("desc") => Ok(mova_db::SortOrder::Desc),
+        Some(_) => Err(ApplicationError::Validation(
+            "sort_order must be one of: asc, desc".to_string(),
+        )),
+    }
+}
+
 fn normalize_page(page: Option<i64>) -> ApplicationResult<i64> {
     match page.unwrap_or(DEFAULT_MEDIA_ITEMS_PAGE) {
         value if value <= 0 => Err(ApplicationError::Validation(
@@ -1934,10 +1992,12 @@ fn normalize_global_search_limit(limit: Option<i64>) -> ApplicationResult<i64> {
 mod tests {
     use super::{
         accepted_tmdb_lookup_hint_for_identity, local_metadata_snapshots_for_refresh,
-        merge_remote_outline_with_local, normalize_global_search_limit, normalize_page,
+        merge_remote_outline_with_local, normalize_global_search_limit,
+        normalize_library_media_category, normalize_media_item_sort_by, normalize_page,
         normalize_page_size, normalize_query, normalize_recently_added_days,
-        normalize_recently_added_limit, normalize_year, resolve_refreshed_metadata_failure_reason,
-        should_replace_remote_data, LocalSeriesEpisode, LocalSeriesSeason,
+        normalize_recently_added_limit, normalize_sort_order, normalize_year,
+        resolve_refreshed_metadata_failure_reason, should_replace_remote_data, LocalSeriesEpisode,
+        LocalSeriesSeason,
     };
     use crate::ApplicationError;
     use crate::{RemoteSeriesEpisode, RemoteSeriesEpisodeOutline, RemoteSeriesSeason};
@@ -2158,6 +2218,51 @@ mod tests {
             normalize_year(Some(0)),
             Err(ApplicationError::Validation(message))
                 if message.contains("positive integer")
+        ));
+    }
+
+    #[test]
+    fn media_item_sorting_defaults_to_title_ascending() {
+        assert_eq!(
+            normalize_library_media_category(None).unwrap(),
+            mova_db::LibraryMediaCategory::All
+        );
+        assert_eq!(
+            normalize_media_item_sort_by(None).unwrap(),
+            mova_db::MediaItemSortBy::Title
+        );
+        assert_eq!(normalize_sort_order(None).unwrap(), mova_db::SortOrder::Asc);
+    }
+
+    #[test]
+    fn media_item_sorting_accepts_supported_values() {
+        assert_eq!(
+            normalize_library_media_category(Some(" needs_review ".to_string())).unwrap(),
+            mova_db::LibraryMediaCategory::NeedsReview
+        );
+        assert_eq!(
+            normalize_media_item_sort_by(Some(" rating ".to_string())).unwrap(),
+            mova_db::MediaItemSortBy::Rating
+        );
+        assert_eq!(
+            normalize_sort_order(Some("desc".to_string())).unwrap(),
+            mova_db::SortOrder::Desc
+        );
+    }
+
+    #[test]
+    fn media_item_sorting_rejects_unknown_values() {
+        assert!(matches!(
+            normalize_library_media_category(Some("episode".to_string())),
+            Err(ApplicationError::Validation(message)) if message.contains("category")
+        ));
+        assert!(matches!(
+            normalize_media_item_sort_by(Some("popularity".to_string())),
+            Err(ApplicationError::Validation(message)) if message.contains("sort_by")
+        ));
+        assert!(matches!(
+            normalize_sort_order(Some("sideways".to_string())),
+            Err(ApplicationError::Validation(message)) if message.contains("sort_order")
         ));
     }
 

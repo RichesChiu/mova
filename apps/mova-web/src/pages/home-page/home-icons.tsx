@@ -3,9 +3,13 @@ import type { ReactNode, SVGProps } from 'react'
 export type HomeIconName =
   | 'arrowLeft'
   | 'bell'
+  | 'calendar'
+  | 'check'
+  | 'chevronDown'
   | 'chevronRight'
   | 'clock'
   | 'edit'
+  | 'filter'
   | 'home'
   | 'info'
   | 'libraries'
@@ -14,6 +18,7 @@ export type HomeIconName =
   | 'scan'
   | 'search'
   | 'settings'
+  | 'sort'
   | 'trash'
   | 'user'
 
@@ -45,6 +50,14 @@ const iconPaths: Record<HomeIconName, ReactNode> = {
       <path d="M9.7 18.5a2.5 2.5 0 0 0 4.6 0" />
     </>
   ),
+  calendar: (
+    <>
+      <rect height="15" rx="2.2" width="16" x="4" y="5" />
+      <path d="M8 3.5V7M16 3.5V7M4 9h16" />
+    </>
+  ),
+  check: <path d="m5 12.5 4.2 4.2L19 7" />,
+  chevronDown: <path d="m6 9 6 6 6-6" />,
   chevronRight: <path d="m9 6 6 6-6 6" />,
   clock: (
     <>
@@ -56,6 +69,11 @@ const iconPaths: Record<HomeIconName, ReactNode> = {
     <>
       <path d="M12 20h8" />
       <path d="m16.5 3.5 4 4L8 20l-4.5.5L4 16 16.5 3.5Z" />
+    </>
+  ),
+  filter: (
+    <>
+      <path d="M4 7h16M7 12h10M10 17h4" />
     </>
   ),
   home: (
@@ -108,6 +126,12 @@ const iconPaths: Record<HomeIconName, ReactNode> = {
     <>
       <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
       <path d="M19 12a7 7 0 0 0-.1-1.1l2-1.5-2-3.4-2.4 1a7 7 0 0 0-1.9-1.1L14.3 3h-4.6l-.3 2.9A7 7 0 0 0 7.5 7L5.1 6l-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.1l-2 1.5 2 3.4 2.4-1a7 7 0 0 0 1.9 1.1l.3 2.9h4.6l.3-2.9a7 7 0 0 0 1.9-1.1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1.1Z" />
+    </>
+  ),
+  sort: (
+    <>
+      <path d="M8 5v14M5 8l3-3 3 3" />
+      <path d="M16 19V5M13 16l3 3 3-3" />
     </>
   ),
   trash: (

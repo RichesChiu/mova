@@ -1,7 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useOutletContext, useParams } from 'react-router-dom'
 import { getLibrary, listLibraryMediaItems } from '../../api/client'
-import type { MediaItem } from '../../api/types'
+import type {
+  LibraryMediaCategory,
+  LibraryMediaSortBy,
+  MediaItem,
+  SortOrder,
+} from '../../api/types'
 import type { AppShellOutletContext } from '../../components/app-shell'
 import type { ScanRuntimeItem } from '../../components/app-shell/scan-runtime'
 import {
@@ -20,20 +26,15 @@ import {
 import { EmptyState } from '../../components/empty-state'
 import { MediaRatingBadges } from '../../components/media-rating-badges'
 import { useI18n } from '../../i18n'
-import {
-  filterCompletedScanItemsWithSavedMedia,
-  filterLibraryMediaItemsForScanRuntime,
-  getLibraryMediaSection,
-  getLibraryScanSection,
-} from '../../lib/library-media-sections'
 import { libraryDetailReturnPath, mediaItemPrimaryPath } from '../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 import { HomeIcon } from '../home-page/home-icons'
 import { LibraryDetailTileArtwork } from './library-detail-tile-artwork'
+import { LibraryFilterPopover, LibrarySortMenu } from './library-toolbar-popovers'
 
-const PAGE_SIZE = 500
+const PAGE_SIZE = 60
 const MEDIA_SECTION_SKELETON_COUNT = 6
 const MEDIA_SECTION_SKELETON_KEYS = [
   'media-a',
@@ -132,31 +133,14 @@ const LibraryDetailTileSkeleton = ({ placeholderLabel }: { placeholderLabel: str
   </div>
 )
 
-const MediaSection = ({
-  items,
-  scanItems,
-  title,
-}: {
-  items: MediaItem[]
-  scanItems: ScanRuntimeItem[]
-  title: string
-}) => {
-  if (items.length === 0 && scanItems.length === 0) {
+const MediaSection = ({ items }: { items: MediaItem[] }) => {
+  if (items.length === 0) {
     return null
   }
 
   return (
     <section className="catalog-block library-detail-section">
-      <div className="catalog-block__header library-detail-section__header">
-        <div className="catalog-block__title-row">
-          <h3>{title}</h3>
-        </div>
-      </div>
-
       <div className="media-grid library-detail-section__grid">
-        {scanItems.map((item) => (
-          <LibraryDetailScanTile item={item} key={`scan-${item.item_key}`} />
-        ))}
         {items.map((item) => (
           <LibraryDetailMediaTile item={item} key={item.id} />
         ))}
@@ -165,24 +149,35 @@ const MediaSection = ({
   )
 }
 
-const MediaSectionSkeleton = ({
-  placeholderLabel,
-  title,
-}: {
-  placeholderLabel: string
-  title: string
-}) => {
+const ScanSection = ({ items }: { items: ScanRuntimeItem[] }) => {
+  const { l } = useI18n()
+
+  if (items.length === 0) {
+    return null
+  }
+
   return (
-    <section aria-hidden="true" className="catalog-block library-detail-section">
+    <section className="catalog-block library-detail-section library-detail-section--scanning">
       <div className="catalog-block__header library-detail-section__header">
         <div className="catalog-block__title-row">
-          <h3>{title}</h3>
+          <h3>{l('Scanning items')}</h3>
         </div>
       </div>
+      <div className="media-grid library-detail-section__grid">
+        {items.map((item) => (
+          <LibraryDetailScanTile item={item} key={item.item_key} />
+        ))}
+      </div>
+    </section>
+  )
+}
 
+const MediaSectionSkeleton = ({ placeholderLabel }: { placeholderLabel: string }) => {
+  return (
+    <section aria-hidden="true" className="catalog-block library-detail-section">
       <div className="media-grid library-detail-section__grid">
         {MEDIA_SECTION_SKELETON_KEYS.slice(0, MEDIA_SECTION_SKELETON_COUNT).map((key) => (
-          <LibraryDetailTileSkeleton key={`${title}-${key}`} placeholderLabel={placeholderLabel} />
+          <LibraryDetailTileSkeleton key={key} placeholderLabel={placeholderLabel} />
         ))}
       </div>
     </section>
@@ -194,6 +189,25 @@ export const LibraryPage = () => {
   const params = useParams()
   const { currentUser, scanRuntimeByLibrary } = useOutletContext<AppShellOutletContext>()
   const libraryId = Number(params.libraryId)
+  const [page, setPage] = useState(1)
+  const [queryFilter, setQueryFilter] = useState('')
+  const [yearFilter, setYearFilter] = useState<number | undefined>()
+  const [category, setCategory] = useState<LibraryMediaCategory>('all')
+  const [sortBy, setSortBy] = useState<LibraryMediaSortBy>('title')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('asc')
+  const [openToolbarPopover, setOpenToolbarPopover] = useState<'filter' | 'sort' | null>(null)
+
+  useEffect(() => {
+    if (!Number.isFinite(libraryId)) {
+      return
+    }
+
+    setPage(1)
+    setQueryFilter('')
+    setYearFilter(undefined)
+    setCategory('all')
+    setOpenToolbarPopover(null)
+  }, [libraryId])
 
   const libraryQuery = useQuery({
     enabled: Number.isFinite(libraryId),
@@ -209,11 +223,25 @@ export const LibraryPage = () => {
 
   const mediaItemsQuery = useQuery({
     enabled: Number.isFinite(libraryId),
-    queryKey: ['library-media', libraryId, 'full'],
+    queryKey: [
+      'library-media',
+      libraryId,
+      page,
+      queryFilter,
+      yearFilter ?? null,
+      category,
+      sortBy,
+      sortOrder,
+    ],
     queryFn: () =>
       listLibraryMediaItems(libraryId, {
-        page: 1,
+        page,
         pageSize: PAGE_SIZE,
+        category: category === 'all' ? undefined : category,
+        query: queryFilter || undefined,
+        sortBy,
+        sortOrder,
+        year: yearFilter,
       }),
     refetchInterval: scanStatus === 'pending' || scanStatus === 'running' ? 3_000 : false,
   })
@@ -224,24 +252,11 @@ export const LibraryPage = () => {
     : null
   const mediaItems = mediaItemsQuery.data?.items ?? []
   const currentScan = getEffectiveScanJob(currentLibrary?.last_scan, currentScanRuntime)
-  const scanItems = shouldShowScanPlaceholder(currentLibrary?.last_scan, currentScanRuntime)
-    ? getScanRuntimeItems(currentScanRuntime)
-    : []
-  const visibleScanItems = filterCompletedScanItemsWithSavedMedia(
-    scanItems.filter((item) => getLibraryScanSection(item) !== null),
-    mediaItems,
-  )
-  const visibleMediaItems = filterLibraryMediaItemsForScanRuntime(mediaItems, visibleScanItems)
-  const movieItems = visibleMediaItems.filter((item) => getLibraryMediaSection(item) === 'movies')
-  const seriesItems = visibleMediaItems.filter((item) => getLibraryMediaSection(item) === 'series')
-  const otherItems = visibleMediaItems.filter((item) => getLibraryMediaSection(item) === 'other')
-  const movieScanItems = visibleScanItems.filter((item) => getLibraryScanSection(item) === 'movies')
-  const seriesScanItems = visibleScanItems.filter(
-    (item) => getLibraryScanSection(item) === 'series',
-  )
-  const otherScanItems = visibleScanItems.filter((item) => getLibraryScanSection(item) === 'other')
-  const shouldShowMediaSkeleton =
-    mediaItemsQuery.isLoading && mediaItems.length === 0 && visibleScanItems.length === 0
+  const scanItems =
+    page === 1 && shouldShowScanPlaceholder(currentLibrary?.last_scan, currentScanRuntime)
+      ? getScanRuntimeItems(currentScanRuntime).filter((item) => item.stage !== 'completed')
+      : []
+  const shouldShowMediaSkeleton = mediaItemsQuery.isLoading && mediaItems.length === 0
   const isScanning = isLibraryScanActive(currentScan, currentScanRuntime)
   const scanStatusCopy = isScanning
     ? formatScanJobStatusCopy(currentLibrary?.last_scan, currentScanRuntime)
@@ -249,9 +264,49 @@ export const LibraryPage = () => {
   const scanProgressPercent = isScanning
     ? getScanJobProgressPercent(currentLibrary?.last_scan, currentScanRuntime)
     : 0
-  const headerItemCount = mediaItemsQuery.data
-    ? visibleMediaItems.length + visibleScanItems.length
-    : (currentLibrary?.media_count ?? null)
+  const headerItemCount = currentLibrary?.media_count ?? null
+  const totalPages = mediaItemsQuery.data
+    ? Math.max(1, Math.ceil(mediaItemsQuery.data.total / mediaItemsQuery.data.page_size))
+    : 1
+  const hasActiveFilters = queryFilter.length > 0 || yearFilter !== undefined || category !== 'all'
+  const activeFilterCount =
+    Number(queryFilter.length > 0) + Number(yearFilter !== undefined) + Number(category !== 'all')
+  const resultTitle =
+    category === 'movie'
+      ? l('Movies')
+      : category === 'series'
+        ? l('Series')
+        : category === 'needs_review'
+          ? l('Needs review')
+          : l('All media')
+
+  const updateQueryFilter = useCallback((query: string) => {
+    setQueryFilter(query)
+    setPage(1)
+  }, [])
+
+  const updateYearFilter = useCallback((year?: number) => {
+    setYearFilter(year)
+    setPage(1)
+  }, [])
+
+  const updateCategory = useCallback((nextCategory: LibraryMediaCategory) => {
+    setCategory(nextCategory)
+    setPage(1)
+  }, [])
+
+  const updateSort = useCallback((nextSortBy: LibraryMediaSortBy, nextSortOrder: SortOrder) => {
+    setSortBy(nextSortBy)
+    setSortOrder(nextSortOrder)
+    setPage(1)
+  }, [])
+
+  const resetFilters = useCallback(() => {
+    setQueryFilter('')
+    setYearFilter(undefined)
+    setCategory('all')
+    setPage(1)
+  }, [])
   if (!Number.isFinite(libraryId)) {
     return (
       <HomeDashboardShell ariaLabel={l('Library')} currentUser={currentUser}>
@@ -310,6 +365,35 @@ export const LibraryPage = () => {
         ) : null}
 
         <section className="catalog-shell library-detail-catalog">
+          <div className="library-detail-results-header">
+            <div className="library-detail-results-header__title">
+              <h3>{resultTitle}</h3>
+              {mediaItemsQuery.data ? (
+                <span>{l('{{count}} results', { count: mediaItemsQuery.data.total })}</span>
+              ) : null}
+            </div>
+
+            <div className="library-detail-results-header__actions">
+              <LibrarySortMenu
+                isOpen={openToolbarPopover === 'sort'}
+                onChange={updateSort}
+                onOpenChange={(isOpen) => setOpenToolbarPopover(isOpen ? 'sort' : null)}
+                sortBy={sortBy}
+                sortOrder={sortOrder}
+              />
+              <LibraryFilterPopover
+                activeFilterCount={activeFilterCount}
+                isOpen={openToolbarPopover === 'filter'}
+                onCategoryChange={updateCategory}
+                onOpenChange={(isOpen) => setOpenToolbarPopover(isOpen ? 'filter' : null)}
+                onQueryChange={updateQueryFilter}
+                onReset={resetFilters}
+                onYearChange={updateYearFilter}
+                value={{ category, query: queryFilter, year: yearFilter }}
+              />
+            </div>
+          </div>
+
           {shouldShowMediaSkeleton ? <p className="muted">{l('Loading media items…')}</p> : null}
 
           {mediaItemsQuery.isError ? (
@@ -323,28 +407,53 @@ export const LibraryPage = () => {
           {!shouldShowMediaSkeleton &&
           mediaItemsQuery.data &&
           mediaItems.length === 0 &&
-          visibleScanItems.length === 0 &&
           !isScanning ? (
-            <EmptyState
-              description={l('This library does not have any visible items yet.')}
-              title={l('No items available yet')}
-            />
+            hasActiveFilters ? (
+              <EmptyState
+                description={l('Try a different media type, title, or year, or clear the filters.')}
+                title={l('No items match these filters')}
+              />
+            ) : (
+              <EmptyState
+                description={l('This library does not have any visible items yet.')}
+                title={l('No items available yet')}
+              />
+            )
           ) : null}
 
           {shouldShowMediaSkeleton ? (
             <div className="catalog-stack library-detail-stack">
-              <MediaSectionSkeleton placeholderLabel={l('Movies')} title={l('Movies')} />
-              <MediaSectionSkeleton placeholderLabel={l('Series')} title={l('Series')} />
-              <MediaSectionSkeleton placeholderLabel={l('Other')} title={l('Other')} />
+              <MediaSectionSkeleton placeholderLabel={resultTitle} />
             </div>
           ) : null}
 
-          {!shouldShowMediaSkeleton && (mediaItems.length > 0 || visibleScanItems.length > 0) ? (
+          {!shouldShowMediaSkeleton && (mediaItems.length > 0 || scanItems.length > 0) ? (
             <div className="catalog-stack library-detail-stack">
-              <MediaSection items={movieItems} scanItems={movieScanItems} title={l('Movies')} />
-              <MediaSection items={seriesItems} scanItems={seriesScanItems} title={l('Series')} />
-              <MediaSection items={otherItems} scanItems={otherScanItems} title={l('Other')} />
+              <ScanSection items={scanItems} />
+              <MediaSection items={mediaItems} />
             </div>
+          ) : null}
+
+          {mediaItemsQuery.data && totalPages > 1 ? (
+            <nav aria-label={l('Library pages')} className="library-detail-pagination">
+              <button
+                className="button"
+                disabled={page <= 1 || mediaItemsQuery.isFetching}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                type="button"
+              >
+                {l('Previous')}
+              </button>
+              <span>{l('Page {{page}} of {{total}}', { page, total: totalPages })}</span>
+              <button
+                className="button"
+                disabled={page >= totalPages || mediaItemsQuery.isFetching}
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                type="button"
+              >
+                {l('Next')}
+              </button>
+            </nav>
           ) : null}
         </section>
       </div>

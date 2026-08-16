@@ -1,9 +1,10 @@
 use super::{
     ratings::{list_media_item_ratings, replace_media_item_remote_data},
     reconcile_local_metadata_snapshots_tx, CreateAudioTrackParams, CreateSubtitleTrackParams,
-    ExistingMediaMetadataSummary, GlobalSearchParams, GlobalSearchResult, LibraryMediaTypeCounts,
-    ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult, MediaItemPlaybackHeader,
-    RecentlyAddedLibraryMediaItems, SeriesEpisodeOutlineCacheEntry, UpdateMediaFileMetadataParams,
+    ExistingMediaMetadataSummary, GlobalSearchParams, GlobalSearchResult, LibraryMediaCategory,
+    LibraryMediaTypeCounts, ListMediaItemsForLibraryParams, ListMediaItemsForLibraryResult,
+    MediaItemPlaybackHeader, MediaItemSortBy, RecentlyAddedLibraryMediaItems,
+    SeriesEpisodeOutlineCacheEntry, SortOrder, UpdateMediaFileMetadataParams,
     UpdateMediaItemMetadataParams, UpdateSeriesEpisodeMetadataParams,
     UpdateSeriesSeasonMetadataParams, UpsertSeriesEpisodeOutlineCacheParams,
 };
@@ -28,17 +29,81 @@ use time::OffsetDateTime;
 // still amortizing scan planning into a small, deterministic query budget.
 const EXISTING_METADATA_PATH_BATCH_SIZE: usize = 2_000;
 
+const MEDIA_ITEM_TITLE_SORT_EXPRESSION: &str =
+    "lower(coalesce(nullif(sort_title, ''), nullif(title, ''), source_title))";
+
+const MEDIA_ITEM_NEEDS_REVIEW_EXPRESSION: &str = r#"
+    metadata_status in ('skipped', 'unmatched', 'failed')
+    or (remote_media_type is not null and remote_media_type <> media_type)
+"#;
+
+fn library_media_category_clause(category: LibraryMediaCategory) -> String {
+    match category {
+        LibraryMediaCategory::All => "true".to_string(),
+        LibraryMediaCategory::Movie => {
+            format!("media_type = 'movie' and not ({MEDIA_ITEM_NEEDS_REVIEW_EXPRESSION})")
+        }
+        LibraryMediaCategory::Series => {
+            format!("media_type = 'series' and not ({MEDIA_ITEM_NEEDS_REVIEW_EXPRESSION})")
+        }
+        LibraryMediaCategory::NeedsReview => {
+            format!("({MEDIA_ITEM_NEEDS_REVIEW_EXPRESSION})")
+        }
+    }
+}
+
+fn media_item_order_by_clause(sort_by: MediaItemSortBy, sort_order: SortOrder) -> String {
+    let direction = match sort_order {
+        SortOrder::Asc => "asc",
+        SortOrder::Desc => "desc",
+    };
+
+    match sort_by {
+        MediaItemSortBy::Title => {
+            format!("{MEDIA_ITEM_TITLE_SORT_EXPRESSION} {direction}, id {direction}")
+        }
+        MediaItemSortBy::Year => {
+            format!("year {direction} nulls last, {MEDIA_ITEM_TITLE_SORT_EXPRESSION} asc, id asc")
+        }
+        MediaItemSortBy::Rating => format!(
+            r#"
+            (
+                select rating.score / rating.scale
+                from media_item_ratings rating
+                where rating.media_item_id = media_items.id
+                order by
+                    case rating.retrieved_via
+                        when 'manual' then 0
+                        when 'nfo' then 1
+                        else 100
+                    end,
+                    case rating.source when 'tmdb' then 0 else 100 end,
+                    rating.source,
+                    rating.kind
+                limit 1
+            ) {direction} nulls last,
+            {MEDIA_ITEM_TITLE_SORT_EXPRESSION} asc,
+            id asc
+            "#
+        ),
+    }
+}
+
 /// 读取某个媒体库下当前已经入库的媒体条目。
 pub async fn list_media_items_for_library(
     pool: &PgPool,
     params: ListMediaItemsForLibraryParams,
 ) -> Result<ListMediaItemsForLibraryResult> {
-    let total_row = sqlx::query(
+    // Both count and list use the same closed media-category expression so the
+    // pagination total cannot drift from the rows returned below.
+    let category = library_media_category_clause(params.category);
+    let count_query = format!(
         r#"
         select count(*) as total
         from media_items
         where library_id = $1
           and media_type in ('movie', 'series')
+          and ({category})
           and (
                 $2::text is null
                 or title ilike '%' || $2 || '%'
@@ -46,16 +111,20 @@ pub async fn list_media_items_for_library(
                 or coalesce(original_title, '') ilike '%' || $2 || '%'
               )
           and ($3::int is null or year = $3)
-        "#,
-    )
-    .bind(params.library_id)
-    .bind(params.query.as_deref())
-    .bind(params.year)
-    .fetch_one(pool)
-    .await
-    .context("failed to count media items for library listing")?;
+        "#
+    );
+    let total_row = sqlx::query(&count_query)
+        .bind(params.library_id)
+        .bind(params.query.as_deref())
+        .bind(params.year)
+        .fetch_one(pool)
+        .await
+        .context("failed to count media items for library listing")?;
 
-    let rows = sqlx::query(
+    // ORDER BY is selected only from the closed enums above. User input never
+    // becomes SQL text, and every ordering has deterministic pagination ties.
+    let order_by = media_item_order_by_clause(params.sort_by, params.sort_order);
+    let list_query = format!(
         r#"
         select
             id,
@@ -86,6 +155,7 @@ pub async fn list_media_items_for_library(
         from media_items
         where library_id = $1
           and media_type in ('movie', 'series')
+          and ({category})
           and (
                 $2::text is null
                 or title ilike '%' || $2 || '%'
@@ -93,19 +163,20 @@ pub async fn list_media_items_for_library(
                 or coalesce(original_title, '') ilike '%' || $2 || '%'
               )
           and ($3::int is null or year = $3)
-        order by lower(coalesce(nullif(title, ''), source_title)) asc, id asc
+        order by {order_by}
         limit $4
         offset $5
-        "#,
-    )
-    .bind(params.library_id)
-    .bind(params.query.as_deref())
-    .bind(params.year)
-    .bind(params.limit)
-    .bind(params.offset)
-    .fetch_all(pool)
-    .await
-    .context("failed to list media items for library")?;
+        "#
+    );
+    let rows = sqlx::query(&list_query)
+        .bind(params.library_id)
+        .bind(params.query.as_deref())
+        .bind(params.year)
+        .bind(params.limit)
+        .bind(params.offset)
+        .fetch_all(pool)
+        .await
+        .context("failed to list media items for library")?;
 
     let mut items = rows.into_iter().map(map_media_item_row).collect::<Vec<_>>();
     attach_media_item_ratings(pool, &mut items).await?;
@@ -126,7 +197,7 @@ pub async fn list_media_item_previews_by_library(
         return Ok(HashMap::new());
     }
 
-    let rows = sqlx::query(
+    let preview_query = format!(
         r#"
         with ranked_items as (
             select
@@ -157,7 +228,7 @@ pub async fn list_media_item_previews_by_library(
                 updated_at,
                 row_number() over (
                     partition by library_id
-                    order by lower(coalesce(nullif(title, ''), source_title)) asc, id asc
+                    order by {MEDIA_ITEM_TITLE_SORT_EXPRESSION} asc, id asc
                 ) as item_rank
             from media_items
             where library_id = any($1)
@@ -193,12 +264,13 @@ pub async fn list_media_item_previews_by_library(
         where item_rank <= $2
         order by library_id asc, item_rank asc
         "#,
-    )
-    .bind(library_ids)
-    .bind(item_limit.max(1))
-    .fetch_all(pool)
-    .await
-    .context("failed to list media item previews by library")?;
+    );
+    let rows = sqlx::query(&preview_query)
+        .bind(library_ids)
+        .bind(item_limit.max(1))
+        .fetch_all(pool)
+        .await
+        .context("failed to list media item previews by library")?;
 
     let mut items_by_library = HashMap::new();
     for row in rows {
@@ -2935,11 +3007,15 @@ fn map_series_episode_outline_cache_entry_row(row: PgRow) -> SeriesEpisodeOutlin
 #[cfg(test)]
 mod tests {
     use super::{
-        get_series_episode_outline_cache, list_media_item_metadata_refresh_source_files,
-        update_media_item_metadata, upsert_series_episode_outline_cache,
-        EXISTING_METADATA_PATH_BATCH_SIZE,
+        get_series_episode_outline_cache, library_media_category_clause,
+        list_media_item_metadata_refresh_source_files, list_media_item_previews_by_library,
+        list_media_items_for_library, media_item_order_by_clause, update_media_item_metadata,
+        upsert_series_episode_outline_cache, EXISTING_METADATA_PATH_BATCH_SIZE,
     };
-    use crate::{UpdateMediaItemMetadataParams, UpsertSeriesEpisodeOutlineCacheParams};
+    use crate::{
+        LibraryMediaCategory, ListMediaItemsForLibraryParams, MediaItemSortBy, SortOrder,
+        UpdateMediaItemMetadataParams, UpsertSeriesEpisodeOutlineCacheParams,
+    };
     use time::{Duration, OffsetDateTime};
 
     #[test]
@@ -2952,6 +3028,214 @@ mod tests {
                 .map(<[String]>::len)
                 .collect::<Vec<_>>(),
             vec![2_000, 2_000, 1_001]
+        );
+    }
+
+    #[test]
+    fn media_item_ordering_uses_closed_static_clauses() {
+        assert_eq!(
+            media_item_order_by_clause(MediaItemSortBy::Title, SortOrder::Desc),
+            "lower(coalesce(nullif(sort_title, ''), nullif(title, ''), source_title)) desc, id desc"
+        );
+
+        let year = media_item_order_by_clause(MediaItemSortBy::Year, SortOrder::Asc);
+        assert!(year.starts_with("year asc nulls last"));
+        assert!(year.ends_with("id asc"));
+
+        let rating = media_item_order_by_clause(MediaItemSortBy::Rating, SortOrder::Desc);
+        assert!(rating.contains("rating.score / rating.scale"));
+        assert!(rating.contains("desc nulls last"));
+        assert!(rating.contains("when 'manual' then 0"));
+        assert!(rating.contains("when 'nfo' then 1"));
+    }
+
+    #[test]
+    fn library_media_categories_are_owned_by_the_review_bucket_contract() {
+        assert_eq!(
+            library_media_category_clause(LibraryMediaCategory::All),
+            "true"
+        );
+        assert!(library_media_category_clause(LibraryMediaCategory::Movie)
+            .contains("media_type = 'movie'"));
+        assert!(library_media_category_clause(LibraryMediaCategory::Series)
+            .contains("media_type = 'series'"));
+        let needs_review = library_media_category_clause(LibraryMediaCategory::NeedsReview);
+        assert!(needs_review.contains("metadata_status in ('skipped', 'unmatched', 'failed')"));
+        assert!(needs_review.contains("remote_media_type is not null"));
+        assert!(needs_review.contains("remote_media_type <> media_type"));
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn library_media_items_sort_stably_and_keep_missing_values_last(pool: sqlx::PgPool) {
+        let library_id = sqlx::query_scalar::<_, i64>(
+            "insert into libraries (name, root_path) values ('Sorted', '/sorted') returning id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let mut item_ids = Vec::new();
+        for (title, media_type, status, remote_media_type, year) in [
+            ("Alpha", "movie", "matched", Some("movie"), Some(2020)),
+            ("Bravo", "series", "matched", Some("series"), Some(2024)),
+            ("Charlie", "movie", "failed", None, Some(2022)),
+            ("Delta", "series", "unmatched", Some("series"), None),
+        ] {
+            item_ids.push(
+                sqlx::query_scalar::<_, i64>(
+                    r#"
+                    insert into media_items (
+                        library_id, media_type, title, source_title, metadata_provider,
+                        metadata_provider_item_id, metadata_status, remote_media_type, year
+                    )
+                    values (
+                        $1,
+                        $2,
+                        $3,
+                        $3,
+                        case when $4 = 'matched' then 'tmdb' end,
+                        case when $4 = 'matched' then lower($3) end,
+                        $4,
+                        $5,
+                        $6
+                    )
+                    returning id
+                    "#,
+                )
+                .bind(library_id)
+                .bind(media_type)
+                .bind(title)
+                .bind(status)
+                .bind(remote_media_type)
+                .bind(year)
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            );
+        }
+
+        sqlx::query("update media_items set sort_title = 'Aardvark' where id = $1")
+            .bind(item_ids[1])
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        for (media_item_id, score) in [(item_ids[0], 9.0), (item_ids[2], 6.0)] {
+            sqlx::query(
+                r#"
+                insert into media_item_ratings (
+                    media_item_id, source, kind, score, scale, retrieved_via, fetched_at
+                )
+                values ($1, 'tmdb', 'audience', $2, 10, 'tmdb', now())
+                "#,
+            )
+            .bind(media_item_id)
+            .bind(score)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let list_titles = |category, sort_by, sort_order| {
+            let pool = pool.clone();
+            async move {
+                list_media_items_for_library(
+                    &pool,
+                    ListMediaItemsForLibraryParams {
+                        library_id,
+                        query: None,
+                        year: None,
+                        category,
+                        sort_by,
+                        sort_order,
+                        limit: 10,
+                        offset: 0,
+                    },
+                )
+                .await
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|item| item.title)
+                .collect::<Vec<_>>()
+            }
+        };
+
+        assert_eq!(
+            list_titles(
+                LibraryMediaCategory::All,
+                MediaItemSortBy::Rating,
+                SortOrder::Desc,
+            )
+            .await,
+            vec!["Alpha", "Charlie", "Bravo", "Delta"]
+        );
+        assert_eq!(
+            list_titles(
+                LibraryMediaCategory::All,
+                MediaItemSortBy::Rating,
+                SortOrder::Asc,
+            )
+            .await,
+            vec!["Charlie", "Alpha", "Bravo", "Delta"]
+        );
+        assert_eq!(
+            list_titles(
+                LibraryMediaCategory::All,
+                MediaItemSortBy::Year,
+                SortOrder::Desc,
+            )
+            .await,
+            vec!["Bravo", "Charlie", "Alpha", "Delta"]
+        );
+        assert_eq!(
+            list_titles(
+                LibraryMediaCategory::All,
+                MediaItemSortBy::Title,
+                SortOrder::Asc,
+            )
+            .await,
+            vec!["Bravo", "Alpha", "Charlie", "Delta"]
+        );
+        assert_eq!(
+            list_titles(
+                LibraryMediaCategory::Movie,
+                MediaItemSortBy::Title,
+                SortOrder::Asc,
+            )
+            .await,
+            vec!["Alpha"]
+        );
+        assert_eq!(
+            list_titles(
+                LibraryMediaCategory::Series,
+                MediaItemSortBy::Title,
+                SortOrder::Asc,
+            )
+            .await,
+            vec!["Bravo"]
+        );
+        assert_eq!(
+            list_titles(
+                LibraryMediaCategory::NeedsReview,
+                MediaItemSortBy::Title,
+                SortOrder::Asc,
+            )
+            .await,
+            vec!["Charlie", "Delta"]
+        );
+
+        assert_eq!(
+            list_media_item_previews_by_library(&pool, &[library_id], 4)
+                .await
+                .unwrap()
+                .remove(&library_id)
+                .unwrap()
+                .into_iter()
+                .map(|item| item.title)
+                .collect::<Vec<_>>(),
+            vec!["Bravo", "Alpha", "Charlie", "Delta"]
         );
     }
 
