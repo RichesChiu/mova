@@ -5,6 +5,7 @@ pub(super) async fn build_incremental_scan_plan(
     library_id: i64,
     root_path: &std::path::Path,
     discovered_files: Vec<DiscoveredMediaFileInventory>,
+    unparsed_carrier_paths: &[String],
     metadata_provider_enabled: bool,
     metadata_language: &str,
 ) -> ApplicationResult<IncrementalScanPlan> {
@@ -12,8 +13,11 @@ pub(super) async fn build_incremental_scan_plan(
         .iter()
         .map(|file| file.file_path.to_string_lossy().to_string())
         .collect::<Vec<_>>();
+    // An unparsed carrier is still on disk and keeps its catalog version, so
+    // it does not count as a removed version of its owner.
     let discovered_path_set = file_paths
         .iter()
+        .chain(unparsed_carrier_paths)
         .map(String::as_str)
         .collect::<HashSet<_>>();
     let memberships = mova_db::list_library_media_file_memberships(pool, library_id)

@@ -3201,3 +3201,215 @@ fn removed_namedseason_does_not_leave_the_old_local_season_title() {
         Some("/media/series/Arcane/tvshow.nfo")
     );
 }
+
+#[test]
+fn unparsed_carrier_paths_keep_every_observed_issue_path() {
+    let issue = |path: &str| mova_scan::MediaDiscoveryIssue {
+        file_path: PathBuf::from(path),
+        reason_code: "strm_reference_invalid_url".to_string(),
+        diagnostic_message: "Invalid STRM reference: strm_reference_invalid_url".to_string(),
+    };
+    assert_eq!(
+        super::collect_unparsed_carrier_paths(&[
+            issue("/media/Alpha (2020)/Alpha (2020).strm"),
+            issue("/media/Beta (2021)/Beta (2021).strm"),
+        ]),
+        vec![
+            "/media/Alpha (2020)/Alpha (2020).strm".to_string(),
+            "/media/Beta (2021)/Beta (2021).strm".to_string(),
+        ]
+    );
+    assert!(super::collect_unparsed_carrier_paths(&[]).is_empty());
+}
+
+#[test]
+fn missing_path_reconciliation_is_skipped_only_when_nothing_parsed_but_carriers_were_seen() {
+    let paths = |values: &[&str]| {
+        values
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>()
+    };
+    assert!(super::skips_missing_path_reconciliation(
+        &[],
+        &paths(&["/media/A/A.strm"])
+    ));
+    assert!(!super::skips_missing_path_reconciliation(
+        &paths(&["/media/B/B.mkv"]),
+        &paths(&["/media/A/A.strm"])
+    ));
+    assert!(!super::skips_missing_path_reconciliation(
+        &paths(&["/media/B/B.mkv"]),
+        &[]
+    ));
+    // An empty round with no observed carrier still reaches the zero-file guard.
+    assert!(!super::skips_missing_path_reconciliation(&[], &[]));
+}
+
+/// A broken STRM generator must not delete media or what users watched: an
+/// STRM whose content turns invalid keeps its item and playback progress, a
+/// library whose every STRM is invalid completes without deleting anything,
+/// and a genuinely removed file is still reconciled once a carrier parses.
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn invalid_strm_content_keeps_media_and_playback_progress(pool: sqlx::PgPool) {
+    let unique = format!(
+        "{}-{}",
+        std::process::id(),
+        OffsetDateTime::now_utc().unix_timestamp_nanos()
+    );
+    let root = std::env::temp_dir().join(format!("mova-invalid-strm-root-{unique}"));
+    let cache = std::env::temp_dir().join(format!("mova-invalid-strm-cache-{unique}"));
+    let alpha = root.join("Alpha (2020)").join("Alpha (2020).strm");
+    let beta = root.join("Beta (2021)").join("Beta (2021).strm");
+    for (path, url) in [
+        (&alpha, "https://media.example/alpha.mkv\n"),
+        (&beta, "https://media.example/beta.mkv\n"),
+    ] {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, url).unwrap();
+    }
+    fs::create_dir_all(&cache).unwrap();
+    let library = mova_db::create_library(
+        &pool,
+        mova_db::CreateLibraryParams {
+            name: "STRM".to_string(),
+            description: None,
+            metadata_language: "en-US".to_string(),
+            root_path: root.to_string_lossy().to_string(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let first = run_scan_to_completion(&pool, library.id, &cache).await;
+    assert_eq!(first.status, "success");
+    let alpha_path = alpha.to_string_lossy().to_string();
+    let beta_path = beta.to_string_lossy().to_string();
+    assert_eq!(
+        library_file_paths(&pool, library.id).await,
+        vec![alpha_path.clone(), beta_path.clone()]
+    );
+    let (alpha_file_id, alpha_item_id) = sqlx::query_as::<_, (i64, i64)>(
+        "select id, media_item_id from media_files where file_path = $1",
+    )
+    .bind(&alpha_path)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let viewer = mova_db::create_user(
+        &pool,
+        mova_db::CreateUserParams {
+            username: "viewer".to_string(),
+            username_normalized: "viewer".to_string(),
+            nickname: "Viewer".to_string(),
+            password_hash: "unused".to_string(),
+            role: mova_domain::UserRole::Viewer,
+            is_enabled: true,
+            library_ids: vec![library.id],
+        },
+    )
+    .await
+    .unwrap();
+    mova_db::upsert_playback_progress(
+        &pool,
+        mova_db::UpsertPlaybackProgressParams {
+            user_id: viewer.user.id,
+            media_item_id: alpha_item_id,
+            media_file_id: alpha_file_id,
+            position_seconds: 600,
+            duration_seconds: Some(5400),
+            is_finished: false,
+        },
+    )
+    .await
+    .unwrap();
+    let alpha_progress = || async {
+        sqlx::query_scalar::<_, i32>(
+            "select position_seconds from playback_progress where user_id = $1 and media_item_id = $2",
+        )
+        .bind(viewer.user.id)
+        .bind(alpha_item_id)
+        .fetch_optional(&pool)
+        .await
+        .unwrap()
+    };
+
+    // One STRM turns invalid: it is reported as an issue and kept.
+    fs::write(&alpha, "not a url\n").unwrap();
+    let second = run_scan_to_completion(&pool, library.id, &cache).await;
+    assert_eq!(second.status, "success");
+    assert_eq!(
+        library_file_paths(&pool, library.id).await,
+        vec![alpha_path.clone(), beta_path.clone()]
+    );
+    assert_eq!(alpha_progress().await, Some(600));
+
+    // Every STRM turns invalid: the scan completes and deletes nothing.
+    fs::write(&beta, "not a url either\n").unwrap();
+    let third = run_scan_to_completion(&pool, library.id, &cache).await;
+    assert_eq!(third.status, "success");
+    assert_eq!(
+        library_file_paths(&pool, library.id).await,
+        vec![alpha_path.clone(), beta_path.clone()]
+    );
+    assert_eq!(alpha_progress().await, Some(600));
+
+    // The generator recovers and Beta is really gone: normal reconciliation.
+    fs::write(&alpha, "https://media.example/alpha.mkv\n").unwrap();
+    fs::remove_dir_all(beta.parent().unwrap()).unwrap();
+    let fourth = run_scan_to_completion(&pool, library.id, &cache).await;
+    assert_eq!(fourth.status, "success");
+    assert_eq!(
+        library_file_paths(&pool, library.id).await,
+        vec![alpha_path]
+    );
+    assert_eq!(alpha_progress().await, Some(600));
+
+    let _ = fs::remove_dir_all(&root);
+    let _ = fs::remove_dir_all(&cache);
+}
+
+async fn run_scan_to_completion(
+    pool: &sqlx::PgPool,
+    library_id: i64,
+    cache: &Path,
+) -> mova_domain::ScanJob {
+    let scan_job = mova_db::enqueue_scan_job(pool, mova_db::CreateScanJobParams { library_id })
+        .await
+        .unwrap()
+        .scan_job;
+    let fence = mova_db::claim_background_job(pool, "invalid-strm-test-worker", 60)
+        .await
+        .unwrap()
+        .claimed_job
+        .unwrap()
+        .execution_fence()
+        .unwrap();
+    let outcome = super::execute_scan_job_with_cancellation(
+        pool,
+        library_id,
+        scan_job.id,
+        fence,
+        Arc::new(AtomicBool::new(false)),
+        cache.to_path_buf(),
+        Arc::new(crate::metadata::NullMetadataProvider),
+        Arc::new(|_| {}),
+    )
+    .await
+    .unwrap();
+    let super::ExecuteScanJobOutcome::Completed(job) = outcome else {
+        panic!("the scan must complete: {outcome:?}");
+    };
+    job
+}
+
+async fn library_file_paths(pool: &sqlx::PgPool, library_id: i64) -> Vec<String> {
+    sqlx::query_scalar::<_, String>(
+        "select file_path from media_files where library_id = $1 order by file_path",
+    )
+    .bind(library_id)
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
