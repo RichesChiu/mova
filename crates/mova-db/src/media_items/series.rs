@@ -18,7 +18,8 @@ use serde_json::Value;
 use sqlx::{Postgres, Row, Transaction};
 
 use crate::{
-    local_metadata::MediaLocalMetadataTarget, playback_progress::merge_media_item_user_state,
+    local_metadata::MediaLocalMetadataTarget,
+    playback_progress::{merge_media_item_user_state, regroup_continue_watching_under_series},
     tmdb_revalidation::record_authoritative_tmdb_snapshot_tx,
 };
 
@@ -71,6 +72,9 @@ pub(super) async fn upsert_episode_media_entry(
             )
             .await?;
             merge_media_item_user_state(tx, existing.media_item_id, target_media_item_id).await?;
+            if existing.media_type.eq_ignore_ascii_case("movie") {
+                regroup_continue_watching_under_series(tx, target_media_item_id, series_id).await?;
+            }
             cleanup_media_item_if_no_files(tx, existing.media_item_id).await?;
             if existing.media_type.eq_ignore_ascii_case("series") {
                 cleanup_orphan_series_structure(tx, entry.library_id).await?;

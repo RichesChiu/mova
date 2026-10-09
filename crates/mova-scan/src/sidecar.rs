@@ -633,6 +633,47 @@ fn observe_nfo_candidates_with_optional_root(
     LocalNfoObservation::Valid(Box::new(metadata))
 }
 
+/// Whether a `<stem>.nfo` is a well-formed NFO whose root is `<movie>`.
+///
+/// The episode-only filename rule asks this on every identity decision for a
+/// file such as `EP01.mkv`, so it uses the same secure open and size limit as
+/// the observers but never logs: the regular NFO observation of that file
+/// reports any problem once.
+pub(crate) fn is_movie_nfo_file(path: &Path) -> bool {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.len() > MAX_MEDIA_NFO_BYTES as u64 {
+        return false;
+    }
+    let Ok((mut file, _)) = open_nfo_file(path, None) else {
+        return false;
+    };
+    let mut bytes = Vec::new();
+    if (&mut file)
+        .take(MAX_MEDIA_NFO_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .is_err()
+        || bytes.len() > MAX_MEDIA_NFO_BYTES
+    {
+        return false;
+    }
+    let Ok(contents) = String::from_utf8(bytes) else {
+        return false;
+    };
+    let lowercase = contents.to_ascii_lowercase();
+    if lowercase.contains("<!doctype") || lowercase.contains("<!entity") {
+        return false;
+    }
+    Document::parse(&contents).is_ok_and(|document| {
+        document
+            .root_element()
+            .tag_name()
+            .name()
+            .eq_ignore_ascii_case("movie")
+    })
+}
+
 fn read_nfo_file(
     path: &Path,
     max_bytes: usize,

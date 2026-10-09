@@ -3238,3 +3238,251 @@ fn discover_media_files_with_progress_item_and_cancel_emits_discovered_files() {
         .any(|title| title.to_ascii_lowercase().contains("movie")));
     assert!(discovered_titles.iter().any(|title| title.contains("Show")));
 }
+
+fn write_test_videos(directory: &Path, names: &[&str]) -> Vec<PathBuf> {
+    fs::create_dir_all(directory).unwrap();
+    names
+        .iter()
+        .map(|name| {
+            let path = directory.join(name);
+            fs::write(&path, b"video").unwrap();
+            path
+        })
+        .collect()
+}
+
+fn episode_coordinates(path: &Path) -> (Option<i32>, Option<i32>) {
+    let parsed = parse_media_metadata(path);
+    (parsed.season_number, parsed.episode_number)
+}
+
+#[test]
+fn episode_only_markers_become_episodes_when_the_directory_proves_a_series() {
+    let root = unique_temp_path("episode-only-series");
+    let show = root.join("山海情 (2021) 4K HDR");
+    let names = (1..=3)
+        .map(|number| {
+            format!("Minning.Town.EP{number:02}.2021.4K.HDR.WEB-DL.HEVC.2Audios.DD2.0-HQC.mkv")
+        })
+        .collect::<Vec<_>>();
+    let paths = write_test_videos(&show, &names.iter().map(String::as_str).collect::<Vec<_>>());
+
+    for (index, path) in paths.iter().enumerate() {
+        let episode_number = i32::try_from(index + 1).unwrap();
+        assert!(is_likely_episode_path(path));
+        let parsed = parse_media_metadata(path);
+        assert_eq!(
+            (
+                parsed.title.as_str(),
+                parsed.year,
+                parsed.season_number,
+                parsed.episode_number,
+                parsed.episode_title.as_deref(),
+            ),
+            (
+                "Minning Town",
+                Some(2021),
+                Some(1),
+                Some(episode_number),
+                None
+            )
+        );
+        let series = infer_series_file_metadata(path).unwrap();
+        assert_eq!(
+            (series.title.as_str(), series.season_number, series.year),
+            ("Minning Town", 1, Some(2021))
+        );
+    }
+    let container = infer_series_container_identity(&paths[0], &root).unwrap();
+    assert_eq!(
+        (container.title.as_str(), container.year),
+        ("山海情", Some(2021))
+    );
+    assert!(infer_movie_container_identity(&paths[0], &root).is_none());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_lone_episode_only_marker_stays_a_movie() {
+    let root = unique_temp_path("episode-only-lone");
+    let paths = write_test_videos(
+        &root.join("Star Wars"),
+        &["Star.Wars.EP4.A.New.Hope.1977.mkv"],
+    );
+
+    assert!(!is_likely_episode_path(&paths[0]));
+    let parsed = parse_media_metadata(&paths[0]);
+    assert_eq!((parsed.season_number, parsed.episode_number), (None, None));
+    assert!(infer_series_file_metadata(&paths[0]).is_none());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn episode_only_markers_with_conflicting_years_stay_movies() {
+    let root = unique_temp_path("episode-only-years");
+    let paths = write_test_videos(
+        &root.join("Star Wars Collection"),
+        &[
+            "Star.Wars.EP4.A.New.Hope.1977.mkv",
+            "Star.Wars.EP5.The.Empire.Strikes.Back.1980.mkv",
+            "Star.Wars.EP6.Return.of.the.Jedi.1983.mkv",
+        ],
+    );
+
+    for path in &paths {
+        assert_eq!(
+            episode_coordinates(path),
+            (None, None),
+            "{}",
+            path.display()
+        );
+    }
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn episode_only_markers_take_the_season_from_a_season_directory() {
+    let root = unique_temp_path("episode-only-season");
+    let season = root.join("Arcane").join("Season 02");
+    let paths = write_test_videos(&season, &["EP03.mkv", "EP04.mkv"]);
+
+    assert_eq!(episode_coordinates(&paths[0]), (Some(2), Some(3)));
+    assert_eq!(episode_coordinates(&paths[1]), (Some(2), Some(4)));
+    let container = infer_series_container_identity(&paths[0], &root).unwrap();
+    assert_eq!(container.title, "Arcane");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn chinese_and_short_episode_only_markers_follow_the_same_rule() {
+    let root = unique_temp_path("episode-only-forms");
+    let chinese = write_test_videos(&root.join("三体"), &["第01集.mp4", "第02集.mp4"]);
+    let glued = write_test_videos(
+        &root.join("山海情"),
+        &["山海情第01集.mp4", "山海情第02集.mp4"],
+    );
+    let spaced = write_test_videos(&root.join("人世间"), &["第 1 集.mp4", "第 2 集.mp4"]);
+    let short = write_test_videos(&root.join("Show"), &["Show.E01.mkv", "Show.E02.mkv"]);
+    let split = write_test_videos(&root.join("Other"), &["Other.Ep.01.mkv", "Other.Ep.02.mkv"]);
+
+    for paths in [&chinese, &glued, &spaced, &short, &split] {
+        assert_eq!(
+            episode_coordinates(&paths[0]),
+            (Some(1), Some(1)),
+            "{}",
+            paths[0].display()
+        );
+        assert_eq!(
+            episode_coordinates(&paths[1]),
+            (Some(1), Some(2)),
+            "{}",
+            paths[1].display()
+        );
+    }
+    assert_eq!(parse_media_metadata(&glued[0]).title, "山海情");
+    assert_eq!(infer_series_file_metadata(&short[0]).unwrap().title, "Show");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn episode_only_markers_need_two_episodes_of_the_same_title() {
+    let root = unique_temp_path("episode-only-titles");
+    let different_titles =
+        write_test_videos(&root.join("Mixed"), &["Alpha.EP01.mkv", "Beta.EP02.mkv"]);
+    let same_episode = write_test_videos(
+        &root.join("Versions"),
+        &["Gamma.EP01.1080p.mkv", "Gamma.EP01.2160p.mkv"],
+    );
+    let versions = write_test_videos(
+        &root.join("Delta"),
+        &[
+            "Delta.EP01.1080p.mkv",
+            "Delta.EP01.2160p.mkv",
+            "Delta.EP02.1080p.mkv",
+        ],
+    );
+
+    for path in different_titles.iter().chain(&same_episode) {
+        assert_eq!(
+            episode_coordinates(path),
+            (None, None),
+            "{}",
+            path.display()
+        );
+    }
+    assert_eq!(episode_coordinates(&versions[0]), (Some(1), Some(1)));
+    assert_eq!(episode_coordinates(&versions[1]), (Some(1), Some(1)));
+    assert_eq!(episode_coordinates(&versions[2]), (Some(1), Some(2)));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn an_episode_only_file_with_its_own_movie_nfo_stays_a_movie() {
+    let root = unique_temp_path("episode-only-movie-nfo");
+    let directory = root.join("Show");
+    let paths = write_test_videos(&directory, &["Show.EP01.mkv", "Show.EP02.mkv"]);
+    fs::write(
+        directory.join("Show.EP01.nfo"),
+        "<movie><title>A Different Film</title></movie>",
+    )
+    .unwrap();
+    fs::write(
+        directory.join("Show.EP02.nfo"),
+        "<episodedetails><title>Second</title></episodedetails>",
+    )
+    .unwrap();
+
+    assert_eq!(episode_coordinates(&paths[0]).1, None);
+    assert_eq!(episode_coordinates(&paths[1]), (Some(1), Some(2)));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_full_season_episode_marker_wins_over_an_episode_only_marker() {
+    let root = unique_temp_path("episode-only-full-marker");
+    let paths = write_test_videos(
+        &root.join("Show"),
+        &["Show.S02E05.EP05.mkv", "Show.S02E06.EP06.mkv"],
+    );
+
+    assert_eq!(episode_coordinates(&paths[0]), (Some(2), Some(5)));
+    assert_eq!(episode_coordinates(&paths[1]), (Some(2), Some(6)));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn adding_a_second_episode_turns_both_files_into_episodes_and_changes_the_scan_hash() {
+    let root = unique_temp_path("episode-only-growth");
+    let directory = root.join("Show");
+    let first = write_test_videos(&directory, &["Show.EP01.mkv"]).remove(0);
+    assert_eq!(episode_coordinates(&first), (None, None));
+    let before = discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+        .unwrap()
+        .pop()
+        .unwrap();
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let second = write_test_videos(&directory, &["Show.EP02.mkv"]).remove(0);
+    assert_eq!(episode_coordinates(&first), (Some(1), Some(1)));
+    assert_eq!(episode_coordinates(&second), (Some(1), Some(2)));
+    let after = discover_media_file_inventory_with_progress_and_cancel(&root, |_| {}, || false)
+        .unwrap()
+        .into_iter()
+        .find(|inventory| inventory.file_path == first)
+        .unwrap();
+    assert_ne!(
+        discovered_media_file_inventory_scan_hash(&before),
+        discovered_media_file_inventory_scan_hash(&after),
+        "the first file must be re-analysed once its directory proves a series"
+    );
+
+    let _ = fs::remove_dir_all(root);
+}

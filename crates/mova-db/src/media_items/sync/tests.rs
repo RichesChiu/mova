@@ -3188,3 +3188,119 @@ async fn sync_library_media_best_effort_keeps_healthy_entries_when_one_entry_is_
     assert_eq!(media_item_count, 1);
     assert_eq!(media_file_count, 1);
 }
+
+/// A file that was indexed as a movie and is later recognised as an episode
+/// (for example once a second `EPnn` file proves its directory is a series)
+/// keeps the user's progress, and its continue-watching entry moves under the
+/// series exactly as normal episode playback would record it.
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn a_watched_movie_that_becomes_an_episode_keeps_its_progress_under_the_series(
+    pool: sqlx::postgres::PgPool,
+) {
+    let library = create_library(
+        &pool,
+        CreateLibraryParams {
+            name: "Shows".to_string(),
+            description: None,
+            metadata_language: "en-US".to_string(),
+            root_path: "/media/shows".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let file_path = "/media/shows/Show/Show.EP01.mkv";
+    sync_library_media(
+        &pool,
+        library.id,
+        std::slice::from_ref(&build_movie_entry(library.id, file_path)),
+    )
+    .await
+    .unwrap();
+    let (media_file_id, movie_item_id) = sqlx::query_as::<_, (i64, i64)>(
+        "select id, media_item_id from media_files where file_path = $1",
+    )
+    .bind(file_path)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let viewer = create_user(
+        &pool,
+        CreateUserParams {
+            username: "viewer".to_string(),
+            username_normalized: "viewer".to_string(),
+            nickname: "Viewer".to_string(),
+            password_hash: "unused".to_string(),
+            role: UserRole::Viewer,
+            is_enabled: true,
+            library_ids: vec![library.id],
+        },
+    )
+    .await
+    .unwrap();
+    upsert_playback_progress(
+        &pool,
+        UpsertPlaybackProgressParams {
+            user_id: viewer.user.id,
+            media_item_id: movie_item_id,
+            media_file_id,
+            position_seconds: 600,
+            duration_seconds: Some(2700),
+            is_finished: false,
+        },
+    )
+    .await
+    .unwrap();
+
+    sync_library_media(
+        &pool,
+        library.id,
+        std::slice::from_ref(&build_episode_entry(library.id, file_path)),
+    )
+    .await
+    .unwrap();
+
+    let episode_item_id =
+        sqlx::query_scalar::<_, i64>("select media_item_id from media_files where file_path = $1")
+            .bind(file_path)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let series_item_id = sqlx::query_scalar::<_, i64>(
+        "select season.series_id from episodes episode join seasons season on season.id = episode.season_id where episode.media_item_id = $1",
+    )
+    .bind(episode_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_ne!(episode_item_id, movie_item_id);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("select count(*) from media_items where id = $1")
+            .bind(movie_item_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0,
+        "the emptied movie item is removed"
+    );
+    assert_eq!(
+        sqlx::query_as::<_, (i64, i32)>(
+            "select media_item_id, position_seconds from playback_progress where user_id = $1",
+        )
+        .bind(viewer.user.id)
+        .fetch_all(&pool)
+        .await
+        .unwrap(),
+        vec![(episode_item_id, 600)]
+    );
+    assert_eq!(
+        sqlx::query_as::<_, (i64, i64)>(
+            "select media_item_id, last_played_media_item_id from continue_watching where user_id = $1",
+        )
+        .bind(viewer.user.id)
+        .fetch_all(&pool)
+        .await
+        .unwrap(),
+        vec![(series_item_id, episode_item_id)]
+    );
+}

@@ -463,6 +463,54 @@ pub async fn merge_media_item_user_state(
     Ok(())
 }
 
+/// Moves continue-watching rows keyed by an episode under its series.
+///
+/// Episode playback keeps one continue-watching entry per series that points
+/// at the last played episode. When a file that used to be a movie becomes an
+/// episode, [`merge_media_item_user_state`] leaves its entry keyed by the new
+/// episode; this regroups it so the home screen shows the series, as normal
+/// episode playback would.
+pub(crate) async fn regroup_continue_watching_under_series(
+    connection: &mut PgConnection,
+    episode_media_item_id: i64,
+    series_media_item_id: i64,
+) -> Result<()> {
+    if episode_media_item_id == series_media_item_id {
+        return Ok(());
+    }
+    sqlx::query(
+        r#"
+        insert into continue_watching as current_item (
+            user_id,
+            media_item_id,
+            last_played_media_item_id,
+            last_watched_at
+        )
+        select user_id, $2, last_played_media_item_id, last_watched_at
+        from continue_watching
+        where media_item_id = $1
+        on conflict (user_id, media_item_id) do update
+        set last_played_media_item_id = case
+                when excluded.last_watched_at >= current_item.last_watched_at
+                    then excluded.last_played_media_item_id
+                else current_item.last_played_media_item_id
+            end,
+            last_watched_at = greatest(excluded.last_watched_at, current_item.last_watched_at)
+        "#,
+    )
+    .bind(episode_media_item_id)
+    .bind(series_media_item_id)
+    .execute(&mut *connection)
+    .await
+    .context("failed to regroup continue watching under its series")?;
+    sqlx::query("delete from continue_watching where media_item_id = $1")
+        .bind(episode_media_item_id)
+        .execute(&mut *connection)
+        .await
+        .context("failed to remove the episode-keyed continue watching row")?;
+    Ok(())
+}
+
 fn map_playback_progress_row(row: PgRow) -> PlaybackProgress {
     PlaybackProgress {
         id: row.get("id"),
