@@ -229,9 +229,12 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Rust
+        # rust-toolchain.toml pins the compiler, rustfmt and clippy for every
+        # cargo command below; upgrade it in a dedicated pull request.
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
+          rustup toolchain install
+          rustc --version
+          cargo clippy --version
 
       - name: Validate release metadata
         env:

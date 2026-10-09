@@ -76,6 +76,8 @@ cargo check -p mova-server
 cargo test -p mova-scan
 ```
 
+Rust 编译器、rustfmt 和 clippy 的版本由根目录 `rust-toolchain.toml` 固定，本地 `cargo` 和 CI 使用同一版本。升级工具链应单独提交 PR，并在同一 PR 中修复新版本 clippy 的告警。
+
 可见 UI 改动应附带前后截图或短录屏。
 
 ## 契约与迁移

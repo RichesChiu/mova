@@ -290,9 +290,10 @@ fn load_episode_features(
 ) -> Result<Vec<[f64; 8]>, String> {
     let raw_audio = run_ffmpeg_extract(file_path, analysis_seconds, timeout, cancellation)?;
     let samples = decode_pcm_mono_s16le(&raw_audio);
-    let vectors = samples
-        .chunks_exact(FRAME_SIZE)
-        .map(build_frame_features)
+    let (frames, _partial_frame) = samples.as_chunks::<FRAME_SIZE>();
+    let vectors = frames
+        .iter()
+        .map(|frame| build_frame_features(frame.as_slice()))
         .collect::<Vec<_>>();
     Ok(normalize_feature_vectors(vectors))
 }
@@ -495,10 +496,8 @@ fn bounded_diagnostic(capture: &BoundedCapture, limit: usize, stream_name: &str)
 }
 
 fn decode_pcm_mono_s16le(raw_bytes: &[u8]) -> Vec<i16> {
-    raw_bytes
-        .chunks_exact(2)
-        .map(|bytes| i16::from_le_bytes([bytes[0], bytes[1]]))
-        .collect()
+    let (samples, _odd_byte) = raw_bytes.as_chunks::<2>();
+    samples.iter().copied().map(i16::from_le_bytes).collect()
 }
 
 fn build_frame_features(samples: &[i16]) -> [f64; 8] {
