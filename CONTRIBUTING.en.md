@@ -76,6 +76,8 @@ cargo check -p mova-server
 cargo test -p mova-scan
 ```
 
+The root `rust-toolchain.toml` pins the Rust compiler, rustfmt and clippy, so local `cargo` and CI use the same version. Upgrade the toolchain in a dedicated pull request that also fixes any new clippy findings.
+
 Visible UI changes should include before/after screenshots or a short recording.
 
 ## Contracts and migrations
