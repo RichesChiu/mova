@@ -1,12 +1,17 @@
+use super::discover::is_supported_video;
 #[cfg(test)]
 use super::sidecar::read_sidecar_metadata;
 use super::sidecar::{
     find_local_artwork, find_local_artwork_with_scope, find_local_episode_thumbnail,
-    find_local_season_artwork, find_local_series_artwork, read_series_sidecar_metadata,
-    read_series_sidecar_metadata_within_root, ArtworkKind, ArtworkScope, LocalNfoKind,
-    LocalNfoMetadata,
+    find_local_season_artwork, find_local_series_artwork, is_movie_nfo_file,
+    read_series_sidecar_metadata, read_series_sidecar_metadata_within_root, ArtworkKind,
+    ArtworkScope, LocalNfoKind, LocalNfoMetadata,
 };
+use std::collections::{BTreeSet, HashMap};
+use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::SystemTime;
 
 /// 根据文件名和目录结构判断某个视频路径是否更像剧集文件。
 pub fn is_likely_episode_path(path: &Path) -> bool {
@@ -267,7 +272,7 @@ struct ParsedNameMetadata {
 }
 
 fn parse_media_name(path: &Path) -> ParsedNameMetadata {
-    let normalized = humanize_file_stem(path);
+    let normalized = humanized_stem_for_identity(path);
     let has_leading_sequence_index = has_leading_sequence_index(path);
     let parsed_name = parse_title_year_from_humanized_name(&normalized);
     let mut title = parsed_name.title.clone();
@@ -285,7 +290,7 @@ fn parse_media_name(path: &Path) -> ParsedNameMetadata {
 }
 
 pub fn infer_series_file_metadata(path: &Path) -> Option<SeriesFileMetadata> {
-    let normalized = humanize_file_stem(path);
+    let normalized = humanized_stem_for_identity(path);
     let tokens = normalized.split_whitespace().collect::<Vec<_>>();
     let (episode_token_index, episode_token) = tokens
         .iter()
@@ -433,7 +438,7 @@ struct ParsedEpisodeIdentity {
 }
 
 fn parse_episode_identity(path: &Path) -> Option<ParsedEpisodeIdentity> {
-    let normalized = humanize_file_stem(path);
+    let normalized = humanized_stem_for_identity(path);
     let tokens = normalized.split_whitespace().collect::<Vec<_>>();
     let (_, title_start, season_number, episode_number) =
         tokens.iter().enumerate().find_map(|(index, token)| {
@@ -555,6 +560,250 @@ fn parse_embedded_episode_token(token: &str) -> Option<ParsedEpisodeToken> {
     }
 
     None
+}
+
+/// Humanized file stem used for every identity decision.
+///
+/// A filename with only an episode marker (`EP01`, `E01`, `第01集`) is an
+/// episode only when its directory proves a series; the marker is then
+/// rewritten to the canonical `S01E01` form so title, year, episode-title and
+/// season handling stay identical to files that carry a full marker.
+fn humanized_stem_for_identity(path: &Path) -> String {
+    let normalized = humanize_file_stem(path);
+    let tokens = normalized
+        .split_whitespace()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let Some((marker, season_number)) = proven_episode_only_marker(path, &tokens) else {
+        return normalized;
+    };
+
+    let canonical = format!("S{season_number:02}E{:02}", marker.episode_number);
+    let replacement = match marker.title_prefix {
+        Some(prefix) => format!("{prefix}{canonical}"),
+        None => canonical,
+    };
+    tokens[..marker.index]
+        .iter()
+        .cloned()
+        .chain(std::iter::once(replacement))
+        .chain(tokens[marker.index + marker.consumed..].iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EpisodeOnlyMarker {
+    index: usize,
+    consumed: usize,
+    title_prefix: Option<String>,
+    episode_number: i32,
+}
+
+/// Directory-independent facts of one file that carries an episode-only marker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EpisodeOnlyCandidate {
+    title_key: String,
+    year: Option<i32>,
+    episode_number: i32,
+}
+
+/// Finds `EP01`, `EP 01`, `Ep.01`, `E01`, `第01集` or `第 1 集`. Files that
+/// already carry a full season/episode marker never reach this parser.
+fn parse_episode_only_marker(tokens: &[String]) -> Option<EpisodeOnlyMarker> {
+    for (index, token) in tokens.iter().enumerate() {
+        let lower = token.to_ascii_lowercase();
+        let marker = |consumed, title_prefix, episode_number| EpisodeOnlyMarker {
+            index,
+            consumed,
+            title_prefix,
+            episode_number,
+        };
+
+        if let Some(number) = lower.strip_prefix("ep").and_then(parse_episode_only_number) {
+            return Some(marker(1, None, number));
+        }
+        if lower == "ep" {
+            if let Some(number) = tokens
+                .get(index + 1)
+                .and_then(|next| parse_episode_only_number(next))
+            {
+                return Some(marker(2, None, number));
+            }
+        }
+        if let Some(number) = lower.strip_prefix('e').and_then(parse_episode_only_number) {
+            return Some(marker(1, None, number));
+        }
+        if token == "第" && tokens.get(index + 2).is_some_and(|last| last == "集") {
+            if let Some(number) = tokens
+                .get(index + 1)
+                .and_then(|next| parse_episode_only_number(next))
+            {
+                return Some(marker(3, None, number));
+            }
+        }
+        if let Some((title_prefix, number)) = parse_chinese_episode_only_token(token) {
+            return Some(marker(1, title_prefix, number));
+        }
+    }
+
+    None
+}
+
+fn parse_episode_only_number(value: &str) -> Option<i32> {
+    (!value.is_empty() && value.len() <= 4 && value.chars().all(|ch| ch.is_ascii_digit()))
+        .then(|| value.parse::<i32>().ok())
+        .flatten()
+}
+
+/// `第01集` with an optional title glued in front, as in `山海情第01集`.
+fn parse_chinese_episode_only_token(token: &str) -> Option<(Option<String>, i32)> {
+    let body = token.strip_suffix('集')?;
+    let marker_start = body.rfind('第')?;
+    let number = parse_episode_only_number(&body[marker_start + '第'.len_utf8()..])?;
+    let prefix = &body[..marker_start];
+    let title_prefix = prefix
+        .chars()
+        .any(char::is_alphanumeric)
+        .then(|| prefix.to_string());
+    Some((title_prefix, number))
+}
+
+fn episode_only_candidate(tokens: &[String]) -> Option<(EpisodeOnlyMarker, EpisodeOnlyCandidate)> {
+    if tokens
+        .iter()
+        .any(|token| parse_episode_token_marker(token).is_some())
+    {
+        return None;
+    }
+    let marker = parse_episode_only_marker(tokens)?;
+
+    let mut prefix_tokens = tokens[..marker.index].to_vec();
+    if let Some(prefix) = &marker.title_prefix {
+        prefix_tokens.push(prefix.clone());
+    }
+    while prefix_tokens
+        .last()
+        .is_some_and(|token| is_separator_token(token))
+    {
+        prefix_tokens.pop();
+    }
+    let prefix_text = prefix_tokens.join(" ");
+    let (title_key, prefix_year) = if prefix_text.trim().is_empty() {
+        (String::new(), None)
+    } else {
+        let parsed = parse_title_year_from_humanized_name(&prefix_text);
+        (parsed.title.to_lowercase(), parsed.year)
+    };
+    let year = prefix_year
+        .or_else(|| parse_year_after_episode_token(tokens, marker.index + marker.consumed));
+    let episode_number = marker.episode_number;
+
+    Some((
+        marker,
+        EpisodeOnlyCandidate {
+            title_key,
+            year,
+            episode_number,
+        },
+    ))
+}
+
+/// Returns the marker and season when the file's directory proves a series:
+/// at least two distinct episode numbers share the file's title, their years
+/// do not conflict, and the file has no movie NFO of its own. A lone `EP4`
+/// movie or an `EP4`/`EP5`/`EP6` collection with different years stays a movie.
+fn proven_episode_only_marker(path: &Path, tokens: &[String]) -> Option<(EpisodeOnlyMarker, i32)> {
+    let (marker, candidate) = episode_only_candidate(tokens)?;
+    let directory = path.parent()?;
+    let siblings = directory_episode_only_candidates(directory);
+    let group = siblings
+        .iter()
+        .filter(|sibling| sibling.title_key == candidate.title_key)
+        .collect::<Vec<_>>();
+    let episode_numbers = group
+        .iter()
+        .map(|sibling| sibling.episode_number)
+        .collect::<BTreeSet<_>>();
+    let years = group
+        .iter()
+        .filter_map(|sibling| sibling.year)
+        .collect::<BTreeSet<_>>();
+    if episode_numbers.len() < 2
+        || years.len() > 1
+        || !episode_numbers.contains(&candidate.episode_number)
+        || has_own_movie_nfo(path)
+    {
+        return None;
+    }
+
+    let season_number = directory
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(season_number_from_folder_title)
+        .unwrap_or(1);
+    Some((marker, season_number))
+}
+
+fn has_own_movie_nfo(path: &Path) -> bool {
+    is_movie_nfo_file(&path.with_extension("nfo"))
+}
+
+type EpisodeOnlyDirectoryCache = HashMap<PathBuf, (SystemTime, Arc<Vec<EpisodeOnlyCandidate>>)>;
+
+const EPISODE_ONLY_DIRECTORY_CACHE_LIMIT: usize = 4096;
+
+/// Episode-only candidates of one directory, cached per directory mtime.
+///
+/// Every identity call for a file with an episode-only marker needs its
+/// siblings; the cache keeps that to one directory read per directory state.
+/// Adding, removing or renaming a file changes the directory mtime and
+/// invalidates the entry.
+fn directory_episode_only_candidates(directory: &Path) -> Arc<Vec<EpisodeOnlyCandidate>> {
+    static CACHE: OnceLock<Mutex<EpisodeOnlyDirectoryCache>> = OnceLock::new();
+
+    let modified = fs::metadata(directory)
+        .and_then(|metadata| metadata.modified())
+        .ok();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(modified) = modified {
+        if let Some((cached_modified, candidates)) = cache
+            .lock()
+            .ok()
+            .and_then(|entries| entries.get(directory).cloned())
+        {
+            if cached_modified == modified {
+                return candidates;
+            }
+        }
+    }
+
+    let candidates = Arc::new(read_directory_episode_only_candidates(directory));
+    if let (Some(modified), Ok(mut entries)) = (modified, cache.lock()) {
+        if entries.len() >= EPISODE_ONLY_DIRECTORY_CACHE_LIMIT {
+            entries.clear();
+        }
+        entries.insert(directory.to_path_buf(), (modified, Arc::clone(&candidates)));
+    }
+    candidates
+}
+
+fn read_directory_episode_only_candidates(directory: &Path) -> Vec<EpisodeOnlyCandidate> {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| is_supported_video(path) && path.is_file())
+        .filter_map(|path| {
+            let tokens = humanize_file_stem(&path)
+                .split_whitespace()
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            episode_only_candidate(&tokens).map(|(_, candidate)| candidate)
+        })
+        .collect()
 }
 
 fn parse_year_after_episode_token<T: AsRef<str>>(tokens: &[T], start_index: usize) -> Option<i32> {
@@ -787,6 +1036,11 @@ fn is_collection_folder_title(value: &str) -> bool {
 }
 
 fn is_season_folder_title(value: &str) -> bool {
+    season_number_from_folder_title(value).is_some()
+}
+
+/// Season number of a strict season folder name: `Season 01`, `S01`, `第1季`.
+fn season_number_from_folder_title(value: &str) -> Option<i32> {
     let normalized = value
         .chars()
         .map(|ch| {
@@ -806,16 +1060,13 @@ fn is_season_folder_title(value: &str) -> bool {
     normalized
         .strip_prefix("season ")
         .and_then(parse_short_number_token)
-        .is_some()
-        || compact
-            .strip_prefix('s')
-            .and_then(parse_short_number_token)
-            .is_some()
-        || compact
-            .strip_prefix('第')
-            .and_then(|value| value.strip_suffix('季'))
-            .and_then(parse_short_number_token)
-            .is_some()
+        .or_else(|| compact.strip_prefix('s').and_then(parse_short_number_token))
+        .or_else(|| {
+            compact
+                .strip_prefix('第')
+                .and_then(|value| value.strip_suffix('季'))
+                .and_then(parse_short_number_token)
+        })
 }
 
 fn is_season_directory_name(value: &str) -> bool {
