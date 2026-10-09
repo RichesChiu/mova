@@ -539,6 +539,7 @@ pub async fn execute_scan_job_with_cancellation(
         files: discovered_files,
         issues: discovery_issues,
     } = discovery_report;
+    let unparsed_carrier_paths = collect_unparsed_carrier_paths(&discovery_issues);
     match mova_db::update_scan_job_progress(
         pool,
         scan_job_id,
@@ -575,6 +576,7 @@ pub async fn execute_scan_job_with_cancellation(
         library.id,
         std::path::Path::new(&library.root_path),
         discovered_files,
+        &unparsed_carrier_paths,
         metadata_provider.is_enabled(),
         &library.metadata_language,
     )
@@ -773,51 +775,69 @@ pub async fn execute_scan_job_with_cancellation(
     )
     .await?;
 
-    let finalization_io_started_at = Instant::now();
-    let authoritative_root_path = PathBuf::from(&library.root_path);
-    let authoritative_discovered_paths = discovered_paths.clone();
-    let retained_local_metadata_source_paths = tokio::task::spawn_blocking(move || {
-        authoritative_local_metadata_source_paths(
-            &authoritative_root_path,
-            &authoritative_discovered_paths,
-        )
-    })
-    .await
-    .map_err(|error| {
-        ApplicationError::Unexpected(anyhow::anyhow!(
-            "The local metadata finalization worker exited unexpectedly: {error}"
-        ))
-    })?;
-    let finalization_io_elapsed_ms = elapsed_millis(finalization_io_started_at);
-
     // Only a complete discovery result is authoritative enough to remove missing paths.
     // A cancelled or failed traversal returns before this point, so transient mount,
     // permission, or I/O failures cannot be mistaken for deleted media files.
-    let finalization_db_started_at = Instant::now();
-    let removal_outcome = match mova_db::sync_library_media_changes(
-        pool,
-        library.id,
-        scan_job_id,
-        &discovered_paths,
-        !discovery_issues.is_empty(),
-        &retained_local_metadata_source_paths,
-        &[],
-        &fence,
-    )
-    .await
-    {
-        Ok(outcome) => outcome,
-        Err(error) => {
-            let message = format_scan_phase_error(
-                SCAN_PHASE_FINALIZING,
-                format!("Failed to reconcile missing media files: {}", error),
-            );
-            record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message, &fence).await;
-            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
-        }
-    };
-    let finalization_db_elapsed_ms = elapsed_millis(finalization_db_started_at);
-    merge_sync_outcome(&mut sync_outcome, removal_outcome);
+    // Unparsed carriers (for example invalid STRM content) are present on disk: their
+    // catalog entries and user state are retained, never treated as missing.
+    let mut finalization_io_elapsed_ms = 0;
+    let mut finalization_db_elapsed_ms = 0;
+    if skips_missing_path_reconciliation(&discovered_paths, &unparsed_carrier_paths) {
+        tracing::warn!(
+            library_id = library.id,
+            scan_job_id,
+            unparsed_carrier_count = unparsed_carrier_paths.len(),
+            "every observed media carrier failed to parse; keeping the existing catalog and skipping missing-path removal"
+        );
+    } else {
+        let finalization_io_started_at = Instant::now();
+        let authoritative_root_path = PathBuf::from(&library.root_path);
+        let observed_carrier_paths = discovered_paths
+            .iter()
+            .chain(&unparsed_carrier_paths)
+            .cloned()
+            .collect::<Vec<_>>();
+        let retained_local_metadata_source_paths = tokio::task::spawn_blocking(move || {
+            authoritative_local_metadata_source_paths(
+                &authoritative_root_path,
+                &observed_carrier_paths,
+            )
+        })
+        .await
+        .map_err(|error| {
+            ApplicationError::Unexpected(anyhow::anyhow!(
+                "The local metadata finalization worker exited unexpectedly: {error}"
+            ))
+        })?;
+        finalization_io_elapsed_ms = elapsed_millis(finalization_io_started_at);
+
+        let finalization_db_started_at = Instant::now();
+        let removal_outcome = match mova_db::sync_library_media_changes(
+            pool,
+            library.id,
+            scan_job_id,
+            &discovered_paths,
+            &unparsed_carrier_paths,
+            &retained_local_metadata_source_paths,
+            &[],
+            &fence,
+        )
+        .await
+        {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                let message = format_scan_phase_error(
+                    SCAN_PHASE_FINALIZING,
+                    format!("Failed to reconcile missing media files: {}", error),
+                );
+                record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message, &fence)
+                    .await;
+                return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
+            }
+        };
+        finalization_db_elapsed_ms = elapsed_millis(finalization_db_started_at);
+        merge_sync_outcome(&mut sync_outcome, removal_outcome);
+    }
 
     if sync_outcome.failed_count > 0 {
         tracing::warn!(
@@ -893,6 +913,28 @@ pub async fn execute_scan_job_with_cancellation(
         Ok(None) => Ok(ExecuteScanJobOutcome::Cancelled),
         Err(error) => Err(ApplicationError::from(error)),
     }
+}
+
+/// Paths that discovery saw on disk but could not turn into a media carrier,
+/// such as an STRM whose content is not a valid reference.  They are retained
+/// in the catalog, so a broken STRM generator cannot delete playback state.
+fn collect_unparsed_carrier_paths(issues: &[MediaDiscoveryIssue]) -> Vec<String> {
+    issues
+        .iter()
+        .map(|issue| issue.file_path.to_string_lossy().to_string())
+        .collect()
+}
+
+/// When nothing parsed this round but some carriers were seen, the round has no
+/// authoritative evidence about which catalog paths disappeared: the zero-file
+/// guard would refuse it, and failing the scan would hide the per-file issues.
+/// The scan completes with those issues and leaves missing-path removal to the
+/// next round that parses at least one carrier.
+fn skips_missing_path_reconciliation(
+    discovered_paths: &[String],
+    unparsed_carrier_paths: &[String],
+) -> bool {
+    discovered_paths.is_empty() && !unparsed_carrier_paths.is_empty()
 }
 
 /// Resolve the exact sidecar paths that remain eligible after a complete file

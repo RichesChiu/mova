@@ -147,15 +147,17 @@ pub async fn sync_library_media_best_effort(
 
 /// 增量同步当前扫描确认有变化的媒体记录。
 /// `discovered_paths` 是本轮仍存在的全部视频路径；`entries` 只包含新增或内容发生变化的路径。
-/// `allow_empty_discovery_with_observed_issues` 只能在遍历成功且至少观察到一个可恢复的
-/// 单文件 discovery issue 时启用；遍历或文件 I/O 失败必须在调用此函数前中止。
+/// `retained_unparsed_paths` 是本轮在磁盘上看到、但内容无法解析的载体（例如非法 STRM）。
+/// 它们不是缺失文件：已入库的对应条目、版本和用户播放状态原样保留，等内容修好后的
+/// 下一轮扫描再更新。零发现保护只看成功解析的 `discovered_paths`，不因存在问题文件放开；
+/// 遍历或文件 I/O 失败必须在调用此函数前中止。
 #[allow(clippy::too_many_arguments)]
 pub async fn sync_library_media_changes(
     pool: &PgPool,
     library_id: i64,
     scan_job_id: i64,
     discovered_paths: &[String],
-    allow_empty_discovery_with_observed_issues: bool,
+    retained_unparsed_paths: &[String],
     retained_local_metadata_source_paths: &[String],
     entries: &[CreateMediaEntryParams],
     fence: &BackgroundJobFence,
@@ -181,25 +183,21 @@ pub async fn sync_library_media_changes(
     let existing_records = list_library_media_files_for_sync(&mut tx, library_id)
         .await
         .context("failed to list existing library media paths for incremental sync")?;
-    validate_authoritative_discovery(
-        library_id,
-        existing_records.len(),
-        discovered_paths.len(),
-        allow_empty_discovery_with_observed_issues,
-    )?;
+    validate_authoritative_discovery(library_id, existing_records.len(), discovered_paths.len())?;
     let mut existing_by_path = existing_records
         .into_iter()
         .map(|record| (record.file_path.clone(), record))
         .collect::<HashMap<_, _>>();
-    let discovered_paths = discovered_paths
+    let observed_paths = discovered_paths
         .iter()
+        .chain(retained_unparsed_paths)
         .map(String::as_str)
         .collect::<HashSet<_>>();
     let mut outcome = SyncLibraryMediaBestEffortOutcome::default();
 
     let missing_paths = existing_by_path
         .keys()
-        .filter(|path| !discovered_paths.contains(path.as_str()))
+        .filter(|path| !observed_paths.contains(path.as_str()))
         .cloned()
         .collect::<Vec<_>>();
     for missing_path in missing_paths {
@@ -313,12 +311,8 @@ fn validate_authoritative_discovery(
     library_id: i64,
     existing_file_count: usize,
     discovered_file_count: usize,
-    allow_empty_discovery_with_observed_issues: bool,
 ) -> Result<()> {
-    if existing_file_count > 0
-        && discovered_file_count == 0
-        && !allow_empty_discovery_with_observed_issues
-    {
+    if existing_file_count > 0 && discovered_file_count == 0 {
         anyhow::bail!(
             "refusing authoritative media reconciliation for non-empty library {library_id}: discovery returned zero media files"
         );

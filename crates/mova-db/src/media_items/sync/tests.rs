@@ -5,14 +5,15 @@ use super::{
     upsert_media_entry_with_policy, validate_authoritative_discovery, ScanGroupCommitStage,
 };
 use crate::{
-    claim_background_job, create_library, delete_library, enqueue_scan_job, finalize_scan_job,
-    get_scan_job, initialize_scan_job_work, mark_scan_group_analyzed, mark_scan_job_running,
-    BackgroundJobFence, CreateAudioTrackParams, CreateLibraryParams,
-    CreateLocalMetadataSnapshotParams, CreateMediaEntryParams, CreateScanJobParams,
-    CreateSubtitleTrackParams, BACKGROUND_JOB_FENCE_LOST_MESSAGE,
+    claim_background_job, create_library, create_user, delete_library, enqueue_scan_job,
+    finalize_scan_job, get_scan_job, initialize_scan_job_work, mark_scan_group_analyzed,
+    mark_scan_job_running, upsert_playback_progress, BackgroundJobFence, CreateAudioTrackParams,
+    CreateLibraryParams, CreateLocalMetadataSnapshotParams, CreateMediaEntryParams,
+    CreateScanJobParams, CreateSubtitleTrackParams, CreateUserParams, UpsertPlaybackProgressParams,
+    BACKGROUND_JOB_FENCE_LOST_MESSAGE,
 };
 use mova_domain::{
-    MediaSourceKind, ScanNotificationSummary, METADATA_FAILURE_PROVIDER_DISABLED,
+    MediaSourceKind, ScanNotificationSummary, UserRole, METADATA_FAILURE_PROVIDER_DISABLED,
     METADATA_FAILURE_PROVIDER_ERROR, METADATA_STATUS_FAILED, METADATA_STATUS_MATCHED,
     METADATA_STATUS_PENDING, METADATA_STATUS_UNMATCHED, REMOTE_MEDIA_TYPE_MOVIE,
     REMOTE_MEDIA_TYPE_SERIES,
@@ -273,11 +274,10 @@ fn cached_artwork_promotion_requires_an_absolute_local_path() {
 
 #[test]
 fn authoritative_empty_discovery_is_only_valid_for_an_empty_library() {
-    assert!(validate_authoritative_discovery(7, 0, 0, false).is_ok());
-    assert!(validate_authoritative_discovery(7, 2, 1, false).is_ok());
-    assert!(validate_authoritative_discovery(7, 2, 0, true).is_ok());
+    assert!(validate_authoritative_discovery(7, 0, 0).is_ok());
+    assert!(validate_authoritative_discovery(7, 2, 1).is_ok());
 
-    let error = validate_authoritative_discovery(7, 2, 0, false).unwrap_err();
+    let error = validate_authoritative_discovery(7, 2, 0).unwrap_err();
     assert!(error
         .to_string()
         .contains("non-empty library 7: discovery returned zero media files"));
@@ -324,7 +324,7 @@ async fn authoritative_empty_discovery_preserves_existing_media(pool: sqlx::post
         .unwrap();
 
     let error =
-        sync_library_media_changes(&pool, library.id, scan_job.id, &[], false, &[], &[], &fence)
+        sync_library_media_changes(&pool, library.id, scan_job.id, &[], &[], &[], &[], &fence)
             .await
             .unwrap_err();
     assert!(error
@@ -347,19 +347,160 @@ async fn authoritative_empty_discovery_preserves_existing_media(pool: sqlx::post
     assert_eq!(persisted_path, entry.file_path);
     assert_eq!(media_item_count, 1);
 
-    let outcome =
-        sync_library_media_changes(&pool, library.id, scan_job.id, &[], true, &[], &[], &fence)
-            .await
-            .expect("an observed invalid carrier makes an otherwise empty discovery authoritative");
-    assert_eq!(outcome.removed_count, 1);
+    // An observed but unparsed carrier does not loosen the zero-file guard.
+    let error = sync_library_media_changes(
+        &pool,
+        library.id,
+        scan_job.id,
+        &[],
+        std::slice::from_ref(&entry.file_path),
+        &[],
+        &[],
+        &fence,
+    )
+    .await
+    .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("discovery returned zero media files"));
     assert_eq!(
         sqlx::query_scalar::<_, i64>("select count(*) from media_files where library_id = $1",)
             .bind(library.id)
             .fetch_one(&pool)
             .await
             .unwrap(),
-        0
+        1
     );
+}
+
+/// A carrier that is still on disk but whose content no longer parses (an
+/// invalid STRM) keeps its media item, version and playback state; only paths
+/// that were not observed at all are removed.
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn unparsed_carriers_keep_their_media_and_playback_state(pool: sqlx::postgres::PgPool) {
+    let library = create_library(
+        &pool,
+        CreateLibraryParams {
+            name: "Mixed".to_string(),
+            description: None,
+            metadata_language: "en-US".to_string(),
+            root_path: "/media/mixed".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let movie = |path: &str, provider_id: &str, title: &str| {
+        let mut entry = build_movie_entry(library.id, path);
+        entry.metadata_provider_item_id = Some(provider_id.to_string());
+        entry.title = title.to_string();
+        entry.source_title = title.to_string();
+        entry.original_title = None;
+        entry
+    };
+    let mut unparsed = movie("/media/mixed/Alpha/Alpha.strm", "201", "Alpha");
+    unparsed.source_kind = MediaSourceKind::Strm;
+    unparsed.stream_reference_hash = Some("a".repeat(64));
+    let kept = movie("/media/mixed/Beta/Beta.mkv", "202", "Beta");
+    let removed = movie("/media/mixed/Gamma/Gamma.mkv", "203", "Gamma");
+    sync_library_media(
+        &pool,
+        library.id,
+        &[unparsed.clone(), kept.clone(), removed.clone()],
+    )
+    .await
+    .unwrap();
+
+    let (unparsed_file_id, unparsed_item_id) = sqlx::query_as::<_, (i64, i64)>(
+        "select id, media_item_id from media_files where file_path = $1",
+    )
+    .bind(&unparsed.file_path)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let viewer = create_user(
+        &pool,
+        CreateUserParams {
+            username: "viewer".to_string(),
+            username_normalized: "viewer".to_string(),
+            nickname: "Viewer".to_string(),
+            password_hash: "unused".to_string(),
+            role: UserRole::Viewer,
+            is_enabled: true,
+            library_ids: vec![library.id],
+        },
+    )
+    .await
+    .unwrap();
+    upsert_playback_progress(
+        &pool,
+        UpsertPlaybackProgressParams {
+            user_id: viewer.user.id,
+            media_item_id: unparsed_item_id,
+            media_file_id: unparsed_file_id,
+            position_seconds: 600,
+            duration_seconds: Some(5400),
+            is_finished: false,
+        },
+    )
+    .await
+    .unwrap();
+
+    let scan_job = enqueue_scan_job(
+        &pool,
+        CreateScanJobParams {
+            library_id: library.id,
+        },
+    )
+    .await
+    .unwrap()
+    .scan_job;
+    let fence = claim_background_job(&pool, "unparsed-carrier-worker", 60)
+        .await
+        .unwrap()
+        .claimed_job
+        .unwrap()
+        .execution_fence()
+        .unwrap();
+    mark_scan_job_running(&pool, scan_job.id, &fence)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let outcome = sync_library_media_changes(
+        &pool,
+        library.id,
+        scan_job.id,
+        std::slice::from_ref(&kept.file_path),
+        std::slice::from_ref(&unparsed.file_path),
+        &[],
+        &[],
+        &fence,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome.removed_count, 1);
+
+    let remaining_paths = sqlx::query_scalar::<_, String>(
+        "select file_path from media_files where library_id = $1 order by file_path",
+    )
+    .bind(library.id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        remaining_paths,
+        vec![unparsed.file_path.clone(), kept.file_path]
+    );
+    let progress = sqlx::query_as::<_, (i32, bool)>(
+        "select position_seconds, is_finished from playback_progress where user_id = $1 and media_item_id = $2",
+    )
+    .bind(viewer.user.id)
+    .bind(unparsed_item_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(progress, (600, false));
 }
 
 #[sqlx::test(migrations = "../../migrations")]
