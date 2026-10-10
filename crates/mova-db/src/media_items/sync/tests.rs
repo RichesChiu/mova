@@ -2,7 +2,7 @@ use super::{
     advance_scan_group_progress, get_existing_library_media_file_by_path, local_artwork_path,
     patch_library_media_entries_remote_by_file_path, should_preserve_existing_parent,
     sync_library_media, sync_library_media_changes, upsert_library_media_entries_by_file_path,
-    upsert_media_entry_with_policy, validate_authoritative_discovery, ScanGroupCommitStage,
+    upsert_media_entry_with_policy, ScanGroupCommitStage,
 };
 use crate::{
     claim_background_job, create_library, create_user, delete_library, enqueue_scan_job,
@@ -272,20 +272,14 @@ fn cached_artwork_promotion_requires_an_absolute_local_path() {
     assert_eq!(local_artwork_path(Some("   ")), None);
 }
 
-#[test]
-fn authoritative_empty_discovery_is_only_valid_for_an_empty_library() {
-    assert!(validate_authoritative_discovery(7, 0, 0).is_ok());
-    assert!(validate_authoritative_discovery(7, 2, 1).is_ok());
-
-    let error = validate_authoritative_discovery(7, 2, 0).unwrap_err();
-    assert!(error
-        .to_string()
-        .contains("non-empty library 7: discovery returned zero media files"));
-}
-
+/// Reconciliation trusts its caller: storage was confirmed connected and every
+/// missing path was looked up before this call, so an empty discovery empties
+/// the library, and the storage record is replaced in the same transaction.
 #[sqlx::test(migrations = "../../migrations")]
 #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
-async fn authoritative_empty_discovery_preserves_existing_media(pool: sqlx::postgres::PgPool) {
+async fn confirmed_empty_discovery_empties_the_library_and_records_its_storage(
+    pool: sqlx::postgres::PgPool,
+) {
     let library = create_library(
         &pool,
         CreateLibraryParams {
@@ -322,54 +316,40 @@ async fn authoritative_empty_discovery_preserves_existing_media(pool: sqlx::post
         .await
         .unwrap()
         .unwrap();
+    let storage = crate::LibraryStorageMountRecord {
+        mount_point: "/media".to_string(),
+        fs_type: "cifs".to_string(),
+        source: "//nas/media".to_string(),
+    };
 
-    let error =
-        sync_library_media_changes(&pool, library.id, scan_job.id, &[], &[], &[], &[], &fence)
-            .await
-            .unwrap_err();
-    assert!(error
-        .to_string()
-        .contains("discovery returned zero media files"));
-
-    let persisted_path =
-        sqlx::query_scalar::<_, String>("select file_path from media_files where library_id = $1")
-            .bind(library.id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-    let media_item_count =
-        sqlx::query_scalar::<_, i64>("select count(*) from media_items where library_id = $1")
-            .bind(library.id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-
-    assert_eq!(persisted_path, entry.file_path);
-    assert_eq!(media_item_count, 1);
-
-    // An observed but unparsed carrier does not loosen the zero-file guard.
-    let error = sync_library_media_changes(
+    let outcome = sync_library_media_changes(
         &pool,
         library.id,
         scan_job.id,
         &[],
-        std::slice::from_ref(&entry.file_path),
         &[],
         &[],
+        &[],
+        Some(std::slice::from_ref(&storage)),
         &fence,
     )
     .await
-    .unwrap_err();
-    assert!(error
-        .to_string()
-        .contains("discovery returned zero media files"));
+    .unwrap();
+
+    assert_eq!(outcome.removed_count, 1);
     assert_eq!(
-        sqlx::query_scalar::<_, i64>("select count(*) from media_files where library_id = $1",)
+        sqlx::query_scalar::<_, i64>("select count(*) from media_items where library_id = $1")
             .bind(library.id)
             .fetch_one(&pool)
             .await
             .unwrap(),
-        1
+        0
+    );
+    assert_eq!(
+        crate::list_library_storage_mounts(&pool, library.id)
+            .await
+            .unwrap(),
+        vec![storage]
     );
 }
 
@@ -475,6 +455,7 @@ async fn unparsed_carriers_keep_their_media_and_playback_state(pool: sqlx::postg
         std::slice::from_ref(&unparsed.file_path),
         &[],
         &[],
+        None,
         &fence,
     )
     .await

@@ -688,6 +688,7 @@ async fn execute_library_scan_background_job(
         cancellation_flag,
         state.cache_dir.clone(),
         state.metadata_provider.clone(),
+        state.storage_environment.clone(),
         event_listener,
     )
     .await;

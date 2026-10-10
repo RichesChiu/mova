@@ -62,6 +62,19 @@ const errorMessageKeys: Record<string, string> = {
     'The server is currently handling too many remote streams. Try again shortly.',
   cache_cleanup_failed:
     'The library data was deleted, but its cache could not be removed after all retries.',
+  library_storage_unavailable:
+    'The library storage is unavailable. Scans are paused and nothing is removed until it is connected again.',
+  storage_not_connected:
+    'The storage holding this library is not connected: the folder is not the storage it was scanned from.',
+  storage_unreadable: 'The library folder could not be read.',
+  storage_timeout: 'The storage holding this library did not respond in time.',
+  storage_unverified:
+    'None of the library files can be found, so Mova cannot confirm the storage is connected.',
+  mount_table_unavailable: 'Mova could not read the mount table to check the library storage.',
+  storage_removed_from_deployment:
+    'Every folder of this library was removed from the deployment. It is deleted on the next start.',
+  library_removed_from_deployment:
+    'Every folder of this library was removed from the deployment, so the library was deleted.',
   tmdb_retention_expired:
     'TMDB metadata could not be revalidated within 180 days. Provider-owned metadata and cached data were cleared, and the item is ready to be matched again.',
 }
@@ -142,6 +155,18 @@ export const localizeApiError = (
       'Too many requests. Try again in {{retry_after_seconds}} seconds.',
       toTranslationParams(params),
     )
+  }
+
+  // The refusal names why the storage is unavailable; that reason is the
+  // more useful message.
+  if (
+    errorCode === 'library_storage_unavailable' &&
+    typeof params.reason_code === 'string' &&
+    errorMessageKeys[params.reason_code]
+  ) {
+    return translateCurrent('Scan refused: {{reason}}', {
+      reason: translateCurrent(errorMessageKeys[params.reason_code]),
+    })
   }
 
   const messageKey = errorMessageKeys[errorCode]

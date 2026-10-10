@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use mova_domain::{Library, LibraryDetail, ScanJob};
+use mova_domain::{Library, LibraryDetail, LibraryStorageIssue, ScanJob};
 use sqlx::{
     postgres::{PgPool, PgRow},
     Row,
@@ -34,7 +34,7 @@ pub struct UpdateLibraryResult {
 
 #[derive(Debug, Clone)]
 pub enum UpdateLibraryOutcome {
-    Updated(UpdateLibraryResult),
+    Updated(Box<UpdateLibraryResult>),
     ActiveScan(ScanJob),
 }
 
@@ -61,7 +61,8 @@ pub async fn list_libraries(
 
     let rows = sqlx::query(
         r#"
-        select id, name, description, metadata_language, root_path, created_at, updated_at
+        select id, name, description, metadata_language, root_path, storage_status, storage_issue,
+            storage_unavailable_since, created_at, updated_at
         from libraries
         where $1::bigint[] is null or id = any($1)
         order by created_at asc
@@ -94,6 +95,9 @@ pub async fn list_library_details(
             l.description,
             l.metadata_language,
             l.root_path,
+            l.storage_status,
+            l.storage_issue,
+            l.storage_unavailable_since,
             l.created_at,
             l.updated_at,
             count(mi.id) filter (where mi.media_type in ('movie', 'series')) as media_count,
@@ -196,7 +200,8 @@ pub async fn list_library_details(
 pub async fn get_library(pool: &PgPool, library_id: i64) -> Result<Option<Library>> {
     let row = sqlx::query(
         r#"
-        select id, name, description, metadata_language, root_path, created_at, updated_at
+        select id, name, description, metadata_language, root_path, storage_status, storage_issue,
+            storage_unavailable_since, created_at, updated_at
         from libraries
         where id = $1
         "#,
@@ -223,6 +228,9 @@ pub async fn get_library_with_visibility(
             description,
             metadata_language,
             root_path,
+            storage_status,
+            storage_issue,
+            storage_unavailable_since,
             created_at,
             updated_at,
             ($2::bigint[] is null or id = any($2)) as is_visible
@@ -249,7 +257,8 @@ pub async fn create_library(pool: &PgPool, params: CreateLibraryParams) -> Resul
         r#"
         insert into libraries (name, description, metadata_language, root_path)
         values ($1, $2, $3, $4)
-        returning id, name, description, metadata_language, root_path, created_at, updated_at
+        returning id, name, description, metadata_language, root_path, storage_status, storage_issue,
+            storage_unavailable_since, created_at, updated_at
         "#,
     )
     .bind(params.name)
@@ -282,7 +291,8 @@ pub async fn update_library(
         .context("failed to acquire library update lock")?;
     let existing = sqlx::query(
         r#"
-        select id, name, description, metadata_language, root_path, created_at, updated_at
+        select id, name, description, metadata_language, root_path, storage_status, storage_issue,
+            storage_unavailable_since, created_at, updated_at
         from libraries
         where id = $1
         for update
@@ -315,13 +325,15 @@ pub async fn update_library(
         tx.commit()
             .await
             .context("failed to commit unchanged library update transaction")?;
-        return Ok(Some(UpdateLibraryOutcome::Updated(UpdateLibraryResult {
-            library: existing,
-            metadata_language_changed: false,
-            media_items_marked_pending: 0,
-            scan_job: None,
-            scan_job_created: false,
-        })));
+        return Ok(Some(UpdateLibraryOutcome::Updated(Box::new(
+            UpdateLibraryResult {
+                library: existing,
+                metadata_language_changed: false,
+                media_items_marked_pending: 0,
+                scan_job: None,
+                scan_job_created: false,
+            },
+        ))));
     }
 
     let scan_enqueue_result = if metadata_language_changed {
@@ -355,7 +367,8 @@ pub async fn update_library(
             metadata_language = $4,
             updated_at = now()
         where id = $1
-        returning id, name, description, metadata_language, root_path, created_at, updated_at
+        returning id, name, description, metadata_language, root_path, storage_status, storage_issue,
+            storage_unavailable_since, created_at, updated_at
         "#,
     )
     .bind(params.library_id)
@@ -420,13 +433,15 @@ pub async fn update_library(
         .await
         .context("failed to commit library update transaction")?;
 
-    Ok(Some(UpdateLibraryOutcome::Updated(UpdateLibraryResult {
-        library,
-        metadata_language_changed,
-        media_items_marked_pending,
-        scan_job,
-        scan_job_created,
-    })))
+    Ok(Some(UpdateLibraryOutcome::Updated(Box::new(
+        UpdateLibraryResult {
+            library,
+            metadata_language_changed,
+            media_items_marked_pending,
+            scan_job,
+            scan_job_created,
+        },
+    ))))
 }
 
 /// 删除媒体库的权威数据库记录，并在同一个事务中持久化独立缓存清理任务。
@@ -536,9 +551,20 @@ fn map_library_row(row: PgRow) -> Library {
         description: row.get("description"),
         metadata_language: row.get("metadata_language"),
         root_path: row.get("root_path"),
+        storage_status: row.get("storage_status"),
+        storage_issue: decode_storage_issue(row.get("storage_issue")),
+        storage_unavailable_since: row.get("storage_unavailable_since"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
+}
+
+/// The issue column is written only by this crate; a row that no longer
+/// decodes keeps its status but loses the details rather than failing reads.
+pub(crate) fn decode_storage_issue(
+    value: Option<serde_json::Value>,
+) -> Option<LibraryStorageIssue> {
+    value.and_then(|value| serde_json::from_value(value).ok())
 }
 
 #[cfg(test)]

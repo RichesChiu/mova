@@ -7,6 +7,7 @@ mod bounded_process;
 mod config;
 mod error;
 mod handlers;
+mod library_storage_startup;
 mod media_path;
 mod metadata_provider_config;
 mod realtime;
@@ -73,8 +74,10 @@ async fn main() -> anyhow::Result<()> {
         realtime_dispatcher,
         background_jobs: state::BackgroundJobNotifier::default(),
         strm_streaming,
+        storage_environment: std::sync::Arc::new(mova_application::HostLibraryStorageEnvironment),
     };
 
+    library_storage_startup::start_library_storage_check(state.clone());
     sync_runtime::start_background_workers(state.clone(), config.worker_concurrency);
     session_housekeeping::start_auth_session_housekeeping(state.db.clone());
 

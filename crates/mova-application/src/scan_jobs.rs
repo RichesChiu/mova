@@ -1,6 +1,12 @@
 use crate::{
     error::{ApplicationError, ApplicationResult},
     libraries::get_library,
+    library_storage::{
+        assess_library_storage, check_library_storage, library_storage_unavailable_error,
+        record_storage_assessment, verify_missing_media_paths, LibraryStorageCheck,
+        LibraryStorageEnvironment, MissingPathVerification, StorageAssessment, StoragePlan,
+        STORAGE_REMOVED_FROM_DEPLOYMENT,
+    },
     media_classification::{
         apply_movie_container_identity_when_title_is_missing, classify_media_type,
     },
@@ -126,6 +132,8 @@ enum ScanItemStage {
 enum DiscoverMediaFilesOutcome {
     Completed(MediaDiscoveryReport),
     Cancelled(i32),
+    /// Network storage holding the library root failed during traversal.
+    StorageOutage(mova_domain::LibraryStorageIssue),
 }
 
 #[derive(Debug)]
@@ -362,11 +370,32 @@ pub async fn get_scan_job_for_library(
 }
 
 /// 创建一条 pending 状态的扫描任务，供 HTTP 层立即返回给客户端。
+/// 请求时先检查库的存储：存储不可用时拒绝扫描，并把原因记录到库上。
 pub async fn enqueue_library_scan(
     pool: &PgPool,
     library_id: i64,
+    storage_environment: &dyn LibraryStorageEnvironment,
 ) -> ApplicationResult<EnqueueLibraryScanResult> {
     let library = get_library(pool, library_id).await?;
+    match check_library_storage(pool, &library, storage_environment).await? {
+        LibraryStorageCheck::Available => {}
+        LibraryStorageCheck::Unavailable(issue) => {
+            return Err(library_storage_unavailable_error(library.id, &issue));
+        }
+        LibraryStorageCheck::RemovedFromDeployment { mount_points } => {
+            // Startup deletes such a library; refuse to scan it until then.
+            let issue = mova_domain::LibraryStorageIssue {
+                reason_code: STORAGE_REMOVED_FROM_DEPLOYMENT.to_string(),
+                mount_point: mount_points.join(", "),
+                expected_fs_type: None,
+                expected_source: None,
+                actual_fs_type: None,
+                actual_source: None,
+                diagnostic_message: None,
+            };
+            return Err(library_storage_unavailable_error(library.id, &issue));
+        }
+    }
 
     let result = mova_db::enqueue_scan_job(
         pool,
@@ -394,6 +423,7 @@ pub async fn execute_scan_job_with_cancellation(
     cancellation_flag: Arc<AtomicBool>,
     artwork_cache_dir: PathBuf,
     metadata_provider: Arc<dyn MetadataProvider>,
+    storage_environment: Arc<dyn LibraryStorageEnvironment>,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> ApplicationResult<ExecuteScanJobOutcome> {
     let scan_started_at = Instant::now();
@@ -485,6 +515,55 @@ pub async fn execute_scan_job_with_cancellation(
         return Ok(ExecuteScanJobOutcome::Cancelled);
     }
 
+    // Nothing is read or deleted before the storage behind the library is
+    // judged; unavailable network storage keeps the whole catalog.
+    let storage_plan =
+        match assess_library_storage(pool, &library, storage_environment.as_ref()).await {
+            Ok(assessment) => {
+                if let Err(error) = record_storage_assessment(pool, library.id, &assessment).await {
+                    tracing::warn!(
+                        library_id = library.id,
+                        scan_job_id,
+                        error = ?error,
+                        "failed to record library storage status"
+                    );
+                }
+                match assessment {
+                    StorageAssessment::Available(plan) => Arc::new(plan),
+                    StorageAssessment::Unavailable(issue) => {
+                        let message = format_scan_phase_error(
+                            SCAN_PHASE_DISCOVERING,
+                            format!(
+                                "Library storage is unavailable ({}) at {}",
+                                issue.reason_code, issue.mount_point
+                            ),
+                        );
+                        record_failed_scan_attempt(pool, scan_job_id, 0, 0, &message, &fence).await;
+                        return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
+                    }
+                    StorageAssessment::RemovedFromDeployment { mount_points } => {
+                        let message = format_scan_phase_error(
+                            SCAN_PHASE_DISCOVERING,
+                            format!(
+                                "Every folder of this library was removed from the deployment: {}",
+                                mount_points.join(", ")
+                            ),
+                        );
+                        record_failed_scan_attempt(pool, scan_job_id, 0, 0, &message, &fence).await;
+                        return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
+                    }
+                }
+            }
+            Err(error) => {
+                let message = format_scan_phase_error(
+                    SCAN_PHASE_DISCOVERING,
+                    format!("Failed to check library storage: {}", error),
+                );
+                record_failed_scan_attempt(pool, scan_job_id, 0, 0, &message, &fence).await;
+                return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
+            }
+        };
+
     let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
 
     let discovery_started_at = Instant::now();
@@ -492,6 +571,7 @@ pub async fn execute_scan_job_with_cancellation(
         pool,
         scan_job_id,
         &library,
+        storage_plan.clone(),
         &fence,
         cancellation_flag.clone(),
         event_listener.clone(),
@@ -516,6 +596,18 @@ pub async fn execute_scan_job_with_cancellation(
                 )));
             }
             return Ok(ExecuteScanJobOutcome::Cancelled);
+        }
+        Ok(DiscoverMediaFilesOutcome::StorageOutage(issue)) => {
+            record_storage_outage(pool, library.id, &issue).await;
+            let message = format_scan_phase_error(
+                SCAN_PHASE_DISCOVERING,
+                format!(
+                    "Library storage could not be read ({}) at {}",
+                    issue.reason_code, issue.mount_point
+                ),
+            );
+            record_failed_scan_attempt(pool, scan_job_id, 0, 0, &message, &fence).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
         Err(error) => {
             let message = format_scan_phase_error(
@@ -775,69 +867,106 @@ pub async fn execute_scan_job_with_cancellation(
     )
     .await?;
 
-    // Only a complete discovery result is authoritative enough to remove missing paths.
-    // A cancelled or failed traversal returns before this point, so transient mount,
-    // permission, or I/O failures cannot be mistaken for deleted media files.
-    // Unparsed carriers (for example invalid STRM content) are present on disk: their
-    // catalog entries and user state are retained, never treated as missing.
-    let mut finalization_io_elapsed_ms = 0;
-    let mut finalization_db_elapsed_ms = 0;
-    if skips_missing_path_reconciliation(&discovered_paths, &unparsed_carrier_paths) {
-        tracing::warn!(
-            library_id = library.id,
-            scan_job_id,
-            unparsed_carrier_count = unparsed_carrier_paths.len(),
-            "every observed media carrier failed to parse; keeping the existing catalog and skipping missing-path removal"
-        );
-    } else {
-        let finalization_io_started_at = Instant::now();
-        let authoritative_root_path = PathBuf::from(&library.root_path);
-        let observed_carrier_paths = discovered_paths
-            .iter()
-            .chain(&unparsed_carrier_paths)
-            .cloned()
-            .collect::<Vec<_>>();
-        let retained_local_metadata_source_paths = tokio::task::spawn_blocking(move || {
-            authoritative_local_metadata_source_paths(
-                &authoritative_root_path,
-                &observed_carrier_paths,
-            )
-        })
-        .await
-        .map_err(|error| {
-            ApplicationError::Unexpected(anyhow::anyhow!(
-                "The local metadata finalization worker exited unexpectedly: {error}"
-            ))
-        })?;
-        finalization_io_elapsed_ms = elapsed_millis(finalization_io_started_at);
-
-        let finalization_db_started_at = Instant::now();
-        let removal_outcome = match mova_db::sync_library_media_changes(
-            pool,
-            library.id,
-            scan_job_id,
-            &discovered_paths,
-            &unparsed_carrier_paths,
-            &retained_local_metadata_source_paths,
-            &[],
-            &fence,
-        )
-        .await
-        {
-            Ok(outcome) => outcome,
-            Err(error) => {
-                let message = format_scan_phase_error(
-                    SCAN_PHASE_FINALIZING,
-                    format!("Failed to reconcile missing media files: {}", error),
-                );
-                record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message, &fence)
-                    .await;
-                return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
+    // Only a complete discovery result on a confirmed library root may remove
+    // missing paths. A failed or cancelled traversal returns before this
+    // point. The root storage is judged again here and must match the
+    // judgment the traversal ran under, and every catalog path the traversal
+    // did not report is looked up directly: a path that is gone, cannot be
+    // read, or lives on a mount treated as nonexistent is removed. Unparsed
+    // carriers (for example invalid STRM content) are on disk and keep their
+    // catalog entries.
+    let finalization_io_started_at = Instant::now();
+    let observed_paths = discovered_paths
+        .iter()
+        .chain(&unparsed_carrier_paths)
+        .cloned()
+        .collect::<Vec<_>>();
+    let (present_paths, final_storage_plan) = match verify_missing_media_paths(
+        pool,
+        &library,
+        storage_environment.as_ref(),
+        &storage_plan,
+        &observed_paths,
+    )
+    .await
+    {
+        Ok(MissingPathVerification::Verified {
+            present_paths,
+            plan,
+        }) => (present_paths, plan),
+        Ok(MissingPathVerification::StorageChanged {
+            detail,
+            unavailable,
+        }) => {
+            if let Some(issue) = unavailable {
+                record_storage_outage(pool, library.id, &issue).await;
             }
-        };
-        finalization_db_elapsed_ms = elapsed_millis(finalization_db_started_at);
-        merge_sync_outcome(&mut sync_outcome, removal_outcome);
-    }
+            let message = format_scan_phase_error(
+                SCAN_PHASE_FINALIZING,
+                format!(
+                    "Library root storage changed during the scan; nothing was removed: {detail}"
+                ),
+            );
+            record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message, &fence).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
+        }
+        Err(error) => {
+            let message = format_scan_phase_error(
+                SCAN_PHASE_FINALIZING,
+                format!("Failed to verify missing media files: {}", error),
+            );
+            record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message, &fence).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
+        }
+    };
+    let retained_paths = unparsed_carrier_paths
+        .iter()
+        .chain(&present_paths)
+        .cloned()
+        .collect::<Vec<_>>();
+    let authoritative_root_path = PathBuf::from(&library.root_path);
+    let observed_carrier_paths = observed_paths
+        .into_iter()
+        .chain(present_paths)
+        .collect::<Vec<_>>();
+    let retained_local_metadata_source_paths = tokio::task::spawn_blocking(move || {
+        authoritative_local_metadata_source_paths(&authoritative_root_path, &observed_carrier_paths)
+    })
+    .await
+    .map_err(|error| {
+        ApplicationError::Unexpected(anyhow::anyhow!(
+            "The local metadata finalization worker exited unexpectedly: {error}"
+        ))
+    })?;
+    let finalization_io_elapsed_ms = elapsed_millis(finalization_io_started_at);
+
+    let finalization_db_started_at = Instant::now();
+    let storage_record = final_storage_plan.storage_record();
+    let removal_outcome = match mova_db::sync_library_media_changes(
+        pool,
+        library.id,
+        scan_job_id,
+        &discovered_paths,
+        &retained_paths,
+        &retained_local_metadata_source_paths,
+        &[],
+        Some(&storage_record),
+        &fence,
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            let message = format_scan_phase_error(
+                SCAN_PHASE_FINALIZING,
+                format!("Failed to reconcile missing media files: {}", error),
+            );
+            record_failed_scan_attempt(pool, scan_job_id, total_files, 0, &message, &fence).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
+        }
+    };
+    let finalization_db_elapsed_ms = elapsed_millis(finalization_db_started_at);
+    merge_sync_outcome(&mut sync_outcome, removal_outcome);
 
     if sync_outcome.failed_count > 0 {
         tracing::warn!(
@@ -925,22 +1054,6 @@ fn collect_unparsed_carrier_paths(issues: &[MediaDiscoveryIssue]) -> Vec<String>
         .collect()
 }
 
-/// When nothing parsed this round but some carriers were seen, the round has no
-/// authoritative evidence about which catalog paths disappeared: the zero-file
-/// guard would refuse it, and failing the scan would hide the per-file issues.
-/// The scan completes with those issues and leaves missing-path removal to the
-/// next round that parses at least one carrier.
-fn skips_missing_path_reconciliation(
-    discovered_paths: &[String],
-    unparsed_carrier_paths: &[String],
-) -> bool {
-    discovered_paths.is_empty() && !unparsed_carrier_paths.is_empty()
-}
-
-/// Resolve the exact sidecar paths that remain eligible after a complete file
-/// discovery. Candidate precedence mirrors `mova-scan`: an existing invalid or
-/// unreadable higher-priority NFO blocks fallback and is retained as
-/// last-known-good; only a definitive `NotFound` advances to the next path.
 fn authoritative_local_metadata_source_paths(
     root_path: &Path,
     discovered_paths: &[String],
@@ -2469,6 +2582,20 @@ async fn emit_scan_job_phase(
     Ok(())
 }
 
+async fn record_storage_outage(
+    pool: &PgPool,
+    library_id: i64,
+    issue: &mova_domain::LibraryStorageIssue,
+) {
+    if let Err(error) = mova_db::mark_library_storage_unavailable(pool, library_id, issue).await {
+        tracing::warn!(
+            library_id,
+            error = ?error,
+            "failed to record library storage outage"
+        );
+    }
+}
+
 async fn record_failed_scan_attempt(
     pool: &PgPool,
     scan_job_id: i64,
@@ -2525,3 +2652,7 @@ mod tests;
 #[cfg(test)]
 #[path = "scan_jobs/performance_tests.rs"]
 mod performance_tests;
+
+#[cfg(test)]
+#[path = "scan_jobs/storage_tests.rs"]
+mod storage_tests;

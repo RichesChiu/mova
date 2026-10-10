@@ -17,6 +17,16 @@ This document defines the supported Docker Compose deployment, initialization bo
 
 媒体目录以只读方式挂载到 `/media`。Mova 会写入 `data/postgres/` 和 `data/cache/`，不会修改原始媒体文件。
 
+#### 媒体存储与挂载
+
+Mova 在每次扫描成功后记录媒体库所在的挂载（挂载点、文件系统类型和来源），删除找不到的文件之前先确认存储仍然连接。完整规则见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md) 5.1，部署时需要注意：
+
+- 容器必须在 NAS 共享或外接盘挂载好之后再启动。Docker 在容器启动时绑定目录，之后才在宿主机上挂载的共享，容器内看不到，需要重启容器。
+- 一个媒体库可以跨多块盘或多个共享：把每块盘分别挂载到同一个库根目录下的子目录，例如 `/media/剧集/盘1`、`/media/剧集/盘2`。不要用符号链接把其他盘链接进库根目录，指向库外的链接会被跳过。如果 `/media` 本身是只读共享，子目录挂载点必须事先在共享上存在，否则容器无法启动。
+- 持有库根目录的网络共享（SMB/CIFS、NFS 等）没有连接、或者库根目录本身读不出时，媒体库显示为“存储不可用”，暂停扫描，不删除任何内容；库主和管理员会收到通知，也可以直接删除该媒体库。库根目录下的子目录（包括单独挂载的盘或共享）没有连接或读不出时，只视为不存在，上面的条目会被移除。
+- 从 Compose 配置中删除某个目录后重启，Mova 会移除该目录上的条目；一个媒体库的全部目录都被删除时，启动时直接删除该媒体库。
+- 无法识别的情况：NAS 内部的磁盘故障但共享仍正常提供、mergerfs 或 Unraid `/mnt/user` 等合并多块盘的目录中单块盘掉线。需要按盘保护时，把每块盘分别挂载到库根目录下的子目录。Docker Desktop（macOS、Windows）不暴露宿主机上的子挂载，建议每个共享单独建库。
+
 #### 使用外部 PostgreSQL
 
 如需连接已有的 PostgreSQL：
@@ -170,6 +180,16 @@ The official Compose stack runs:
 `MOVA_DATABASE_URL` and `database.POSTGRES_PASSWORD` must use the same password. The official example keeps these internal credentials in one Compose file so no additional `.env` file is required. The database does not accept host or public connections. If you attach it to another shared Docker network, change both values and do not share that network with untrusted containers.
 
 The media directory is mounted read-only at `/media`. Mova writes to `data/postgres/` and `data/cache/` and does not modify original media files.
+
+#### Media storage and mounts
+
+After each successful scan, Mova records the mounts a library lives on (mount point, filesystem type and source) and confirms the storage is still connected before it removes files it cannot find. The full rules are in [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md) section 5.1. For deployments:
+
+- Start the container only after the NAS shares and external disks are mounted. Docker binds folders when the container starts; a share mounted on the host afterwards is not visible inside the container until it restarts.
+- One library can span several disks or shares: mount each one at its own subfolder of the same library root, for example `/media/TV/disk1` and `/media/TV/disk2`. Do not link other disks into the library root with symbolic links; links that point outside the root are skipped. If `/media` itself is a read-only share, the subfolder mount points must already exist on that share, or the container cannot start.
+- When the network share (SMB/CIFS, NFS and similar) holding a library root is not connected, or the library root itself cannot be read, the library shows as storage unavailable: scans are paused and nothing is removed. Owners and admins are notified and can delete the library. A folder below the root, including a separately mounted disk or share, that is not connected or cannot be read is treated as nonexistent, and only the media on it is removed.
+- After a folder is removed from the Compose configuration and the container restarts, Mova removes the media on it. When every folder of a library is removed, the library is deleted at startup.
+- Not detectable: a disk failing inside a NAS while the share is still served, and a single disk dropping out of a pooled folder such as mergerfs or Unraid `/mnt/user`. To protect each disk, mount each one at its own subfolder of the library root. Docker Desktop on macOS and Windows does not expose host-side sub-mounts; create one library per share there.
 
 #### Using external PostgreSQL
 

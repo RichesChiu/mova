@@ -1185,10 +1185,17 @@ pub(super) async fn discover_media_files(
     pool: &PgPool,
     scan_job_id: i64,
     library: &Library,
+    storage_plan: Arc<StoragePlan>,
     fence: &BackgroundJobFence,
     cancellation_flag: Arc<AtomicBool>,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> ApplicationResult<DiscoverMediaFilesOutcome> {
+    if storage_plan.skips_traversal() {
+        return Ok(DiscoverMediaFilesOutcome::Completed(
+            MediaDiscoveryReport::default(),
+        ));
+    }
+
     let root_path = library.root_path.as_str();
     let root_path_string = root_path.to_string();
     let root_path_for_task = root_path_string.clone();
@@ -1272,14 +1279,32 @@ pub(super) async fn discover_media_files(
     });
 
     let cancellation_for_task = cancellation_flag.clone();
+    let excluded_directories = storage_plan.excluded_directories();
+    let plan_for_task = storage_plan.clone();
     let result = tokio::task::spawn_blocking(move || {
-        mova_scan::discover_media_file_inventory_report_with_progress_and_cancel(
+        let mut outage = None;
+        let report = mova_scan::discover_media_file_inventory_report_with_policy(
             std::path::Path::new(&root_path_for_task),
+            &excluded_directories,
             |count| {
                 publish_discovery_progress(&latest_discovered, &progress_tx, count);
             },
             || cancellation_for_task.load(Ordering::SeqCst),
-        )
+            |path, error| {
+                let decision = plan_for_task.failure_decision(path);
+                if decision == mova_scan::DiscoveryFailureDecision::Abort {
+                    outage = Some(plan_for_task.outage_issue(path, error));
+                } else {
+                    tracing::warn!(
+                        path = %path.display(),
+                        error = %error,
+                        "treating an unreadable path as nonexistent"
+                    );
+                }
+                decision
+            },
+        );
+        (report, outage)
     })
     .await
     .map_err(|error| {
@@ -1297,6 +1322,10 @@ pub(super) async fn discover_media_files(
         ))
     })??;
 
+    let (result, outage) = result;
+    if let Some(issue) = outage {
+        return Ok(DiscoverMediaFilesOutcome::StorageOutage(issue));
+    }
     match result {
         Ok(files) => Ok(DiscoverMediaFilesOutcome::Completed(files)),
         Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Ok(

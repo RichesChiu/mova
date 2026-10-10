@@ -245,6 +245,9 @@ fn build_library() -> Library {
         description: None,
         metadata_language: "zh-CN".to_string(),
         root_path: "/media".to_string(),
+        storage_status: mova_domain::LIBRARY_STORAGE_AVAILABLE.to_string(),
+        storage_issue: None,
+        storage_unavailable_since: None,
         created_at: OffsetDateTime::now_utc(),
         updated_at: OffsetDateTime::now_utc(),
     }
@@ -3222,30 +3225,6 @@ fn unparsed_carrier_paths_keep_every_observed_issue_path() {
     assert!(super::collect_unparsed_carrier_paths(&[]).is_empty());
 }
 
-#[test]
-fn missing_path_reconciliation_is_skipped_only_when_nothing_parsed_but_carriers_were_seen() {
-    let paths = |values: &[&str]| {
-        values
-            .iter()
-            .map(|value| value.to_string())
-            .collect::<Vec<_>>()
-    };
-    assert!(super::skips_missing_path_reconciliation(
-        &[],
-        &paths(&["/media/A/A.strm"])
-    ));
-    assert!(!super::skips_missing_path_reconciliation(
-        &paths(&["/media/B/B.mkv"]),
-        &paths(&["/media/A/A.strm"])
-    ));
-    assert!(!super::skips_missing_path_reconciliation(
-        &paths(&["/media/B/B.mkv"]),
-        &[]
-    ));
-    // An empty round with no observed carrier still reaches the zero-file guard.
-    assert!(!super::skips_missing_path_reconciliation(&[], &[]));
-}
-
 /// A broken STRM generator must not delete media or what users watched: an
 /// STRM whose content turns invalid keeps its item and playback progress, a
 /// library whose every STRM is invalid completes without deleting anything,
@@ -3375,11 +3354,33 @@ async fn run_scan_to_completion(
     library_id: i64,
     cache: &Path,
 ) -> mova_domain::ScanJob {
+    let outcome = run_scan(
+        pool,
+        library_id,
+        cache,
+        Arc::new(crate::HostLibraryStorageEnvironment),
+    )
+    .await
+    .unwrap();
+    let super::ExecuteScanJobOutcome::Completed(job) = outcome else {
+        panic!("the scan must complete: {outcome:?}");
+    };
+    job
+}
+
+/// Runs one scan. A failed scan is retired at once, as the worker would after
+/// its last attempt, so the next scan in a test starts fresh.
+pub(super) async fn run_scan(
+    pool: &sqlx::PgPool,
+    library_id: i64,
+    cache: &Path,
+    storage: Arc<dyn crate::LibraryStorageEnvironment>,
+) -> crate::ApplicationResult<super::ExecuteScanJobOutcome> {
     let scan_job = mova_db::enqueue_scan_job(pool, mova_db::CreateScanJobParams { library_id })
         .await
         .unwrap()
         .scan_job;
-    let fence = mova_db::claim_background_job(pool, "invalid-strm-test-worker", 60)
+    let fence = mova_db::claim_background_job(pool, "storage-test-worker", 60)
         .await
         .unwrap()
         .claimed_job
@@ -3390,21 +3391,28 @@ async fn run_scan_to_completion(
         pool,
         library_id,
         scan_job.id,
-        fence,
+        fence.clone(),
         Arc::new(AtomicBool::new(false)),
         cache.to_path_buf(),
         Arc::new(crate::metadata::NullMetadataProvider),
+        storage,
         Arc::new(|_| {}),
     )
-    .await
-    .unwrap();
-    let super::ExecuteScanJobOutcome::Completed(job) = outcome else {
-        panic!("the scan must complete: {outcome:?}");
-    };
-    job
+    .await;
+    if let Err(error) = &outcome {
+        sqlx::query("update background_jobs set max_attempts = attempt_count where id = $1")
+            .bind(fence.job_id)
+            .execute(pool)
+            .await
+            .unwrap();
+        mova_db::retry_or_fail_background_job(pool, &fence, &error.to_string(), 0)
+            .await
+            .unwrap();
+    }
+    outcome
 }
 
-async fn library_file_paths(pool: &sqlx::PgPool, library_id: i64) -> Vec<String> {
+pub(super) async fn library_file_paths(pool: &sqlx::PgPool, library_id: i64) -> Vec<String> {
     sqlx::query_scalar::<_, String>(
         "select file_path from media_files where library_id = $1 order by file_path",
     )

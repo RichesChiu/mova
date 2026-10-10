@@ -269,6 +269,10 @@ const translations: Record<string, string> = {
     'Existing remote identities remain matched during transient provider failures, with metadata_provider_error indicating the refresh failure.',
   'metadata.tmdb.retention_expired 是媒体库 warning，表示条目的 TMDB 元数据超过 180 天仍未重新验证；provider-owned 数据与缓存已清除，payload 只保留本地定位字段，不保留原 TMDB 条目 ID。':
     'metadata.tmdb.retention_expired is a library warning indicating that an item’s TMDB metadata remained unverified beyond 180 days; provider-owned data and caches are cleared, and its payload retains only local identifiers rather than the original TMDB item ID.',
+  'library.storage.unavailable 是管理员 error 通知，媒体库每次从可用变为存储不可用时生成一条，payload 说明挂载点、应为和当前的存储。':
+    'library.storage.unavailable is an administrator error notification created each time a library goes from available to storage unavailable; its payload names the mount point and the expected and current storage.',
+  'library.removed_from_deployment 是管理员 warning 通知，表示媒体库的全部目录已从部署配置中移除，服务启动时已删除该媒体库。':
+    'library.removed_from_deployment is an administrator warning notification: every folder of the library was removed from the deployment, so the library was deleted at startup.',
   'GET 支持可选 unread_only 过滤；通知中心标记已读后重新请求未读列表，使已读项立即消失。':
     'GET supports the optional unread_only filter; after marking notifications as read, the notification center refetches the unread list so read items disappear immediately.',
   'GET 响应的未读统计不受 category 筛选影响。':
@@ -288,6 +292,8 @@ const translations: Record<string, string> = {
     'The returned path can be used directly as the root_path for a media library.',
   '客户端不得把本机文件系统路径作为服务端 root_path。':
     'Clients must not send a local filesystem path as the server root_path.',
+  '读取失败的子文件夹（例如没有连接的挂载）不出现在树中。':
+    'Subfolders that cannot be read, such as a mount that is not connected, are left out of the tree.',
   查询服务端当前可用于建库的媒体文件夹树: 'Get the server media folder tree available for libraries',
   '查询服务端当前可用于建库的媒体文件夹树（管理员）':
     'Get the server media folder tree available for libraries (administrator)',
@@ -314,6 +320,16 @@ const translations: Record<string, string> = {
     'Library item lists are classified by the server as all media, movies, series, or items that need review, and support title or release-year filters plus stable title, year, or normalized preferred-rating ordering. Clients do not re-derive categories; all classification, filtering, and sorting happen before pagination.',
   '媒体库详情同时返回 media_count、movie_count 和 series_count。':
     'Library details return media_count, movie_count, and series_count together.',
+  '媒体库返回 storage_status：持有库根目录的网络存储没有连接、或库根目录本身无法读取时为 unavailable，此时拒绝扫描且不删除任何内容，存储恢复后自动回到 available；库根目录下方读不出的内容只视为不存在。':
+    'Libraries return storage_status: it is unavailable while the network storage holding the library root is not connected or the root itself cannot be read. Scans are refused and nothing is removed, and it returns to available once the storage is back. Anything below the root that cannot be read is treated as nonexistent.',
+  'storage_issue 只返回给 owner 和 admin，说明不可用的原因、挂载点、应为和当前的存储；其他用户为 null。':
+    'storage_issue is returned only to owners and admins and explains the reason, the mount point, and the expected and current storage; it is null for everyone else.',
+  '存储不可用时触发扫描返回 409 和 library_storage_unavailable，params.reason_code 说明具体原因。':
+    'Starting a scan while the storage is unavailable returns 409 with library_storage_unavailable; params.reason_code gives the specific reason.',
+  '扫描只在确认存储已连接后删除找不到的文件；存储已连接且确实没有文件时，媒体库可以被清空。':
+    'Scans remove missing files only after confirming the storage is connected; when connected storage really has no files, the library can be emptied.',
+  '媒体库的全部目录都从部署配置中移除时，服务启动时自动删除该媒体库；存储不可用的媒体库可以直接删除。':
+    'A library whose every folder was removed from the deployment is deleted at startup; an unavailable library can be deleted directly.',
   查询媒体库列表: 'List media libraries',
   查询按库分组的最新添加内容: 'Get recently added content grouped by library',
   创建媒体库: 'Create a media library',

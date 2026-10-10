@@ -6,6 +6,23 @@ describe('localizeApiError', () => {
     document.documentElement.lang = 'zh-CN'
   })
 
+  it('explains a refused scan with the storage reason', () => {
+    document.documentElement.lang = 'zh-CN'
+
+    expect(
+      localizeApiError(
+        'library_storage_unavailable',
+        { library_id: 7, reason_code: 'storage_not_connected', mount_point: '/media' },
+        'library 7 storage is unavailable',
+      ),
+    ).toBe('已拒绝扫描：媒体库所在的存储未连接：该目录现在不是扫描时的那个存储。')
+
+    document.documentElement.lang = 'en-US'
+    expect(localizeApiError('library_storage_unavailable', { reason_code: 'unknown_reason' })).toBe(
+      'The library storage is unavailable. Scans are paused and nothing is removed until it is connected again.',
+    )
+  })
+
   it('uses the stable error code instead of the diagnostic message', () => {
     document.documentElement.lang = 'zh-CN'
 

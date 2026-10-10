@@ -15,6 +15,7 @@ use crate::{
     background_jobs::{
         lock_library_scan_background_job_fence, BackgroundJobFence, LibraryScanFenceMode,
     },
+    library_storage::{replace_library_storage_mounts_tx, LibraryStorageMountRecord},
     local_metadata::{reconcile_library_local_metadata_source_paths_tx, MediaLocalMetadataTarget},
     playback_progress::merge_media_item_user_state,
     tmdb_revalidation::{
@@ -147,19 +148,21 @@ pub async fn sync_library_media_best_effort(
 
 /// 增量同步当前扫描确认有变化的媒体记录。
 /// `discovered_paths` 是本轮仍存在的全部视频路径；`entries` 只包含新增或内容发生变化的路径。
-/// `retained_unparsed_paths` 是本轮在磁盘上看到、但内容无法解析的载体（例如非法 STRM）。
-/// 它们不是缺失文件：已入库的对应条目、版本和用户播放状态原样保留，等内容修好后的
-/// 下一轮扫描再更新。零发现保护只看成功解析的 `discovered_paths`，不因存在问题文件放开；
-/// 遍历或文件 I/O 失败必须在调用此函数前中止。
+/// `retained_paths` 是本轮确认仍在、但不在 `discovered_paths` 里的载体：内容无法解析的
+/// 载体（例如非法 STRM），以及删除前逐个核实仍是库内常规文件的路径。它们的条目、版本和
+/// 用户播放状态原样保留。其余已入库路径视为已删除。调用方必须先确认存储连接正常并核实
+/// 每个待删除路径，此函数不再用“零发现”猜测存储是否脱离。
+/// `storage_mounts` 是本轮扫描所依据的存储记录，与对账在同一个事务中替换。
 #[allow(clippy::too_many_arguments)]
 pub async fn sync_library_media_changes(
     pool: &PgPool,
     library_id: i64,
     scan_job_id: i64,
     discovered_paths: &[String],
-    retained_unparsed_paths: &[String],
+    retained_paths: &[String],
     retained_local_metadata_source_paths: &[String],
     entries: &[CreateMediaEntryParams],
+    storage_mounts: Option<&[LibraryStorageMountRecord]>,
     fence: &BackgroundJobFence,
 ) -> Result<SyncLibraryMediaBestEffortOutcome> {
     let mut tx = pool
@@ -183,14 +186,13 @@ pub async fn sync_library_media_changes(
     let existing_records = list_library_media_files_for_sync(&mut tx, library_id)
         .await
         .context("failed to list existing library media paths for incremental sync")?;
-    validate_authoritative_discovery(library_id, existing_records.len(), discovered_paths.len())?;
     let mut existing_by_path = existing_records
         .into_iter()
         .map(|record| (record.file_path.clone(), record))
         .collect::<HashMap<_, _>>();
     let observed_paths = discovered_paths
         .iter()
-        .chain(retained_unparsed_paths)
+        .chain(retained_paths)
         .map(String::as_str)
         .collect::<HashSet<_>>();
     let mut outcome = SyncLibraryMediaBestEffortOutcome::default();
@@ -241,6 +243,10 @@ pub async fn sync_library_media_changes(
     // two full-library anti-join deletes for every local and remote group.
     let removed_orphan_structure_count =
         series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
+
+    if let Some(storage_mounts) = storage_mounts {
+        replace_library_storage_mounts_tx(&mut tx, library_id, storage_mounts).await?;
+    }
 
     if outcome.removed_count > 0
         || outcome.upserted_count > 0
@@ -305,20 +311,6 @@ pub async fn cleanup_library_orphan_series_after_scan(
         .await
         .context("failed to commit interrupted scan hierarchy cleanup")?;
     Ok(removed_count)
-}
-
-fn validate_authoritative_discovery(
-    library_id: i64,
-    existing_file_count: usize,
-    discovered_file_count: usize,
-) -> Result<()> {
-    if existing_file_count > 0 && discovered_file_count == 0 {
-        anyhow::bail!(
-            "refusing authoritative media reconciliation for non-empty library {library_id}: discovery returned zero media files"
-        );
-    }
-
-    Ok(())
 }
 
 /// 按文件路径增量 upsert 单条媒体记录。

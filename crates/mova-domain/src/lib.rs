@@ -22,7 +22,9 @@ mod user_profile;
 pub use audio_track::AudioTrack;
 pub use continue_watching_item::ContinueWatchingItem;
 pub use episode::Episode;
-pub use library::Library;
+pub use library::{
+    Library, LibraryStorageIssue, LIBRARY_STORAGE_AVAILABLE, LIBRARY_STORAGE_UNAVAILABLE,
+};
 pub use library_detail::LibraryDetail;
 pub use media_cast_member::MediaCastMember;
 pub use media_external_id::MediaExternalIdRecord;

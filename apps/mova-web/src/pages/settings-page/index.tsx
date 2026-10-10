@@ -26,10 +26,12 @@ import { EmptyState } from '../../components/empty-state'
 import { HoverTooltip } from '../../components/hover-tooltip'
 import { LibraryActionsMenu } from '../../components/library-actions-menu'
 import { LibraryEditorModal } from '../../components/library-editor-modal'
+import { LibraryStorageNotice } from '../../components/library-storage-notice'
 import { StatusPill } from '../../components/status-pill'
 import { UserActionsMenu } from '../../components/user-actions-menu'
 import { UserEditorModal } from '../../components/user-editor-modal'
 import { useI18n } from '../../i18n'
+import { isLibraryStorageUnavailable } from '../../lib/library-storage'
 import {
   buildCreatedLibraryCacheState,
   buildCreatedUserCacheState,
@@ -509,6 +511,28 @@ export const SettingsPage = () => {
                   : l('Failed to delete library')}
               </p>
             ) : null}
+            {scanMutation.isError ? (
+              <p className="callout callout--danger">
+                {scanMutation.error instanceof Error
+                  ? scanMutation.error.message
+                  : l('Failed to scan library')}
+              </p>
+            ) : null}
+            {libraries.map((library) => (
+              <LibraryStorageNotice
+                canManageLibraries
+                key={library.id}
+                library={libraryDetailsById.get(library.id) ?? library}
+                onDeleteLibrary={(selectedLibrary) => {
+                  deleteLibraryMutation.reset()
+                  setPendingConfirmation({
+                    kind: 'delete-library',
+                    library: selectedLibrary,
+                  })
+                }}
+                showLibraryName
+              />
+            ))}
 
             {shouldShowLibrarySkeleton || libraries.length > 0 ? (
               <div className="settings-library-list">
@@ -531,7 +555,12 @@ export const SettingsPage = () => {
                         lastScan,
                         isScanActive ? scanProgressPercent : undefined,
                       )
-                      const lastScanStatusTone = getScanStatusTone(lastScan)
+                      const isStorageUnavailable = isLibraryStorageUnavailable(
+                        libraryDetail ?? library,
+                      )
+                      const lastScanStatusTone = isStorageUnavailable
+                        ? 'failed'
+                        : getScanStatusTone(lastScan)
                       const isTriggeringScan =
                         scanMutation.isPending && scanMutation.variables === library.id
                       const isDeletingLibrary =
@@ -561,7 +590,9 @@ export const SettingsPage = () => {
                                     aria-hidden="true"
                                     className="settings-library-card__scan-dot"
                                   />
-                                  {lastScanStatusLabel}
+                                  {isStorageUnavailable
+                                    ? l('Storage unavailable')
+                                    : lastScanStatusLabel}
                                 </span>
                                 <LibraryActionsMenu
                                   className="settings-library-card__menu"
@@ -571,7 +602,9 @@ export const SettingsPage = () => {
                                     isScanActive
                                   }
                                   isDeletePending={isDeletingLibrary}
-                                  isScanDisabled={isTriggeringScan || isScanActive}
+                                  isScanDisabled={
+                                    isTriggeringScan || isScanActive || isStorageUnavailable
+                                  }
                                   isScanPending={isTriggeringScan}
                                   library={library}
                                   onDeleteLibrary={(selectedLibrary) => {
@@ -582,9 +615,10 @@ export const SettingsPage = () => {
                                     })
                                   }}
                                   onEditLibrary={setEditingLibrary}
-                                  onScanLibrary={(selectedLibrary) =>
+                                  onScanLibrary={(selectedLibrary) => {
+                                    scanMutation.reset()
                                     scanMutation.mutate(selectedLibrary.id)
-                                  }
+                                  }}
                                 />
                               </div>
                             </div>

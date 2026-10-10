@@ -89,6 +89,14 @@
 | `remote_source_timeout` | `{}` | STRM 上游连接或响应头超时 |
 | `strm_stream_capacity_exhausted` | `{}` | 服务端 STRM 全局代理名额已满 |
 
+媒体库存储相关的稳定业务错误码：
+
+| `error_code` | `params` | 含义 |
+| --- | --- | --- |
+| `library_storage_unavailable` | `{ "library_id": number, "reason_code": string, "mount_point": string, "expected_fs_type"?: string, "expected_source"?: string, "actual_fs_type"?: string, "actual_source"?: string }` | 媒体库的存储不可用，拒绝扫描；`409 Conflict` |
+
+`reason_code` 取值：`storage_not_connected`（挂载不是记录的存储，且找不到已入库文件）、`storage_unreadable`（库根目录读取报错，包括权限被拒绝）、`storage_timeout`（读取超时）、`storage_unverified`（媒体库还没有存储记录，且找不到任何已入库文件）、`mount_table_unavailable`（无法读取挂载表）、`storage_removed_from_deployment`（媒体库的全部目录已从部署配置中移除，下次启动时删除）。
+
 客户端必须允许服务端增加新的 `error_code`。已知错误码使用本地文案；未知错误码可以临时显示 `message`，并应将其记录为诊断信息。
 
 - 文档中的字段示例多数只展示 `data` 内部结构，实际响应会额外包一层统一 envelope。
@@ -725,6 +733,8 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `diagnostic_message` 与 `probe_warning_diagnostic` 仅供日志和排障使用。客户端不得把这些英文诊断信息直接作为通知主文案；未知原因码才允许将其作为次级兜底。
 - 扫描摘要由 worker 在远端组成功提交后累计，并在任务终态直接写入通知；服务端不提供第二套扫描报告接口。更底层的网络、provider 与 `ffprobe` 排障信息由运维侧查看服务日志。
 - `cache.cleanup.failed` 是仅管理员可见的 `system / error` 通知。它表示媒体库权威数据已经删除，但 `MOVA_CACHE_DIR/libraries/{library_id}` 在 10 次尝试后仍无法移除；payload 包含 `background_job_id`、`library_id`、删除前的 `library_name`、`attempt_count`、`max_attempts`、`reason_code=cache_cleanup_failed`、`reason_params` 和可选 `diagnostic_message`。
+- `library.storage.unavailable` 是仅管理员可见的 `system / error` 通知。它表示媒体库进入 `storage_status=unavailable`，每次从可用变为不可用时生成一条；payload 包含 `library_id`、`library_name`、`reason_code`（取值同 `library_storage_unavailable.params.reason_code`）、`reason_params`（`library_name`、`mount_point`、`expected_fs_type`、`expected_source`、`actual_fs_type`、`actual_source`）和可选 `diagnostic_message`。
+- `library.removed_from_deployment` 是仅管理员可见的 `system / warning` 通知。它表示某个媒体库的全部目录已从部署配置中移除，服务启动时已删除该媒体库；payload 包含 `library_id`、删除前的 `library_name`、`reason_code=library_removed_from_deployment`，`reason_params` 包含 `library_name` 和 `mount_points`。
 - `metadata.tmdb.retention_expired` 是媒体库可见的 `library / warning` 通知。它表示某个条目的 TMDB 元数据在最长 180 天保留期内未能重新验证，provider-owned 元数据与缓存已经清除，条目可重新匹配；payload 仅保留本地定位与展示所需的 `media_item_id`、`library_id`、当前 `title`、`provider=tmdb`、`reason_code=tmdb_retention_expired`、`reason_params` 和可选 `diagnostic_message`，不会保留原 TMDB 条目 ID。
 
 ### `PUT /api/notifications/{id}/read`
@@ -788,7 +798,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 说明：
 - 宿主机媒体根目录在 Docker Compose 的卷挂载中直接配置，并只读挂载到容器内 `/media`；无需创建 `.env`
 - 返回树的根节点 `path` 表示客户端当前可见的服务端根目录
-- 服务端递归读取全部子文件夹，并按名称排序
+- 服务端递归读取全部子文件夹，并按名称排序；读取失败的子文件夹（例如没有连接的挂载）不出现在树中，`/media` 本身读取失败时返回 `500`
 - 客户端不得把本机文件系统路径作为服务端 `root_path`
 
 ## 5. 媒体库
@@ -815,6 +825,11 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `description`：媒体库描述，可为空
 - `metadata_language`：该媒体库扫描和 TMDB 补全时使用的语言，当前支持 `zh-CN` / `en-US`
 - `root_path`：扫描根目录
+- `storage_status`：`available` 或 `unavailable`。持有库根目录的网络存储没有连接、或者库根目录本身无法读取时为 `unavailable`；库根目录下方的文件、子目录或挂载读不出时只视为不存在，不影响该状态，此时拒绝扫描、不删除任何内容，存储恢复后自动回到 `available`；判定规则见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md) 5.1
+- `storage_issue`：不可用的原因，只返回给 `owner` 和 `admin`，其他用户和可用状态下为 `null`。包含 `reason_code`（取值同 `library_storage_unavailable.params.reason_code`）、`mount_point`、`expected_fs_type`、`expected_source`、`actual_fs_type`、`actual_source` 和可选 `diagnostic_message`
+- `storage_unavailable_since`：进入不可用状态的时间，可用时为 `null`
+
+返回媒体库对象的其他接口（媒体库详情、按库分组的最新添加、首页）使用相同的存储字段和可见性规则。
 
 ### `GET /api/libraries/recently-added`
 
@@ -961,6 +976,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 关键字段：
 - `name`：媒体库名称
 - `description`：媒体库描述，可为空
+- `storage_status`、`storage_issue`、`storage_unavailable_since`：与 `GET /api/libraries` 相同
 - `media_count`：当前库中的媒体数量
 - `movie_count`：当前库中的电影数量
 - `series_count`：当前库中的剧集数量；单集不单独计入该字段
@@ -995,6 +1011,8 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 每个媒体库的 TMDB 图片、WebVTT 字幕和音轨 remux 缓存都位于自己的库命名空间；媒体目录及其中的 NFO、sidecar 图片和字幕不会被修改
 - 缓存清理最多尝试 10 次。服务重启或 worker 租约过期后任务会继续执行；重试耗尽时管理员通知中心会出现 `cache.cleanup.failed`
 - 如果同一时间重复删除同一个库，或扫描仍在停止过程中，会返回 `409 Conflict`
+- 删除不需要读取媒体目录，存储不可用的媒体库同样可以删除
+- 媒体库的全部目录都已从部署配置中移除时，服务启动时按同一流程自动删除，并发送 `library.removed_from_deployment` 通知
 - 删除事务、worker 协调、缓存目录边界和失败恢复的完整约束见 [`LIBRARY_CACHE_LIFECYCLE.md`](LIBRARY_CACHE_LIFECYCLE.md)。
 
 ### `PATCH /api/libraries/{id}`
@@ -1157,6 +1175,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 如果当前库已有活跃任务并被复用：`200 OK`
 - 响应体均为 `ScanJobResponse`
 - 如果媒体库正在删除：`409 Conflict`
+- 如果媒体库的存储不可用：`409 Conflict`，`error_code=library_storage_unavailable`；请求时会重新检查存储，并同步更新媒体库的 `storage_status`
 
 说明：
 - 媒体库存在 `pending` 或 `running` 任务时复用该任务，不启动第二个扫描

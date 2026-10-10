@@ -1,6 +1,7 @@
 mod background_jobs;
 mod intro_detection;
 mod libraries;
+mod library_storage;
 mod local_metadata;
 mod media_cast;
 mod media_items;
@@ -29,6 +30,11 @@ pub use libraries::{
     create_library, delete_library, get_library, get_library_with_visibility, list_libraries,
     list_library_details, update_library, CreateLibraryParams, DeleteLibraryResult,
     UpdateLibraryOutcome, UpdateLibraryParams, UpdateLibraryResult, VisibilityResult,
+};
+pub use library_storage::{
+    library_has_media_files, list_library_storage_mounts, mark_library_storage_available,
+    mark_library_storage_unavailable, record_library_removed_from_deployment,
+    sample_library_media_file_paths, LibraryStorageMountRecord,
 };
 pub use local_metadata::{
     get_media_local_metadata_source_for_item, list_media_item_credits,

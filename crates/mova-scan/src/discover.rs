@@ -5,6 +5,7 @@ use crate::{
         parse_media_metadata_without_sidecar,
     },
     probe::{probe_media_file_with_cancel, MediaProbe, ProbeAvailability},
+    storage::is_absent_entry_error,
     subtitle::{
         discover_subtitle_tracks, discover_subtitle_tracks_with_index, SubtitleDirectoryIndex,
     },
@@ -86,16 +87,55 @@ where
 /// issues separately from authoritative traversal and carrier I/O failures.
 pub fn discover_media_file_inventory_report_with_progress_and_cancel<F, C>(
     root_path: &Path,
-    mut on_progress: F,
-    mut should_cancel: C,
+    on_progress: F,
+    should_cancel: C,
 ) -> io::Result<MediaDiscoveryReport>
 where
     F: FnMut(usize),
     C: FnMut() -> bool,
 {
+    discover_media_file_inventory_report_with_policy(
+        root_path,
+        &[],
+        on_progress,
+        should_cancel,
+        |_, _| DiscoveryFailureDecision::Abort,
+    )
+}
+
+/// Recursively discovers media carriers under a scan's storage policy.
+///
+/// Directories in `excluded_directories` and everything below them are
+/// treated as nonexistent. Below the root, removed entries and links that
+/// cannot be followed are skipped. Every other I/O failure, including a denied
+/// permission, and any failure on the root itself, is passed to `on_failure`,
+/// which decides whether the failing path is skipped or the traversal stops.
+pub fn discover_media_file_inventory_report_with_policy<F, C, P>(
+    root_path: &Path,
+    excluded_directories: &[PathBuf],
+    mut on_progress: F,
+    mut should_cancel: C,
+    mut on_failure: P,
+) -> io::Result<MediaDiscoveryReport>
+where
+    F: FnMut(usize),
+    C: FnMut() -> bool,
+    P: FnMut(&Path, &io::Error) -> DiscoveryFailureDecision,
+{
     let mut files = Vec::new();
     let mut issues = Vec::new();
-    let mut boundary = DiscoveryBoundary::new(root_path)?;
+    let mut failure_policy = DiscoveryFailurePolicy {
+        root_path,
+        on_failure: &mut on_failure,
+    };
+    let mut boundary =
+        match DiscoveryBoundary::with_excluded_directories(root_path, excluded_directories) {
+            Ok(boundary) => boundary,
+            Err(error) => {
+                failure_policy.tolerate(root_path, error)?;
+                return Ok(MediaDiscoveryReport::default());
+            }
+        };
     visit_dir_inventory(
         root_path,
         &mut files,
@@ -103,6 +143,7 @@ where
         &mut on_progress,
         &mut should_cancel,
         &mut boundary,
+        &mut failure_policy,
     )?;
     populate_inventory_sidecar_fingerprints(&mut files, root_path);
     files.sort_by(|left, right| left.file_path.cmp(&right.file_path));
@@ -418,6 +459,7 @@ fn visit_dir_inventory<F>(
     on_progress: &mut F,
     should_cancel: &mut impl FnMut() -> bool,
     boundary: &mut DiscoveryBoundary,
+    failure_policy: &mut DiscoveryFailurePolicy<'_>,
 ) -> io::Result<()>
 where
     F: FnMut(usize),
@@ -426,24 +468,55 @@ where
         return Err(io::Error::new(io::ErrorKind::Interrupted, "scan cancelled"));
     }
 
-    if !boundary.enter_directory(dir)? {
-        return Ok(());
+    match boundary.enter_directory(dir) {
+        Ok(true) => {}
+        Ok(false) => return Ok(()),
+        Err(error) => return failure_policy.tolerate(dir, error),
     }
 
-    for entry in fs::read_dir(dir)? {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) => return failure_policy.tolerate(dir, error),
+    };
+    for entry in entries {
         if should_cancel() {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "scan cancelled"));
         }
 
-        let entry = entry?;
-        let path = entry.path();
-        let Some(canonical_path) = boundary.canonical_path_if_allowed(&path)? else {
-            continue;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                failure_policy.tolerate(dir, error)?;
+                continue;
+            }
         };
-        let metadata = fs::metadata(canonical_path)?;
+        let path = entry.path();
+        let canonical_path = match boundary.canonical_path_if_allowed(&path) {
+            Ok(Some(canonical_path)) => canonical_path,
+            Ok(None) => continue,
+            Err(error) => {
+                failure_policy.tolerate(&path, error)?;
+                continue;
+            }
+        };
+        let metadata = match fs::metadata(canonical_path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                failure_policy.tolerate(&path, error)?;
+                continue;
+            }
+        };
 
         if metadata.is_dir() {
-            visit_dir_inventory(&path, files, issues, on_progress, should_cancel, boundary)?;
+            visit_dir_inventory(
+                &path,
+                files,
+                issues,
+                on_progress,
+                should_cancel,
+                boundary,
+                failure_policy,
+            )?;
             continue;
         }
 
@@ -452,17 +525,53 @@ where
         }
 
         match build_discovered_media_file_inventory(
-            path,
+            path.clone(),
             metadata.len(),
             metadata_modified_at_ms(&metadata),
-        )? {
-            Ok(inventory) => files.push(inventory),
-            Err(issue) => issues.push(issue),
+        ) {
+            Ok(Ok(inventory)) => files.push(inventory),
+            Ok(Err(issue)) => issues.push(issue),
+            Err(error) => {
+                failure_policy.tolerate(&path, error)?;
+                continue;
+            }
         }
         on_progress(files.len().saturating_add(issues.len()));
     }
 
     Ok(())
+}
+
+/// How a traversal treats a storage failure on one path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiscoveryFailureDecision {
+    /// Stop the traversal and return the error.
+    Abort,
+    /// Treat the failing path as nonexistent and continue.
+    SkipPath,
+}
+
+struct DiscoveryFailurePolicy<'a> {
+    root_path: &'a Path,
+    on_failure: &'a mut dyn FnMut(&Path, &io::Error) -> DiscoveryFailureDecision,
+}
+
+impl DiscoveryFailurePolicy<'_> {
+    /// Returns `Ok` when the failing path is treated as nonexistent. Below the
+    /// root, removed entries and links that cannot be followed are skipped
+    /// without asking.
+    fn tolerate(&mut self, path: &Path, error: io::Error) -> io::Result<()> {
+        if error.kind() == ErrorKind::Interrupted {
+            return Err(error);
+        }
+        if path != self.root_path && is_absent_entry_error(&error) {
+            return Ok(());
+        }
+        match (self.on_failure)(path, &error) {
+            DiscoveryFailureDecision::SkipPath => Ok(()),
+            DiscoveryFailureDecision::Abort => Err(error),
+        }
+    }
 }
 
 fn visit_dir_paths(
@@ -507,11 +616,19 @@ fn visit_dir_paths(
 
 struct DiscoveryBoundary {
     canonical_root: PathBuf,
+    excluded_directories: Vec<PathBuf>,
     visited_directories: HashSet<PathBuf>,
 }
 
 impl DiscoveryBoundary {
     fn new(root_path: &Path) -> io::Result<Self> {
+        Self::with_excluded_directories(root_path, &[])
+    }
+
+    fn with_excluded_directories(
+        root_path: &Path,
+        excluded_directories: &[PathBuf],
+    ) -> io::Result<Self> {
         let canonical_root = fs::canonicalize(root_path)?;
         if !fs::metadata(&canonical_root)?.is_dir() {
             return Err(io::Error::new(
@@ -522,18 +639,34 @@ impl DiscoveryBoundary {
                 ),
             ));
         }
+        // An excluded directory may be unreachable, which is why it is
+        // excluded; keep its recorded path when it cannot be resolved.
+        let excluded_directories = excluded_directories
+            .iter()
+            .map(|directory| fs::canonicalize(directory).unwrap_or_else(|_| directory.clone()))
+            .collect();
 
         Ok(Self {
             canonical_root,
+            excluded_directories,
             visited_directories: HashSet::new(),
         })
     }
 
+    /// A link that cannot be followed resolves to nothing: it is skipped like
+    /// a path outside the library root.
     fn canonical_path_if_allowed(&self, path: &Path) -> io::Result<Option<PathBuf>> {
-        let canonical_path = fs::canonicalize(path)?;
-        Ok(canonical_path
-            .starts_with(&self.canonical_root)
-            .then_some(canonical_path))
+        let canonical_path = match fs::canonicalize(path) {
+            Ok(canonical_path) => canonical_path,
+            Err(error) if is_absent_entry_error(&error) && is_symlink(path) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let allowed = canonical_path.starts_with(&self.canonical_root)
+            && !self
+                .excluded_directories
+                .iter()
+                .any(|directory| canonical_path.starts_with(directory));
+        Ok(allowed.then_some(canonical_path))
     }
 
     fn enter_directory(&mut self, path: &Path) -> io::Result<bool> {
@@ -543,6 +676,10 @@ impl DiscoveryBoundary {
 
         Ok(self.visited_directories.insert(canonical_path))
     }
+}
+
+fn is_symlink(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
 }
 
 fn build_discovered_media_file_inventory(

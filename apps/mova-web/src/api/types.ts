@@ -1,11 +1,27 @@
 export type UserRole = 'owner' | 'admin' | 'viewer'
 
+export type LibraryStorageStatus = 'available' | 'unavailable'
+
+export interface LibraryStorageIssue {
+  reason_code: string
+  mount_point: string
+  expected_fs_type: string | null
+  expected_source: string | null
+  actual_fs_type: string | null
+  actual_source: string | null
+  diagnostic_message: string | null
+}
+
 export interface Library {
   id: number
   name: string
   description: string | null
   metadata_language: string
   root_path: string
+  storage_status: LibraryStorageStatus
+  /** Present only for owners and admins while the library is unavailable. */
+  storage_issue: LibraryStorageIssue | null
+  storage_unavailable_since: string | null
   created_at: string
   updated_at: string
 }
@@ -73,6 +89,14 @@ export interface CacheCleanupFailureNotificationPayload {
   library_name: string
   attempt_count: number
   max_attempts: number
+  reason_code: string
+  reason_params: Record<string, unknown>
+  diagnostic_message: string | null
+}
+
+export interface LibraryStorageNotificationPayload {
+  library_id: number
+  library_name: string
   reason_code: string
   reason_params: Record<string, unknown>
   diagnostic_message: string | null

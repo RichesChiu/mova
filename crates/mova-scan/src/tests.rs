@@ -1,12 +1,13 @@
 use super::{
     discover::{
+        discover_media_file_inventory_report_with_policy,
         discover_media_file_inventory_report_with_progress_and_cancel,
         discover_media_file_inventory_with_progress_and_cancel, discover_media_files,
         discover_media_files_with_progress_and_cancel,
         discover_media_files_with_progress_item_and_cancel, discover_media_paths,
         inspect_media_file, inspect_media_file_inventory_with_cancel,
         inspect_media_file_inventory_within_root_with_cancel_and_subtitle_index_and_nfo_policy,
-        inspect_media_file_sidecar_only,
+        inspect_media_file_sidecar_only, DiscoveryFailureDecision,
     },
     discovered_media_file_inventory_scan_hash, has_meaningful_file_title,
     infer_movie_container_identity, infer_series_container_identity, infer_series_file_metadata,
@@ -2375,13 +2376,95 @@ fn strm_discovery_keeps_carrier_io_failures_non_authoritative() {
     fs::set_permissions(&unreadable_path, fs::Permissions::from_mode(0o600)).unwrap();
     assert_eq!(error.kind(), ErrorKind::PermissionDenied);
 
+    // A link whose target is gone is not a carrier: it is skipped.
     symlink(root.join("missing-target.strm"), root.join("Broken.strm")).unwrap();
-    let error =
+    let report =
         discover_media_file_inventory_report_with_progress_and_cancel(&root, |_| {}, || false)
-            .expect_err("a carrier boundary failure must abort authoritative discovery");
-    assert_eq!(error.kind(), ErrorKind::NotFound);
+            .expect("a dangling link must not abort discovery");
+    let names = report
+        .files
+        .iter()
+        .map(|file| file.file_path.file_name().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec![std::ffi::OsString::from("Unreadable.strm")]);
+    assert!(report.issues.is_empty());
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn discovery_skips_dangling_links_and_excluded_directories() {
+    use std::os::unix::fs::symlink;
+
+    let root = unique_temp_path("storage-policy");
+    let kept = root.join("Alpha (2020)").join("Alpha (2020).mkv");
+    let excluded = root.join("disk2");
+    fs::create_dir_all(kept.parent().unwrap()).unwrap();
+    fs::create_dir_all(excluded.join("Beta (2021)")).unwrap();
+    fs::write(&kept, b"video").unwrap();
+    fs::write(
+        excluded.join("Beta (2021)").join("Beta (2021).mkv"),
+        b"video",
+    )
+    .unwrap();
+    symlink(root.join("gone.mkv"), root.join("Dangling.mkv")).unwrap();
+    symlink(root.join("gone-dir"), root.join("Dangling Folder")).unwrap();
+    symlink(root.join("Loop A"), root.join("Loop B")).unwrap();
+    symlink(root.join("Loop B"), root.join("Loop A")).unwrap();
+
+    let mut failures = Vec::new();
+    let report = discover_media_file_inventory_report_with_policy(
+        &root,
+        std::slice::from_ref(&excluded),
+        |_| {},
+        || false,
+        |path, error| {
+            failures.push((path.to_path_buf(), error.kind()));
+            DiscoveryFailureDecision::Abort
+        },
+    )
+    .expect("links that cannot be followed are not storage failures");
+
+    assert_eq!(
+        report
+            .files
+            .iter()
+            .map(|file| file.file_path.clone())
+            .collect::<Vec<_>>(),
+        vec![kept]
+    );
+    assert!(failures.is_empty());
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn discovery_asks_the_policy_about_a_missing_root() {
+    let root = unique_temp_path("storage-policy-missing-root");
+    let mut asked = Vec::new();
+    let report = discover_media_file_inventory_report_with_policy(
+        &root,
+        &[],
+        |_| {},
+        || false,
+        |path, error| {
+            asked.push((path.to_path_buf(), error.kind()));
+            DiscoveryFailureDecision::SkipPath
+        },
+    )
+    .expect("the policy treats the root as nonexistent");
+
+    assert!(report.files.is_empty());
+    assert_eq!(asked, vec![(root.clone(), ErrorKind::NotFound)]);
+    assert!(discover_media_file_inventory_report_with_policy(
+        &root,
+        &[],
+        |_| {},
+        || false,
+        |_, _| DiscoveryFailureDecision::Abort,
+    )
+    .is_err());
 }
 
 #[test]

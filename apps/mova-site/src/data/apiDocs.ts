@@ -210,6 +210,8 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '扫描通知使用 reason_code 和 reason_params 生成本地化主文案，diagnostic_message 只作为次级排障信息。',
       '已有远端身份在 provider 临时故障时保持 matched，并以 metadata_provider_error 表示刷新失败。',
       'metadata.tmdb.retention_expired 是媒体库 warning，表示条目的 TMDB 元数据超过 180 天仍未重新验证；provider-owned 数据与缓存已清除，payload 只保留本地定位字段，不保留原 TMDB 条目 ID。',
+      'library.storage.unavailable 是管理员 error 通知，媒体库每次从可用变为存储不可用时生成一条，payload 说明挂载点、应为和当前的存储。',
+      'library.removed_from_deployment 是管理员 warning 通知，表示媒体库的全部目录已从部署配置中移除，服务启动时已删除该媒体库。',
       'GET 支持可选 unread_only 过滤；通知中心标记已读后重新请求未读列表，使已读项立即消失。',
       'GET 响应的未读统计不受 category 筛选影响。',
       '标记已读操作幂等，只有状态首次变化时才推进 revision。',
@@ -229,6 +231,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '只返回文件夹，不返回普通文件。',
       '返回的 path 可直接用作创建媒体库的 root_path。',
       '客户端不得把本机文件系统路径作为服务端 root_path。',
+      '读取失败的子文件夹（例如没有连接的挂载）不出现在树中。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/server/media-tree', description: '查询服务端当前可用于建库的媒体文件夹树（管理员）' },
@@ -249,6 +252,11 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '搜索结果会返回条目自身的来源原生 ratings 数组；远端评分来自 TMDB，本地 NFO 评分保留自身 source。',
       '媒体库条目列表由服务端按全部、电影、剧集或待复核条目分类，并支持标题、发行年筛选以及标题、年份或归一化首选评分的稳定排序；客户端不重新推导分类，所有分类、筛选和排序都先于分页。',
       '媒体库详情同时返回 media_count、movie_count 和 series_count。',
+      '媒体库返回 storage_status：持有库根目录的网络存储没有连接、或库根目录本身无法读取时为 unavailable，此时拒绝扫描且不删除任何内容，存储恢复后自动回到 available；库根目录下方读不出的内容只视为不存在。',
+      'storage_issue 只返回给 owner 和 admin，说明不可用的原因、挂载点、应为和当前的存储；其他用户为 null。',
+      '存储不可用时触发扫描返回 409 和 library_storage_unavailable，params.reason_code 说明具体原因。',
+      '扫描只在确认存储已连接后删除找不到的文件；存储已连接且确实没有文件时，媒体库可以被清空。',
+      '媒体库的全部目录都从部署配置中移除时，服务启动时自动删除该媒体库；存储不可用的媒体库可以直接删除。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/libraries', description: '查询媒体库列表' },
