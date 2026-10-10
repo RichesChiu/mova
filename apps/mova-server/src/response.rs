@@ -86,8 +86,41 @@ pub struct LibraryResponse {
     pub description: Option<String>,
     pub metadata_language: String,
     pub root_path: String,
+    pub storage_status: String,
+    pub storage_issue: Option<LibraryStorageIssueResponse>,
+    pub storage_unavailable_since: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// Why a library is unavailable. Only owners and admins receive it: it names
+/// mount points and storage sources.
+#[derive(Debug, Serialize)]
+pub struct LibraryStorageIssueResponse {
+    pub reason_code: String,
+    pub mount_point: String,
+    pub expected_fs_type: Option<String>,
+    pub expected_source: Option<String>,
+    pub actual_fs_type: Option<String>,
+    pub actual_source: Option<String>,
+    pub diagnostic_message: Option<String>,
+}
+
+impl LibraryStorageIssueResponse {
+    fn visible_from_domain(
+        issue: Option<mova_domain::LibraryStorageIssue>,
+        show_storage_issue: bool,
+    ) -> Option<Self> {
+        issue.filter(|_| show_storage_issue).map(|issue| Self {
+            reason_code: issue.reason_code,
+            mount_point: issue.mount_point,
+            expected_fs_type: issue.expected_fs_type,
+            expected_source: issue.expected_source,
+            actual_fs_type: issue.actual_fs_type,
+            actual_source: issue.actual_source,
+            diagnostic_message: issue.diagnostic_message,
+        })
+    }
 }
 
 /// 面向 HTTP 接口返回的扫描摘要对象。
@@ -118,6 +151,9 @@ pub struct LibraryDetailResponse {
     pub description: Option<String>,
     pub metadata_language: String,
     pub root_path: String,
+    pub storage_status: String,
+    pub storage_issue: Option<LibraryStorageIssueResponse>,
+    pub storage_unavailable_since: Option<String>,
     pub media_count: i64,
     pub movie_count: i64,
     pub series_count: i64,
@@ -561,13 +597,21 @@ pub struct TokenLoginResponse {
 }
 
 impl LibraryResponse {
-    pub fn from_domain(library: Library, offset: UtcOffset) -> Self {
+    pub fn from_domain(library: Library, offset: UtcOffset, show_storage_issue: bool) -> Self {
         Self {
             id: library.id,
             name: library.name,
             description: library.description,
             metadata_language: library.metadata_language,
             root_path: library.root_path,
+            storage_status: library.storage_status,
+            storage_issue: LibraryStorageIssueResponse::visible_from_domain(
+                library.storage_issue,
+                show_storage_issue,
+            ),
+            storage_unavailable_since: library
+                .storage_unavailable_since
+                .map(|value| format_datetime(value, offset)),
             created_at: format_datetime(library.created_at, offset),
             updated_at: format_datetime(library.updated_at, offset),
         }
@@ -575,13 +619,22 @@ impl LibraryResponse {
 }
 
 impl LibraryDetailResponse {
-    pub fn from_domain(detail: LibraryDetail, offset: UtcOffset) -> Self {
+    pub fn from_domain(detail: LibraryDetail, offset: UtcOffset, show_storage_issue: bool) -> Self {
         Self {
             id: detail.library.id,
             name: detail.library.name,
             description: detail.library.description,
             metadata_language: detail.library.metadata_language,
             root_path: detail.library.root_path,
+            storage_status: detail.library.storage_status,
+            storage_issue: LibraryStorageIssueResponse::visible_from_domain(
+                detail.library.storage_issue,
+                show_storage_issue,
+            ),
+            storage_unavailable_since: detail
+                .library
+                .storage_unavailable_since
+                .map(|value| format_datetime(value, offset)),
             media_count: detail.media_count,
             movie_count: detail.movie_count,
             series_count: detail.series_count,
@@ -916,9 +969,10 @@ impl RecentlyAddedLibraryMediaItemsResponse {
     pub fn from_domain(
         group: mova_application::RecentlyAddedLibraryMediaItems,
         offset: UtcOffset,
+        show_storage_issue: bool,
     ) -> Self {
         Self {
-            library: LibraryResponse::from_domain(group.library, offset),
+            library: LibraryResponse::from_domain(group.library, offset, show_storage_issue),
             items: group
                 .items
                 .into_iter()
@@ -937,13 +991,18 @@ impl HomeResponse {
         server_epoch: String,
         resources: BTreeMap<String, i64>,
     ) -> Self {
+        let show_storage_issue = user.is_admin();
         Self {
             current_user: UserResponse::from_domain(user, offset),
             libraries: snapshot
                 .libraries
                 .into_iter()
                 .map(|library| HomeLibraryResponse {
-                    library: LibraryDetailResponse::from_domain(library.detail, offset),
+                    library: LibraryDetailResponse::from_domain(
+                        library.detail,
+                        offset,
+                        show_storage_issue,
+                    ),
                     preview_items: library
                         .preview_items
                         .into_iter()
@@ -954,7 +1013,13 @@ impl HomeResponse {
             recently_added: snapshot
                 .recently_added
                 .into_iter()
-                .map(|group| RecentlyAddedLibraryMediaItemsResponse::from_domain(group, offset))
+                .map(|group| {
+                    RecentlyAddedLibraryMediaItemsResponse::from_domain(
+                        group,
+                        offset,
+                        show_storage_issue,
+                    )
+                })
                 .collect(),
             continue_watching: snapshot
                 .continue_watching

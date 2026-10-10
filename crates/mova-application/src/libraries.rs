@@ -150,7 +150,7 @@ pub async fn update_library(
     .map_err(ApplicationError::from)?
     .ok_or_else(|| ApplicationError::NotFound(format!("library not found: {}", library_id)))?;
     let result = match outcome {
-        mova_db::UpdateLibraryOutcome::Updated(result) => result,
+        mova_db::UpdateLibraryOutcome::Updated(result) => *result,
         mova_db::UpdateLibraryOutcome::ActiveScan(scan_job) => {
             return Err(ApplicationError::Conflict(format!(
                 "library {} still has active scan job {}; retry after it finishes",

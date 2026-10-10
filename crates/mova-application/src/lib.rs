@@ -4,6 +4,7 @@ mod error;
 mod home;
 mod intro_detection;
 mod libraries;
+mod library_storage;
 mod local_metadata;
 mod media_cast;
 mod media_classification;
@@ -41,6 +42,12 @@ pub use libraries::{
     create_library, delete_library, get_library, get_library_detail,
     library_metadata_language_will_change, list_libraries, update_library, CreateLibraryInput,
     UpdateLibraryInput, UpdateLibraryOutput,
+};
+pub use library_storage::{
+    check_library_storage, HostLibraryStorageEnvironment, LibraryStorageCheck,
+    LibraryStorageEnvironment, LIBRARY_STORAGE_UNAVAILABLE_ERROR, MOUNT_TABLE_UNAVAILABLE,
+    STORAGE_NOT_CONNECTED, STORAGE_REMOVED_FROM_DEPLOYMENT, STORAGE_TIMEOUT, STORAGE_UNREADABLE,
+    STORAGE_UNVERIFIED,
 };
 pub use media_cast::{
     ensure_media_item_cast, invalidate_media_item_cast_cache, list_media_item_cast,

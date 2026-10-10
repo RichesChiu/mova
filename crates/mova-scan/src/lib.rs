@@ -3,10 +3,12 @@ mod intro_detection;
 mod parse;
 mod probe;
 mod sidecar;
+mod storage;
 mod strm;
 mod subtitle;
 
 pub use discover::{
+    discover_media_file_inventory_report_with_policy,
     discover_media_file_inventory_report_with_progress_and_cancel,
     discover_media_file_inventory_with_progress_and_cancel, discover_media_files,
     discover_media_files_with_progress, discover_media_files_with_progress_and_cancel,
@@ -18,7 +20,7 @@ pub use discover::{
     inspect_media_file_inventory_within_root_with_cancel_and_subtitle_index_and_nfo_policy,
     inspect_media_file_sidecar_only, inspect_media_file_sidecar_only_within_root,
     inspect_media_file_sidecar_only_within_root_and_nfo_policy, inspect_media_file_within_root,
-    inspect_media_file_within_root_and_nfo_policy,
+    inspect_media_file_within_root_and_nfo_policy, DiscoveryFailureDecision,
 };
 pub use intro_detection::{
     detect_repeated_intro, detect_repeated_intro_with_cancellation, IntroDetectionConfig,
@@ -37,6 +39,10 @@ pub use sidecar::{
     LocalNfoCollection, LocalNfoCredits, LocalNfoErrorCode, LocalNfoImage, LocalNfoImageKind,
     LocalNfoKind, LocalNfoMetadata, LocalNfoNamedSeason, LocalNfoObservation, LocalNfoRating,
     LocalNfoRatingKind, LocalNfoUniqueId, LocalSeriesArtwork, MediaNfoKind,
+};
+pub use storage::{
+    catalog_path_presence, is_absent_entry_error, is_network_filesystem, known_file_presence,
+    probe_directory, running_in_container, CatalogPathPresence, MountEntry, MountTable,
 };
 pub use strm::{
     parse_http_strm_reference, read_http_strm_reference, HttpStrmReference,

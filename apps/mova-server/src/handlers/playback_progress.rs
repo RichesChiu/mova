@@ -145,6 +145,9 @@ mod tests {
             realtime_dispatcher: RealtimeDispatcherHandle::default(),
             background_jobs: BackgroundJobNotifier::default(),
             strm_streaming: Default::default(),
+            storage_environment: std::sync::Arc::new(
+                mova_application::HostLibraryStorageEnvironment,
+            ),
         }
     }
 

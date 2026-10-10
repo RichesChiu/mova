@@ -10,6 +10,9 @@ const library: Library = {
   description: null,
   metadata_language: 'zh-CN',
   root_path: '/media/movies',
+  storage_status: 'available',
+  storage_issue: null,
+  storage_unavailable_since: null,
   created_at: '2026-07-17T00:00:00Z',
   updated_at: '2026-07-17T00:00:00Z',
 }

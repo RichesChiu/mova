@@ -18,6 +18,7 @@ import {
   LibrarySpotlightCard,
   LibrarySpotlightCardSkeleton,
 } from '../../components/library-spotlight-card'
+import { LibraryStorageNotice } from '../../components/library-storage-notice'
 import { useI18n } from '../../i18n'
 import {
   buildDeletedLibraryCacheState,
@@ -182,6 +183,18 @@ export const LibrariesPage = () => {
             {scanErrorMessage ? (
               <p className="callout callout--danger">{scanErrorMessage}</p>
             ) : null}
+            {libraries.map((library) => (
+              <LibraryStorageNotice
+                canManageLibraries={canManageLibraries}
+                key={library.id}
+                library={library}
+                onDeleteLibrary={(selectedLibrary) => {
+                  deleteLibraryMutation.reset()
+                  setPendingDeleteLibrary(selectedLibrary)
+                }}
+                showLibraryName
+              />
+            ))}
 
             {librariesLoading ? (
               <div className="libraries-page__grid">

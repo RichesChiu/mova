@@ -63,7 +63,9 @@ pub async fn list_libraries(
 
     Ok(ok(libraries
         .into_iter()
-        .map(|library| LibraryResponse::from_domain(library, state.api_time_offset))
+        .map(|library| {
+            LibraryResponse::from_domain(library, state.api_time_offset, user.is_admin())
+        })
         .collect()))
 }
 
@@ -91,7 +93,11 @@ pub async fn list_recently_added_by_library(
     Ok(ok(groups
         .into_iter()
         .map(|group| {
-            RecentlyAddedLibraryMediaItemsResponse::from_domain(group, state.api_time_offset)
+            RecentlyAddedLibraryMediaItemsResponse::from_domain(
+                group,
+                state.api_time_offset,
+                user.is_admin(),
+            )
         })
         .collect()))
 }
@@ -111,6 +117,7 @@ pub async fn get_library(
     Ok(ok(LibraryDetailResponse::from_domain(
         detail,
         state.api_time_offset,
+        user.is_admin(),
     )))
 }
 
@@ -138,6 +145,7 @@ pub async fn create_library(
     Ok(created(LibraryResponse::from_domain(
         library,
         state.api_time_offset,
+        true,
     )))
 }
 
@@ -187,6 +195,7 @@ pub async fn update_library(
     Ok(ok(LibraryResponse::from_domain(
         outcome.library,
         state.api_time_offset,
+        true,
     )))
 }
 
@@ -201,6 +210,16 @@ pub async fn delete_library(
         .await
         .map_err(ApiError::from)?;
 
+    delete_library_after_stopping_scan(&state, library_id).await?;
+    Ok(ok_message("library deleted", ()))
+}
+
+/// Deletes a library once its active scan has stopped. Shared by the delete
+/// endpoint and the startup removal of libraries gone from the deployment.
+pub(crate) async fn delete_library_after_stopping_scan(
+    state: &AppState,
+    library_id: i64,
+) -> Result<(), ApiError> {
     let _delete_guard =
         state
             .scan_registry
@@ -234,7 +253,7 @@ pub async fn delete_library(
         cache_cleanup_job_id,
         "library database graph deleted and cache cleanup queued"
     );
-    Ok(ok_message("library deleted", ()))
+    Ok(())
 }
 
 /// 查询某个媒体库下已经扫描出的媒体条目。
@@ -315,9 +334,13 @@ pub async fn scan_library(
         )));
     }
 
-    let enqueue_result = mova_application::enqueue_library_scan(&state.db, library_id)
-        .await
-        .map_err(ApiError::from)?;
+    let enqueue_result = mova_application::enqueue_library_scan(
+        &state.db,
+        library_id,
+        state.storage_environment.as_ref(),
+    )
+    .await
+    .map_err(ApiError::from)?;
 
     if enqueue_result.created {
         state.background_jobs.wake();
@@ -332,7 +355,13 @@ pub async fn scan_library(
 }
 
 async fn trigger_library_scan_after_create(state: &AppState, library_id: i64) {
-    let enqueue_result = match mova_application::enqueue_library_scan(&state.db, library_id).await {
+    let enqueue_result = match mova_application::enqueue_library_scan(
+        &state.db,
+        library_id,
+        state.storage_environment.as_ref(),
+    )
+    .await
+    {
         Ok(result) => result,
         Err(error) => {
             tracing::warn!(
@@ -415,6 +444,9 @@ mod tests {
             realtime_dispatcher: RealtimeDispatcherHandle::default(),
             background_jobs: BackgroundJobNotifier::default(),
             strm_streaming: Default::default(),
+            storage_environment: std::sync::Arc::new(
+                mova_application::HostLibraryStorageEnvironment,
+            ),
         }
     }
 

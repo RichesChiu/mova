@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { listNotifications, markAllNotificationsRead, markNotificationRead } from '../../api/client'
 import type {
   CacheCleanupFailureNotificationPayload,
+  LibraryStorageNotificationPayload,
   NotificationItem,
   ScanNotificationIssue,
   ScanNotificationPayload,
@@ -44,6 +45,13 @@ const isCacheCleanupFailurePayload = (
   typeof value.attempt_count === 'number' &&
   typeof value.max_attempts === 'number' &&
   typeof value.reason_code === 'string'
+
+const isLibraryStoragePayload = (value: unknown): value is LibraryStorageNotificationPayload =>
+  isRecord(value) &&
+  typeof value.library_id === 'number' &&
+  typeof value.library_name === 'string' &&
+  typeof value.reason_code === 'string' &&
+  isRecord(value.reason_params)
 
 const isTmdbRetentionExpiryPayload = (
   value: unknown,
@@ -88,6 +96,10 @@ const getNotificationTitle = (notification: NotificationItem, l: Translate) => {
       return l('Library cache cleanup failed')
     case 'metadata.tmdb.retention_expired':
       return l('TMDB metadata retention expired')
+    case 'library.storage.unavailable':
+      return l('Library storage unavailable')
+    case 'library.removed_from_deployment':
+      return l('Library removed from the deployment')
     default:
       return l('New notification')
   }
@@ -326,6 +338,60 @@ const CacheCleanupFailureContent = ({
   return <NotificationLog rows={rows} />
 }
 
+const LibraryStorageContent = ({
+  createdAt,
+  payload,
+  result,
+}: {
+  createdAt: string
+  payload: LibraryStorageNotificationPayload
+  result: NotificationResult
+}) => {
+  const { formatDateTime, l } = useI18n()
+  const params = payload.reason_params
+  const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value : null)
+  const endpoint = (fsType: unknown, source: unknown) =>
+    [text(fsType), text(source)].filter(Boolean).join(' ') || null
+  const tone = result === 'failed' ? 'error' : 'warning'
+  const rows: NotificationLogRow[] = [
+    { label: l('Type'), value: l('System') },
+    { label: l('Result'), value: getNotificationResultLabel(result, l), tone },
+    {
+      label: l('Time'),
+      value: <time dateTime={createdAt}>{formatDateTime(createdAt)}</time>,
+    },
+    { label: l('Library'), value: payload.library_name },
+    {
+      label: l('Reason'),
+      value: localizeApiError(payload.reason_code, payload.reason_params),
+      tone,
+    },
+  ]
+  const mountPoint = text(params.mount_point)
+  if (mountPoint) {
+    rows.push({ label: l('Mount point'), value: mountPoint, mono: true })
+  }
+  const mountPoints = Array.isArray(params.mount_points)
+    ? params.mount_points.filter((value): value is string => typeof value === 'string')
+    : []
+  if (mountPoints.length > 0) {
+    rows.push({ label: l('Mount point'), value: mountPoints.join(', '), mono: true })
+  }
+  const expected = endpoint(params.expected_fs_type, params.expected_source)
+  if (expected) {
+    rows.push({ label: l('Expected'), value: expected, mono: true })
+  }
+  const actual = endpoint(params.actual_fs_type, params.actual_source)
+  if (actual) {
+    rows.push({ label: l('Current'), value: actual, mono: true })
+  }
+  if (payload.diagnostic_message) {
+    rows.push({ label: l('Info'), value: payload.diagnostic_message, tone, mono: true })
+  }
+
+  return <NotificationLog rows={rows} />
+}
+
 const TmdbRetentionExpiryContent = ({
   createdAt,
   payload,
@@ -370,6 +436,12 @@ const NotificationCard = ({
   const tmdbRetentionExpiryPayload = isTmdbRetentionExpiryPayload(notification.payload)
     ? notification.payload
     : null
+  const libraryStoragePayload =
+    (notification.notification_type === 'library.storage.unavailable' ||
+      notification.notification_type === 'library.removed_from_deployment') &&
+    isLibraryStoragePayload(notification.payload)
+      ? notification.payload
+      : null
   const result = resolveNotificationResult(notification.notification_type, notification.severity)
 
   return (
@@ -402,6 +474,12 @@ const NotificationCard = ({
         <CacheCleanupFailureContent
           createdAt={notification.created_at}
           payload={cacheCleanupFailurePayload}
+        />
+      ) : libraryStoragePayload ? (
+        <LibraryStorageContent
+          createdAt={notification.created_at}
+          payload={libraryStoragePayload}
+          result={result}
         />
       ) : notification.notification_type === 'metadata.tmdb.retention_expired' &&
         tmdbRetentionExpiryPayload ? (

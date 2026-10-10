@@ -310,6 +310,9 @@ pub async fn list_recently_added_media_items_by_library(
                 description,
                 metadata_language,
                 root_path,
+                storage_status,
+                storage_issue,
+                storage_unavailable_since,
                 created_at,
                 updated_at
             from libraries
@@ -367,6 +370,9 @@ pub async fn list_recently_added_media_items_by_library(
             vl.description as library_description,
             vl.metadata_language as library_metadata_language,
             vl.root_path as library_root_path,
+            vl.storage_status as library_storage_status,
+            vl.storage_issue as library_storage_issue,
+            vl.storage_unavailable_since as library_storage_unavailable_since,
             vl.created_at as library_created_at,
             vl.updated_at as library_updated_at,
             lr.total as library_total,
@@ -656,6 +662,9 @@ pub async fn get_media_item_with_library_visibility(
             l.description as access_library_description,
             l.metadata_language as access_library_metadata_language,
             l.root_path as access_library_root_path,
+            l.storage_status as access_library_storage_status,
+            l.storage_issue as access_library_storage_issue,
+            l.storage_unavailable_since as access_library_storage_unavailable_since,
             l.created_at as access_library_created_at,
             l.updated_at as access_library_updated_at,
             ($2::bigint[] is null or mi.library_id = any($2)) as is_visible
@@ -1154,6 +1163,9 @@ pub async fn get_media_file_with_library_visibility(
             l.description as access_library_description,
             l.metadata_language as access_library_metadata_language,
             l.root_path as access_library_root_path,
+            l.storage_status as access_library_storage_status,
+            l.storage_issue as access_library_storage_issue,
+            l.storage_unavailable_since as access_library_storage_unavailable_since,
             l.created_at as access_library_created_at,
             l.updated_at as access_library_updated_at,
             ($2::bigint[] is null or mf.library_id = any($2)) as is_visible
@@ -2099,6 +2111,9 @@ pub async fn get_season_with_library_visibility(
             l.description as access_library_description,
             l.metadata_language as access_library_metadata_language,
             l.root_path as access_library_root_path,
+            l.storage_status as access_library_storage_status,
+            l.storage_issue as access_library_storage_issue,
+            l.storage_unavailable_since as access_library_storage_unavailable_since,
             l.created_at as access_library_created_at,
             l.updated_at as access_library_updated_at,
             ($2::bigint[] is null or s.library_id = any($2)) as is_visible
@@ -2692,6 +2707,9 @@ fn map_recently_added_library_row(row: &PgRow) -> Library {
         description: row.get("library_description"),
         metadata_language: row.get("library_metadata_language"),
         root_path: row.get("library_root_path"),
+        storage_status: row.get("library_storage_status"),
+        storage_issue: crate::libraries::decode_storage_issue(row.get("library_storage_issue")),
+        storage_unavailable_since: row.get("library_storage_unavailable_since"),
         created_at: row.get("library_created_at"),
         updated_at: row.get("library_updated_at"),
     }
@@ -2704,6 +2722,11 @@ fn map_access_library_row(row: &PgRow) -> Library {
         description: row.get("access_library_description"),
         metadata_language: row.get("access_library_metadata_language"),
         root_path: row.get("access_library_root_path"),
+        storage_status: row.get("access_library_storage_status"),
+        storage_issue: crate::libraries::decode_storage_issue(
+            row.get("access_library_storage_issue"),
+        ),
+        storage_unavailable_since: row.get("access_library_storage_unavailable_since"),
         created_at: row.get("access_library_created_at"),
         updated_at: row.get("access_library_updated_at"),
     }

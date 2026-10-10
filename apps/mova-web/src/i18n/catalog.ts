@@ -613,6 +613,36 @@ const zhCN: Record<string, string> = {
   'The server returned an invalid response.': '服务器返回了无效响应。',
   'The request could not be completed.': '请求未能完成。',
   'The library scan could not be completed.': '媒体库扫描未能完成。',
+  'Scan refused: {{reason}}': '已拒绝扫描：{{reason}}',
+  'The library storage is unavailable. Scans are paused and nothing is removed until it is connected again.':
+    '媒体库的存储不可用。在重新连接之前暂停扫描，也不会删除任何内容。',
+  'The storage holding this library is not connected: the folder is not the storage it was scanned from.':
+    '媒体库所在的存储未连接：该目录现在不是扫描时的那个存储。',
+  'The library folder could not be read.': '无法读取媒体库目录。',
+  'The storage holding this library did not respond in time.': '媒体库所在的存储未及时响应。',
+  'None of the library files can be found, so Mova cannot confirm the storage is connected.':
+    '找不到媒体库中的任何文件，无法确认存储已连接。',
+  'Mova could not read the mount table to check the library storage.':
+    '无法读取挂载信息，不能检查媒体库的存储。',
+  'Every folder of this library was removed from the deployment. It is deleted on the next start.':
+    '该媒体库的所有目录都已从部署配置中移除，下次启动时会删除该媒体库。',
+  'Every folder of this library was removed from the deployment, so the library was deleted.':
+    '该媒体库的所有目录都已从部署配置中移除，媒体库已删除。',
+  'Library storage unavailable': '媒体库存储不可用',
+  '"{{name}}" storage unavailable': '“{{name}}”的存储不可用',
+  'Library removed from the deployment': '媒体库已从部署中移除',
+  'This library is temporarily unavailable.': '该媒体库暂时不可用。',
+  'Existing media and playback history are kept. Scans resume once the storage is back.':
+    '已有的媒体和播放记录都会保留，存储恢复后可以继续扫描。',
+  'Existing media and playback history are kept.': '已有的媒体和播放记录都会保留。',
+  'If the share was mounted after Mova started, restart the container. If this storage is gone for good, delete the library.':
+    '如果共享是在 Mova 启动之后才挂载的，请重启容器；如果这块存储不会再回来，可以删除该媒体库。',
+  'Mount point': '挂载点',
+  Expected: '应为',
+  'Not mounted': '未挂载',
+  Since: '开始时间',
+  'Storage unavailable': '存储不可用',
+  paused: '已暂停',
 }
 
 const interpolate = (template: string, params?: TranslationParams) => {

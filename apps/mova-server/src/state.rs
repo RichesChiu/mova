@@ -28,6 +28,7 @@ pub struct AppState {
     pub realtime_dispatcher: RealtimeDispatcherHandle,
     pub background_jobs: BackgroundJobNotifier,
     pub strm_streaming: mova_application::StrmStreamingService,
+    pub storage_environment: Arc<dyn mova_application::LibraryStorageEnvironment>,
 }
 
 #[derive(Clone, Default)]

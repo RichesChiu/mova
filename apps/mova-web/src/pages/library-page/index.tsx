@@ -1,8 +1,9 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useOutletContext, useParams } from 'react-router-dom'
-import { getLibrary, listLibraryMediaItems } from '../../api/client'
+import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
+import { deleteLibrary, getLibrary, listLibraryMediaItems } from '../../api/client'
 import type {
+  Library,
   LibraryMediaCategory,
   LibraryMediaSortBy,
   MediaItem,
@@ -23,11 +24,18 @@ import {
   isLibraryScanActive,
   shouldShowScanPlaceholder,
 } from '../../components/app-shell/scan-runtime'
+import { ConfirmActionModal } from '../../components/confirm-action-modal'
 import { EmptyState } from '../../components/empty-state'
+import { LibraryStorageNotice } from '../../components/library-storage-notice'
 import { MediaRatingBadges } from '../../components/media-rating-badges'
 import { useI18n } from '../../i18n'
 import { libraryDetailReturnPath, mediaItemPrimaryPath } from '../../lib/media-routes'
 import { formatLibraryMediaTypeLabel } from '../../lib/media-type-label'
+import {
+  buildDeletedLibraryCacheState,
+  buildDeleteLibraryConfirmationCopy,
+} from '../../lib/settings-admin'
+import { canManageServer } from '../../lib/viewer'
 import { DashboardPageHeader } from '../home-page/dashboard-page-header'
 import { HomeDashboardShell } from '../home-page/home-dashboard-shell'
 import { HomeIcon } from '../home-page/home-icons'
@@ -188,6 +196,10 @@ export const LibraryPage = () => {
   const { l } = useI18n()
   const params = useParams()
   const { currentUser, scanRuntimeByLibrary } = useOutletContext<AppShellOutletContext>()
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const canManageLibraries = canManageServer(currentUser)
+  const [pendingDeleteLibrary, setPendingDeleteLibrary] = useState<Library | null>(null)
   const libraryId = Number(params.libraryId)
   const [page, setPage] = useState(1)
   const [queryFilter, setQueryFilter] = useState('')
@@ -247,6 +259,31 @@ export const LibraryPage = () => {
   })
 
   const currentLibrary = libraryQuery.data
+
+  const deleteLibraryMutation = useMutation({
+    mutationFn: (targetLibraryId: number) => deleteLibrary(targetLibraryId),
+    onSuccess: async (_result, deletedLibraryId) => {
+      queryClient.setQueryData<Library[]>(
+        ['libraries'],
+        buildDeletedLibraryCacheState(
+          queryClient.getQueryData<Library[]>(['libraries']),
+          deletedLibraryId,
+        ).libraries,
+      )
+      queryClient.removeQueries({ queryKey: ['library', deletedLibraryId] })
+      queryClient.removeQueries({ queryKey: ['library-media', deletedLibraryId] })
+      queryClient.removeQueries({ queryKey: ['libraries-page-detail', deletedLibraryId] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['libraries'] }),
+        queryClient.invalidateQueries({ queryKey: ['libraries-page-recently-added'] }),
+        queryClient.invalidateQueries({ queryKey: ['home'] }),
+      ])
+      navigate('/libraries', { replace: true })
+    },
+  })
+  const deleteLibraryConfirmationCopy = pendingDeleteLibrary
+    ? buildDeleteLibraryConfirmationCopy(pendingDeleteLibrary)
+    : null
   const currentScanRuntime = Number.isFinite(libraryId)
     ? getLibraryScanRuntime(scanRuntimeByLibrary, libraryId)
     : null
@@ -356,6 +393,17 @@ export const LibraryPage = () => {
           </section>
         ) : null}
 
+        {currentLibrary ? (
+          <LibraryStorageNotice
+            canManageLibraries={canManageLibraries}
+            library={currentLibrary}
+            onDeleteLibrary={(library) => {
+              deleteLibraryMutation.reset()
+              setPendingDeleteLibrary(library)
+            }}
+          />
+        ) : null}
+
         {libraryQuery.isError ? (
           <p className="callout callout--danger">
             {libraryQuery.error instanceof Error
@@ -457,6 +505,28 @@ export const LibraryPage = () => {
           ) : null}
         </section>
       </div>
+
+      <ConfirmActionModal
+        confirmLabel={deleteLibraryConfirmationCopy?.confirmLabel ?? l('Confirm')}
+        description={deleteLibraryConfirmationCopy?.description ?? ''}
+        error={
+          pendingDeleteLibrary && deleteLibraryMutation.error instanceof Error
+            ? deleteLibraryMutation.error.message
+            : null
+        }
+        isOpen={pendingDeleteLibrary !== null}
+        isSubmitting={deleteLibraryMutation.isPending}
+        onClose={() => {
+          setPendingDeleteLibrary(null)
+          deleteLibraryMutation.reset()
+        }}
+        onConfirm={() => {
+          if (pendingDeleteLibrary) {
+            deleteLibraryMutation.mutate(pendingDeleteLibrary.id)
+          }
+        }}
+        title={deleteLibraryConfirmationCopy?.title ?? l('Confirm action')}
+      />
     </HomeDashboardShell>
   )
 }

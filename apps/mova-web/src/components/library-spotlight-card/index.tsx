@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import type { Library, LibraryDetail, MediaItem } from '../../api/types'
 import { useI18n } from '../../i18n'
 import { cssBackgroundImage } from '../../lib/css'
+import { isLibraryStorageUnavailable } from '../../lib/library-storage'
 import {
   formatScanJobStatusCopy,
   getEffectiveScanJob,
@@ -73,17 +74,21 @@ export const LibrarySpotlightCard = ({
   const libraryArtworkSrc = getLibraryArtworkSrc(recentItems)
   const lastScan = getEffectiveScanJob(detail?.last_scan ?? null, scanRuntime)
   const isScanning = isLibraryScanActive(lastScan, scanRuntime)
+  const isStorageUnavailable = isLibraryStorageUnavailable(detail ?? library)
   const hasFailedScan = hasFailedLibraryScan(lastScan, scanRuntime)
   const isSyncingLibraryState = detailLoading && !detail && !isScanning
+  const showsFailure = isStorageUnavailable || hasFailedScan
   const scanCopy = isScanning
     ? formatScanJobStatusCopy(lastScan, scanRuntime)
-    : hasFailedScan
-      ? l('Recent scan failed')
-      : detailError
-        ? l('Failed to load library details')
-        : isSyncingLibraryState
-          ? l('Syncing library state')
-          : null
+    : isStorageUnavailable
+      ? l('Storage unavailable')
+      : hasFailedScan
+        ? l('Recent scan failed')
+        : detailError
+          ? l('Failed to load library details')
+          : isSyncingLibraryState
+            ? l('Syncing library state')
+            : null
   const scanProgressPercent = isScanning
     ? getScanJobProgressPercent(lastScan, scanRuntime)
     : isSyncingLibraryState
@@ -94,6 +99,7 @@ export const LibrarySpotlightCard = ({
     className,
     canManageLibraries ? 'library-spotlight--manageable' : '',
     isScanning ? 'library-spotlight--scanning' : '',
+    isStorageUnavailable ? 'library-spotlight--unavailable' : '',
     libraryArtworkSrc ? '' : 'library-spotlight--empty-artwork',
   ]
     .filter(Boolean)
@@ -129,7 +135,7 @@ export const LibrarySpotlightCard = ({
           {scanCopy ? (
             <div
               className={
-                hasFailedScan
+                showsFailure
                   ? 'library-spotlight__scan library-spotlight__scan--failed'
                   : 'library-spotlight__scan'
               }
@@ -138,10 +144,14 @@ export const LibrarySpotlightCard = ({
               <div className="library-spotlight__scan-row">
                 <span className="library-spotlight__scan-label">{scanCopy}</span>
                 <span className="library-spotlight__scan-value">
-                  {hasFailedScan ? l('failed') : `${scanProgressPercent}%`}
+                  {isStorageUnavailable
+                    ? l('paused')
+                    : hasFailedScan
+                      ? l('failed')
+                      : `${scanProgressPercent}%`}
                 </span>
               </div>
-              {!hasFailedScan ? (
+              {!showsFailure ? (
                 <div aria-hidden="true" className="library-spotlight__scan-track">
                   <span
                     className="library-spotlight__scan-fill"
@@ -186,7 +196,7 @@ export const LibrarySpotlightCard = ({
       {canManageLibraries ? (
         <LibraryActionsMenu
           className="library-spotlight__actions"
-          isScanDisabled={isScanPending || isScanning}
+          isScanDisabled={isScanPending || isScanning || isStorageUnavailable}
           isScanPending={isScanPending}
           library={library}
           onDeleteLibrary={onDeleteLibrary}

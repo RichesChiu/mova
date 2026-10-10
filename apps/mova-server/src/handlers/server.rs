@@ -61,13 +61,26 @@ fn build_directory_node(
 ) -> std::io::Result<MediaDirectoryNodeResponse> {
     let mut children = Vec::new();
 
+    // A folder that cannot be read, such as a mount whose storage is not
+    // connected, is left out instead of failing the whole tree.
     for entry in fs::read_dir(directory)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        if !entry.file_type().is_ok_and(|file_type| file_type.is_dir()) {
             continue;
         }
 
-        children.push(build_directory_node(&entry.path(), false)?);
+        match build_directory_node(&entry.path(), false) {
+            Ok(child) => children.push(child),
+            Err(error) => {
+                tracing::warn!(
+                    path = %entry.path().display(),
+                    error = %error,
+                    "leaving an unreadable folder out of the media tree"
+                );
+            }
+        }
     }
 
     children.sort_by(|left, right| {
@@ -184,5 +197,38 @@ mod tests {
                 ],
             })
         );
+    }
+
+    #[test]
+    fn build_media_tree_leaves_out_unreadable_folders() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = unique_temp_path("media-tree-unreadable");
+        let movies = root.join("Movies");
+        let locked = root.join("Locked");
+        create_dir(&movies);
+        create_dir(&locked.join("Inside"));
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000))
+            .expect("failed to lock folder");
+
+        // Root bypasses permission bits, so the folder stays readable there.
+        let locked_is_unreadable = fs::read_dir(&locked).is_err();
+        let result = build_media_tree(&root).expect("an unreadable folder must not fail the tree");
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755))
+            .expect("failed to unlock folder");
+        let _ = fs::remove_dir_all(&root);
+
+        let names = result
+            .expect("the root exists")
+            .children
+            .into_iter()
+            .map(|child| child.name)
+            .collect::<Vec<_>>();
+        if locked_is_unreadable {
+            assert_eq!(names, vec!["Movies".to_string()]);
+        } else {
+            assert_eq!(names, vec!["Locked".to_string(), "Movies".to_string()]);
+        }
     }
 }
