@@ -67,6 +67,10 @@ fn build_directory_node(
         let Ok(entry) = entry else {
             continue;
         };
+        // Hidden and system folders are never library roots.
+        if mova_application::is_ignored_entry_name(&entry.file_name()) {
+            continue;
+        }
         if !entry.file_type().is_ok_and(|file_type| file_type.is_dir()) {
             continue;
         }
@@ -197,6 +201,25 @@ mod tests {
                 ],
             })
         );
+    }
+
+    #[test]
+    fn build_media_tree_leaves_out_hidden_and_system_folders() {
+        let root = unique_temp_path("media-tree-system");
+        for name in ["Movies", "#recycle", "@eaDir", ".Trash-1000", "Extras"] {
+            create_dir(&root.join(name));
+        }
+
+        let result = build_media_tree(&root).expect("failed to build tree");
+        let _ = fs::remove_dir_all(&root);
+
+        let names = result
+            .expect("the root exists")
+            .children
+            .into_iter()
+            .map(|child| child.name)
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["Movies".to_string()]);
     }
 
     #[test]

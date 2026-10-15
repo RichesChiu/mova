@@ -234,6 +234,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '返回的 path 可直接用作创建媒体库的 root_path。',
       '客户端不得把本机文件系统路径作为服务端 root_path。',
       '读取失败的子文件夹（例如没有连接的挂载）不出现在树中。',
+      '以 . 开头的目录和 #recycle、@eaDir、extras 等系统或附加内容目录不出现在树中。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/server/media-tree', description: '查询服务端当前可用于建库的媒体文件夹树（管理员）' },
@@ -245,6 +246,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
     summary: '围绕媒体库配置、最新添加、列表详情、扫描历史、异步扫描和全局搜索展开。',
     highlights: [
       '媒体库统一自动识别电影和剧集，无需用户手动选择库类型。',
+      '扫描按名称跳过隐藏文件、NAS 和系统目录、预告片和样片（._*、#recycle、@eaDir、-trailer、-sample 等），它们不入库、不探测、不计数。',
       'metadata_language 支持 zh-CN / en-US，影响扫描和 TMDB 元数据补全语言。',
       '语言变更、缓存失效、catalog revision 和新扫描任务会在同一事务中提交。',
       '仍有活跃扫描时语言变更返回 409，不会提交半更新状态。',

@@ -3669,3 +3669,44 @@ fn a_subtitle_directory_that_cannot_be_listed_is_flagged() {
     assert!(!index.is_video_directory_unreadable(&video));
     fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn discovery_skips_hidden_system_trailer_and_sample_entries() {
+    let root = unique_temp_path("ignored-entries");
+    let keep = root.join("Dune (2021)").join("Dune (2021).mkv");
+    let keep_show = root.join("Show").join("Show.S01E01.mkv");
+    let junk = [
+        root.join("Dune (2021)").join("._Dune (2021).mkv"),
+        root.join("Dune (2021)").join("Dune (2021)-trailer.mkv"),
+        root.join("Dune (2021)").join("Dune.2021.sample.mkv"),
+        root.join("Dune (2021)")
+            .join("Extras")
+            .join("Making of.mkv"),
+        root.join("#recycle")
+            .join("Old (2000)")
+            .join("Old (2000).mkv"),
+        root.join("@eaDir").join("Dune (2021).mkv"),
+        root.join(".Trash-1000").join("Gone (2001).mkv"),
+        root.join("Show")
+            .join("Show.S01E02.mkv")
+            .with_file_name("Show.S01E02-sample.mkv"),
+    ];
+    for path in junk.iter().chain([&keep, &keep_show]) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"video").unwrap();
+    }
+
+    let report =
+        discover_media_file_inventory_report_with_progress_and_cancel(&root, |_| {}, || false)
+            .unwrap();
+    let mut found = report
+        .files
+        .iter()
+        .map(|file| file.file_path.clone())
+        .collect::<Vec<_>>();
+    found.sort();
+    assert_eq!(found, vec![keep, keep_show]);
+    assert!(report.issues.is_empty());
+
+    fs::remove_dir_all(&root).unwrap();
+}

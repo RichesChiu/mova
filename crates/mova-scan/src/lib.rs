@@ -1,4 +1,5 @@
 mod discover;
+mod ignore;
 mod intro_detection;
 mod parse;
 mod probe;
@@ -22,6 +23,7 @@ pub use discover::{
     inspect_media_file_sidecar_only_within_root_and_nfo_policy, inspect_media_file_within_root,
     inspect_media_file_within_root_and_nfo_policy, DiscoveryFailureDecision,
 };
+pub use ignore::{is_ignored_entry_name, is_ignored_media_path, is_ignored_video_file_name};
 pub use intro_detection::{
     detect_repeated_intro, detect_repeated_intro_with_cancellation, IntroDetectionConfig,
     IntroDetectionEpisode, IntroDetectionOutcome,

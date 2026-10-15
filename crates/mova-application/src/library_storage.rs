@@ -718,12 +718,16 @@ pub(crate) async fn verify_missing_media_paths(
         .iter()
         .map(String::as_str)
         .collect::<std::collections::HashSet<_>>();
+    // A path discovery skips by name (hidden, system, trailer, sample) is
+    // removed even while the file exists.
+    let root = Path::new(&library.root_path);
     let candidates = mova_db::list_library_media_file_paths(pool, library.id)
         .await
         .map_err(ApplicationError::from)?
         .into_iter()
         .filter(|path| !observed.contains(path.as_str()))
         .filter(|path| !current.is_dead_path(Path::new(path)))
+        .filter(|path| !mova_scan::is_ignored_media_path(root, Path::new(path)))
         .collect::<Vec<_>>();
     if candidates.is_empty() {
         return Ok(MissingPathVerification::Verified {
