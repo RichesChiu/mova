@@ -171,6 +171,8 @@ pub struct CreateMediaEntryParams {
     pub subtitle_tracks: Vec<CreateSubtitleTrackParams>,
     pub local_analysis_version: i32,
     pub scan_hash: Option<String>,
+    /// `MediaProbeIssue` code when ffprobe could not analyze the file.
+    pub probe_issue: Option<String>,
 }
 
 /// A season projection committed together with a parent-series metadata refresh.
@@ -944,6 +946,7 @@ pub struct UpdateMediaFileMetadataParams {
     pub video_pixel_format: Option<String>,
     pub video_reference_frames: Option<i32>,
     pub technical_tags: Vec<String>,
+    pub probe_issue: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1103,6 +1106,8 @@ pub struct ExistingMediaMetadataSummary {
     pub video_reference_frames: Option<i32>,
     pub technical_tags: Vec<String>,
     pub local_analysis_version: i32,
+    /// Why ffprobe could not analyze the file at its last local analysis.
+    pub probe_issue: Option<mova_domain::MediaProbeIssue>,
     pub audio_tracks: Vec<CreateAudioTrackParams>,
     pub subtitle_tracks: Vec<CreateSubtitleTrackParams>,
     pub series_title: Option<String>,

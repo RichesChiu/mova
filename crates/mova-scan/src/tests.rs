@@ -14,7 +14,7 @@ use super::{
     infer_series_sidecar_metadata, infer_series_sidecar_metadata_within_root,
     is_likely_episode_path,
     parse::{humanize_file_stem, parse_media_metadata, ParsedMediaMetadata},
-    probe::{parse_ffprobe_output, MediaProbe},
+    probe::{classify_probe_error, parse_ffprobe_output, MediaProbe, ProbeError},
     sidecar::{
         observe_media_nfo, observe_media_nfo_for_kind, observe_media_nfo_for_kind_within_root,
         observe_nfo_file_within_root, observe_series_nfo_within_root, parse_nfo_metadata,
@@ -23,7 +23,7 @@ use super::{
     },
     SubtitleDirectoryIndex,
 };
-use mova_domain::MediaSourceKind;
+use mova_domain::{MediaProbeIssue, MediaSourceKind};
 use std::{cell::Cell, env, fs, io::ErrorKind, path::Path, path::PathBuf};
 use uuid::Uuid;
 
@@ -1989,6 +1989,7 @@ fn parse_ffprobe_output_extracts_media_probe_fields() {
         probe,
         MediaProbe {
             error: None,
+            issue: None,
             duration_seconds: Some(123),
             video_title: Some("Main Video".to_string()),
             video_codec: Some("h264".to_string()),
@@ -2206,7 +2207,16 @@ fn parse_ffprobe_output_handles_missing_fields() {
     )
     .unwrap();
 
-    assert_eq!(probe, MediaProbe::default());
+    // Nothing to analyze is not a video: every field stays unknown and the
+    // file is marked as having no video stream.
+    assert_eq!(
+        probe,
+        MediaProbe {
+            error: Some("the file contains no video stream".to_string()),
+            issue: Some(MediaProbeIssue::NoVideoStream),
+            ..MediaProbe::default()
+        }
+    );
 }
 
 #[test]
@@ -3568,4 +3578,94 @@ fn adding_a_second_episode_turns_both_files_into_episodes_and_changes_the_scan_h
     );
 
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn zero_dimensions_are_unknown_not_an_issue() {
+    let probe = parse_ffprobe_output(
+        br#"{"streams":[{"index":0,"codec_type":"video","codec_name":"h264","width":0,"height":0},{"index":1,"codec_type":"audio","codec_name":"aac"}],"format":{"duration":"12.0"}}"#,
+    )
+    .unwrap();
+
+    assert_eq!(probe.width, None);
+    assert_eq!(probe.height, None);
+    assert_eq!(probe.issue, None);
+    assert_eq!(probe.error, None);
+    assert_eq!(probe.video_codec.as_deref(), Some("h264"));
+    assert_eq!(probe.duration_seconds, Some(12));
+}
+
+#[test]
+fn a_file_without_a_video_stream_is_a_probe_issue() {
+    let audio_only = parse_ffprobe_output(
+        br#"{"streams":[{"index":0,"codec_type":"audio","codec_name":"aac"}],"format":{"duration":"3.0"}}"#,
+    )
+    .unwrap();
+    assert_eq!(audio_only.issue, Some(MediaProbeIssue::NoVideoStream));
+    assert!(audio_only.error.is_some());
+    assert_eq!(audio_only.audio_codec.as_deref(), Some("aac"));
+
+    // Cover art is a "video" stream flagged as an attached picture.
+    let cover_only = parse_ffprobe_output(
+        br#"{"streams":[{"index":0,"codec_type":"video","codec_name":"mjpeg","width":600,"height":600,"disposition":{"attached_pic":1}},{"index":1,"codec_type":"audio","codec_name":"mp3"}],"format":{}}"#,
+    )
+    .unwrap();
+    assert_eq!(cover_only.issue, Some(MediaProbeIssue::NoVideoStream));
+    assert_eq!(cover_only.width, None);
+
+    let real_video = parse_ffprobe_output(
+        br#"{"streams":[{"index":0,"codec_type":"video","codec_name":"mjpeg","width":600,"height":600,"disposition":{"attached_pic":1}},{"index":1,"codec_type":"video","codec_name":"hevc","width":1920,"height":1080}],"format":{}}"#,
+    )
+    .unwrap();
+    assert_eq!(real_video.issue, None);
+    assert_eq!(real_video.video_codec.as_deref(), Some("hevc"));
+    assert_eq!(real_video.width, Some(1920));
+}
+
+#[test]
+fn probe_failures_map_to_their_categories() {
+    let io = |kind: std::io::ErrorKind| ProbeError::Io(std::io::Error::from(kind));
+
+    assert_eq!(
+        classify_probe_error(&io(ErrorKind::PermissionDenied)),
+        MediaProbeIssue::Unreadable
+    );
+    assert_eq!(
+        classify_probe_error(&ProbeError::CommandFailed(
+            "bad.mkv: Permission denied".to_string()
+        )),
+        MediaProbeIssue::Unreadable
+    );
+    assert_eq!(
+        classify_probe_error(&ProbeError::CommandFailed(
+            "bad.mkv: Invalid data found when processing input".to_string()
+        )),
+        MediaProbeIssue::Unrecognized
+    );
+    assert_eq!(
+        classify_probe_error(&ProbeError::ParseOutput("expected value".to_string())),
+        MediaProbeIssue::Unrecognized
+    );
+    assert_eq!(
+        classify_probe_error(&ProbeError::TimedOut(std::time::Duration::from_secs(90))),
+        MediaProbeIssue::Timeout
+    );
+    assert_eq!(
+        classify_probe_error(&ProbeError::OutputTooLarge),
+        MediaProbeIssue::Timeout
+    );
+}
+
+#[test]
+fn a_subtitle_directory_that_cannot_be_listed_is_flagged() {
+    let missing = unique_temp_path("missing-subtitle-dir").join("Show.S01E01.mkv");
+    let index = SubtitleDirectoryIndex::build([missing.as_path()]);
+    assert!(index.is_video_directory_unreadable(&missing));
+
+    let root = unique_temp_path("readable-subtitle-dir");
+    fs::create_dir_all(&root).unwrap();
+    let video = root.join("Show.S01E01.mkv");
+    let index = SubtitleDirectoryIndex::build([video.as_path()]);
+    assert!(!index.is_video_directory_unreadable(&video));
+    fs::remove_dir_all(&root).unwrap();
 }

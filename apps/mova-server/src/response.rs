@@ -445,6 +445,8 @@ pub struct MediaFileResponse {
     pub video_pixel_format: Option<String>,
     pub video_reference_frames: Option<i32>,
     pub technical_tags: Vec<String>,
+    /// Why ffprobe could not analyze the file, or `null`.
+    pub probe_issue: Option<String>,
     pub scan_hash: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -1188,6 +1190,9 @@ impl MediaFileResponse {
             video_pixel_format: media_file.video_pixel_format,
             video_reference_frames: media_file.video_reference_frames,
             technical_tags: media_file.technical_tags,
+            probe_issue: media_file
+                .probe_issue
+                .map(|issue| issue.as_str().to_string()),
             scan_hash: media_file.scan_hash,
             created_at: format_datetime(media_file.created_at, offset),
             updated_at: format_datetime(media_file.updated_at, offset),

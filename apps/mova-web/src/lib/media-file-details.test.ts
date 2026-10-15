@@ -43,6 +43,7 @@ const sampleFile = {
   video_reference_frames: 4,
   technical_tags: ['Dolby Vision', 'Atmos'],
   scan_hash: null,
+  probe_issue: null,
   created_at: '',
   updated_at: '',
 }

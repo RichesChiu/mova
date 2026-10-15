@@ -1105,6 +1105,7 @@ pub async fn get_media_file(pool: &PgPool, media_file_id: i64) -> Result<Option<
             video_reference_frames,
             technical_tags,
             scan_hash,
+            probe_issue,
             created_at,
             updated_at
         from media_files
@@ -1157,6 +1158,7 @@ pub async fn get_media_file_with_library_visibility(
             mf.video_reference_frames,
             mf.technical_tags,
             mf.scan_hash,
+            mf.probe_issue,
             mf.created_at,
             mf.updated_at,
             l.name as access_library_name,
@@ -1227,6 +1229,7 @@ pub async fn update_media_file_metadata(
             video_pixel_format = $24,
             video_reference_frames = $25,
             technical_tags = $26,
+            probe_issue = $27,
             updated_at = now()
         where id = $1
         returning
@@ -1259,6 +1262,7 @@ pub async fn update_media_file_metadata(
             video_reference_frames,
             technical_tags,
             scan_hash,
+            probe_issue,
             created_at,
             updated_at
         "#,
@@ -1289,6 +1293,7 @@ pub async fn update_media_file_metadata(
     .bind(&params.video_pixel_format)
     .bind(params.video_reference_frames)
     .bind(&params.technical_tags)
+    .bind(&params.probe_issue)
     .fetch_optional(pool)
     .await
     .context("failed to update media file metadata")?;
@@ -1333,6 +1338,7 @@ pub async fn list_media_files_for_media_item(
             video_reference_frames,
             technical_tags,
             scan_hash,
+            probe_issue,
             created_at,
             updated_at
         from media_files
@@ -1387,6 +1393,7 @@ pub async fn list_media_item_metadata_refresh_source_files(
             mf.video_reference_frames,
             mf.technical_tags,
             mf.scan_hash,
+            mf.probe_issue,
             mf.created_at,
             mf.updated_at
         from media_files mf
@@ -2456,6 +2463,7 @@ pub async fn list_existing_media_metadata_for_file_paths(
             mf.video_reference_frames,
             mf.technical_tags,
             mf.local_analysis_version,
+            mf.probe_issue,
             null::text as series_title,
             null::text as series_metadata_provider,
             null::text as series_metadata_provider_item_id,
@@ -2881,6 +2889,9 @@ fn map_media_file_row(row: PgRow) -> MediaFile {
         video_pixel_format: row.get("video_pixel_format"),
         video_reference_frames: row.get("video_reference_frames"),
         technical_tags: row.get("technical_tags"),
+        probe_issue: row
+            .get::<Option<String>, _>("probe_issue")
+            .and_then(|value| value.parse().ok()),
         scan_hash: row.get("scan_hash"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
@@ -2948,6 +2959,9 @@ fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataS
         video_reference_frames: row.get("video_reference_frames"),
         technical_tags: row.get("technical_tags"),
         local_analysis_version: row.get("local_analysis_version"),
+        probe_issue: row
+            .get::<Option<String>, _>("probe_issue")
+            .and_then(|value| value.parse().ok()),
         audio_tracks: Vec::new(),
         subtitle_tracks: Vec::new(),
         series_title: row.get("series_title"),

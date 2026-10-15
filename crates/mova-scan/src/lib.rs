@@ -32,6 +32,7 @@ pub use parse::{
     infer_series_sidecar_metadata_within_root, is_likely_episode_path, MediaContainerIdentity,
     SeriesFileMetadata, SeriesSidecarMetadata,
 };
+pub use probe::ffprobe_version;
 pub use sidecar::{
     discover_local_series_artwork, observe_media_nfo, observe_media_nfo_for_kind,
     observe_media_nfo_for_kind_within_root, observe_nfo_file, observe_nfo_file_within_root,
@@ -52,7 +53,7 @@ pub use subtitle::SubtitleDirectoryIndex;
 
 use std::path::PathBuf;
 
-use mova_domain::{MediaExternalId, MediaRating, MediaSourceKind};
+use mova_domain::{MediaExternalId, MediaProbeIssue, MediaRating, MediaSourceKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaDiscoveryIssue {
@@ -113,7 +114,11 @@ pub struct DiscoveredMediaFile {
     pub stream_reference_hash: Option<String>,
     pub file_modified_at_ms: Option<i64>,
     pub sidecar_fingerprint: String,
+    /// Diagnostic text from ffprobe when it could not analyze the file.
     pub probe_error: Option<String>,
+    /// Why ffprobe could not analyze the file; `None` when it succeeded or the
+    /// carrier is not probed (STRM).
+    pub probe_issue: Option<MediaProbeIssue>,
     pub metadata_provider: Option<String>,
     pub metadata_provider_item_id: Option<String>,
     pub title: String,

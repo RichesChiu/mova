@@ -52,6 +52,8 @@ pub struct ScanNotificationSummary {
     pub failed_files: i32,
     pub skipped_files: i32,
     pub probe_warning_count: i32,
+    /// Probed files whose resolution, duration or video codec is unknown.
+    pub partial_probe_files: i32,
     pub issue_count: i32,
     pub issues: Vec<ScanNotificationIssue>,
 }

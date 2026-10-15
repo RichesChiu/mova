@@ -9,6 +9,7 @@ mod media_file;
 mod media_item;
 mod media_item_credit;
 mod media_local_metadata_source;
+mod media_probe_issue;
 mod media_rating;
 mod media_source_kind;
 mod notification;
@@ -37,6 +38,7 @@ pub use media_item::{
 };
 pub use media_item_credit::MediaItemCredit;
 pub use media_local_metadata_source::{MediaLocalMetadataSource, MediaLocalMetadataSourceSummary};
+pub use media_probe_issue::{MediaProbeIssue, ParseMediaProbeIssueError};
 pub use media_rating::{MediaExternalId, MediaRating, RATING_KIND_AUDIENCE, RATING_SOURCE_TMDB};
 pub use media_source_kind::{MediaSourceKind, ParseMediaSourceKindError};
 pub use notification::{

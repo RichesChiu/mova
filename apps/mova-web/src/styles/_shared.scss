@@ -190,6 +190,12 @@
   color: var(--danger);
 }
 
+.callout--warning {
+  border-color: color-mix(in srgb, var(--warning) 44%, transparent);
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
 .catalog-block__empty {
   padding: 14px 16px;
   border: 1px dashed var(--button-primary-border);

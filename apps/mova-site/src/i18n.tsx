@@ -265,6 +265,10 @@ const translations: Record<string, string> = {
     'Scan statistics may be displayed only when summary_available is true; failures and cancellations must not present default zero values as real statistics.',
   '扫描通知使用 reason_code 和 reason_params 生成本地化主文案，diagnostic_message 只作为次级排障信息。':
     'Scan notifications use reason_code and reason_params for localized primary copy; diagnostic_message is secondary troubleshooting information.',
+  '一个文件无法分析不会终止扫描：文件照常入库和刮削，media_files.probe_issue 记录 unreadable、unrecognized、no_video_stream 或 timeout，通知以 probe_<类别> 作为原因码；单项字段读不到只存为未知，以 partial_probe_files 计数。':
+    'A file that cannot be analyzed never stops the scan: it is still catalogued and scraped, media_files.probe_issue records unreadable, unrecognized, no_video_stream or timeout, and notifications use probe_<category> as the reason code. Individual fields that cannot be read are stored as unknown and counted in partial_probe_files.',
+  '某一组扫描数据被数据库约束拒绝时，通知记录 media_commit_failed 并继续下一组，扫描以完成但有问题结束。':
+    'When a database constraint rejects one group of scanned data, the notification records media_commit_failed, the scan continues with the next group and ends as completed with issues.',
   '已有远端身份在 provider 临时故障时保持 matched，并以 metadata_provider_error 表示刷新失败。':
     'Existing remote identities remain matched during transient provider failures, with metadata_provider_error indicating the refresh failure.',
   'metadata.tmdb.retention_expired 是媒体库 warning，表示条目的 TMDB 元数据超过 180 天仍未重新验证；provider-owned 数据与缓存已清除，payload 只保留本地定位字段，不保留原 TMDB 条目 ID。':

@@ -1820,11 +1820,13 @@ pub(super) async fn insert_media_file(
             video_reference_frames,
             technical_tags,
             local_analysis_version,
-            scan_hash
+            scan_hash,
+            probe_issue
         )
         values (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
+            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29,
+            $30
         )
         returning id
         "#,
@@ -1858,6 +1860,7 @@ pub(super) async fn insert_media_file(
     .bind(&entry.technical_tags)
     .bind(entry.local_analysis_version)
     .bind(&entry.scan_hash)
+    .bind(&entry.probe_issue)
     .fetch_one(&mut **tx)
     .await
     .context("failed to insert media file")?;
@@ -1905,6 +1908,7 @@ pub(super) async fn update_media_file_from_entry(
             technical_tags = $26,
             local_analysis_version = $27,
             scan_hash = $28,
+            probe_issue = $29,
             updated_at = now()
         where id = $1
         "#,
@@ -1937,6 +1941,7 @@ pub(super) async fn update_media_file_from_entry(
     .bind(&entry.technical_tags)
     .bind(entry.local_analysis_version)
     .bind(&entry.scan_hash)
+    .bind(&entry.probe_issue)
     .execute(&mut **tx)
     .await
     .context("failed to update media file during library sync")?;
@@ -2095,6 +2100,7 @@ pub(super) async fn reassign_media_file_to_media_item(
             technical_tags = $27,
             local_analysis_version = $28,
             scan_hash = $29,
+            probe_issue = $30,
             updated_at = now()
         where id = $1
         "#,
@@ -2128,6 +2134,7 @@ pub(super) async fn reassign_media_file_to_media_item(
     .bind(&entry.technical_tags)
     .bind(entry.local_analysis_version)
     .bind(&entry.scan_hash)
+    .bind(&entry.probe_issue)
     .execute(&mut **tx)
     .await
     .context("failed to reassign media file during library sync")?;

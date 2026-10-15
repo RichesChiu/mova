@@ -600,6 +600,7 @@ async fn upsert_scan_job_notification(
         "failed_files": summary.failed_files,
         "skipped_files": summary.skipped_files,
         "probe_warning_count": summary.probe_warning_count,
+        "partial_probe_files": summary.partial_probe_files,
         "issue_count": summary.issue_count,
         "reason_code": reason_code,
         "reason_params": {},

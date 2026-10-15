@@ -19,7 +19,7 @@ use std::{
 };
 use time::OffsetDateTime;
 
-fn build_discovered_file() -> DiscoveredMediaFile {
+pub(super) fn build_discovered_file() -> DiscoveredMediaFile {
     DiscoveredMediaFile {
         file_path: PathBuf::from("/media/series/Arcane/Arcane.S01E01.mkv"),
         source_kind: MediaSourceKind::LocalFile,
@@ -27,6 +27,7 @@ fn build_discovered_file() -> DiscoveredMediaFile {
         file_modified_at_ms: Some(1_700_000_000_000),
         sidecar_fingerprint: String::new(),
         probe_error: None,
+        probe_issue: None,
         metadata_provider: None,
         metadata_provider_item_id: None,
         title: "Arcane".to_string(),
@@ -238,7 +239,7 @@ impl MetadataProvider for FixedMetadataProvider {
     }
 }
 
-fn build_library() -> Library {
+pub(super) fn build_library() -> Library {
     Library {
         id: 7,
         name: "Library".to_string(),
@@ -310,6 +311,7 @@ fn build_existing_movie_metadata() -> ExistingMediaMetadataSummary {
         video_reference_frames: Some(4),
         technical_tags: vec!["HDR10".to_string()],
         local_analysis_version: super::LOCAL_ANALYSIS_VERSION,
+        probe_issue: None,
         audio_tracks: vec![mova_db::CreateAudioTrackParams {
             stream_index: 1,
             language: Some("eng".to_string()),
@@ -420,6 +422,7 @@ fn build_existing_episode_metadata() -> ExistingMediaMetadataSummary {
         video_reference_frames: Some(5),
         technical_tags: vec!["Dolby Vision".to_string()],
         local_analysis_version: super::LOCAL_ANALYSIS_VERSION,
+        probe_issue: None,
         audio_tracks: vec![mova_db::CreateAudioTrackParams {
             stream_index: 1,
             language: Some("eng".to_string()),

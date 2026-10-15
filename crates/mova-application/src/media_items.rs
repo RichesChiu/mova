@@ -1295,6 +1295,9 @@ pub async fn refresh_media_item_metadata(
                 video_pixel_format: representative_file.video_pixel_format.clone(),
                 video_reference_frames: representative_file.video_reference_frames,
                 technical_tags: representative_file.technical_tags.clone(),
+                probe_issue: representative_file
+                    .probe_issue
+                    .map(|issue| issue.as_str().to_string()),
             },
         )
         .await

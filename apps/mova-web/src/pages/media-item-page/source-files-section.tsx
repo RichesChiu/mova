@@ -13,6 +13,7 @@ import {
   buildVideoCardFacts,
   getMediaFileDisplayName,
 } from '../../lib/media-file-details'
+import { describeMediaFileProbeIssue } from '../../lib/media-file-probe'
 import { MEDIA_DETAIL_QUERY_STALE_TIME_MS, MEDIA_QUERY_GC_TIME_MS } from '../../lib/query-options'
 
 interface MediaItemSourceFilesSectionProps {
@@ -69,6 +70,9 @@ export const MediaItemSourceFilesSection = ({
     subtitleTracks.find((track) => String(track.id) === selectedSubtitleTrackValue) ??
     subtitleTracks[0] ??
     null
+  const probeIssueMessage = selectedMediaFile
+    ? describeMediaFileProbeIssue(selectedMediaFile)
+    : null
   const selectedSubtitleTrackIndex = selectedSubtitleTrack
     ? subtitleTracks.findIndex((track) => track.id === selectedSubtitleTrack.id)
     : -1
@@ -111,6 +115,15 @@ export const MediaItemSourceFilesSection = ({
                 <p className="media-file-detail__label">{l('Path')}</p>
                 <p className="media-file-detail__path">{selectedMediaFile.file_path}</p>
               </div>
+              {probeIssueMessage ? (
+                <p
+                  className="callout callout--warning media-file-detail__probe-issue"
+                  role="status"
+                >
+                  <strong>{l('File not analyzed')}</strong>
+                  <span>{probeIssueMessage}</span>
+                </p>
+              ) : null}
             </div>
 
             <div className="media-tech-stack">
