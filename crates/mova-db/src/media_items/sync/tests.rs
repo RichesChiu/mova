@@ -99,6 +99,7 @@ fn build_movie_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams
         subtitle_tracks: Vec::new(),
         local_analysis_version: 1,
         scan_hash: Some(format!("movie-{file_path}")),
+        probe_issue: None,
     }
 }
 
@@ -182,6 +183,7 @@ fn build_episode_entry(library_id: i64, file_path: &str) -> CreateMediaEntryPara
         subtitle_tracks: Vec::new(),
         local_analysis_version: 1,
         scan_hash: Some(format!("episode-{file_path}")),
+        probe_issue: None,
     }
 }
 
@@ -3283,5 +3285,66 @@ async fn a_watched_movie_that_becomes_an_episode_keeps_its_progress_under_the_se
         .await
         .unwrap(),
         vec![(series_item_id, episode_item_id)]
+    );
+}
+
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn probe_issue_round_trips_and_rejects_unknown_codes(pool: sqlx::postgres::PgPool) {
+    let library = create_library(
+        &pool,
+        CreateLibraryParams {
+            name: "Probe".to_string(),
+            description: None,
+            metadata_language: "en-US".to_string(),
+            root_path: "/media/probe".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let mut entry = build_movie_entry(library.id, "/media/probe/Broken/Broken.mkv");
+    entry.probe_issue = Some("timeout".to_string());
+    entry.scan_hash = None;
+    sync_library_media(&pool, library.id, std::slice::from_ref(&entry))
+        .await
+        .unwrap();
+
+    let media_file_id: i64 = sqlx::query_scalar("select id from media_files where file_path = $1")
+        .bind(&entry.file_path)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let media_file = crate::get_media_file(&pool, media_file_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        media_file.probe_issue,
+        Some(mova_domain::MediaProbeIssue::Timeout)
+    );
+    assert_eq!(media_file.scan_hash, None);
+
+    entry.probe_issue = None;
+    entry.scan_hash = Some("hash".to_string());
+    sync_library_media(&pool, library.id, std::slice::from_ref(&entry))
+        .await
+        .unwrap();
+    let cleared = crate::get_media_file(&pool, media_file_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(cleared.probe_issue, None);
+
+    let error = sqlx::query("update media_files set probe_issue = 'broken' where id = $1")
+        .bind(media_file_id)
+        .execute(&pool)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("23514")
     );
 }

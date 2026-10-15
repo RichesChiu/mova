@@ -31,6 +31,8 @@ struct IndexedSubtitleSidecar {
 struct IndexedSubtitleDirectory {
     subtitles: Vec<IndexedSubtitleSidecar>,
     episode_identity_counts: HashMap<(i32, i32), usize>,
+    /// The directory could not be listed, so its subtitles are unknown.
+    unreadable: bool,
 }
 
 /// Scan-local directory index for external subtitles.
@@ -63,8 +65,17 @@ impl SubtitleDirectoryIndex {
     pub fn directory_count(&self) -> usize {
         self.directories.len()
     }
+
+    /// Whether the directory holding `video_path` could not be listed.
+    pub fn is_video_directory_unreadable(&self, video_path: &Path) -> bool {
+        video_path
+            .parent()
+            .and_then(|parent| self.directories.get(parent))
+            .is_some_and(|directory| directory.unreadable)
+    }
 }
 
+#[cfg(test)]
 pub(crate) fn discover_subtitle_tracks(
     video_path: &Path,
     embedded_streams: &[EmbeddedSubtitleStream],
@@ -139,8 +150,21 @@ fn discover_external_subtitle_tracks(
 }
 
 fn index_subtitle_directory(directory: &Path) -> IndexedSubtitleDirectory {
-    let Ok(entries) = fs::read_dir(directory) else {
-        return IndexedSubtitleDirectory::default();
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) => {
+            // Unknown subtitles are not "no subtitles": the videos in this
+            // directory are marked unreadable and probed again next scan.
+            tracing::warn!(
+                directory = %directory.display(),
+                error = %error,
+                "failed to list a subtitle directory"
+            );
+            return IndexedSubtitleDirectory {
+                unreadable: true,
+                ..IndexedSubtitleDirectory::default()
+            };
+        }
     };
 
     let mut indexed = IndexedSubtitleDirectory::default();

@@ -35,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
     info!("database migrations applied");
     ping(&pool).await?;
     info!("database connection established");
+    verify_ffprobe_installation().await;
     tokio::fs::create_dir_all(&config.cache_dir).await?;
     info!(cache_dir = %config.cache_dir.display(), "artwork cache directory ensured");
     audio_track_cache::initialize_audio_track_cache(&config.cache_dir).await?;
@@ -89,6 +90,37 @@ async fn main() -> anyhow::Result<()> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+/// The official image ships ffprobe; without it every scan fails. Say so at
+/// startup instead of leaving the operator to find it in the first scan.
+async fn verify_ffprobe_installation() {
+    match tokio::process::Command::new("ffprobe")
+        .arg("-version")
+        .output()
+        .await
+    {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_string();
+            info!(version, "ffprobe available");
+        }
+        Ok(output) => {
+            tracing::error!(
+                status = %output.status,
+                "ffprobe is installed but does not run; media scans will fail until the installation is repaired"
+            );
+        }
+        Err(error) => {
+            tracing::error!(
+                error = %error,
+                "ffprobe is not installed; the official image ships it, so this installation is broken and media scans will fail"
+            );
+        }
+    }
 }
 
 fn init_tracing() {

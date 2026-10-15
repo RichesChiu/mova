@@ -1073,6 +1073,8 @@ pub(super) fn discovered_file_from_existing_local_analysis(
         file_modified_at_ms: inventory.file_modified_at_ms,
         sidecar_fingerprint: inventory.sidecar_fingerprint.clone(),
         probe_error: None,
+        // The stored analysis is reused as is, including why it failed.
+        probe_issue: summary.probe_issue,
         metadata_provider: accepted_metadata_provider,
         metadata_provider_item_id: accepted_metadata_provider_item_id,
         title,

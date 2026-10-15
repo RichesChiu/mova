@@ -492,6 +492,7 @@ const mediaFile = (mediaItem: MediaItem): MediaFile => ({
   video_reference_frames: 1,
   technical_tags: ['4K', 'HDR10', 'EAC3'],
   scan_hash: 'mock-scan-hash',
+  probe_issue: null,
   created_at: mediaItem.created_at,
   updated_at: mediaItem.updated_at,
 })

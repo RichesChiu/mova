@@ -228,6 +228,13 @@ const ScanNotificationContent = ({
           {l('{{count}} local warnings', { count: formatNumber(payload.probe_warning_count) })}
         </span>
       ) : null}
+      {(payload.partial_probe_files ?? 0) > 0 ? (
+        <span>
+          {l('{{count}} partially analyzed', {
+            count: formatNumber(payload.partial_probe_files ?? 0),
+          })}
+        </span>
+      ) : null}
     </span>
   ) : null
   const issues =

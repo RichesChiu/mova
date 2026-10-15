@@ -19,7 +19,8 @@ use crate::{
 use futures_util::{stream, StreamExt, TryStreamExt};
 use mova_db::BackgroundJobFence;
 use mova_domain::{
-    Library, ScanJob, ScanNotificationIssue, ScanNotificationSummary, MAX_SCAN_NOTIFICATION_ISSUES,
+    Library, MediaSourceKind, ScanJob, ScanNotificationIssue, ScanNotificationSummary,
+    MAX_SCAN_NOTIFICATION_ISSUES,
 };
 use mova_domain::{
     METADATA_FAILURE_NO_REMOTE_MATCH, METADATA_FAILURE_PROVIDER_DISABLED,
@@ -208,6 +209,15 @@ struct LocalScanPipelineOutcome {
     elapsed_ms: u64,
     processed_groups: usize,
     subtitle_directories: usize,
+    /// Groups whose pending commit was rejected by a data constraint. They
+    /// never reach the remote stage and are reported with the scan result.
+    failed_groups: Vec<FailedScanGroup>,
+}
+
+#[derive(Debug)]
+struct FailedScanGroup {
+    group: ScanDiscoveredGroup,
+    detail: String,
 }
 
 #[derive(Debug)]
@@ -515,6 +525,26 @@ pub async fn execute_scan_job_with_cancellation(
         return Ok(ExecuteScanJobOutcome::Cancelled);
     }
 
+    // The official image ships ffprobe. Without it every file would be stored
+    // with empty technical fields, so the scan refuses to start instead. The
+    // crate's own tests run without the binary and keep the tolerant path.
+    if !cfg!(test) {
+        let message = match tokio::task::spawn_blocking(mova_scan::ffprobe_version).await {
+            Ok(Ok(_)) => None,
+            Ok(Err(error)) => Some(format!(
+                "ffprobe is not installed or does not run ({error}); the official Mova image ships it, so this installation is broken"
+            )),
+            Err(error) => Some(format!(
+                "The ffprobe check worker exited unexpectedly: {error}"
+            )),
+        };
+        if let Some(message) = message {
+            let message = format_scan_phase_error(SCAN_PHASE_INITIALIZING, message);
+            record_failed_scan_attempt(pool, scan_job_id, 0, 0, &message, &fence).await;
+            return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
+        }
+    }
+
     // Nothing is read or deleted before the storage behind the library is
     // judged; unavailable network storage keeps the whole catalog.
     let storage_plan =
@@ -780,9 +810,16 @@ pub async fn execute_scan_job_with_cancellation(
 
     let pipeline_elapsed_ms = elapsed_millis(pipeline_started_at);
     let (mut notification_summary, local_metrics, remote_metrics) = match pipeline_result {
-        Ok((local_outcome, remote_outcome)) => {
+        Ok((local_outcome, mut remote_outcome)) => {
             merge_sync_outcome(&mut sync_outcome, local_outcome.sync);
             merge_sync_outcome(&mut sync_outcome, remote_outcome.sync);
+            for failed in &local_outcome.failed_groups {
+                record_scan_group_commit_failure(
+                    &mut remote_outcome.notification_summary,
+                    &failed.group,
+                    &failed.detail,
+                );
+            }
             let local_metrics = (
                 local_outcome.elapsed_ms,
                 local_outcome.processed_groups,
@@ -1359,6 +1396,7 @@ async fn analyze_pending_scan_groups(
     } = context;
     let total_items = i32::try_from(pending_groups.len()).unwrap_or(i32::MAX);
     let mut processed_items = 0_i32;
+    let mut failed_groups = Vec::new();
     let mut sync_outcome = mova_db::SyncLibraryMediaBestEffortOutcome::default();
     let mut completed_all_local_groups = true;
     let subtitle_video_paths = pending_groups
@@ -1473,7 +1511,7 @@ async fn analyze_pending_scan_groups(
                 )));
             }
 
-            let group_outcome = sync_scan_group_media_entries(
+            let group_outcome = match sync_scan_group_media_entries(
                 pool,
                 scan_job_id,
                 library,
@@ -1485,7 +1523,25 @@ async fn analyze_pending_scan_groups(
                 false,
                 fence,
             )
-            .await?;
+            .await
+            {
+                Ok(group_outcome) => group_outcome,
+                Err(error) if is_group_data_error(&error) => {
+                    let detail = compact_scan_failure_detail(error.to_string());
+                    tracing::warn!(
+                        library_id = library.id,
+                        scan_job_id,
+                        item_key = %group.presentation.item_key,
+                        detail = %detail,
+                        "a data constraint rejected a scan group; continuing with the next group"
+                    );
+                    sync_outcome.failed_count =
+                        sync_outcome.failed_count.saturating_add(group.files.len());
+                    failed_groups.push(FailedScanGroup { group, detail });
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             merge_sync_outcome(&mut sync_outcome, group_outcome.sync);
 
             event_listener(ScanJobEvent::ItemUpdated(build_scan_group_progress_update(
@@ -1541,6 +1597,7 @@ async fn analyze_pending_scan_groups(
         elapsed_ms: elapsed_millis(started_at),
         processed_groups: usize::try_from(processed_items).unwrap_or(usize::MAX),
         subtitle_directories,
+        failed_groups,
     })
 }
 
@@ -1699,7 +1756,7 @@ async fn enrich_discovered_groups(
                 fence,
             )
             .await;
-            let group_outcome = match artwork_publication {
+            let group_result = match artwork_publication {
                 Some(artwork_publication) => {
                     crate::tmdb_revalidation::finish_tmdb_artwork_publication(
                         artwork_publication,
@@ -1710,9 +1767,27 @@ async fn enrich_discovered_groups(
                         materialized_artwork,
                         retain_materialized_artwork,
                     )
-                    .await?
+                    .await
                 }
-                None => group_result?,
+                None => group_result,
+            };
+            let group_outcome = match group_result {
+                Ok(group_outcome) => group_outcome,
+                Err(error) if is_group_data_error(&error) => {
+                    let detail = compact_scan_failure_detail(error.to_string());
+                    tracing::warn!(
+                        library_id = library.id,
+                        scan_job_id,
+                        item_key = %group.presentation.item_key,
+                        detail = %detail,
+                        "a data constraint rejected a scan group's final commit; continuing"
+                    );
+                    sync_outcome.failed_count =
+                        sync_outcome.failed_count.saturating_add(group.files.len());
+                    record_scan_group_commit_failure(&mut notification_summary, &group, &detail);
+                    continue;
+                }
+                Err(error) => return Err(error),
             };
             merge_sync_outcome(&mut sync_outcome, group_outcome.sync);
             record_scan_notification_group(
@@ -1975,6 +2050,67 @@ async fn sync_scan_group_media_entries(
     })
 }
 
+/// A data problem in one group (a value a column or constraint rejects) must
+/// not stop the scan: the group is reported and the scan moves on. Anything
+/// else, such as a lost connection or fence, still fails the scan so it is
+/// retried.
+fn is_group_data_error(error: &ApplicationError) -> bool {
+    let ApplicationError::Unexpected(error) = error else {
+        return false;
+    };
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<sqlx::Error>()
+            .and_then(|error| error.as_database_error())
+            .and_then(|error| error.code())
+            // 22xxx: data exception (out of range, too long); 23xxx: constraint.
+            .is_some_and(|code| code.starts_with("22") || code.starts_with("23"))
+    })
+}
+
+pub(crate) const SCAN_GROUP_COMMIT_FAILED: &str = "media_commit_failed";
+
+fn record_scan_group_commit_failure(
+    summary: &mut ScanNotificationSummary,
+    group: &ScanDiscoveredGroup,
+    detail: &str,
+) {
+    let file_count = i32::try_from(group.files.len()).unwrap_or(i32::MAX);
+    summary.failed_files = summary.failed_files.saturating_add(file_count);
+    summary.issue_count = summary.issue_count.saturating_add(1);
+    if summary.issues.len() >= MAX_SCAN_NOTIFICATION_ISSUES {
+        return;
+    }
+
+    summary.issues.push(ScanNotificationIssue {
+        item_key: group.presentation.item_key.clone(),
+        media_type: group.presentation.media_type.clone(),
+        title: group.presentation.title.clone(),
+        year: group.presentation.year,
+        file_count,
+        metadata_status: METADATA_STATUS_FAILED.to_string(),
+        reason_code: SCAN_GROUP_COMMIT_FAILED.to_string(),
+        reason_params: BTreeMap::new(),
+        diagnostic_message: Some(compact_scan_failure_detail(detail)),
+        probe_warning_count: 0,
+        probe_warning_file_path: None,
+        probe_warning_code: None,
+        probe_warning_params: BTreeMap::new(),
+        probe_warning_diagnostic: None,
+    });
+}
+
+/// A probed local file whose resolution, duration or video codec could not be
+/// read. The fields stay unknown; this only counts them for the scan summary.
+fn is_partially_probed(file: &DiscoveredMediaFile) -> bool {
+    file.source_kind == MediaSourceKind::LocalFile
+        && file.probe_issue.is_none()
+        && (file.width.is_none()
+            || file.height.is_none()
+            || file.duration_seconds.is_none()
+            || file.video_codec.is_none())
+}
+
 fn record_scan_notification_group(
     summary: &mut ScanNotificationSummary,
     group: &ScanDiscoveredGroup,
@@ -1994,6 +2130,15 @@ fn record_scan_notification_group(
         })
         .collect::<Vec<_>>();
     let first_probe_warning = probe_warnings.first().cloned();
+    let first_probe_issue = group.files.iter().find_map(|file| file.probe_issue);
+    let partially_probed = group
+        .files
+        .iter()
+        .filter(|file| is_partially_probed(file))
+        .count();
+    summary.partial_probe_files = summary
+        .partial_probe_files
+        .saturating_add(i32::try_from(partially_probed).unwrap_or(i32::MAX));
 
     let file_count = i32::try_from(group.files.len()).unwrap_or(i32::MAX);
     let mut has_matched = false;
@@ -2091,7 +2236,12 @@ fn record_scan_notification_group(
         probe_warning_file_path: first_probe_warning
             .as_ref()
             .map(|(file_path, _)| file_path.clone()),
-        probe_warning_code: (probe_warning_count > 0).then(|| "media_probe_warning".to_string()),
+        probe_warning_code: (probe_warning_count > 0).then(|| {
+            first_probe_issue
+                .map(|issue| issue.reason_code())
+                .unwrap_or("media_probe_warning")
+                .to_string()
+        }),
         probe_warning_params,
         probe_warning_diagnostic: first_probe_warning.map(|(_, detail)| detail),
     });
@@ -2554,7 +2704,13 @@ fn build_media_entries(
                 })
                 .collect(),
             local_analysis_version: LOCAL_ANALYSIS_VERSION,
-            scan_hash: Some(scan_hash),
+            // A transient probe failure leaves no hash, so the next scan probes
+            // the file again even though it is unchanged.
+            scan_hash: file
+                .probe_issue
+                .is_none_or(|issue| !issue.is_transient())
+                .then_some(scan_hash),
+            probe_issue: file.probe_issue.map(|issue| issue.as_str().to_string()),
         });
     }
 
@@ -2656,3 +2812,7 @@ mod performance_tests;
 #[cfg(test)]
 #[path = "scan_jobs/storage_tests.rs"]
 mod storage_tests;
+
+#[cfg(test)]
+#[path = "scan_jobs/probe_tests.rs"]
+mod probe_tests;

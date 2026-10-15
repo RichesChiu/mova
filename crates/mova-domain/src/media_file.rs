@@ -1,7 +1,7 @@
 use serde::Serialize;
 use time::OffsetDateTime;
 
-use crate::MediaSourceKind;
+use crate::{MediaProbeIssue, MediaSourceKind};
 
 /// 归属于某个媒体条目的具体物理文件。
 /// 一个媒体条目可以同时拥有多个本地文件或 STRM 载体作为播放版本。
@@ -35,6 +35,9 @@ pub struct MediaFile {
     pub video_pixel_format: Option<String>,
     pub video_reference_frames: Option<i32>,
     pub technical_tags: Vec<String>,
+    /// Why ffprobe could not analyze this file; `None` when it was analyzed
+    /// or is not probed (STRM).
+    pub probe_issue: Option<MediaProbeIssue>,
     pub scan_hash: Option<String>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,

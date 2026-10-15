@@ -78,6 +78,8 @@ cargo test -p mova-scan
 
 The root `rust-toolchain.toml` pins the Rust compiler, rustfmt and clippy, so local `cargo` and CI use the same version. Upgrade the toolchain in a dedicated pull request that also fixes any new clippy findings.
 
+The media probe end-to-end tests need `ffmpeg` and `ffprobe`. CI extracts the static binaries shipped in the runtime base image and sets `MOVA_TEST_REQUIRE_FFPROBE=1`, so a missing binary fails there; without the tools these tests skip locally and print a notice. To run them locally, copy `/usr/local/bin/ffprobe` and `/usr/local/bin/ffmpeg` out of `richeschiu/mova-runtime-base:<tag>` with `docker create` and `docker cp` onto your PATH.
+
 Visible UI changes should include before/after screenshots or a short recording.
 
 ## Contracts and migrations

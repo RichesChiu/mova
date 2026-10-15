@@ -192,7 +192,7 @@ probe_warning_params
 probe_warning_diagnostic
 ```
 
-`reason_code / reason_params` 是客户端本地化的稳定输入。`diagnostic_message` 和 `probe_warning_diagnostic` 会压缩空白并限制长度，只用于排障和未知原因码兜底。`ffprobe` 失败不改变 metadata 状态，也不阻断远端匹配。摘要不建立独立数据库表；任务进入成功、失败或取消终态时，在 finalize 事务中直接把摘要写入 `notifications.payload`。执行尝试异常退出时，后台任务按原 scan job 重试并重新计算摘要；重试耗尽时通知使用任务级 `reason_code = scan_execution_failed`，底层错误放入 `diagnostic_message` 并同时保留在 `tracing` 日志。
+`reason_code / reason_params` 是客户端本地化的稳定输入。`diagnostic_message` 和 `probe_warning_diagnostic` 会压缩空白并限制长度，只用于排障和未知原因码兜底。`ffprobe` 失败不改变 metadata 状态，也不阻断远端匹配；文件级类别和重试策略见第 9 节。摘要不建立独立数据库表；任务进入成功、失败或取消终态时，在 finalize 事务中直接把摘要写入 `notifications.payload`。执行尝试异常退出时，后台任务按原 scan job 重试并重新计算摘要；重试耗尽时通知使用任务级 `reason_code = scan_execution_failed`，底层错误放入 `diagnostic_message` 并同时保留在 `tracing` 日志。
 
 ### 4.4 `background_jobs`
 
@@ -481,7 +481,19 @@ Local worker 按扫描组串行执行：
 
 单个组内的文件按稳定路径顺序处理。`ffprobe` 通过 blocking worker 执行，不阻塞 Tokio reactor。
 进入完整分析前，local worker 按整次扫描涉及的目录建立一个任务级字幕索引；索引对每个唯一目录只读取一次并预解析支持的字幕候选，同时统计完整季集坐标的歧义数量。所有扫描组复用该索引，禁止为每组或每个视频再次扫描同一目录。字幕候选按路径排序，保证相同文件树产生确定性输出。
-单个 `ffprobe` 最长运行 90 秒；stdout 最多保留 8 MiB，stderr 最多保留 256 KiB，超出任一上限会终止并回收子进程。超时或输出越界把该文件记录为可诊断的 probe warning 后继续扫描。收到任务取消标记时会立即终止当前 `ffprobe`，并把任务转入取消终态。
+单个 `ffprobe` 最长运行 90 秒；stdout 最多保留 8 MiB，stderr 最多保留 256 KiB，超出任一上限会终止并回收子进程。收到任务取消标记时会立即终止当前 `ffprobe`，并把任务转入取消终态。
+
+`ffprobe` 的结果分三层，单个文件的任何结果都不会终止扫描：
+
+| 层级 | 含义 | 处理 |
+| --- | --- | --- |
+| 成功 | 文件可以分析 | 正常写入全部探测字段 |
+| 部分 | 文件可以分析，但分辨率（`ffprobe` 报 0 或缺失）、时长或视频编码读不到 | 对应字段存为未知，其余字段照常；文件不打标记；扫描摘要以 `partial_probe_files` 计数。没有音轨、码率、帧率或 HDR 信息不算部分 |
+| 失败 | `ffprobe` 无法分析文件 | 文件照常入库和刮削，`media_files.probe_issue` 记录类别，扫描通知的 `probe_warning_code` 使用对应原因码。客户端提示"文件未能分析，可能无法播放"，不禁止播放 |
+
+失败类别：`unreadable`（打开或读取失败，包括权限被拒绝和 `ffprobe` 报告的文件访问错误）、`unrecognized`（`ffprobe` 拒绝该文件：损坏、不完整或格式不受支持，含输出无法解析）、`no_video_stream`（能解析但没有视频流，封面图流不算视频流）、`timeout`（超过 90 秒或输出超限）。`unreadable` 和 `timeout` 是临时性失败：不写入 `scan_hash`，文件在下一轮扫描重新探测；`unrecognized` 和 `no_video_stream` 是永久性失败：写入 `scan_hash`，文件内容变化后才重新探测。探测成功后标记自动清除。外挂字幕目录无法列出时，目录中的视频按 `unreadable` 处理。STRM 载体按设计不探测，没有这三层结果。
+
+`ffprobe` 缺失不是文件结果：官方镜像自带 `ffprobe`，缺失说明安装已损坏。服务启动时执行 `ffprobe -version` 并在失败时记录错误日志；扫描遇到缺失时直接以明确的错误失败，不以空字段继续。
 
 ## 10. Sidecar、图片与字幕
 
@@ -710,6 +722,8 @@ local 与 remote 可以同时增加各自计数，因此进度不要求停留在
 任务完成后，客户端通过 `GET /api/notifications` 读取通用通知中心。成功、带问题完成、执行失败和主动取消分别写为 `scan.completed`、`scan.completed_with_issues`、`scan.failed` 和 `scan.cancelled`；取消使用 `info` 严重级别，不得伪装成成功或执行失败。扫描通知包含任务级统计，并最多内嵌 20 个未匹配、provider 失败或包含 `ffprobe` 警告的问题摘要；`issue_count` 保留实际问题组总数。服务端不提供独立扫描报告接口，完整底层诊断由运维侧从服务日志读取。`library:{id}:scan` 与 `library:{id}:notifications` revisions 在任务终态事务中一起推进，因此客户端不依赖 SSE 回放历史错误或通知正文。
 
 ## 19. 错误与重试
+
+组事务失败按错误性质区分：数据库约束拒绝（SQLSTATE 23 类，例如字段超出取值范围）是这一组的数据问题，worker 记录一条 `reason_code = media_commit_failed` 的问题并继续下一组，该组文件计入 `failed_files`，任务以"完成但有问题"结束；pending 事务失败的组不进入 remote 阶段。连接丢失、超时、fence 失效等其他错误仍使本轮扫描失败并进入重试。
 
 应用层记录失败 phase、文件计数、最后权威进度和带阶段上下文的 `error_message`。后台任务统一决定重试或终止：
 

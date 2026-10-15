@@ -1,3 +1,4 @@
+use mova_domain::MediaProbeIssue;
 use serde::Deserialize;
 use std::{
     io::{self, Read},
@@ -18,7 +19,10 @@ const FFPROBE_STDERR_LIMIT: usize = 256 * 1024;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct MediaProbe {
+    /// Diagnostic text when ffprobe could not analyze the file.
     pub error: Option<String>,
+    /// Why ffprobe could not analyze the file.
+    pub issue: Option<MediaProbeIssue>,
     pub duration_seconds: Option<i32>,
     pub video_title: Option<String>,
     pub video_codec: Option<String>,
@@ -154,6 +158,8 @@ struct FfprobeFormat {
 #[derive(Debug, Deserialize)]
 struct FfprobeDisposition {
     #[serde(default)]
+    attached_pic: i32,
+    #[serde(default)]
     default: i32,
     #[serde(default)]
     forced: i32,
@@ -176,6 +182,9 @@ pub(crate) fn probe_media_file_with_cancel(
         return Err(scan_cancelled_error());
     }
 
+    // A missing ffprobe is a broken installation, not a per-file outcome: the
+    // scan refuses to start without it (see the application layer). This
+    // library stays usable without the binary, so fields are left empty here.
     if matches!(probe_availability, ProbeAvailability::Unavailable) {
         return Ok(MediaProbe::default());
     }
@@ -186,31 +195,83 @@ pub(crate) fn probe_media_file_with_cancel(
             Ok(probe)
         }
         Err(ProbeError::Unavailable(error)) => {
-            let detail = error.to_string();
-            tracing::warn!(
+            tracing::error!(
                 error = %error,
-                "ffprobe is not available; media probe fields will remain empty"
+                "ffprobe is not installed; media probe fields will remain empty"
             );
             *probe_availability = ProbeAvailability::Unavailable;
             Ok(MediaProbe {
-                error: Some(detail),
+                error: Some(error.to_string()),
                 ..MediaProbe::default()
             })
         }
         Err(ProbeError::Cancelled) => Err(scan_cancelled_error()),
         Err(error) => {
+            let issue = classify_probe_error(&error);
             let detail = error.to_string();
             tracing::warn!(
                 file_path = %path.display(),
+                issue = %issue,
                 error = %error,
-                "failed to probe media file with ffprobe"
+                "ffprobe could not analyze the media file"
             );
             Ok(MediaProbe {
                 error: Some(detail),
+                issue: Some(issue),
                 ..MediaProbe::default()
             })
         }
     }
+}
+
+/// Runs `ffprobe -version` and returns its first line. The official image
+/// ships ffprobe, so a failure here means the installation is broken.
+pub fn ffprobe_version() -> io::Result<String> {
+    let output = Command::new("ffprobe")
+        .arg("-version")
+        .stdin(Stdio::null())
+        .output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "ffprobe exited with status {}",
+            output.status
+        )));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .to_string())
+}
+
+/// Maps an ffprobe failure to the category shown to the user. ffprobe reports
+/// file access problems through its exit status, so its message is inspected
+/// for the usual OS error texts before the file is called unrecognized.
+pub(crate) fn classify_probe_error(error: &ProbeError) -> MediaProbeIssue {
+    match error {
+        ProbeError::Io(_) => MediaProbeIssue::Unreadable,
+        ProbeError::TimedOut(_) | ProbeError::OutputTooLarge => MediaProbeIssue::Timeout,
+        ProbeError::CommandFailed(message) if is_file_access_message(message) => {
+            MediaProbeIssue::Unreadable
+        }
+        ProbeError::CommandFailed(_) | ProbeError::ParseOutput(_) => MediaProbeIssue::Unrecognized,
+        ProbeError::Unavailable(_) | ProbeError::Cancelled => MediaProbeIssue::Unrecognized,
+    }
+}
+
+fn is_file_access_message(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    [
+        "no such file or directory",
+        "permission denied",
+        "input/output error",
+        "host is down",
+        "stale file handle",
+        "resource temporarily unavailable",
+        "connection timed out",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
 }
 
 fn scan_cancelled_error() -> io::Error {
@@ -379,10 +440,11 @@ pub(crate) fn parse_ffprobe_output(output: &[u8]) -> Result<MediaProbe, ProbeErr
     let parsed: FfprobeOutput = serde_json::from_slice(output)
         .map_err(|error| ProbeError::ParseOutput(error.to_string()))?;
 
-    let video_stream = parsed
-        .streams
-        .iter()
-        .find(|stream| stream.codec_type.as_deref() == Some("video"));
+    // Cover art is muxed as a video stream flagged as an attached picture; it
+    // must not stand in for the real video.
+    let video_stream = parsed.streams.iter().find(|stream| {
+        stream.codec_type.as_deref() == Some("video") && !is_attached_picture(stream)
+    });
     let audio_stream = parsed
         .streams
         .iter()
@@ -400,8 +462,18 @@ pub(crate) fn parse_ffprobe_output(output: &[u8]) -> Result<MediaProbe, ProbeErr
         .filter_map(map_embedded_subtitle_stream)
         .collect::<Vec<_>>();
 
+    let (error, issue) = if video_stream.is_none() {
+        (
+            Some("the file contains no video stream".to_string()),
+            Some(MediaProbeIssue::NoVideoStream),
+        )
+    } else {
+        (None, None)
+    };
+
     Ok(MediaProbe {
-        error: None,
+        error,
+        issue,
         duration_seconds: parsed
             .format
             .as_ref()
@@ -423,8 +495,14 @@ pub(crate) fn parse_ffprobe_output(output: &[u8]) -> Result<MediaProbe, ProbeErr
                 .and_then(|level| format_video_level(level, stream.codec_name.as_deref()))
         }),
         audio_codec: audio_stream.and_then(|stream| stream.codec_name.clone()),
-        width: video_stream.and_then(|stream| stream.width),
-        height: video_stream.and_then(|stream| stream.height),
+        // ffprobe reports 0 when the dimensions are not within its probe
+        // window; the resolution is unknown, not zero.
+        width: video_stream
+            .and_then(|stream| stream.width)
+            .filter(|value| *value > 0),
+        height: video_stream
+            .and_then(|stream| stream.height)
+            .filter(|value| *value > 0),
         bitrate: parsed
             .format
             .as_ref()
@@ -796,6 +874,13 @@ fn parse_frame_rate(value: &str) -> Option<f64> {
     }
 
     trimmed.parse::<f64>().ok()
+}
+
+fn is_attached_picture(stream: &FfprobeStream) -> bool {
+    stream
+        .disposition
+        .as_ref()
+        .is_some_and(|disposition| disposition.attached_pic > 0)
 }
 
 fn resolve_video_bit_depth(stream: &FfprobeStream) -> Option<i32> {

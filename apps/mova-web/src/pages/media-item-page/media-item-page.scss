@@ -443,6 +443,16 @@
   gap: 12px;
 }
 
+.media-file-detail__probe-issue {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+
+  strong {
+    color: inherit;
+  }
+}
+
 .media-file-detail__label,
 .media-file-detail__path {
   margin: 0;

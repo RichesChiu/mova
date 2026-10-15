@@ -76,6 +76,8 @@ export interface ScanNotificationPayload {
   failed_files: number
   skipped_files: number
   probe_warning_count: number
+  /** Probed files whose resolution, duration or video codec is unknown. */
+  partial_probe_files?: number
   issue_count: number
   reason_code: string | null
   reason_params: Record<string, unknown>
@@ -391,10 +393,14 @@ export interface MediaFile {
   video_pixel_format?: string | null
   video_reference_frames?: number | null
   technical_tags: string[]
+  /** Why ffprobe could not analyze the file; the file may not play. */
+  probe_issue: MediaFileProbeIssue | null
   scan_hash: string | null
   created_at: string
   updated_at: string
 }
+
+export type MediaFileProbeIssue = 'unreadable' | 'unrecognized' | 'no_video_stream' | 'timeout'
 
 export interface SubtitleFile {
   id: number

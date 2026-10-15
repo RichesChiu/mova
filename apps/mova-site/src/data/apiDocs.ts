@@ -208,6 +208,8 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       'scan.completed、scan.completed_with_issues、scan.failed 和 scan.cancelled 是扫描终态的权威结果，客户端不得从级别或计数反推结果。',
       '扫描统计只有在 summary_available 为 true 时才可展示；失败或取消时不得把默认 0 当作真实统计。',
       '扫描通知使用 reason_code 和 reason_params 生成本地化主文案，diagnostic_message 只作为次级排障信息。',
+      '一个文件无法分析不会终止扫描：文件照常入库和刮削，media_files.probe_issue 记录 unreadable、unrecognized、no_video_stream 或 timeout，通知以 probe_<类别> 作为原因码；单项字段读不到只存为未知，以 partial_probe_files 计数。',
+      '某一组扫描数据被数据库约束拒绝时，通知记录 media_commit_failed 并继续下一组，扫描以完成但有问题结束。',
       '已有远端身份在 provider 临时故障时保持 matched，并以 metadata_provider_error 表示刷新失败。',
       'metadata.tmdb.retention_expired 是媒体库 warning，表示条目的 TMDB 元数据超过 180 天仍未重新验证；provider-owned 数据与缓存已清除，payload 只保留本地定位字段，不保留原 TMDB 条目 ID。',
       'library.storage.unavailable 是管理员 error 通知，媒体库每次从可用变为存储不可用时生成一条，payload 说明挂载点、应为和当前的存储。',

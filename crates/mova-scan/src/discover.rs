@@ -6,14 +6,12 @@ use crate::{
     },
     probe::{probe_media_file_with_cancel, MediaProbe, ProbeAvailability},
     storage::is_absent_entry_error,
-    subtitle::{
-        discover_subtitle_tracks, discover_subtitle_tracks_with_index, SubtitleDirectoryIndex,
-    },
+    subtitle::{discover_subtitle_tracks_with_index, SubtitleDirectoryIndex},
     DiscoveredAudioTrack, DiscoveredMediaFile, DiscoveredMediaFileInventory, LocalNfoMetadata,
     LocalNfoObservation, MediaDiscoveryIssue, MediaDiscoveryReport, MediaNfoKind,
     ReadHttpStrmReferenceError,
 };
-use mova_domain::MediaSourceKind;
+use mova_domain::{MediaProbeIssue, MediaSourceKind};
 use std::{
     collections::{BTreeMap, HashSet},
     fs,
@@ -807,15 +805,31 @@ fn build_discovered_media_file_from_parts(
     subtitle_index: Option<&SubtitleDirectoryIndex>,
 ) -> DiscoveredMediaFile {
     let path = inventory.file_path;
-    let subtitle_tracks = if discover_local_sidecars {
-        match subtitle_index {
-            Some(index) => {
-                discover_subtitle_tracks_with_index(&path, &probe.subtitle_streams, index)
+    let (subtitle_tracks, subtitle_directory_unreadable) = if discover_local_sidecars {
+        let local_index;
+        let index = match subtitle_index {
+            Some(index) => index,
+            None => {
+                local_index = SubtitleDirectoryIndex::build([path.as_path()]);
+                &local_index
             }
-            None => discover_subtitle_tracks(&path, &probe.subtitle_streams),
-        }
+        };
+        (
+            discover_subtitle_tracks_with_index(&path, &probe.subtitle_streams, index),
+            index.is_video_directory_unreadable(&path),
+        )
     } else {
-        Vec::new()
+        (Vec::new(), false)
+    };
+    // Subtitles that could not be listed are unknown, not absent: the file is
+    // probed again on the next scan.
+    let (probe_error, probe_issue) = if probe.issue.is_none() && subtitle_directory_unreadable {
+        (
+            Some("the file's directory could not be listed for subtitles".to_string()),
+            Some(MediaProbeIssue::Unreadable),
+        )
+    } else {
+        (probe.error, probe.issue)
     };
 
     DiscoveredMediaFile {
@@ -823,7 +837,8 @@ fn build_discovered_media_file_from_parts(
         stream_reference_hash: inventory.stream_reference_hash,
         file_modified_at_ms: inventory.file_modified_at_ms,
         sidecar_fingerprint: inventory.sidecar_fingerprint,
-        probe_error: probe.error,
+        probe_error,
+        probe_issue,
         metadata_provider: None,
         metadata_provider_item_id: None,
         title: parsed.title,

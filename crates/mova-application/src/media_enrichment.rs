@@ -3059,6 +3059,7 @@ mod tests {
             file_modified_at_ms: Some(1_700_000_000_000),
             sidecar_fingerprint: String::new(),
             probe_error: None,
+            probe_issue: None,
             metadata_provider: None,
             metadata_provider_item_id: None,
             title: "Show".to_string(),

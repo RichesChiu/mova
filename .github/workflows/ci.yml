@@ -261,6 +261,19 @@ jobs:
           echo "Actual subject:   $actual_subject" >&2
           exit 1
 
+      - name: Install the shipped ffmpeg tools
+        # The probe tests run the same static ffprobe and ffmpeg the image
+        # ships, taken from the runtime base instead of the runner's packages.
+        if: needs.source.outputs.release_only != 'true'
+        run: |
+          container="$(docker create "$RUNTIME_BASE_TAG")"
+          mkdir -p "$HOME/.local/bin"
+          docker cp "${container}:/usr/local/bin/ffprobe" "$HOME/.local/bin/ffprobe"
+          docker cp "${container}:/usr/local/bin/ffmpeg" "$HOME/.local/bin/ffmpeg"
+          docker rm "$container" >/dev/null
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/ffprobe" -version | head -1
+
       - name: Check formatting
         if: needs.source.outputs.release_only != 'true'
         run: cargo fmt --all -- --check
@@ -271,6 +284,8 @@ jobs:
 
       - name: Test
         if: needs.source.outputs.release_only != 'true'
+        env:
+          MOVA_TEST_REQUIRE_FFPROBE: "1"
         run: cargo test --workspace --locked -- --include-ignored --test-threads=1
 
       - name: Verify release workspace metadata

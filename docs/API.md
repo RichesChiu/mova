@@ -680,6 +680,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
         "failed_files": 1,
         "skipped_files": 0,
         "probe_warning_count": 1,
+        "partial_probe_files": 0,
         "issue_count": 1,
         "reason_code": null,
         "reason_params": {},
@@ -697,7 +698,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
             "diagnostic_message": "operation timed out",
             "probe_warning_count": 1,
             "probe_warning_file_path": "/media/movies/A Minecraft Movie/A.Minecraft.Movie.2025.mkv",
-            "probe_warning_code": "media_probe_warning",
+            "probe_warning_code": "probe_timeout",
             "probe_warning_params": {
               "count": 1
             },
@@ -729,7 +730,8 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `scan.completed`、`scan.completed_with_issues`、`scan.failed` 和 `scan.cancelled` 分别表示完整成功、有问题地完成、执行失败和主动取消。客户端以 `notification_type` 决定结果文案与视觉状态。
 - `scan.cancelled` 使用 `info` 级别，payload 的 `status` 为 `cancelled`，表示任务被主动终止；它不等同于扫描成功或执行失败。
 - 已有远端 binding 的条目在 provider 临时故障时仍可保持 `metadata_status=matched`；此时问题摘要使用 `reason_code=metadata_provider_error` 表示本次刷新失败，客户端不得把它解释为身份匹配失效。
-- 扫描任务和单项问题使用 `reason_code / reason_params` 生成本地化主文案。常见原因码包括 `scan_execution_failed`、`metadata_provider_error`、`no_remote_match`、`metadata_provider_disabled`、`metadata_processing_failed` 和 `media_probe_warning`。
+- 扫描任务和单项问题使用 `reason_code / reason_params` 生成本地化主文案。常见原因码包括 `scan_execution_failed`、`metadata_provider_error`、`no_remote_match`、`metadata_provider_disabled`、`metadata_processing_failed`、`media_commit_failed`（该组的扫描数据被数据库约束拒绝，未保存，扫描继续）和 `media_probe_warning`。
+- `probe_warning_code` 使用文件的 `probe_issue` 对应原因码：`probe_unreadable`、`probe_unrecognized`、`probe_no_video_stream`、`probe_timeout`；没有具体类别时为 `media_probe_warning`。`partial_probe_files` 统计已分析但分辨率、时长或视频编码未读到的文件数，只是信息，不计入问题。
 - `diagnostic_message` 与 `probe_warning_diagnostic` 仅供日志和排障使用。客户端不得把这些英文诊断信息直接作为通知主文案；未知原因码才允许将其作为次级兜底。
 - 扫描摘要由 worker 在远端组成功提交后累计，并在任务终态直接写入通知；服务端不提供第二套扫描报告接口。更底层的网络、provider 与 `ffprobe` 排障信息由运维侧查看服务日志。
 - `cache.cleanup.failed` 是仅管理员可见的 `system / error` 通知。它表示媒体库权威数据已经删除，但 `MOVA_CACHE_DIR/libraries/{library_id}` 在 10 次尝试后仍无法移除；payload 包含 `background_job_id`、`library_id`、删除前的 `library_name`、`attempt_count`、`max_attempts`、`reason_code=cache_cleanup_failed`、`reason_params` 和可选 `diagnostic_message`。
@@ -1512,6 +1514,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `video_color_primaries` / `video_color_space` / `video_color_transfer`：色彩原色、色域、传递特性
 - `video_bit_depth` / `video_pixel_format` / `video_reference_frames`：位深、像素格式、参考帧
 - `technical_tags`：从 `ffprobe` 探测结果归一化出来的资源技术标签，例如 `HDR10`、`HDR10+`、`Dolby Vision`、`HLG`、`DTS`、`DTS-HD`、`Atmos`
+- `probe_issue`：`ffprobe` 无法分析该文件时的原因，可能为 `null`。取值 `unreadable`（文件无法读取）、`unrecognized`（文件损坏、不完整或格式不受支持）、`no_video_stream`（文件不含视频流）、`timeout`（分析超时或输出超限）。有该值的文件仍正常入库和刮削，客户端应提示"文件未能分析，可能无法播放"，不得据此禁止播放。单项字段读不到（分辨率、时长、编码为 `null`）不是 `probe_issue`
 - `scan_hash`：服务端增量扫描使用的不透明指纹，可能为 `null`；客户端只能回显或忽略，不能解析、比较其内部格式或据此决定播放与刷新行为
 
 说明：

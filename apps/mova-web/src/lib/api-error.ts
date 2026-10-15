@@ -40,6 +40,13 @@ const errorMessageKeys: Record<string, string> = {
   metadata_provider_disabled: 'Metadata provider is disabled',
   metadata_processing_failed: 'Metadata processing failed',
   media_probe_warning: 'Media inspection warning',
+  probe_unreadable: 'The file could not be read, so it was not analyzed. It may not play.',
+  probe_unrecognized:
+    'The file is damaged, incomplete or in an unsupported format, so it was not analyzed. It may not play.',
+  probe_no_video_stream: 'The file contains no video stream. It may not play as a video.',
+  probe_timeout: 'Analyzing the file took too long, so it was not analyzed. It may not play.',
+  media_commit_failed:
+    'The scanned data for this item was rejected by the database and was not saved.',
   subtitle_too_large: 'The selected subtitle is too large to process.',
   strm_audio_track_selection_unsupported:
     'Embedded audio track selection is not available for remote streams.',

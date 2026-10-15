@@ -613,6 +613,18 @@ const zhCN: Record<string, string> = {
   'The server returned an invalid response.': '服务器返回了无效响应。',
   'The request could not be completed.': '请求未能完成。',
   'The library scan could not be completed.': '媒体库扫描未能完成。',
+  'The file could not be read, so it was not analyzed. It may not play.':
+    '文件无法读取，未能分析，可能无法播放。',
+  'The file is damaged, incomplete or in an unsupported format, so it was not analyzed. It may not play.':
+    '文件已损坏、不完整或格式不受支持，未能分析，可能无法播放。',
+  'The file contains no video stream. It may not play as a video.':
+    '文件不含视频流，可能无法作为视频播放。',
+  'Analyzing the file took too long, so it was not analyzed. It may not play.':
+    '分析文件耗时过长，未能分析，可能无法播放。',
+  'The scanned data for this item was rejected by the database and was not saved.':
+    '该条目的扫描数据被数据库拒绝，未能保存。',
+  'File not analyzed': '文件未能分析',
+  '{{count}} partially analyzed': '{{count}} 个部分信息未读取',
   'Scan refused: {{reason}}': '已拒绝扫描：{{reason}}',
   'The library storage is unavailable. Scans are paused and nothing is removed until it is connected again.':
     '媒体库的存储不可用。在重新连接之前暂停扫描，也不会删除任何内容。',

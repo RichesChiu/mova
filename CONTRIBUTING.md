@@ -78,6 +78,8 @@ cargo test -p mova-scan
 
 Rust 编译器、rustfmt 和 clippy 的版本由根目录 `rust-toolchain.toml` 固定，本地 `cargo` 和 CI 使用同一版本。升级工具链应单独提交 PR，并在同一 PR 中修复新版本 clippy 的告警。
 
+媒体探测的端到端测试需要 `ffmpeg` 和 `ffprobe`。CI 从运行时基础镜像取出镜像内置的静态二进制并设置 `MOVA_TEST_REQUIRE_FFPROBE=1`，缺失即失败；本地没有这两个工具时这些测试会跳过并打印提示。要在本地运行它们，可以用 `docker create richeschiu/mova-runtime-base:<tag>` 加 `docker cp` 把 `/usr/local/bin/ffprobe` 和 `/usr/local/bin/ffmpeg` 复制到 PATH 中。
+
 可见 UI 改动应附带前后截图或短录屏。
 
 ## 契约与迁移
