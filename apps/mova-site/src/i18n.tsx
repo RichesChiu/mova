@@ -298,6 +298,8 @@ const translations: Record<string, string> = {
     'Clients must not send a local filesystem path as the server root_path.',
   '读取失败的子文件夹（例如没有连接的挂载）不出现在树中。':
     'Subfolders that cannot be read, such as a mount that is not connected, are left out of the tree.',
+  '以 . 开头的目录和 #recycle、@eaDir、extras 等系统或附加内容目录不出现在树中。':
+    'Dot-prefixed folders and system or extras folders such as #recycle, @eaDir and extras are left out of the tree.',
   查询服务端当前可用于建库的媒体文件夹树: 'Get the server media folder tree available for libraries',
   '查询服务端当前可用于建库的媒体文件夹树（管理员）':
     'Get the server media folder tree available for libraries (administrator)',
@@ -306,6 +308,8 @@ const translations: Record<string, string> = {
     'Covers library configuration, recently added items, details, scan history, asynchronous scanning, and global search.',
   '媒体库统一自动识别电影和剧集，无需用户手动选择库类型。':
     'Libraries automatically identify movies and series without requiring users to choose a library type.',
+  '扫描按名称跳过隐藏文件、NAS 和系统目录、预告片和样片（._*、#recycle、@eaDir、-trailer、-sample 等），它们不入库、不探测、不计数。':
+    'Scans skip hidden files, NAS and system folders, trailers and samples by name (._*, #recycle, @eaDir, -trailer, -sample and similar); they are never catalogued, probed or counted.',
   'metadata_language 支持 zh-CN / en-US，影响扫描和 TMDB 元数据补全语言。':
     'metadata_language supports zh-CN and en-US and controls scanning and TMDB metadata language.',
   '语言变更、缓存失效、catalog revision 和新扫描任务会在同一事务中提交。':

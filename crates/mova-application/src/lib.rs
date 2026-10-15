@@ -77,6 +77,8 @@ pub use metadata_match::{
     apply_media_item_metadata_match, search_media_item_metadata_matches, ApplyMetadataMatchInput,
     MetadataMatchCandidate, SearchMetadataMatchesInput,
 };
+/// Name rule shared with the folder picker: entries discovery never scans.
+pub use mova_scan::is_ignored_entry_name;
 pub use notifications::{list_notifications, mark_all_notifications_read, mark_notification_read};
 pub use playback_header::{get_media_item_playback_header, MediaItemPlaybackHeader};
 pub use playback_progress::{

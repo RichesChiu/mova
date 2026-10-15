@@ -1,5 +1,6 @@
 use crate::sidecar::is_generic_series_artwork_path;
 use crate::{
+    ignore::{is_ignored_entry_name, is_ignored_video_file_name},
     parse::{
         episode_identity_for_path, extension_lowercase, parse_media_metadata_with_sidecar,
         parse_media_metadata_without_sidecar,
@@ -400,6 +401,9 @@ where
         }
 
         let entry = entry?;
+        if is_ignored_entry_name(&entry.file_name()) {
+            continue;
+        }
         let path = entry.path();
         let Some(canonical_path) = boundary.canonical_path_if_allowed(&path)? else {
             continue;
@@ -419,7 +423,10 @@ where
             continue;
         }
 
-        if !metadata.is_file() || !is_supported_video(&path) {
+        if !metadata.is_file()
+            || !is_supported_video(&path)
+            || is_ignored_video_file_name(&entry.file_name())
+        {
             continue;
         }
 
@@ -488,6 +495,9 @@ where
                 continue;
             }
         };
+        if is_ignored_entry_name(&entry.file_name()) {
+            continue;
+        }
         let path = entry.path();
         let canonical_path = match boundary.canonical_path_if_allowed(&path) {
             Ok(Some(canonical_path)) => canonical_path,
@@ -518,7 +528,10 @@ where
             continue;
         }
 
-        if !metadata.is_file() || !is_supported_video(&path) {
+        if !metadata.is_file()
+            || !is_supported_video(&path)
+            || is_ignored_video_file_name(&entry.file_name())
+        {
             continue;
         }
 
@@ -583,6 +596,9 @@ fn visit_dir_paths(
 
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
+        if is_ignored_entry_name(&entry.file_name()) {
+            continue;
+        }
         let path = entry.path();
         let Some(canonical_path) = boundary.canonical_path_if_allowed(&path)? else {
             continue;
@@ -594,7 +610,10 @@ fn visit_dir_paths(
             continue;
         }
 
-        if !metadata.is_file() || !is_supported_video(&path) {
+        if !metadata.is_file()
+            || !is_supported_video(&path)
+            || is_ignored_video_file_name(&entry.file_name())
+        {
             continue;
         }
 
@@ -999,8 +1018,14 @@ fn sidecar_fingerprint_for_directory(directory: &Path, root_path: Option<&Path>)
 
     if let Ok(entries) = fs::read_dir(directory) {
         for entry in entries.flatten() {
+            if is_ignored_entry_name(&entry.file_name()) {
+                continue;
+            }
             let path = entry.path();
-            if is_supported_video(&path) && path.is_file() {
+            if is_supported_video(&path)
+                && !is_ignored_video_file_name(&entry.file_name())
+                && path.is_file()
+            {
                 if is_strm_file(&path) && crate::read_http_strm_reference(&path).is_err() {
                     continue;
                 }

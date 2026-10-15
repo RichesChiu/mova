@@ -2816,3 +2816,7 @@ mod storage_tests;
 #[cfg(test)]
 #[path = "scan_jobs/probe_tests.rs"]
 mod probe_tests;
+
+#[cfg(test)]
+#[path = "scan_jobs/ignore_tests.rs"]
+mod ignore_tests;
