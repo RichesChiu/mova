@@ -1230,6 +1230,7 @@ pub async fn update_media_file_metadata(
             video_reference_frames = $25,
             technical_tags = $26,
             probe_issue = $27,
+            file_modified_at_ms = $28,
             updated_at = now()
         where id = $1
         returning
@@ -1294,6 +1295,7 @@ pub async fn update_media_file_metadata(
     .bind(params.video_reference_frames)
     .bind(&params.technical_tags)
     .bind(&params.probe_issue)
+    .bind(params.file_modified_at_ms)
     .fetch_optional(pool)
     .await
     .context("failed to update media file metadata")?;
@@ -2464,6 +2466,7 @@ pub async fn list_existing_media_metadata_for_file_paths(
             mf.technical_tags,
             mf.local_analysis_version,
             mf.probe_issue,
+            mf.file_modified_at_ms,
             null::text as series_title,
             null::text as series_metadata_provider,
             null::text as series_metadata_provider_item_id,
@@ -2938,6 +2941,7 @@ fn map_existing_media_metadata_summary_row(row: PgRow) -> ExistingMediaMetadataS
         stream_reference_hash: row.get("stream_reference_hash"),
         container: row.get("container"),
         file_size: row.get("file_size"),
+        file_modified_at_ms: row.get("file_modified_at_ms"),
         duration_seconds: row.get("duration_seconds"),
         video_title: row.get("video_title"),
         video_codec: row.get("video_codec"),

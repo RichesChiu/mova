@@ -17,6 +17,7 @@ use crate::{
     },
     library_storage::{replace_library_storage_mounts_tx, LibraryStorageMountRecord},
     local_metadata::{reconcile_library_local_metadata_source_paths_tx, MediaLocalMetadataTarget},
+    media_items::RenamedMediaFile,
     playback_progress::merge_media_item_user_state,
     tmdb_revalidation::{
         lock_library_tmdb_artwork_reference_write, record_authoritative_tmdb_snapshot_tx,
@@ -153,6 +154,9 @@ pub async fn sync_library_media_best_effort(
 /// 用户播放状态原样保留。其余已入库路径视为已删除。调用方必须先确认存储连接正常并核实
 /// 每个待删除路径，此函数不再用“零发现”猜测存储是否脱离。
 /// `storage_mounts` 是本轮扫描所依据的存储记录，与对账在同一个事务中替换。
+/// `renamed_files` 是本轮按大小和修改时间识别出的改名或移动：旧路径照常作为缺失路径删除，
+/// 只有新路径解析成同一部作品（两边的 provider ID 相同，或任一边没有 ID）时，旧条目的用户播放
+/// 状态才并入新条目。
 #[allow(clippy::too_many_arguments)]
 pub async fn sync_library_media_changes(
     pool: &PgPool,
@@ -163,6 +167,7 @@ pub async fn sync_library_media_changes(
     retained_local_metadata_source_paths: &[String],
     entries: &[CreateMediaEntryParams],
     storage_mounts: Option<&[LibraryStorageMountRecord]>,
+    renamed_files: &[RenamedMediaFile],
     fence: &BackgroundJobFence,
 ) -> Result<SyncLibraryMediaBestEffortOutcome> {
     let mut tx = pool
@@ -196,6 +201,65 @@ pub async fn sync_library_media_changes(
         .map(String::as_str)
         .collect::<HashSet<_>>();
     let mut outcome = SyncLibraryMediaBestEffortOutcome::default();
+
+    // A renamed or moved file keeps its users' playback state only when the
+    // path it reappeared at resolved to the same work; a different provider
+    // binding means another title, and the old entry goes with its state.
+    for renamed in renamed_files {
+        if observed_paths.contains(renamed.old_file_path.as_str()) {
+            continue;
+        }
+        let (Some(old), Some(new)) = (
+            existing_by_path.get(&renamed.old_file_path),
+            existing_by_path.get(&renamed.new_file_path),
+        ) else {
+            continue;
+        };
+        if old.media_item_id == new.media_item_id {
+            continue;
+        }
+        let old_binding = media_item_binding(&mut tx, old.media_item_id).await?;
+        let new_binding = media_item_binding(&mut tx, new.media_item_id).await?;
+        if !is_same_work(old_binding.as_ref(), new_binding.as_ref()) {
+            tracing::info!(
+                library_id,
+                from = %renamed.old_file_path,
+                to = %renamed.new_file_path,
+                "renamed file resolved to another work; playback state is not carried over"
+            );
+            continue;
+        }
+        merge_media_item_user_state(&mut tx, old.media_item_id, new.media_item_id)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to carry playback state from {} to {}",
+                    renamed.old_file_path, renamed.new_file_path
+                )
+            })?;
+        // The merged rows still name the old file as the last played version;
+        // that row is deleted below, so they point at the renamed file instead.
+        sqlx::query(
+            r#"
+            update playback_progress
+            set last_media_file_id = $3
+            where media_item_id = $2
+              and last_media_file_id = $1
+            "#,
+        )
+        .bind(old.media_file_id)
+        .bind(new.media_item_id)
+        .bind(new.media_file_id)
+        .execute(&mut *tx)
+        .await
+        .context("failed to repoint carried playback state at the renamed file")?;
+        tracing::info!(
+            library_id,
+            from = %renamed.old_file_path,
+            to = %renamed.new_file_path,
+            "renamed file resolved to the same work; playback state carried over"
+        );
+    }
 
     let missing_paths = existing_by_path
         .keys()
@@ -265,6 +329,36 @@ pub async fn sync_library_media_changes(
         .context("failed to commit authoritative media reconciliation")?;
 
     Ok(outcome)
+}
+
+async fn media_item_binding(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+) -> Result<Option<(String, String)>> {
+    let row = sqlx::query(
+        "select metadata_provider, metadata_provider_item_id from media_items where id = $1",
+    )
+    .bind(media_item_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .context("failed to read media item binding")?;
+    Ok(row.and_then(|row| {
+        let provider: Option<String> = row.get("metadata_provider");
+        let item_id: Option<String> = row.get("metadata_provider_item_id");
+        provider.zip(item_id)
+    }))
+}
+
+/// Two bindings name the same work unless both are known and differ. An
+/// unbound side cannot contradict the other, so the state follows the file.
+pub(super) fn is_same_work(
+    old_binding: Option<&(String, String)>,
+    new_binding: Option<&(String, String)>,
+) -> bool {
+    match (old_binding, new_binding) {
+        (Some(old), Some(new)) => old == new,
+        _ => true,
+    }
 }
 
 /// Cleans hierarchy left by scan groups when a pipeline exits before the
@@ -1821,12 +1915,13 @@ pub(super) async fn insert_media_file(
             technical_tags,
             local_analysis_version,
             scan_hash,
-            probe_issue
+            probe_issue,
+            file_modified_at_ms
         )
         values (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
             $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29,
-            $30
+            $30, $31
         )
         returning id
         "#,
@@ -1861,6 +1956,7 @@ pub(super) async fn insert_media_file(
     .bind(entry.local_analysis_version)
     .bind(&entry.scan_hash)
     .bind(&entry.probe_issue)
+    .bind(entry.file_modified_at_ms)
     .fetch_one(&mut **tx)
     .await
     .context("failed to insert media file")?;
@@ -1909,6 +2005,7 @@ pub(super) async fn update_media_file_from_entry(
             local_analysis_version = $27,
             scan_hash = $28,
             probe_issue = $29,
+            file_modified_at_ms = $30,
             updated_at = now()
         where id = $1
         "#,
@@ -1942,6 +2039,7 @@ pub(super) async fn update_media_file_from_entry(
     .bind(entry.local_analysis_version)
     .bind(&entry.scan_hash)
     .bind(&entry.probe_issue)
+    .bind(entry.file_modified_at_ms)
     .execute(&mut **tx)
     .await
     .context("failed to update media file during library sync")?;
@@ -2101,6 +2199,7 @@ pub(super) async fn reassign_media_file_to_media_item(
             local_analysis_version = $28,
             scan_hash = $29,
             probe_issue = $30,
+            file_modified_at_ms = $31,
             updated_at = now()
         where id = $1
         "#,
@@ -2135,6 +2234,7 @@ pub(super) async fn reassign_media_file_to_media_item(
     .bind(entry.local_analysis_version)
     .bind(&entry.scan_hash)
     .bind(&entry.probe_issue)
+    .bind(entry.file_modified_at_ms)
     .execute(&mut **tx)
     .await
     .context("failed to reassign media file during library sync")?;

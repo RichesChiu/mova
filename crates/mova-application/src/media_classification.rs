@@ -64,6 +64,20 @@ pub(crate) fn apply_root_aware_media_identity(
     container_identity.and_then(|identity| identity.tmdb_id)
 }
 
+/// Titles name the same work when they agree after case and punctuation are
+/// dropped: `Dune` and `dune`, `Spider-Man` and `Spider Man`.
+fn same_title(left: &str, right: &str) -> bool {
+    let key = |value: &str| {
+        value
+            .chars()
+            .filter(|character| character.is_alphanumeric())
+            .flat_map(char::to_lowercase)
+            .collect::<String>()
+    };
+    let left = key(left);
+    !left.is_empty() && left == key(right)
+}
+
 pub(crate) fn apply_movie_container_identity_when_title_is_missing(
     file: &mut DiscoveredMediaFile,
     root_path: &Path,
@@ -83,12 +97,21 @@ fn apply_movie_container_identity(
     file: &mut DiscoveredMediaFile,
     identity: Option<&mova_scan::MediaContainerIdentity>,
 ) {
-    if has_meaningful_file_title(&file.file_path) {
-        return;
-    }
     let Some(identity) = identity else {
         return;
     };
+    if has_meaningful_file_title(&file.file_path) {
+        // A titled file keeps its own identity. Only a missing year is taken
+        // from a directory that names the same film, so `Dune (1984)/Dune.mkv`
+        // and `Dune (2021)/Dune.mkv` stay two films.
+        if file.year.is_none()
+            && identity.year.is_some()
+            && same_title(&file.source_title, &identity.title)
+        {
+            file.year = identity.year;
+        }
+        return;
+    }
     let parsed_source_title = file.source_title.clone();
     let has_sidecar_title = !file.title.trim().is_empty()
         && !file

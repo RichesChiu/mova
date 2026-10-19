@@ -1,7 +1,20 @@
+mod file_signatures;
 mod query;
 mod ratings;
 mod series;
 mod sync;
+
+pub use file_signatures::{
+    backfill_media_file_modified_at, list_local_media_file_signatures, LocalMediaFileSignature,
+};
+
+/// A local file that left `old_file_path` and reappeared at `new_file_path`
+/// with the same size and modification time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenamedMediaFile {
+    pub old_file_path: String,
+    pub new_file_path: String,
+}
 
 use anyhow::Result;
 use mova_domain::{MediaExternalId, MediaItem, MediaRating, MediaSourceKind, ScanJob};
@@ -147,6 +160,8 @@ pub struct CreateMediaEntryParams {
     pub stream_reference_hash: Option<String>,
     pub container: Option<String>,
     pub file_size: i64,
+    /// Modification time from the scan inventory; identifies the file across a rename.
+    pub file_modified_at_ms: Option<i64>,
     pub duration_seconds: Option<i32>,
     pub video_title: Option<String>,
     pub video_codec: Option<String>,
@@ -926,6 +941,7 @@ pub struct UpdateMediaFileMetadataParams {
     pub stream_reference_hash: Option<String>,
     pub container: Option<String>,
     pub file_size: i64,
+    pub file_modified_at_ms: Option<i64>,
     pub duration_seconds: Option<i32>,
     pub video_title: Option<String>,
     pub video_codec: Option<String>,
@@ -1085,6 +1101,7 @@ pub struct ExistingMediaMetadataSummary {
     pub stream_reference_hash: Option<String>,
     pub container: Option<String>,
     pub file_size: i64,
+    pub file_modified_at_ms: Option<i64>,
     pub duration_seconds: Option<i32>,
     pub video_title: Option<String>,
     pub video_codec: Option<String>,

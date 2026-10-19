@@ -75,6 +75,7 @@ fn build_movie_entry(library_id: i64, file_path: &str) -> CreateMediaEntryParams
         stream_reference_hash: None,
         container: Some("mkv".to_string()),
         file_size: 1,
+        file_modified_at_ms: None,
         duration_seconds: Some(7800),
         video_title: None,
         video_codec: Some("hevc".to_string()),
@@ -159,6 +160,7 @@ fn build_episode_entry(library_id: i64, file_path: &str) -> CreateMediaEntryPara
         stream_reference_hash: None,
         container: Some("mkv".to_string()),
         file_size: 1,
+        file_modified_at_ms: None,
         duration_seconds: Some(1800),
         video_title: None,
         video_codec: Some("h264".to_string()),
@@ -333,6 +335,7 @@ async fn confirmed_empty_discovery_empties_the_library_and_records_its_storage(
         &[],
         &[],
         Some(std::slice::from_ref(&storage)),
+        &[],
         &fence,
     )
     .await
@@ -458,6 +461,7 @@ async fn unparsed_carriers_keep_their_media_and_playback_state(pool: sqlx::postg
         &[],
         &[],
         None,
+        &[],
         &fence,
     )
     .await
@@ -3347,4 +3351,171 @@ async fn probe_issue_round_trips_and_rejects_unknown_codes(pool: sqlx::postgres:
             .as_deref(),
         Some("23514")
     );
+}
+
+#[test]
+fn renamed_file_state_follows_only_the_same_work() {
+    let bound = |id: &str| ("tmdb".to_string(), id.to_string());
+
+    assert!(super::is_same_work(
+        Some(&bound("841")),
+        Some(&bound("841"))
+    ));
+    assert!(!super::is_same_work(
+        Some(&bound("841")),
+        Some(&bound("438631"))
+    ));
+    assert!(super::is_same_work(Some(&bound("841")), None));
+    assert!(super::is_same_work(None, Some(&bound("841"))));
+    assert!(super::is_same_work(None, None));
+}
+
+/// Finalization carries playback state from a renamed file's old item to the
+/// item its new path resolved to, unless both are bound to different works.
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn finalization_carries_state_across_a_rename_only_for_the_same_work(
+    pool: sqlx::postgres::PgPool,
+) {
+    let library = create_library(
+        &pool,
+        CreateLibraryParams {
+            name: "Renames".to_string(),
+            description: None,
+            metadata_language: "en-US".to_string(),
+            root_path: "/media/renames".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let movie = |path: &str, provider_id: &str, title: &str| {
+        let mut entry = build_movie_entry(library.id, path);
+        entry.metadata_provider_item_id = Some(provider_id.to_string());
+        entry.title = title.to_string();
+        entry.source_title = title.to_string();
+        entry.original_title = None;
+        entry
+    };
+    // Same work: the typo is fixed, the binding stays 841.
+    let same_old = movie("/media/renames/Dnue (1984)/Dnue (1984).mkv", "841", "Dnue");
+    let same_new = movie("/media/renames/Dune (1984)/Dune (1984).mkv", "841", "Dune");
+    // Another work: the file was relabelled as a different film.
+    let other_old = movie("/media/renames/Alpha (2020)/Alpha (2020).mkv", "1", "Alpha");
+    let other_new = movie("/media/renames/Beta (2021)/Beta (2021).mkv", "2", "Beta");
+    sync_library_media(
+        &pool,
+        library.id,
+        &[
+            same_old.clone(),
+            same_new.clone(),
+            other_old.clone(),
+            other_new.clone(),
+        ],
+    )
+    .await
+    .unwrap();
+    let viewer = create_user(
+        &pool,
+        CreateUserParams {
+            username: "viewer".to_string(),
+            username_normalized: "viewer".to_string(),
+            nickname: "Viewer".to_string(),
+            password_hash: "unused".to_string(),
+            role: UserRole::Viewer,
+            is_enabled: true,
+            library_ids: vec![library.id],
+        },
+    )
+    .await
+    .unwrap();
+    for path in [&same_old.file_path, &other_old.file_path] {
+        let (file_id, item_id) = sqlx::query_as::<_, (i64, i64)>(
+            "select id, media_item_id from media_files where file_path = $1",
+        )
+        .bind(path)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        upsert_playback_progress(
+            &pool,
+            UpsertPlaybackProgressParams {
+                user_id: viewer.user.id,
+                media_item_id: item_id,
+                media_file_id: file_id,
+                position_seconds: 300,
+                duration_seconds: Some(5400),
+                is_finished: false,
+            },
+        )
+        .await
+        .unwrap();
+    }
+    let same_new_item: i64 =
+        sqlx::query_scalar("select media_item_id from media_files where file_path = $1")
+            .bind(&same_new.file_path)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+    let scan_job = enqueue_scan_job(
+        &pool,
+        CreateScanJobParams {
+            library_id: library.id,
+        },
+    )
+    .await
+    .unwrap()
+    .scan_job;
+    let fence = claim_background_job(&pool, "rename-state-worker", 60)
+        .await
+        .unwrap()
+        .claimed_job
+        .unwrap()
+        .execution_fence()
+        .unwrap();
+    mark_scan_job_running(&pool, scan_job.id, &fence)
+        .await
+        .unwrap()
+        .unwrap();
+    // The old paths are gone from discovery; the new ones were observed.
+    let outcome = sync_library_media_changes(
+        &pool,
+        library.id,
+        scan_job.id,
+        &[same_new.file_path.clone(), other_new.file_path.clone()],
+        &[],
+        &[],
+        &[],
+        None,
+        &[
+            crate::RenamedMediaFile {
+                old_file_path: same_old.file_path.clone(),
+                new_file_path: same_new.file_path.clone(),
+            },
+            crate::RenamedMediaFile {
+                old_file_path: other_old.file_path.clone(),
+                new_file_path: other_new.file_path.clone(),
+            },
+        ],
+        &fence,
+    )
+    .await
+    .unwrap();
+    assert_eq!(outcome.removed_count, 2);
+
+    let progress_items: Vec<i64> = sqlx::query_scalar(
+        "select media_item_id from playback_progress where user_id = $1 order by media_item_id",
+    )
+    .bind(viewer.user.id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(progress_items, vec![same_new_item]);
+    let remaining: i64 =
+        sqlx::query_scalar("select count(*) from media_items where library_id = $1")
+            .bind(library.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 2);
 }

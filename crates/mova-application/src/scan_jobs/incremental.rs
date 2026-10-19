@@ -20,6 +20,9 @@ pub(super) async fn build_incremental_scan_plan(
         .chain(unparsed_carrier_paths)
         .map(String::as_str)
         .collect::<HashSet<_>>();
+    let renamed_files =
+        detect_renamed_media_files(pool, library_id, &discovered_files, unparsed_carrier_paths)
+            .await?;
     let memberships = mova_db::list_library_media_file_memberships(pool, library_id)
         .await
         .map_err(ApplicationError::Unexpected)?;
@@ -39,6 +42,30 @@ pub(super) async fn build_incremental_scan_plan(
         .into_iter()
         .map(|summary| (summary.file_path.clone(), summary))
         .collect::<HashMap<_, _>>();
+
+    // Rows catalogued before modification times were stored learn theirs
+    // here, so a later rename of an unchanged file can be followed.
+    let unknown_modification_times = discovered_files
+        .iter()
+        .filter_map(|inventory| {
+            let file_path = inventory.file_path.to_string_lossy().to_string();
+            let summary = existing_by_path.get(file_path.as_str())?;
+            if summary.file_modified_at_ms.is_some() {
+                return None;
+            }
+            Some((file_path, inventory.file_modified_at_ms?))
+        })
+        .collect::<Vec<_>>();
+    if let Err(error) =
+        mova_db::backfill_media_file_modified_at(pool, library_id, &unknown_modification_times)
+            .await
+    {
+        tracing::warn!(
+            library_id,
+            error = ?error,
+            "failed to backfill media file modification times"
+        );
+    }
 
     let mut touched_owner_ids = owners_with_removed_versions;
     for inventory in &discovered_files {
@@ -88,7 +115,97 @@ pub(super) async fn build_incremental_scan_plan(
         discovered_paths: file_paths,
         scan_files,
         container_bindings,
+        renamed_files,
     })
+}
+
+/// A local file that left one path and appeared at another with the same
+/// size and modification time was renamed or moved. The new path is analyzed
+/// like any new file; finalization carries the users' playback state to the
+/// item it resolves to when that is the same work. Signatures shared by
+/// several files on either side are ambiguous and left alone, and an old path
+/// that still exists on disk was copied, not moved.
+async fn detect_renamed_media_files(
+    pool: &PgPool,
+    library_id: i64,
+    discovered_files: &[DiscoveredMediaFileInventory],
+    unparsed_carrier_paths: &[String],
+) -> ApplicationResult<Vec<mova_db::RenamedMediaFile>> {
+    let signatures = mova_db::list_local_media_file_signatures(pool, library_id)
+        .await
+        .map_err(ApplicationError::Unexpected)?;
+    let discovered_paths = discovered_files
+        .iter()
+        .map(|file| file.file_path.to_string_lossy().to_string())
+        .chain(unparsed_carrier_paths.iter().cloned())
+        .collect::<HashSet<_>>();
+    let mut missing_by_signature =
+        HashMap::<(i64, i64), Vec<&mova_db::LocalMediaFileSignature>>::new();
+    for signature in &signatures {
+        if discovered_paths.contains(&signature.file_path) {
+            continue;
+        }
+        let Some(modified_at_ms) = signature.file_modified_at_ms else {
+            continue;
+        };
+        missing_by_signature
+            .entry((signature.file_size, modified_at_ms))
+            .or_default()
+            .push(signature);
+    }
+    if missing_by_signature.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let catalog_paths = signatures
+        .iter()
+        .map(|signature| signature.file_path.as_str())
+        .collect::<HashSet<_>>();
+    let mut new_by_signature = HashMap::<(i64, i64), Vec<String>>::new();
+    for inventory in discovered_files {
+        if inventory.source_kind != MediaSourceKind::LocalFile {
+            continue;
+        }
+        let file_path = inventory.file_path.to_string_lossy().to_string();
+        if catalog_paths.contains(file_path.as_str()) {
+            continue;
+        }
+        let (Some(modified_at_ms), Ok(file_size)) = (
+            inventory.file_modified_at_ms,
+            i64::try_from(inventory.file_size),
+        ) else {
+            continue;
+        };
+        new_by_signature
+            .entry((file_size, modified_at_ms))
+            .or_default()
+            .push(file_path);
+    }
+
+    let mut renamed = Vec::new();
+    for (signature, missing) in &missing_by_signature {
+        let [missing] = missing.as_slice() else {
+            continue;
+        };
+        let Some([new_file_path]) = new_by_signature.get(signature).map(Vec::as_slice) else {
+            continue;
+        };
+        if Path::new(&missing.file_path).exists() {
+            continue;
+        }
+        tracing::info!(
+            library_id,
+            from = %missing.file_path,
+            to = %new_file_path,
+            "media file was renamed or moved"
+        );
+        renamed.push(mova_db::RenamedMediaFile {
+            old_file_path: missing.file_path.clone(),
+            new_file_path: new_file_path.clone(),
+        });
+    }
+    renamed.sort_by(|left, right| left.old_file_path.cmp(&right.old_file_path));
+    Ok(renamed)
 }
 
 pub(super) fn build_container_binding_index(
