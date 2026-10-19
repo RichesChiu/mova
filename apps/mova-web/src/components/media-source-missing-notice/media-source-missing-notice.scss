@@ -1,0 +1,21 @@
+.media-source-missing-notice {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 40rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 44%, transparent);
+  border-radius: 1rem;
+  background: var(--warning-soft);
+  color: var(--text);
+}
+
+.media-source-missing-notice__title {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--warning);
+}
+
+.media-source-missing-notice__text {
+  margin: 0;
+  color: var(--text-muted);
+}

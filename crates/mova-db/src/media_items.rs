@@ -8,6 +8,15 @@ pub use file_signatures::{
     backfill_media_file_modified_at, list_local_media_file_signatures, LocalMediaFileSignature,
 };
 
+/// Whether `path` is `directory` itself or lies below it.
+pub fn path_is_under(path: &str, directory: &str) -> bool {
+    let directory = directory.trim_end_matches('/');
+    path == directory
+        || path
+            .strip_prefix(directory)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
 /// A local file that left `old_file_path` and reappeared at `new_file_path`
 /// with the same size and modification time.
 #[derive(Debug, Clone, PartialEq, Eq)]

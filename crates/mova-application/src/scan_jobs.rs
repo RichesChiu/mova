@@ -388,7 +388,41 @@ pub async fn enqueue_library_scan(
     library_id: i64,
     storage_environment: &dyn LibraryStorageEnvironment,
 ) -> ApplicationResult<EnqueueLibraryScanResult> {
+    enqueue_library_scan_with_scope(pool, library_id, None, storage_environment).await
+}
+
+/// Enqueues a scan limited to `scope_paths`, directories inside the library
+/// root. The scan traverses only those directories and removes only catalog
+/// paths under them; everything else in the library is left untouched. A
+/// pending scan absorbs the scope, a running scan is returned as it is.
+pub async fn enqueue_scoped_library_scan(
+    pool: &PgPool,
+    library_id: i64,
+    scope_paths: Vec<String>,
+    storage_environment: &dyn LibraryStorageEnvironment,
+) -> ApplicationResult<EnqueueLibraryScanResult> {
+    enqueue_library_scan_with_scope(pool, library_id, Some(scope_paths), storage_environment).await
+}
+
+async fn enqueue_library_scan_with_scope(
+    pool: &PgPool,
+    library_id: i64,
+    scope_paths: Option<Vec<String>>,
+    storage_environment: &dyn LibraryStorageEnvironment,
+) -> ApplicationResult<EnqueueLibraryScanResult> {
     let library = get_library(pool, library_id).await?;
+    // A scoped request never widens into a whole-library scan: without a
+    // usable directory there is nothing to enqueue.
+    let scope_paths = match ScanScope::from_requested(&library.root_path, scope_paths).directories()
+    {
+        None => Vec::new(),
+        Some([]) => {
+            return Err(ApplicationError::Validation(
+                "a scoped scan needs at least one directory inside the library root".to_string(),
+            ));
+        }
+        Some(directories) => directories.to_vec(),
+    };
     match check_library_storage(pool, &library, storage_environment).await? {
         LibraryStorageCheck::Available => {}
         LibraryStorageCheck::Unavailable(issue) => {
@@ -413,6 +447,7 @@ pub async fn enqueue_library_scan(
         pool,
         mova_db::CreateScanJobParams {
             library_id: library.id,
+            scope_paths,
         },
     )
     .await
@@ -422,6 +457,85 @@ pub async fn enqueue_library_scan(
         scan_job: result.scan_job,
         created: result.created,
     })
+}
+
+/// The scan that is pending or running for a library, if any. Scans are
+/// serial per library, so this is the latest job when it has not finished.
+pub async fn get_active_scan_job_for_library(
+    pool: &PgPool,
+    library_id: i64,
+) -> ApplicationResult<Option<ScanJob>> {
+    let latest = mova_db::get_latest_scan_job_for_library(pool, library_id)
+        .await
+        .map_err(ApplicationError::from)?;
+    Ok(latest.filter(|scan_job| scan_job.status == "pending" || scan_job.status == "running"))
+}
+
+/// The part of a library one scan looks at.
+///
+/// A whole-library scan has no directories. A scoped scan keeps the requested
+/// directories that lie inside the library root, without duplicates and
+/// without a directory already covered by another one. A scope whose every
+/// directory was rejected stays scoped and empty: such a scan observes
+/// nothing and therefore removes nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ScanScope {
+    directories: Option<Vec<String>>,
+}
+
+impl ScanScope {
+    pub(crate) fn whole_library() -> Self {
+        Self { directories: None }
+    }
+
+    pub(crate) fn from_requested(root_path: &str, requested: Option<Vec<String>>) -> Self {
+        let Some(requested) = requested else {
+            return Self::whole_library();
+        };
+        let root = root_path.trim_end_matches('/');
+        let mut directories = requested
+            .into_iter()
+            .map(|directory| directory.trim_end_matches('/').to_string())
+            .filter(|directory| {
+                !directory.is_empty()
+                    && directory != root
+                    && mova_db::path_is_under(directory, root)
+            })
+            .collect::<Vec<_>>();
+        directories.sort();
+        directories.dedup();
+        let mut kept: Vec<String> = Vec::with_capacity(directories.len());
+        for directory in directories {
+            if kept
+                .iter()
+                .any(|parent| mova_db::path_is_under(&directory, parent))
+            {
+                continue;
+            }
+            kept.push(directory);
+        }
+        Self {
+            directories: Some(kept),
+        }
+    }
+
+    pub(crate) fn is_scoped(&self) -> bool {
+        self.directories.is_some()
+    }
+
+    pub(crate) fn directories(&self) -> Option<&[String]> {
+        self.directories.as_deref()
+    }
+
+    /// The directories as catalog path prefixes; `None` for the whole library.
+    pub(crate) fn prefixes(&self) -> Option<&[String]> {
+        self.directories()
+    }
+
+    pub(crate) fn directory_paths(&self) -> Option<Vec<PathBuf>> {
+        self.directories()
+            .map(|directories| directories.iter().map(PathBuf::from).collect())
+    }
 }
 
 /// 执行可取消的扫描任务。
@@ -486,12 +600,14 @@ pub async fn execute_scan_job_with_cancellation(
         return Ok(ExecuteScanJobOutcome::Cancelled);
     }
 
-    match mova_db::mark_scan_job_running(pool, scan_job_id, &fence).await {
+    let scan_scope = match mova_db::mark_scan_job_running(pool, scan_job_id, &fence).await {
         Ok(Some(scan_job)) => {
+            let scope = ScanScope::from_requested(&library.root_path, scan_job.scope_paths.clone());
             event_listener(ScanJobEvent::Updated(build_scan_job_progress_update(
                 scan_job,
                 SCAN_PHASE_DISCOVERING,
             )));
+            scope
         }
         Ok(None) => {
             if let Some(scan_job) =
@@ -513,6 +629,14 @@ pub async fn execute_scan_job_with_cancellation(
             record_failed_scan_attempt(pool, scan_job_id, 0, 0, &message, &fence).await;
             return Err(ApplicationError::Unexpected(anyhow::anyhow!(message)));
         }
+    };
+    if let Some(directories) = scan_scope.directories() {
+        tracing::info!(
+            library_id,
+            scan_job_id,
+            directories = ?directories,
+            "scan limited to the directories of an inspected item"
+        );
     }
 
     if is_cancelled(&cancellation_flag) {
@@ -602,8 +726,11 @@ pub async fn execute_scan_job_with_cancellation(
     let discovery_report = match discover_media_files(
         pool,
         scan_job_id,
-        &library,
-        storage_plan.clone(),
+        DiscoveryTarget {
+            library: &library,
+            storage_plan: storage_plan.clone(),
+            scan_scope: &scan_scope,
+        },
         &fence,
         cancellation_flag.clone(),
         event_listener.clone(),
@@ -702,8 +829,11 @@ pub async fn execute_scan_job_with_cancellation(
         std::path::Path::new(&library.root_path),
         discovered_files,
         &unparsed_carrier_paths,
-        metadata_provider.is_enabled(),
-        &library.metadata_language,
+        IncrementalPlanOptions {
+            scope_prefixes: scan_scope.prefixes(),
+            metadata_provider_enabled: metadata_provider.is_enabled(),
+            metadata_language: &library.metadata_language,
+        },
     )
     .await
     {
@@ -927,6 +1057,7 @@ pub async fn execute_scan_job_with_cancellation(
         storage_environment.as_ref(),
         &storage_plan,
         &observed_paths,
+        scan_scope.prefixes(),
     )
     .await
     {
@@ -981,7 +1112,10 @@ pub async fn execute_scan_job_with_cancellation(
     let finalization_io_elapsed_ms = elapsed_millis(finalization_io_started_at);
 
     let finalization_db_started_at = Instant::now();
+    // A scoped scan observed only part of the library, so it leaves the
+    // storage record as the last whole-library scan wrote it.
     let storage_record = final_storage_plan.storage_record();
+    let storage_record = (!scan_scope.is_scoped()).then_some(storage_record.as_slice());
     let removal_outcome = match mova_db::sync_library_media_changes(
         pool,
         library.id,
@@ -990,7 +1124,8 @@ pub async fn execute_scan_job_with_cancellation(
         &retained_paths,
         &retained_local_metadata_source_paths,
         &[],
-        Some(&storage_record),
+        storage_record,
+        scan_scope.prefixes(),
         &renamed_files,
         &fence,
     )
@@ -2829,3 +2964,6 @@ mod ignore_tests;
 #[cfg(test)]
 #[path = "scan_jobs/identity_tests.rs"]
 mod identity_tests;
+#[cfg(test)]
+#[path = "scan_jobs/inspection_tests.rs"]
+mod inspection_tests;

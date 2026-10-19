@@ -263,6 +263,24 @@ pub struct MediaItemMetadataSourcesResponse {
     pub local_metadata_sources: Vec<MediaLocalMetadataSourceSummaryResponse>,
 }
 
+/// What the click-time inspection found, carried into the detail response.
+#[derive(Debug, Clone)]
+pub struct MediaItemAvailabilityResponse {
+    pub source_status: mova_application::MediaSourceStatus,
+    pub missing_media_file_ids: Vec<i64>,
+    pub rescan_scan_job_id: Option<i64>,
+}
+
+impl Default for MediaItemAvailabilityResponse {
+    fn default() -> Self {
+        Self {
+            source_status: mova_application::MediaSourceStatus::Available,
+            missing_media_file_ids: Vec::new(),
+            rescan_scan_job_id: None,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct MediaItemDetailResponse {
     pub id: i64,
@@ -291,6 +309,14 @@ pub struct MediaItemDetailResponse {
     pub logo_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// `available`, `missing` or `storage_unavailable`: whether the item's
+    /// files were found on disk when the detail was requested.
+    pub source_status: String,
+    /// Local versions that were not found on disk.
+    pub missing_media_file_ids: Vec<i64>,
+    /// The scan that will inspect the item's directories, when one was
+    /// queued or is already covering them.
+    pub rescan_scan_job_id: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -503,6 +529,7 @@ pub struct ScanJobResponse {
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
     pub error_message: Option<String>,
+    pub scope_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -800,7 +827,11 @@ impl MediaLocalMetadataSourceSummaryResponse {
 }
 
 impl MediaItemDetailResponse {
-    pub fn from_domain(media_item: MediaItem, offset: UtcOffset) -> Self {
+    pub fn from_domain(
+        media_item: MediaItem,
+        availability: MediaItemAvailabilityResponse,
+        offset: UtcOffset,
+    ) -> Self {
         let title = display_media_item_title(&media_item);
 
         Self {
@@ -849,6 +880,9 @@ impl MediaItemDetailResponse {
             ),
             created_at: format_datetime(media_item.created_at, offset),
             updated_at: format_datetime(media_item.updated_at, offset),
+            source_status: availability.source_status.as_str().to_string(),
+            missing_media_file_ids: availability.missing_media_file_ids,
+            rescan_scan_job_id: availability.rescan_scan_job_id,
         }
     }
 }
@@ -1262,6 +1296,7 @@ impl ScanJobResponse {
             started_at: format_optional_datetime(scan_job.started_at, offset),
             finished_at: format_optional_datetime(scan_job.finished_at, offset),
             error_message: scan_job.error_message,
+            scope_paths: scan_job.scope_paths,
         }
     }
 }
@@ -1476,8 +1511,8 @@ fn is_generated_episode_still_path(value: &str) -> bool {
 mod tests {
     use super::{
         public_cast_profile_path, public_media_item_asset_path, public_season_asset_path,
-        MediaItemDetailResponse, MediaItemMetadataSourcesResponse, MediaItemResponse,
-        MediaLocalMetadataSourceResponse,
+        MediaItemAvailabilityResponse, MediaItemDetailResponse, MediaItemMetadataSourcesResponse,
+        MediaItemResponse, MediaLocalMetadataSourceResponse,
     };
     use mova_application::{LocalMetadataSourceInspection, MediaItemMetadataSources};
     use mova_domain::{
@@ -1728,7 +1763,11 @@ mod tests {
 
     #[test]
     fn media_item_detail_response_exposes_metadata_binding() {
-        let response = MediaItemDetailResponse::from_domain(sample_media_item(), UtcOffset::UTC);
+        let response = MediaItemDetailResponse::from_domain(
+            sample_media_item(),
+            MediaItemAvailabilityResponse::default(),
+            UtcOffset::UTC,
+        );
 
         assert_eq!(response.metadata_provider.as_deref(), Some("tmdb"));
         assert_eq!(response.metadata_provider_item_id, Some("129".to_string()));

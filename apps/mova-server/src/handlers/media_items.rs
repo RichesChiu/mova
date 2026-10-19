@@ -4,9 +4,10 @@ use crate::auth::{
 };
 use crate::error::ApiError;
 use crate::response::{
-    ok, ApiJson, MediaCastMemberResponse, MediaFileResponse, MediaItemDetailResponse,
-    MediaItemMetadataSourcesResponse, MediaItemPlaybackHeaderResponse, MediaItemResponse,
-    MediaLocalMetadataSourceResponse, MetadataMatchCandidateResponse, SeriesEpisodeOutlineResponse,
+    ok, ApiJson, MediaCastMemberResponse, MediaFileResponse, MediaItemAvailabilityResponse,
+    MediaItemDetailResponse, MediaItemMetadataSourcesResponse, MediaItemPlaybackHeaderResponse,
+    MediaItemResponse, MediaLocalMetadataSourceResponse, MetadataMatchCandidateResponse,
+    SeriesEpisodeOutlineResponse,
 };
 use crate::state::AppState;
 use axum::{
@@ -38,12 +39,82 @@ pub async fn get_media_item(
     AuthenticatedUser(user): AuthenticatedUser,
     Path(media_item_id): Path<i64>,
 ) -> Result<ApiJson<MediaItemDetailResponse>, ApiError> {
-    let media_item = require_media_item_access(&state, &user, media_item_id).await?;
+    let (media_item, library) =
+        require_media_item_with_library_access(&state, &user, media_item_id).await?;
+    let availability = inspect_and_queue_rescan(&state, &library, &media_item).await;
 
     Ok(ok(MediaItemDetailResponse::from_domain(
         media_item,
+        availability,
         state.api_time_offset,
     )))
+}
+
+/// Looks the item's files up on disk and, when some are gone, hands their
+/// directories to a scan limited to them. The detail page never fails on
+/// this: an inspection error opens the page as if everything were present.
+async fn inspect_and_queue_rescan(
+    state: &AppState,
+    library: &mova_domain::Library,
+    media_item: &mova_domain::MediaItem,
+) -> MediaItemAvailabilityResponse {
+    let inspection =
+        match mova_application::inspect_media_item_sources(&state.db, library, media_item).await {
+            Ok(inspection) => inspection,
+            Err(error) => {
+                tracing::warn!(
+                    media_item_id = media_item.id,
+                    error = ?error,
+                    "failed to inspect media item files on open"
+                );
+                return MediaItemAvailabilityResponse::default();
+            }
+        };
+    let mut availability = MediaItemAvailabilityResponse {
+        source_status: inspection.status,
+        missing_media_file_ids: inspection.missing_media_file_ids,
+        rescan_scan_job_id: None,
+    };
+    if inspection.rescan_directories.is_empty() || state.scan_registry.is_deleting(library.id) {
+        return availability;
+    }
+    let directories = state
+        .media_inspections
+        .admit(library.id, &inspection.rescan_directories);
+    if directories.is_empty() {
+        // Requested recently: the scan it produced is still pending or
+        // running, or it has already given its verdict.
+        if let Ok(Some(scan_job)) =
+            mova_application::get_active_scan_job_for_library(&state.db, library.id).await
+        {
+            availability.rescan_scan_job_id = Some(scan_job.id);
+        }
+        return availability;
+    }
+    match mova_application::enqueue_scoped_library_scan(
+        &state.db,
+        library.id,
+        directories,
+        state.storage_environment.as_ref(),
+    )
+    .await
+    {
+        Ok(result) => {
+            if result.created {
+                state.background_jobs.wake();
+            }
+            availability.rescan_scan_job_id = Some(result.scan_job.id);
+        }
+        Err(error) => {
+            tracing::warn!(
+                media_item_id = media_item.id,
+                library_id = library.id,
+                error = ?error,
+                "failed to queue a scoped scan for an item with missing files"
+            );
+        }
+    }
+    availability
 }
 
 /// Query source-aware identities and lightweight local metadata source headers.

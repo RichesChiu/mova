@@ -29,6 +29,42 @@ pub struct AppState {
     pub background_jobs: BackgroundJobNotifier,
     pub strm_streaming: mova_application::StrmStreamingService,
     pub storage_environment: Arc<dyn mova_application::LibraryStorageEnvironment>,
+    pub media_inspections: MediaInspectionThrottle,
+}
+
+/// Keeps automatic scans triggered by opening items from piling up: one
+/// scoped scan request per library directory within the cooldown. Entries
+/// live in memory only; a restart simply allows the next request.
+#[derive(Clone, Default)]
+pub struct MediaInspectionThrottle {
+    inner: Arc<std::sync::Mutex<std::collections::HashMap<(i64, String), std::time::Instant>>>,
+}
+
+impl MediaInspectionThrottle {
+    pub const COOLDOWN: std::time::Duration = std::time::Duration::from_secs(600);
+
+    /// Returns the directories that may be handed to a scan now and records
+    /// them; directories requested within the cooldown are left out.
+    pub fn admit(&self, library_id: i64, directories: &[String]) -> Vec<String> {
+        let now = std::time::Instant::now();
+        let mut inner = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        inner.retain(|_, requested_at| now.duration_since(*requested_at) < Self::COOLDOWN);
+        directories
+            .iter()
+            .filter(|directory| {
+                let key = (library_id, (*directory).clone());
+                if inner.contains_key(&key) {
+                    return false;
+                }
+                inner.insert(key, now);
+                true
+            })
+            .cloned()
+            .collect()
+    }
 }
 
 #[derive(Clone, Default)]
@@ -257,5 +293,32 @@ mod tests {
         let result = registry.begin_delete(3);
 
         assert_eq!(result.err(), Some(BeginDeleteError::AlreadyDeleting));
+    }
+}
+
+#[cfg(test)]
+mod media_inspection_throttle_tests {
+    use super::MediaInspectionThrottle;
+
+    #[test]
+    fn a_directory_is_admitted_once_per_cooldown_per_library() {
+        let throttle = MediaInspectionThrottle::default();
+        let alpha = "/media/movies/Alpha (2020)".to_string();
+        let beta = "/media/movies/Beta (2021)".to_string();
+
+        assert_eq!(
+            throttle.admit(1, &[alpha.clone(), beta.clone()]),
+            vec![alpha.clone(), beta.clone()]
+        );
+        // Asked again right away: nothing new to hand to a scan.
+        assert!(throttle.admit(1, std::slice::from_ref(&alpha)).is_empty());
+        // Another library has its own cooldown.
+        assert_eq!(
+            throttle.admit(2, std::slice::from_ref(&alpha)),
+            vec![alpha.clone()]
+        );
+        // A new directory of the first library is still admitted.
+        let gamma = "/media/movies/Gamma (2022)".to_string();
+        assert_eq!(throttle.admit(1, &[alpha, gamma.clone()]), vec![gamma]);
     }
 }

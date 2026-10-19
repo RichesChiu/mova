@@ -9,6 +9,7 @@ mod local_metadata;
 mod media_cast;
 mod media_classification;
 mod media_enrichment;
+mod media_inspection;
 mod media_items;
 mod metadata;
 mod metadata_match;
@@ -53,6 +54,11 @@ pub use media_cast::{
     ensure_media_item_cast, invalidate_media_item_cast_cache, list_media_item_cast,
 };
 pub use media_classification::{LIBRARY_TYPE_MOVIE, LIBRARY_TYPE_SERIES};
+pub use media_inspection::{
+    inspect_media_item_sources, MediaItemSourceInspection, MediaSourceStatus,
+    MEDIA_SOURCE_STATUS_AVAILABLE, MEDIA_SOURCE_STATUS_MISSING,
+    MEDIA_SOURCE_STATUS_STORAGE_UNAVAILABLE,
+};
 pub use media_items::{
     get_audio_track, get_media_file, get_media_item, get_media_item_metadata_source,
     get_media_item_metadata_sources, get_season, get_subtitle_file, global_search,
@@ -91,9 +97,10 @@ pub use remote_stream::{
     RemoteStreamResponse, RemoteTargetDiagnostics, StrmStreamingConfig, StrmStreamingService,
 };
 pub use scan_jobs::{
-    enqueue_library_scan, execute_scan_job_with_cancellation, get_scan_job_for_library,
-    list_scan_jobs_for_library, EnqueueLibraryScanResult, ExecuteScanJobOutcome, ScanJobEvent,
-    ScanJobItemProgressUpdate, ScanJobProgressUpdate,
+    enqueue_library_scan, enqueue_scoped_library_scan, execute_scan_job_with_cancellation,
+    get_active_scan_job_for_library, get_scan_job_for_library, list_scan_jobs_for_library,
+    EnqueueLibraryScanResult, ExecuteScanJobOutcome, ScanJobEvent, ScanJobItemProgressUpdate,
+    ScanJobProgressUpdate,
 };
 pub use tmdb_revalidation::{
     execute_tmdb_artwork_cleanup, execute_tmdb_artwork_orphan_sweep,

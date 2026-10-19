@@ -19,6 +19,7 @@ import { MEDIA_DETAIL_QUERY_STALE_TIME_MS, MEDIA_QUERY_GC_TIME_MS } from '../../
 interface MediaItemSourceFilesSectionProps {
   error: unknown
   isLoading: boolean
+  isSelectedFileMissing: boolean
   isSeriesView: boolean
   mediaFiles: MediaFile[]
   originalTitle: string | null
@@ -29,6 +30,7 @@ interface MediaItemSourceFilesSectionProps {
 export const MediaItemSourceFilesSection = ({
   error,
   isLoading,
+  isSelectedFileMissing,
   isSeriesView,
   mediaFiles,
   originalTitle,
@@ -115,6 +117,15 @@ export const MediaItemSourceFilesSection = ({
                 <p className="media-file-detail__label">{l('Path')}</p>
                 <p className="media-file-detail__path">{selectedMediaFile.file_path}</p>
               </div>
+              {isSelectedFileMissing ? (
+                <p
+                  className="callout callout--warning media-file-detail__probe-issue"
+                  role="status"
+                >
+                  <strong>{l('Resource no longer exists')}</strong>
+                  <span>{l('This version is no longer on disk.')}</span>
+                </p>
+              ) : null}
               {probeIssueMessage ? (
                 <p
                   className="callout callout--warning media-file-detail__probe-issue"

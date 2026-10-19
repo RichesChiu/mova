@@ -447,6 +447,7 @@ mod tests {
             storage_environment: std::sync::Arc::new(
                 mova_application::HostLibraryStorageEnvironment,
             ),
+            media_inspections: Default::default(),
         }
     }
 
@@ -534,11 +535,17 @@ mod tests {
     }
 
     async fn seed_scan_job(pool: &sqlx::postgres::PgPool, library_id: i64) -> i64 {
-        mova_db::enqueue_scan_job(pool, mova_db::CreateScanJobParams { library_id })
-            .await
-            .unwrap()
-            .scan_job
-            .id
+        mova_db::enqueue_scan_job(
+            pool,
+            mova_db::CreateScanJobParams {
+                library_id,
+                scope_paths: Vec::new(),
+            },
+        )
+        .await
+        .unwrap()
+        .scan_job
+        .id
     }
 
     async fn seed_library_media_graph(

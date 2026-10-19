@@ -1,14 +1,26 @@
 use super::*;
 
+/// What the planner needs to know about the scan besides its files.
+pub(super) struct IncrementalPlanOptions<'a> {
+    /// Directories a scoped scan is limited to; `None` for the whole library.
+    pub(super) scope_prefixes: Option<&'a [String]>,
+    pub(super) metadata_provider_enabled: bool,
+    pub(super) metadata_language: &'a str,
+}
+
 pub(super) async fn build_incremental_scan_plan(
     pool: &PgPool,
     library_id: i64,
     root_path: &std::path::Path,
     discovered_files: Vec<DiscoveredMediaFileInventory>,
     unparsed_carrier_paths: &[String],
-    metadata_provider_enabled: bool,
-    metadata_language: &str,
+    options: IncrementalPlanOptions<'_>,
 ) -> ApplicationResult<IncrementalScanPlan> {
+    let IncrementalPlanOptions {
+        scope_prefixes,
+        metadata_provider_enabled,
+        metadata_language,
+    } = options;
     let file_paths = discovered_files
         .iter()
         .map(|file| file.file_path.to_string_lossy().to_string())
@@ -20,15 +32,23 @@ pub(super) async fn build_incremental_scan_plan(
         .chain(unparsed_carrier_paths)
         .map(String::as_str)
         .collect::<HashSet<_>>();
-    let renamed_files =
-        detect_renamed_media_files(pool, library_id, &discovered_files, unparsed_carrier_paths)
-            .await?;
+    let renamed_files = detect_renamed_media_files(
+        pool,
+        library_id,
+        &discovered_files,
+        unparsed_carrier_paths,
+        scope_prefixes,
+    )
+    .await?;
     let memberships = mova_db::list_library_media_file_memberships(pool, library_id)
         .await
         .map_err(ApplicationError::Unexpected)?;
+    // Outside a scoped scan's directories nothing was observed, so nothing
+    // there counts as removed.
     let owners_with_removed_versions = memberships
         .iter()
         .filter(|membership| !discovered_path_set.contains(membership.file_path.as_str()))
+        .filter(|membership| path_in_scope(&membership.file_path, scope_prefixes))
         .map(|membership| membership.logical_metadata_owner_id)
         .collect::<HashSet<_>>();
 
@@ -125,11 +145,22 @@ pub(super) async fn build_incremental_scan_plan(
 /// item it resolves to when that is the same work. Signatures shared by
 /// several files on either side are ambiguous and left alone, and an old path
 /// that still exists on disk was copied, not moved.
+/// Whether a catalog path lies inside the scan's directories; every path does
+/// for a whole-library scan.
+pub(super) fn path_in_scope(path: &str, scope_prefixes: Option<&[String]>) -> bool {
+    scope_prefixes.is_none_or(|prefixes| {
+        prefixes
+            .iter()
+            .any(|prefix| mova_db::path_is_under(path, prefix))
+    })
+}
+
 async fn detect_renamed_media_files(
     pool: &PgPool,
     library_id: i64,
     discovered_files: &[DiscoveredMediaFileInventory],
     unparsed_carrier_paths: &[String],
+    scope_prefixes: Option<&[String]>,
 ) -> ApplicationResult<Vec<mova_db::RenamedMediaFile>> {
     let signatures = mova_db::list_local_media_file_signatures(pool, library_id)
         .await
@@ -142,7 +173,9 @@ async fn detect_renamed_media_files(
     let mut missing_by_signature =
         HashMap::<(i64, i64), Vec<&mova_db::LocalMediaFileSignature>>::new();
     for signature in &signatures {
-        if discovered_paths.contains(&signature.file_path) {
+        if discovered_paths.contains(&signature.file_path)
+            || !path_in_scope(&signature.file_path, scope_prefixes)
+        {
             continue;
         }
         let Some(modified_at_ms) = signature.file_modified_at_ms else {
@@ -1300,15 +1333,26 @@ pub(super) fn discovered_file_from_existing_local_analysis(
     })
 }
 
+/// The library a discovery reads, under which storage verdict and scope.
+pub(super) struct DiscoveryTarget<'a> {
+    pub(super) library: &'a Library,
+    pub(super) storage_plan: Arc<StoragePlan>,
+    pub(super) scan_scope: &'a super::ScanScope,
+}
+
 pub(super) async fn discover_media_files(
     pool: &PgPool,
     scan_job_id: i64,
-    library: &Library,
-    storage_plan: Arc<StoragePlan>,
+    target: DiscoveryTarget<'_>,
     fence: &BackgroundJobFence,
     cancellation_flag: Arc<AtomicBool>,
     event_listener: Arc<dyn Fn(ScanJobEvent) + Send + Sync>,
 ) -> ApplicationResult<DiscoverMediaFilesOutcome> {
+    let DiscoveryTarget {
+        library,
+        storage_plan,
+        scan_scope,
+    } = target;
     if storage_plan.skips_traversal() {
         return Ok(DiscoverMediaFilesOutcome::Completed(
             MediaDiscoveryReport::default(),
@@ -1399,11 +1443,13 @@ pub(super) async fn discover_media_files(
 
     let cancellation_for_task = cancellation_flag.clone();
     let excluded_directories = storage_plan.excluded_directories();
+    let scope_directories = scan_scope.directory_paths();
     let plan_for_task = storage_plan.clone();
     let result = tokio::task::spawn_blocking(move || {
         let mut outage = None;
-        let report = mova_scan::discover_media_file_inventory_report_with_policy(
+        let report = mova_scan::discover_media_file_inventory_report_in_scope(
             std::path::Path::new(&root_path_for_task),
+            scope_directories.as_deref(),
             &excluded_directories,
             |count| {
                 publish_discovery_progress(&latest_discovered, &progress_tx, count);

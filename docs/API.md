@@ -1154,6 +1154,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
   - `Directory scan failed: Failed to scan media directory /media/movies: ...`
   - `Media processing failed: Failed to process scan pipeline: ...`
   - `Library finalization failed: Failed to save changed library data`
+- `scope_paths`：本次扫描限定的目录列表；`null` 表示整库扫描。用户打开条目时发现文件缺失会自动创建限定在该条目目录的扫描，规则见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md) 5.2；待执行的限定扫描会合并后续请求的目录，整库请求会把它放大为整库扫描
 
 等待重试的 `pending` 任务也会暂存最近一次执行的 `error_message` 和最后权威进度，但它还不是终态；下一次 worker 领取时会清除该错误并继续执行。重试额度耗尽后才写入 `failed / finished`。
 
@@ -1181,7 +1182,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - 如果媒体库的存储不可用：`409 Conflict`，`error_code=library_storage_unavailable`；请求时会重新检查存储，并同步更新媒体库的 `storage_status`
 
 说明：
-- 媒体库存在 `pending` 或 `running` 任务时复用该任务，不启动第二个扫描
+- 媒体库存在 `pending` 或 `running` 任务时复用该任务，不启动第二个扫描；被复用的任务如果是尚未开始的限定范围扫描，会被放大为整库扫描（`scope_paths` 变为 `null`）
 - 扫描请求和 PostgreSQL `background_jobs` 后台任务在同一事务内持久化；服务重启后 worker 重新领取未完成任务。客户端可以通过 `/api/libraries/{id}/scan-jobs/{scan_job_id}`、realtime state 和临时扫描事件读取进度
 - 创建媒体库触发首次扫描；之后的新增、删除、改名和移动通过手动扫描收敛
 - 扫描是按库串行、可恢复的后台任务。增量复用、worker 流水线、组级事务、进度算法和 finalize 规则统一见 [`MEDIA_LIBRARY_SCAN.md`](MEDIA_LIBRARY_SCAN.md)。
@@ -1261,6 +1262,9 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `backdrop_path`：背景图可访问 URL；TMDB 图片会优先缓存到本地，因此通常是 `/api/media-items/{id}/backdrop`
 - `logo_path`：透明标题 Logo 可访问 URL；没有合适素材时为 `null`。TMDB 素材会优先缓存到本地，因此通常是 `/api/media-items/{id}/logo`
 - 图片字段只会返回 Mova 内部图片路由或不带 query/fragment 的 TMDB 官方 HTTPS 图片地址；历史数据库中的任意第三方、localhost、私网或其他不可信远程地址会被隐藏为 `null`
+- `source_status`：请求时对条目本地文件的核对结果。`available` 表示至少有一个版本仍在磁盘上（或条目没有本地文件、核对超时、条目是 `series`）；`missing` 表示该电影或单集的全部本地版本都已不在磁盘上；`storage_unavailable` 表示媒体库存储不可用，未做核对。核对只针对 `movie` 和 `episode` 的 `local_file` 版本，STRM 不核对；`series` 恒为 `available`，剧集的可用性以单集为准
+- `missing_media_file_ids`：核对时已不在磁盘上的 `media_file_id` 列表；客户端应把这些版本标记为“资源不存在”，不作为默认播放版本
+- `rescan_scan_job_id`：文件缺失时服务端自动创建或复用的扫描任务 ID，该扫描限定在缺失文件所在目录；没有缺失或未创建时为 `null`。客户端应显示“资源已不存在，正在重新扫描”，不得自行删除条目；条目是否删除由扫描决定，结果通过扫描事件和 catalog revision 到达
 
 返回示例：
 
@@ -1302,7 +1306,10 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
   "backdrop_path": "/api/media-items/3/backdrop",
   "logo_path": "/api/media-items/3/logo",
   "created_at": "2026-03-24T12:00:00+08:00",
-  "updated_at": "2026-03-24T12:00:00+08:00"
+  "updated_at": "2026-03-24T12:00:00+08:00",
+  "source_status": "available",
+  "missing_media_file_ids": [],
+  "rescan_scan_job_id": null
 }
 ```
 
@@ -1526,6 +1533,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `technical_tags` 是文件维度字段；同一个电影或单集有多个版本时，每个 `media_file` 可以返回不同标签
 - 如果没有安装 `ffprobe`，或者文件探测失败，这些字段会保持为空，但不会阻断扫描
 - 如果这个条目是 `series`，这里通常返回空列表；季集层级和本地可用性统一改用 `/api/media-items/{id}/episode-outline`
+- 这个接口不核对文件是否仍在磁盘上；打开条目时的核对结果通过 `GET /api/media-items/{id}` 的 `source_status` 和 `missing_media_file_ids` 给出
 
 ### `GET /api/media-items/{id}/episode-outline`
 
@@ -1557,7 +1565,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
   - `seasons[].episodes[].intro_start_seconds`
   - `seasons[].episodes[].intro_end_seconds`
   - `seasons[].episodes[].media_item_id`（本地存在时有值）
-  - `seasons[].episodes[].is_available`（本地存在时为 `true`）
+  - `seasons[].episodes[].is_available`（本地存在且仍有物理文件时为 `true`；本地集条目的文件全部消失但剧集仍有其他文件时，该集保留在大纲中并为 `false`，其播放记录和观看状态保留）
   - `seasons[].episodes[].playback_progress`
   - `seasons[].episodes[].playback_progress.last_media_file_id`
   - `seasons[].episodes[].playback_progress.position_seconds`
@@ -1574,6 +1582,7 @@ Web cookie 会话退出时可以完全省略请求体，也不需要发送 `Cont
 - `seasons[].intro_start_seconds` / `seasons[].intro_end_seconds` 承载按需检测并持久化的 season 级片头区间；`episodes[].intro_*` 默认为空。输入变化和算法版本规则见 [`INTRO_DETECTION.md`](INTRO_DETECTION.md)。
 - `episodes[].playback_progress` 会带上该集最近一次播放快照；`last_media_file_id` 用于在同一集存在多个物理版本时恢复最近播放的版本。前端可以据此显示集卡进度、已看完状态，以及“最近一集已播完则默认跳下一集”的续播入口。
 - 可直接用于前端“可播放集高亮、缺失集置灰”的展示逻辑。
+- 文件消失的单集不会单独删除：只要剧集还有任何一个文件，该集就以 `is_available = false` 保留，`media_item_id` 仍然有值，播放进度、已看状态和剧集的继续观看入口都保留；文件回来或改回原名后按剧集、季号和集号重新挂回这一集。整部剧集的文件全部消失时才连同记录一起删除。
 - TMDB 剧集大纲缓存在 PostgreSQL `series_episode_outline_cache` 的 `jsonb` 文档中，数据库会拒绝无效 JSON；默认 TTL 为 24 小时。
 - 缓存过期且 TMDB 临时不可用时，接口返回最近一次可用缓存。
 

@@ -78,6 +78,7 @@ pub async fn sync_library_media(
         upsert_media_entry(&mut tx, entry, existing).await?;
     }
 
+    delete_fileless_episodes_of_fileless_series(&mut tx, library_id).await?;
     series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
 
     tx.commit()
@@ -154,6 +155,8 @@ pub async fn sync_library_media_best_effort(
 /// 用户播放状态原样保留。其余已入库路径视为已删除。调用方必须先确认存储连接正常并核实
 /// 每个待删除路径，此函数不再用“零发现”猜测存储是否脱离。
 /// `storage_mounts` 是本轮扫描所依据的存储记录，与对账在同一个事务中替换。
+/// `scope_prefixes` 为 `Some` 时本轮只观察了这些目录：只有位于其下的已入库路径才可能缺失，
+/// 范围外的路径一律保留。
 /// `renamed_files` 是本轮按大小和修改时间识别出的改名或移动：旧路径照常作为缺失路径删除，
 /// 只有新路径解析成同一部作品（两边的 provider ID 相同，或任一边没有 ID）时，旧条目的用户播放
 /// 状态才并入新条目。
@@ -167,6 +170,7 @@ pub async fn sync_library_media_changes(
     retained_local_metadata_source_paths: &[String],
     entries: &[CreateMediaEntryParams],
     storage_mounts: Option<&[LibraryStorageMountRecord]>,
+    scope_prefixes: Option<&[String]>,
     renamed_files: &[RenamedMediaFile],
     fence: &BackgroundJobFence,
 ) -> Result<SyncLibraryMediaBestEffortOutcome> {
@@ -205,6 +209,10 @@ pub async fn sync_library_media_changes(
     // A renamed or moved file keeps its users' playback state only when the
     // path it reappeared at resolved to the same work; a different provider
     // binding means another title, and the old entry goes with its state.
+    // An item whose file provably moved to another item did not lose it; such
+    // an item is dropped when it ends up empty, even an episode of a series
+    // that still has files.
+    let mut moved_away_item_ids = HashSet::new();
     for renamed in renamed_files {
         if observed_paths.contains(renamed.old_file_path.as_str()) {
             continue;
@@ -218,6 +226,7 @@ pub async fn sync_library_media_changes(
         if old.media_item_id == new.media_item_id {
             continue;
         }
+        moved_away_item_ids.insert(old.media_item_id);
         let old_binding = media_item_binding(&mut tx, old.media_item_id).await?;
         let new_binding = media_item_binding(&mut tx, new.media_item_id).await?;
         if !is_same_work(old_binding.as_ref(), new_binding.as_ref()) {
@@ -264,20 +273,36 @@ pub async fn sync_library_media_changes(
     let missing_paths = existing_by_path
         .keys()
         .filter(|path| !observed_paths.contains(path.as_str()))
+        .filter(|path| {
+            scope_prefixes.is_none_or(|prefixes| {
+                prefixes
+                    .iter()
+                    .any(|prefix| crate::media_items::path_is_under(path, prefix))
+            })
+        })
         .cloned()
         .collect::<Vec<_>>();
     for missing_path in missing_paths {
         let record = existing_by_path
             .remove(&missing_path)
             .context("missing media path disappeared from the reconciliation snapshot")?;
-        delete_media_file_and_cleanup_item(&mut tx, record.media_item_id, record.media_file_id)
+        let removal = if moved_away_item_ids.contains(&record.media_item_id) {
+            delete_media_file_and_drop_empty_item(
+                &mut tx,
+                record.media_item_id,
+                record.media_file_id,
+            )
             .await
-            .with_context(|| {
-                format!(
-                    "failed to delete missing media path during authoritative reconciliation: {}",
-                    record.file_path
-                )
-            })?;
+        } else {
+            delete_media_file_and_cleanup_item(&mut tx, record.media_item_id, record.media_file_id)
+                .await
+        };
+        removal.with_context(|| {
+            format!(
+                "failed to delete missing media path during authoritative reconciliation: {}",
+                record.file_path
+            )
+        })?;
         outcome.removed_count += 1;
     }
 
@@ -298,15 +323,23 @@ pub async fn sync_library_media_changes(
         &mut tx,
         library_id,
         retained_local_metadata_source_paths,
+        scope_prefixes,
     )
     .await
     .context("failed to reconcile local metadata source paths")?;
+
+    // Episodes kept without files are dropped once their series has no file
+    // left anywhere, so the series and its records go together.
+    let removed_ghost_episodes =
+        delete_fileless_episodes_of_fileless_series(&mut tx, library_id).await?;
+    outcome.removed_count += removed_ghost_episodes;
 
     // Group commits intentionally defer whole-library orphan cleanup to this
     // authoritative finalization transaction. Running it once per scan avoids
     // two full-library anti-join deletes for every local and remote group.
     let removed_orphan_structure_count =
-        series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
+        delete_fileless_episodes_of_fileless_series(&mut tx, library_id).await?;
+    series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
 
     if let Some(storage_mounts) = storage_mounts {
         replace_library_storage_mounts_tx(&mut tx, library_id, storage_mounts).await?;
@@ -329,6 +362,33 @@ pub async fn sync_library_media_changes(
         .context("failed to commit authoritative media reconciliation")?;
 
     Ok(outcome)
+}
+
+async fn delete_fileless_episodes_of_fileless_series(
+    tx: &mut Transaction<'_, Postgres>,
+    library_id: i64,
+) -> Result<usize> {
+    let result = sqlx::query(
+        r#"
+        delete from media_items mi
+        using episodes e
+        join seasons s on s.id = e.season_id
+        where mi.id = e.media_item_id
+          and mi.library_id = $1
+          and not exists (
+            select 1
+            from seasons any_season
+            join episodes any_episode on any_episode.season_id = any_season.id
+            join media_files mf on mf.media_item_id = any_episode.media_item_id
+            where any_season.series_id = s.series_id
+          )
+        "#,
+    )
+    .bind(library_id)
+    .execute(&mut **tx)
+    .await
+    .context("failed to delete episodes of series without media files")?;
+    Ok(usize::try_from(result.rows_affected()).unwrap_or(usize::MAX))
 }
 
 async fn media_item_binding(
@@ -422,6 +482,7 @@ pub async fn upsert_library_media_entry_by_file_path(
     let existing =
         get_existing_library_media_file_by_path(&mut tx, library_id, &entry.file_path).await?;
     upsert_media_entry(&mut tx, entry, existing).await?;
+    delete_fileless_episodes_of_fileless_series(&mut tx, library_id).await?;
     series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
 
     tx.commit()
@@ -531,6 +592,7 @@ async fn upsert_library_media_entries_by_file_path_internal(
     }
 
     if cleanup_orphans {
+        delete_fileless_episodes_of_fileless_series(&mut tx, library_id).await?;
         series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
     }
     let scan_job = advance_scan_group_progress(
@@ -694,6 +756,7 @@ async fn patch_library_media_entries_remote_by_file_path_internal(
     }
 
     if cleanup_orphans {
+        delete_fileless_episodes_of_fileless_series(&mut tx, library_id).await?;
         series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
     }
     let scan_job = advance_scan_group_progress(
@@ -1058,7 +1121,8 @@ async fn advance_scan_group_progress(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         "#,
     )
     .bind(scan_job_id)
@@ -1087,6 +1151,7 @@ pub async fn delete_library_media_by_file_path(
     {
         delete_media_file_and_cleanup_item(&mut tx, existing.media_item_id, existing.media_file_id)
             .await?;
+        delete_fileless_episodes_of_fileless_series(&mut tx, library_id).await?;
         series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
         1
     } else {
@@ -1143,6 +1208,7 @@ pub async fn delete_library_media_by_path_prefix(
     }
 
     if !media_file_records.is_empty() {
+        delete_fileless_episodes_of_fileless_series(&mut tx, library_id).await?;
         series::cleanup_orphan_series_structure(&mut tx, library_id).await?;
     }
 
@@ -2289,6 +2355,31 @@ pub(super) async fn delete_media_file_and_cleanup_item(
     cleanup_media_item_if_no_files(tx, media_item_id).await
 }
 
+/// Deletes a file row and its item when no file remains, without the
+/// series retention rule: the file is known to have moved elsewhere.
+async fn delete_media_file_and_drop_empty_item(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+    media_file_id: i64,
+) -> Result<()> {
+    sqlx::query("delete from media_files where id = $1")
+        .bind(media_file_id)
+        .execute(&mut **tx)
+        .await
+        .context("failed to delete moved media file during library sync")?;
+    let has_files = sqlx::query_scalar::<_, bool>(
+        "select exists(select 1 from media_files where media_item_id = $1)",
+    )
+    .bind(media_item_id)
+    .fetch_one(&mut **tx)
+    .await
+    .context("failed to check remaining media files of a moved item")?;
+    if !has_files {
+        delete_media_item(tx, media_item_id).await?;
+    }
+    Ok(())
+}
+
 pub(super) async fn cleanup_media_item_if_no_files(
     tx: &mut Transaction<'_, Postgres>,
     media_item_id: i64,
@@ -2307,11 +2398,42 @@ pub(super) async fn cleanup_media_item_if_no_files(
     .await
     .context("failed to check remaining media files during library sync")?;
 
-    if !has_files {
-        delete_media_item(tx, media_item_id).await?;
+    if has_files {
+        return Ok(());
     }
+    // Records follow the item: an episode whose files are gone stays in its
+    // series, unavailable, while the series still has any file. Only a
+    // series with nothing left loses its episodes, and with them the
+    // seasons, the series and the users' records.
+    if series_of_episode_has_files(tx, media_item_id).await? {
+        return Ok(());
+    }
+    delete_media_item(tx, media_item_id).await?;
 
     Ok(())
+}
+
+async fn series_of_episode_has_files(
+    tx: &mut Transaction<'_, Postgres>,
+    media_item_id: i64,
+) -> Result<bool> {
+    sqlx::query_scalar::<_, bool>(
+        r#"
+        select exists(
+            select 1
+            from episodes own
+            join seasons own_season on own_season.id = own.season_id
+            join seasons sibling_season on sibling_season.series_id = own_season.series_id
+            join episodes sibling on sibling.season_id = sibling_season.id
+            join media_files mf on mf.media_item_id = sibling.media_item_id
+            where own.media_item_id = $1
+        )
+        "#,
+    )
+    .bind(media_item_id)
+    .fetch_one(&mut **tx)
+    .await
+    .context("failed to check whether the episode's series still has media files")
 }
 
 pub(super) async fn delete_media_item(

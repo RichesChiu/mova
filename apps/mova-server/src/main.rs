@@ -76,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
         background_jobs: state::BackgroundJobNotifier::default(),
         strm_streaming,
         storage_environment: std::sync::Arc::new(mova_application::HostLibraryStorageEnvironment),
+        media_inspections: state::MediaInspectionThrottle::default(),
     };
 
     library_storage_startup::start_library_storage_check(state.clone());

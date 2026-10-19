@@ -1157,6 +1157,7 @@ mod tests {
             &pool,
             CreateScanJobParams {
                 library_id: library.id,
+                scope_paths: Vec::new(),
             },
         )
         .await
@@ -1215,6 +1216,7 @@ mod tests {
             &pool,
             CreateScanJobParams {
                 library_id: library.id,
+                scope_paths: Vec::new(),
             },
         )
         .await
@@ -1280,6 +1282,7 @@ mod tests {
             &pool,
             CreateScanJobParams {
                 library_id: library.id,
+                scope_paths: Vec::new(),
             },
         )
         .await
@@ -1349,6 +1352,7 @@ mod tests {
             &pool,
             CreateScanJobParams {
                 library_id: library.id,
+                scope_paths: Vec::new(),
             },
         )
         .await

@@ -351,6 +351,16 @@ const zhCN: Record<string, string> = {
   Cast: '演员',
   'Loading cast…': '正在加载演员信息…',
   'Cast details are unavailable right now.': '当前无法获取演员信息。',
+  'Resource no longer exists': '资源已不存在',
+  'The files of {{title}} were not found on disk.': '磁盘上找不到《{{title}}》的文件。',
+  'The library is being rescanned. This entry is updated or removed when the scan finishes.':
+    '正在重新扫描媒体库，扫描完成后会更新或移除这个条目。',
+  'Rescan the library after restoring the files to bring this entry back.':
+    '文件恢复后重新扫描媒体库，这个条目就会恢复。',
+  'This version is no longer on disk.': '这个版本已不在磁盘上。',
+  'Library storage is unavailable, so the files of this entry could not be verified.':
+    '媒体库存储不可用，无法核对这个条目的文件。',
+  Unavailable: '资源不存在',
   Actor: '演员',
   'as {{character}}': '饰 {{character}}',
   'Source Files': '资源文件',

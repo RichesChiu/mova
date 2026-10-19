@@ -16,6 +16,7 @@ import {
 } from '../../components/app-shell/scan-runtime'
 import { GlassSelect } from '../../components/glass-select'
 import { MediaRatingBadges } from '../../components/media-rating-badges'
+import { MediaSourceMissingNotice } from '../../components/media-source-missing-notice'
 import { MetadataMatchPanel } from '../../components/metadata-match-panel'
 import { useI18n } from '../../i18n'
 import { formatMediaCountry } from '../../lib/media-country'
@@ -74,6 +75,8 @@ type PageArtworkState = {
 }
 
 const isHeroFact = (item: HeroFact | null): item is HeroFact => item !== null
+
+const NO_MISSING_MEDIA_FILE_IDS: number[] = []
 
 export const MediaItemPage = () => {
   const { l } = useI18n()
@@ -135,8 +138,10 @@ export const MediaItemPage = () => {
   })
 
   const seasons = episodeOutlineQuery.data?.seasons ?? []
+  // A season stays listed while it has a local episode, even one whose files
+  // are gone: that episode is shown as unavailable rather than hidden.
   const availableSeasons = seasons.filter((season) =>
-    season.episodes.some((episode) => episode.is_available),
+    season.episodes.some((episode) => episode.media_item_id !== null),
   )
   const castQuery = useQuery({
     gcTime: MEDIA_QUERY_GC_TIME_MS,
@@ -188,6 +193,8 @@ export const MediaItemPage = () => {
     staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
   })
   const mediaFiles = mediaFilesQuery.data ?? []
+  const missingMediaFileIds =
+    mediaItemQuery.data?.missing_media_file_ids ?? NO_MISSING_MEDIA_FILE_IDS
   const selectedMediaFile =
     selectedMediaVersionId === null
       ? null
@@ -242,9 +249,13 @@ export const MediaItemPage = () => {
       mediaItemQuery.data?.media_type === 'series'
         ? seriesPlaybackTargetEpisode?.playback_progress
         : moviePlaybackProgressQuery.data
+    // A version the server reported missing is never the default; the user can
+    // still pick it to see where it was.
+    const presentMediaFiles = mediaFiles.filter((file) => !missingMediaFileIds.includes(file.id))
     const preferredMediaFile =
       (playbackProgress &&
-        mediaFiles.find((file) => file.id === playbackProgress.last_media_file_id)) ??
+        presentMediaFiles.find((file) => file.id === playbackProgress.last_media_file_id)) ??
+      presentMediaFiles[0] ??
       mediaFiles[0]
 
     setSelectedMediaVersionId((current) =>
@@ -252,6 +263,7 @@ export const MediaItemPage = () => {
     )
   }, [
     mediaFiles,
+    missingMediaFileIds,
     mediaItemQuery.data?.media_type,
     moviePlaybackProgressQuery.data,
     moviePlaybackProgressQuery.isLoading,
@@ -281,7 +293,11 @@ export const MediaItemPage = () => {
   const playbackTargetMediaItemId = isSeriesView
     ? (seriesPlaybackTargetEpisode?.media_item_id ?? null)
     : (mediaItemQuery.data?.id ?? null)
-  const mediaVersionOptions = buildMediaVersionOptions(mediaFiles)
+  const mediaVersionOptions = buildMediaVersionOptions(mediaFiles).map((option) =>
+    missingMediaFileIds.includes(Number(option.value))
+      ? { ...option, label: `${option.label} · ${l('Unavailable')}` }
+      : option,
+  )
   const seasonOptions = availableSeasons.map((season) => ({
     label: l('Season {{season}}', { season: season.season_number }),
     value: String(season.season_number),
@@ -416,6 +432,27 @@ export const MediaItemPage = () => {
     return null
   }
 
+  // Every version of this movie or episode is gone from disk. The entry is
+  // shown as missing until the scan the server queued settles its fate.
+  if (mediaItemQuery.data.source_status === 'missing') {
+    return renderDashboardContent(
+      <div className="media-item-page">
+        <MediaSourceMissingNotice
+          rescanQueued={mediaItemQuery.data.rescan_scan_job_id !== null}
+          title={mediaItemQuery.data.title}
+        />
+      </div>,
+      mediaItemQuery.data.title || l('Media'),
+      <Link
+        aria-label={l('Back to Library')}
+        className="home-dashboard-page-header__back"
+        to={mediaItemDetailReturnPath(mediaItemQuery.data.library_id)}
+      >
+        <HomeIcon name="arrowLeft" />
+      </Link>,
+    )
+  }
+
   if (mediaItemQuery.data.media_type === 'episode') {
     if (playbackHeaderQuery.isLoading) {
       return renderDashboardContent(
@@ -436,6 +473,11 @@ export const MediaItemPage = () => {
 
   return renderDashboardContent(
     <div className="media-item-page">
+      {mediaItemQuery.data.source_status === 'storage_unavailable' ? (
+        <p className="callout callout--warning" role="status">
+          {l('Library storage is unavailable, so the files of this entry could not be verified.')}
+        </p>
+      ) : null}
       <section className="detail-hero">
         <div className="detail-hero__poster-column">
           <div className="detail-hero__poster">
@@ -568,6 +610,9 @@ export const MediaItemPage = () => {
           error={mediaFilesQuery.error}
           isLoading={mediaFilesQuery.isLoading}
           isSeriesView={isSeriesView}
+          isSelectedFileMissing={
+            selectedMediaFile !== null && missingMediaFileIds.includes(selectedMediaFile.id)
+          }
           key={selectedMediaFile?.id ?? 'no-source'}
           mediaFiles={mediaFiles}
           originalTitle={originalTitle}

@@ -53,6 +53,12 @@ const SeasonBlock = ({
       order: episode.episode_number,
       render: () => {
         const index = `S${String(season.season_number).padStart(2, '0')} · E${String(episode.episode_number).padStart(2, '0')}`
+        // A local episode whose files are gone keeps its place and its
+        // records; it is marked instead of removed.
+        const metaLabel =
+          episode.media_item_id !== null && !episode.is_available
+            ? `${index} · ${l('Unavailable')}`
+            : index
         const title =
           episode.title.trim() || l('Episode {{episode}}', { episode: episode.episode_number })
         const card = (
@@ -61,7 +67,7 @@ const SeasonBlock = ({
             artworkSrc={episode.poster_path}
             description={episode.overview}
             key={`${season.season_number}-${episode.episode_number}`}
-            metaLabel={index}
+            metaLabel={metaLabel}
             placeholderLabel={index}
             progressPercent={playbackPercent(episode.playback_progress)}
             status={playbackStatus(episode.playback_progress)}

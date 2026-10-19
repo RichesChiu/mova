@@ -112,6 +112,35 @@ where
 pub fn discover_media_file_inventory_report_with_policy<F, C, P>(
     root_path: &Path,
     excluded_directories: &[PathBuf],
+    on_progress: F,
+    should_cancel: C,
+    on_failure: P,
+) -> io::Result<MediaDiscoveryReport>
+where
+    F: FnMut(usize),
+    C: FnMut() -> bool,
+    P: FnMut(&Path, &io::Error) -> DiscoveryFailureDecision,
+{
+    discover_media_file_inventory_report_in_scope(
+        root_path,
+        None,
+        excluded_directories,
+        on_progress,
+        should_cancel,
+        on_failure,
+    )
+}
+
+/// Like [`discover_media_file_inventory_report_with_policy`], but when
+/// `scope_directories` is given only those directories (inside the root) are
+/// traversed. A scope directory that no longer exists contributes nothing;
+/// any other failure on it goes through `on_failure` like a subdirectory.
+/// The root itself is still resolved first, so an unreachable root fails
+/// the same way as a whole-library traversal.
+pub fn discover_media_file_inventory_report_in_scope<F, C, P>(
+    root_path: &Path,
+    scope_directories: Option<&[PathBuf]>,
+    excluded_directories: &[PathBuf],
     mut on_progress: F,
     mut should_cancel: C,
     mut on_failure: P,
@@ -135,15 +164,41 @@ where
                 return Ok(MediaDiscoveryReport::default());
             }
         };
-    visit_dir_inventory(
-        root_path,
-        &mut files,
-        &mut issues,
-        &mut on_progress,
-        &mut should_cancel,
-        &mut boundary,
-        &mut failure_policy,
-    )?;
+    match scope_directories {
+        None => visit_dir_inventory(
+            root_path,
+            &mut files,
+            &mut issues,
+            &mut on_progress,
+            &mut should_cancel,
+            &mut boundary,
+            &mut failure_policy,
+        )?,
+        Some(directories) => {
+            for directory in directories {
+                if !directory.starts_with(root_path) {
+                    continue;
+                }
+                match fs::symlink_metadata(directory) {
+                    Ok(_) => {}
+                    Err(error) if is_absent_entry_error(&error) => continue,
+                    Err(error) => {
+                        failure_policy.tolerate(directory, error)?;
+                        continue;
+                    }
+                }
+                visit_dir_inventory(
+                    directory,
+                    &mut files,
+                    &mut issues,
+                    &mut on_progress,
+                    &mut should_cancel,
+                    &mut boundary,
+                    &mut failure_policy,
+                )?;
+            }
+        }
+    }
     populate_inventory_sidecar_fingerprints(&mut files, root_path);
     files.sort_by(|left, right| left.file_path.cmp(&right.file_path));
     issues.sort_by(|left, right| left.file_path.cmp(&right.file_path));

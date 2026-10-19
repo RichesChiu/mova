@@ -1,8 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ApiError, getMediaItemEpisodeOutline, getMediaItemPlaybackHeader } from '../../api/client'
+import {
+  ApiError,
+  getMediaItem,
+  getMediaItemEpisodeOutline,
+  getMediaItemPlaybackHeader,
+} from '../../api/client'
 import { MediaPlayerPanel } from '../../components/media-player-panel'
+import { MediaSourceMissingNotice } from '../../components/media-source-missing-notice'
 import { useI18n } from '../../i18n'
 import {
   mediaItemDetailPath,
@@ -30,6 +36,16 @@ export const MediaPlayerPage = () => {
     enabled: Number.isFinite(mediaItemId),
     queryKey: ['media-item-playback-header', mediaItemId],
     queryFn: () => getMediaItemPlaybackHeader(mediaItemId),
+    retry: false,
+    staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
+  })
+  // The detail request verifies the item's files on disk and queues a scoped
+  // scan when they are gone; a deep link into the player gets the same check.
+  const mediaItemQuery = useQuery({
+    gcTime: MEDIA_QUERY_GC_TIME_MS,
+    enabled: Number.isFinite(mediaItemId),
+    queryKey: ['media-item', mediaItemId],
+    queryFn: () => getMediaItem(mediaItemId),
     retry: false,
     staleTime: MEDIA_DETAIL_QUERY_STALE_TIME_MS,
   })
@@ -83,6 +99,32 @@ export const MediaPlayerPage = () => {
 
   if (playbackHeaderQuery.data.media_type === 'series') {
     return <Navigate replace to={mediaItemDetailPath(playbackHeaderQuery.data.media_item_id)} />
+  }
+
+  if (mediaItemQuery.isLoading) {
+    return (
+      <div className="player-screen player-screen--state">
+        <p className="muted">{l('Loading player…')}</p>
+      </div>
+    )
+  }
+
+  if (mediaItemQuery.data?.source_status === 'missing') {
+    return (
+      <div className="player-screen player-screen--state">
+        <MediaSourceMissingNotice
+          rescanQueued={mediaItemQuery.data.rescan_scan_job_id !== null}
+          title={mediaItemQuery.data.title}
+        />
+        <button
+          className="button"
+          onClick={() => navigate(mediaItemDetailPath(playbackHeaderQuery.data.media_item_id))}
+          type="button"
+        >
+          {l('Go back')}
+        </button>
+      </div>
+    )
   }
 
   const detailReturnPath = mediaItemPlaybackReturnPath({

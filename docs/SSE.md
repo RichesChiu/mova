@@ -253,7 +253,8 @@ data: {
     "created_at": "2026-07-14T00:00:00Z",
     "started_at": "2026-07-14T00:00:01Z",
     "finished_at": null,
-    "error_message": null
+    "error_message": null,
+    "scope_paths": null
   },
   "items": [
     {

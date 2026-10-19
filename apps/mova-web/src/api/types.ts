@@ -41,6 +41,7 @@ export interface ScanJob {
   started_at: string | null
   finished_at: string | null
   error_message: string | null
+  scope_paths?: string[] | null
 }
 
 export interface ScanNotificationIssue {
@@ -230,10 +231,15 @@ export interface MediaLocalMetadataSource extends MediaLocalMetadataSourceSummar
   payload: Record<string, unknown>
 }
 
+export type MediaSourceStatus = 'available' | 'missing' | 'storage_unavailable'
+
 export interface MediaItemDetail extends MediaItem {
   tagline: string | null
   premiere_date: string | null
   content_rating: string | null
+  source_status: MediaSourceStatus
+  missing_media_file_ids: number[]
+  rescan_scan_job_id: number | null
 }
 
 export interface MediaItemMetadataSources {
