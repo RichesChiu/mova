@@ -1275,6 +1275,7 @@ pub async fn refresh_media_item_metadata(
                 stream_reference_hash: representative_file.stream_reference_hash.clone(),
                 container: representative_file.container.clone(),
                 file_size,
+                file_modified_at_ms: representative_file.file_modified_at_ms,
                 duration_seconds: representative_file.duration_seconds,
                 video_title: representative_file.video_title.clone(),
                 video_codec: representative_file.video_codec.clone(),

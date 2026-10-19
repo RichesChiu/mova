@@ -240,6 +240,8 @@ struct IncrementalScanPlan {
     discovered_paths: Vec<String>,
     scan_files: Vec<IncrementalScanFile>,
     container_bindings: HashMap<String, ContainerBindingResolution>,
+    /// Renamed or moved local files; finalization carries their user state.
+    renamed_files: Vec<mova_db::RenamedMediaFile>,
 }
 
 #[derive(Debug, Clone)]
@@ -693,6 +695,7 @@ pub async fn execute_scan_job_with_cancellation(
         discovered_paths,
         scan_files,
         container_bindings,
+        renamed_files,
     } = match build_incremental_scan_plan(
         pool,
         library.id,
@@ -988,6 +991,7 @@ pub async fn execute_scan_job_with_cancellation(
         &retained_local_metadata_source_paths,
         &[],
         Some(&storage_record),
+        &renamed_files,
         &fence,
     )
     .await
@@ -2650,6 +2654,7 @@ fn build_media_entries(
             stream_reference_hash: file.stream_reference_hash,
             container: file.container,
             file_size,
+            file_modified_at_ms: file.file_modified_at_ms,
             duration_seconds: file.duration_seconds,
             video_title: file.video_title,
             video_codec: file.video_codec,
@@ -2820,3 +2825,7 @@ mod probe_tests;
 #[cfg(test)]
 #[path = "scan_jobs/ignore_tests.rs"]
 mod ignore_tests;
+
+#[cfg(test)]
+#[path = "scan_jobs/identity_tests.rs"]
+mod identity_tests;
