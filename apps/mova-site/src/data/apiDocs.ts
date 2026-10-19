@@ -261,6 +261,7 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '存储不可用时触发扫描返回 409 和 library_storage_unavailable，params.reason_code 说明具体原因。',
       '扫描只在确认存储已连接后删除找不到的文件；存储已连接且确实没有文件时，媒体库可以被清空。',
       '媒体库的全部目录都从部署配置中移除时，服务启动时自动删除该媒体库；存储不可用的媒体库可以直接删除。',
+      'ScanJobResponse.scope_paths 列出本次扫描限定的目录，null 表示整库扫描；打开条目发现文件缺失时自动创建的限定扫描只遍历和对账这些目录，不替换媒体库的存储记录。',
     ],
     endpoints: [
       { method: 'GET', path: '/api/libraries', description: '查询媒体库列表' },
@@ -293,6 +294,8 @@ export const apiEndpointGroups: ApiEndpointGroup[] = [
       '剧集可通过 seasons、episodes、episode-outline 获取本地可用集和远端大纲合并结果。',
       'TMDB 剧集大纲以经过数据库 JSON 校验的 jsonb 文档持久化，默认缓存 24 小时。',
       'episode-outline 的播放快照包含 last_media_file_id；同一集有多个文件版本时，客户端应恢复最近播放的具体版本。',
+      '详情的 source_status 是打开条目时对本地文件的核对结果：available、missing 或 storage_unavailable；missing_media_file_ids 列出已不在磁盘上的版本，rescan_scan_job_id 是服务端自动创建、限定在缺失文件目录的扫描。客户端显示“资源已不存在，正在重新扫描”，不得自行删除条目。',
+      '剧集大纲中文件消失的单集以 is_available = false 保留，播放记录和已看状态不丢；只有整部剧集没有任何文件时才连同记录删除。',
       '文件列表的 source_kind 是必填字段，用于区分 local_file 与 strm；STRM 的 file_path / file_size 只描述本地引用载体，API 永不返回远端 URL，容器、时长、编码、码率、分辨率和技术标签均为空。',
       '文件列表的 scan_hash 是服务端增量扫描使用的不透明指纹；客户端不得解析或使用其内部格式决定业务行为。',
       '播放头对单集返回 series_media_item_id，供客户端读取所属剧集大纲或返回剧集详情。',

@@ -696,6 +696,7 @@ pub(crate) async fn verify_missing_media_paths(
     environment: &dyn LibraryStorageEnvironment,
     plan: &StoragePlan,
     observed_paths: &[String],
+    scope_prefixes: Option<&[String]>,
 ) -> ApplicationResult<MissingPathVerification> {
     let current = match assess_library_storage(pool, library, environment).await? {
         StorageAssessment::Available(current) if current.same_root_storage_as(plan) => current,
@@ -726,6 +727,13 @@ pub(crate) async fn verify_missing_media_paths(
         .map_err(ApplicationError::from)?
         .into_iter()
         .filter(|path| !observed.contains(path.as_str()))
+        .filter(|path| {
+            scope_prefixes.is_none_or(|prefixes| {
+                prefixes
+                    .iter()
+                    .any(|prefix| mova_db::path_is_under(path, prefix))
+            })
+        })
         .filter(|path| !current.is_dead_path(Path::new(path)))
         .filter(|path| !mova_scan::is_ignored_media_path(root, Path::new(path)))
         .collect::<Vec<_>>();

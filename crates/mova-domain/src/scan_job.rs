@@ -18,4 +18,6 @@ pub struct ScanJob {
     pub started_at: Option<OffsetDateTime>,
     pub finished_at: Option<OffsetDateTime>,
     pub error_message: Option<String>,
+    /// Directories this scan is limited to; `None` for a whole-library scan.
+    pub scope_paths: Option<Vec<String>>,
 }

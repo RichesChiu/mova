@@ -115,7 +115,8 @@ pub async fn list_library_details(
             latest_scan.created_at as scan_created_at,
             latest_scan.started_at as scan_started_at,
             latest_scan.finished_at as scan_finished_at,
-            latest_scan.error_message as scan_error_message
+            latest_scan.error_message as scan_error_message,
+            latest_scan.scope_paths as scan_scope_paths
         from libraries l
         left join media_items mi on mi.library_id = l.id
         left join lateral (
@@ -132,7 +133,8 @@ pub async fn list_library_details(
                 created_at,
                 started_at,
                 finished_at,
-                error_message
+                error_message,
+                scope_paths
             from scan_jobs
             where library_id = l.id
             order by created_at desc, id desc
@@ -153,7 +155,8 @@ pub async fn list_library_details(
             latest_scan.created_at,
             latest_scan.started_at,
             latest_scan.finished_at,
-            latest_scan.error_message
+            latest_scan.error_message,
+            latest_scan.scope_paths
         order by l.created_at asc, l.id asc
         "#,
     )
@@ -184,6 +187,7 @@ pub async fn list_library_details(
                 started_at: row.get("scan_started_at"),
                 finished_at: row.get("scan_finished_at"),
                 error_message: row.get("scan_error_message"),
+                scope_paths: row.get("scan_scope_paths"),
             });
             LibraryDetail {
                 library: map_library_row(row),
@@ -338,7 +342,7 @@ pub async fn update_library(
 
     let scan_enqueue_result = if metadata_language_changed {
         let enqueue_result =
-            crate::scan_jobs::enqueue_scan_job_tx(&mut tx, params.library_id).await?;
+            crate::scan_jobs::enqueue_scan_job_tx(&mut tx, params.library_id, &[]).await?;
         if !enqueue_result.created {
             tx.commit()
                 .await
@@ -836,10 +840,16 @@ mod tests {
     async fn active_scan_prevents_a_partial_language_update(pool: sqlx::postgres::PgPool) {
         let library_id = seed_library(&pool, "Series").await;
         let media_item_id = seed_language_dependent_media(&pool, library_id).await;
-        let active_scan = crate::enqueue_scan_job(&pool, crate::CreateScanJobParams { library_id })
-            .await
-            .unwrap()
-            .scan_job;
+        let active_scan = crate::enqueue_scan_job(
+            &pool,
+            crate::CreateScanJobParams {
+                library_id,
+                scope_paths: Vec::new(),
+            },
+        )
+        .await
+        .unwrap()
+        .scan_job;
 
         let outcome = update_library(
             &pool,
@@ -897,8 +907,14 @@ mod tests {
                 .await
             },
             async move {
-                crate::enqueue_scan_job(&enqueue_pool, crate::CreateScanJobParams { library_id })
-                    .await
+                crate::enqueue_scan_job(
+                    &enqueue_pool,
+                    crate::CreateScanJobParams {
+                        library_id,
+                        scope_paths: Vec::new(),
+                    },
+                )
+                .await
             }
         );
 

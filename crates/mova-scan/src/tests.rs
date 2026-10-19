@@ -1,5 +1,6 @@
 use super::{
     discover::{
+        discover_media_file_inventory_report_in_scope,
         discover_media_file_inventory_report_with_policy,
         discover_media_file_inventory_report_with_progress_and_cancel,
         discover_media_file_inventory_with_progress_and_cancel, discover_media_files,
@@ -3709,4 +3710,62 @@ fn discovery_skips_hidden_system_trailer_and_sample_entries() {
     assert!(report.issues.is_empty());
 
     fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn scoped_discovery_visits_only_the_given_directories() {
+    let root = unique_temp_path("scoped-discovery");
+    let alpha = root.join("Alpha (2020)").join("Alpha (2020).mkv");
+    let beta = root.join("Beta (2021)").join("Beta (2021).mkv");
+    for path in [&alpha, &beta] {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"video").unwrap();
+    }
+    let outside = unique_temp_path("scoped-discovery-outside");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("Outside (2019).mkv"), b"video").unwrap();
+
+    let mut failures = Vec::new();
+    let report = discover_media_file_inventory_report_in_scope(
+        &root,
+        Some(&[
+            root.join("Alpha (2020)"),
+            root.join("Gone (2018)"),
+            outside.clone(),
+        ]),
+        &[],
+        |_| {},
+        || false,
+        |path, error| {
+            failures.push((path.to_path_buf(), error.kind()));
+            DiscoveryFailureDecision::Abort
+        },
+    )
+    .expect("a scope directory that no longer exists is not a failure");
+
+    assert_eq!(
+        report
+            .files
+            .iter()
+            .map(|file| file.file_path.clone())
+            .collect::<Vec<_>>(),
+        vec![alpha]
+    );
+    assert!(report.issues.is_empty());
+    assert!(failures.is_empty());
+
+    // Without a scope the whole root is read.
+    let whole = discover_media_file_inventory_report_in_scope(
+        &root,
+        None,
+        &[],
+        |_| {},
+        || false,
+        |_, _| DiscoveryFailureDecision::Abort,
+    )
+    .unwrap();
+    assert_eq!(whole.files.len(), 2);
+
+    fs::remove_dir_all(&root).unwrap();
+    fs::remove_dir_all(&outside).unwrap();
 }

@@ -394,6 +394,7 @@ pub(crate) async fn reconcile_library_local_metadata_source_paths_tx(
     tx: &mut Transaction<'_, Postgres>,
     library_id: i64,
     retained_source_paths: &[String],
+    scope_prefixes: Option<&[String]>,
 ) -> Result<usize> {
     let retained = retained_source_paths.iter().collect::<HashSet<_>>();
     let existing_sources = sqlx::query_as::<_, (String, bool)>(
@@ -410,9 +411,18 @@ pub(crate) async fn reconcile_library_local_metadata_source_paths_tx(
     .await
     .context("failed to lock library local metadata sources for reconciliation")?;
 
+    // A scoped scan observed only part of the library, so only sources under
+    // its scope can be stale.
     let stale_sources = existing_sources
         .into_iter()
         .filter(|(source_path, _)| !retained.contains(source_path))
+        .filter(|(source_path, _)| {
+            scope_prefixes.is_none_or(|prefixes| {
+                prefixes
+                    .iter()
+                    .any(|prefix| crate::media_items::path_is_under(source_path, prefix))
+            })
+        })
         .collect::<Vec<_>>();
     let stale_paths = stale_sources
         .into_iter()

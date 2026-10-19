@@ -3381,10 +3381,27 @@ pub(super) async fn run_scan(
     cache: &Path,
     storage: Arc<dyn crate::LibraryStorageEnvironment>,
 ) -> crate::ApplicationResult<super::ExecuteScanJobOutcome> {
-    let scan_job = mova_db::enqueue_scan_job(pool, mova_db::CreateScanJobParams { library_id })
-        .await
-        .unwrap()
-        .scan_job;
+    run_scan_with_scope(pool, library_id, cache, storage, Vec::new()).await
+}
+
+/// Runs one scan limited to `scope_paths`; an empty scope is a whole-library scan.
+pub(super) async fn run_scan_with_scope(
+    pool: &sqlx::PgPool,
+    library_id: i64,
+    cache: &Path,
+    storage: Arc<dyn crate::LibraryStorageEnvironment>,
+    scope_paths: Vec<String>,
+) -> crate::ApplicationResult<super::ExecuteScanJobOutcome> {
+    let scan_job = mova_db::enqueue_scan_job(
+        pool,
+        mova_db::CreateScanJobParams {
+            library_id,
+            scope_paths,
+        },
+    )
+    .await
+    .unwrap()
+    .scan_job;
     let fence = mova_db::claim_background_job(pool, "storage-test-worker", 60)
         .await
         .unwrap()

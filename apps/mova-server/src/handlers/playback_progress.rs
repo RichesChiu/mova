@@ -148,6 +148,7 @@ mod tests {
             storage_environment: std::sync::Arc::new(
                 mova_application::HostLibraryStorageEnvironment,
             ),
+            media_inspections: Default::default(),
         }
     }
 

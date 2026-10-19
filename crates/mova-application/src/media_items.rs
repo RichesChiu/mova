@@ -159,6 +159,7 @@ struct LocalSeriesSeason {
 #[derive(Debug, Clone)]
 struct LocalSeriesEpisode {
     media_item_id: i64,
+    has_files: bool,
     title: String,
     overview: Option<String>,
     poster_path: Option<String>,
@@ -738,6 +739,7 @@ async fn load_local_series_inventory(
                 episode.episode_number,
                 LocalSeriesEpisode {
                     media_item_id: episode.media_item_id,
+                    has_files: episode.has_files,
                     title: episode.title,
                     overview: episode.overview,
                     poster_path: episode.poster_path,
@@ -805,7 +807,7 @@ fn build_local_outline(
                     intro_start_seconds: episode.intro_start_seconds,
                     intro_end_seconds: episode.intro_end_seconds,
                     media_item_id: Some(episode.media_item_id),
-                    is_available: true,
+                    is_available: episode.has_files,
                     playback_progress: playback_progress_by_media_item
                         .get(&episode.media_item_id)
                         .cloned(),
@@ -880,7 +882,7 @@ fn merge_remote_outline_with_local(
                 intro_start_seconds: local_episode.and_then(|episode| episode.intro_start_seconds),
                 intro_end_seconds: local_episode.and_then(|episode| episode.intro_end_seconds),
                 media_item_id: local_episode.map(|episode| episode.media_item_id),
-                is_available: local_episode.is_some(),
+                is_available: local_episode.is_some_and(|episode| episode.has_files),
                 playback_progress: local_episode
                     .and_then(|episode| playback_progress_by_media_item.get(&episode.media_item_id))
                     .cloned(),
@@ -902,7 +904,7 @@ fn merge_remote_outline_with_local(
                 intro_start_seconds: local_episode.intro_start_seconds,
                 intro_end_seconds: local_episode.intro_end_seconds,
                 media_item_id: Some(local_episode.media_item_id),
-                is_available: true,
+                is_available: local_episode.has_files,
                 playback_progress: playback_progress_by_media_item
                     .get(&local_episode.media_item_id)
                     .cloned(),
@@ -948,7 +950,7 @@ fn merge_remote_outline_with_local(
                     intro_start_seconds: local_episode.intro_start_seconds,
                     intro_end_seconds: local_episode.intro_end_seconds,
                     media_item_id: Some(local_episode.media_item_id),
-                    is_available: true,
+                    is_available: local_episode.has_files,
                     playback_progress: playback_progress_by_media_item
                         .get(&local_episode.media_item_id)
                         .cloned(),
@@ -2343,6 +2345,7 @@ mod tests {
             1,
             LocalSeriesEpisode {
                 media_item_id: 11,
+                has_files: true,
                 title: "Local Episode 1".to_string(),
                 overview: None,
                 poster_path: None,
@@ -2355,6 +2358,7 @@ mod tests {
             3,
             LocalSeriesEpisode {
                 media_item_id: 13,
+                has_files: true,
                 title: "Local Episode 3".to_string(),
                 overview: None,
                 poster_path: None,
@@ -2436,6 +2440,7 @@ mod tests {
             1,
             LocalSeriesEpisode {
                 media_item_id: 11,
+                has_files: true,
                 title: "Local Episode 1".to_string(),
                 overview: None,
                 poster_path: Some("/cache/local-episode-poster.jpg".to_string()),
@@ -2514,6 +2519,7 @@ mod tests {
             1,
             LocalSeriesEpisode {
                 media_item_id: 11,
+                has_files: true,
                 title: "Local Episode 1".to_string(),
                 overview: None,
                 poster_path: Some("/cache/local-episode-poster.jpg".to_string()),
@@ -2572,6 +2578,7 @@ mod tests {
             1,
             LocalSeriesEpisode {
                 media_item_id: 11,
+                has_files: true,
                 title: "Local Episode 1".to_string(),
                 overview: None,
                 poster_path: None,

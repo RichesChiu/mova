@@ -1819,7 +1819,8 @@ pub async fn list_episodes_for_season(pool: &PgPool, season_id: i64) -> Result<V
             mi.poster_path,
             mi.backdrop_path,
             e.intro_start_seconds,
-            e.intro_end_seconds
+            e.intro_end_seconds,
+            exists(select 1 from media_files mf where mf.media_item_id = mi.id) as has_files
         from episodes e
         join media_items mi on mi.id = e.media_item_id
         join seasons s on s.id = e.season_id
@@ -1851,7 +1852,8 @@ pub async fn list_episodes_for_series(pool: &PgPool, series_id: i64) -> Result<V
             mi.poster_path,
             mi.backdrop_path,
             e.intro_start_seconds,
-            e.intro_end_seconds
+            e.intro_end_seconds,
+            exists(select 1 from media_files mf where mf.media_item_id = mi.id) as has_files
         from seasons s
         join episodes e on e.season_id = s.id
         join media_items mi on mi.id = e.media_item_id
@@ -2834,6 +2836,7 @@ fn map_episode_row(row: PgRow) -> Episode {
         backdrop_path: row.get("backdrop_path"),
         intro_start_seconds: row.get("intro_start_seconds"),
         intro_end_seconds: row.get("intro_end_seconds"),
+        has_files: row.try_get("has_files").unwrap_or(true),
     }
 }
 
@@ -3690,10 +3693,16 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        let active_scan = crate::enqueue_scan_job(&pool, crate::CreateScanJobParams { library_id })
-            .await
-            .unwrap()
-            .scan_job;
+        let active_scan = crate::enqueue_scan_job(
+            &pool,
+            crate::CreateScanJobParams {
+                library_id,
+                scope_paths: Vec::new(),
+            },
+        )
+        .await
+        .unwrap()
+        .scan_job;
 
         let outcome =
             update_media_item_metadata(&pool, series_id, replacement_params(expected_updated_at))

@@ -74,7 +74,8 @@ pub async fn list_active_scan_jobs(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         from scan_jobs
         where status in ('pending', 'running')
           and ($1::bigint[] is null or library_id = any($1))
@@ -105,5 +106,6 @@ fn map_scan_job_row(row: PgRow) -> ScanJob {
         started_at: row.get("started_at"),
         finished_at: row.get("finished_at"),
         error_message: row.get("error_message"),
+        scope_paths: row.get("scope_paths"),
     }
 }

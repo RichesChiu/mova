@@ -9,6 +9,7 @@ mod strm;
 mod subtitle;
 
 pub use discover::{
+    discover_media_file_inventory_report_in_scope,
     discover_media_file_inventory_report_with_policy,
     discover_media_file_inventory_report_with_progress_and_cancel,
     discover_media_file_inventory_with_progress_and_cancel, discover_media_files,

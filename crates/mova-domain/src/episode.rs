@@ -11,4 +11,7 @@ pub struct Episode {
     pub backdrop_path: Option<String>,
     pub intro_start_seconds: Option<i32>,
     pub intro_end_seconds: Option<i32>,
+    /// False while every file of the episode is gone; the entry and its
+    /// records stay as long as the series still has media.
+    pub has_files: bool,
 }

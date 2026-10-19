@@ -566,9 +566,15 @@ mod tests {
             .expect("intro job should be claimed");
         assert_eq!(claimed.job_type, INTRO_DETECTION_JOB_TYPE);
 
-        enqueue_scan_job(&pool, CreateScanJobParams { library_id })
-            .await
-            .expect("scan should enqueue");
+        enqueue_scan_job(
+            &pool,
+            CreateScanJobParams {
+                library_id,
+                scope_paths: Vec::new(),
+            },
+        )
+        .await
+        .expect("scan should enqueue");
         let status = sqlx::query_scalar::<_, String>(
             "select status from background_jobs where job_type = $1",
         )
@@ -618,9 +624,15 @@ mod tests {
             .await
             .expect("inputs should load");
 
-        enqueue_scan_job(&pool, CreateScanJobParams { library_id })
-            .await
-            .expect("scan should cancel the running intro job");
+        enqueue_scan_job(
+            &pool,
+            CreateScanJobParams {
+                library_id,
+                scope_paths: Vec::new(),
+            },
+        )
+        .await
+        .expect("scan should cancel the running intro job");
 
         let result = record_season_intro_analysis(
             &pool,

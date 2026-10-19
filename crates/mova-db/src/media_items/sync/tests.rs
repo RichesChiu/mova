@@ -210,6 +210,7 @@ async fn seed_running_scan(
         pool,
         CreateScanJobParams {
             library_id: library.id,
+            scope_paths: Vec::new(),
         },
     )
     .await
@@ -305,6 +306,7 @@ async fn confirmed_empty_discovery_empties_the_library_and_records_its_storage(
         &pool,
         CreateScanJobParams {
             library_id: library.id,
+            scope_paths: Vec::new(),
         },
     )
     .await
@@ -335,6 +337,7 @@ async fn confirmed_empty_discovery_empties_the_library_and_records_its_storage(
         &[],
         &[],
         Some(std::slice::from_ref(&storage)),
+        None,
         &[],
         &fence,
     )
@@ -435,6 +438,7 @@ async fn unparsed_carriers_keep_their_media_and_playback_state(pool: sqlx::postg
         &pool,
         CreateScanJobParams {
             library_id: library.id,
+            scope_paths: Vec::new(),
         },
     )
     .await
@@ -460,6 +464,7 @@ async fn unparsed_carriers_keep_their_media_and_playback_state(pool: sqlx::postg
         std::slice::from_ref(&unparsed.file_path),
         &[],
         &[],
+        None,
         None,
         &[],
         &fence,
@@ -733,6 +738,7 @@ async fn wrong_scan_fence_cannot_write_another_scan_or_library(pool: sqlx::postg
         &pool,
         CreateScanJobParams {
             library_id: library_b.id,
+            scope_paths: Vec::new(),
         },
     )
     .await
@@ -3461,6 +3467,7 @@ async fn finalization_carries_state_across_a_rename_only_for_the_same_work(
         &pool,
         CreateScanJobParams {
             library_id: library.id,
+            scope_paths: Vec::new(),
         },
     )
     .await
@@ -3486,6 +3493,7 @@ async fn finalization_carries_state_across_a_rename_only_for_the_same_work(
         &[],
         &[],
         &[],
+        None,
         None,
         &[
             crate::RenamedMediaFile {
@@ -3518,4 +3526,219 @@ async fn finalization_carries_state_across_a_rename_only_for_the_same_work(
             .await
             .unwrap();
     assert_eq!(remaining, 2);
+}
+
+/// An episode whose files are gone stays in its series with the users'
+/// records while the series still has any file; a series with nothing left
+/// goes with its episodes and records.
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn an_episode_without_files_stays_while_its_series_has_files(pool: sqlx::postgres::PgPool) {
+    let library = create_library(
+        &pool,
+        CreateLibraryParams {
+            name: "Series".to_string(),
+            description: None,
+            metadata_language: "en-US".to_string(),
+            root_path: "/media/series".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let first = build_episode_entry(library.id, "/media/series/Classroom/S01E01.mkv");
+    let mut second = build_episode_entry(library.id, "/media/series/Classroom/S01E02.mkv");
+    second.episode_number = Some(2);
+    sync_library_media(&pool, library.id, &[first.clone(), second.clone()])
+        .await
+        .unwrap();
+    let viewer = create_user(
+        &pool,
+        CreateUserParams {
+            username: "viewer".to_string(),
+            username_normalized: "viewer".to_string(),
+            nickname: "Viewer".to_string(),
+            password_hash: "unused".to_string(),
+            role: UserRole::Viewer,
+            is_enabled: true,
+            library_ids: vec![library.id],
+        },
+    )
+    .await
+    .unwrap();
+    let (first_file_id, first_item_id) = sqlx::query_as::<_, (i64, i64)>(
+        "select id, media_item_id from media_files where file_path = $1",
+    )
+    .bind(&first.file_path)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    upsert_playback_progress(
+        &pool,
+        UpsertPlaybackProgressParams {
+            user_id: viewer.user.id,
+            media_item_id: first_item_id,
+            media_file_id: first_file_id,
+            position_seconds: 300,
+            duration_seconds: Some(1500),
+            is_finished: false,
+        },
+    )
+    .await
+    .unwrap();
+    let progress_rows = |item_id: i64| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from playback_progress where media_item_id = $1",
+            )
+            .bind(item_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        }
+    };
+
+    // Only the second episode is still on disk.
+    sync_library_media(&pool, library.id, std::slice::from_ref(&second))
+        .await
+        .unwrap();
+    let kept: Vec<(i64, i32, bool)> = sqlx::query_as(
+        r#"
+        select e.media_item_id, e.episode_number,
+               exists(select 1 from media_files mf where mf.media_item_id = e.media_item_id)
+        from episodes e
+        join media_items mi on mi.id = e.media_item_id
+        where mi.library_id = $1
+        order by e.episode_number
+        "#,
+    )
+    .bind(library.id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(kept.len(), 2);
+    assert_eq!((kept[0].0, kept[0].1, kept[0].2), (first_item_id, 1, false));
+    assert_eq!((kept[1].1, kept[1].2), (2, true));
+    assert_eq!(progress_rows(first_item_id).await, 1);
+    let outline = crate::list_episodes_for_series(
+        &pool,
+        sqlx::query_scalar::<_, i64>(
+            "select s.series_id from episodes e join seasons s on s.id = e.season_id where e.media_item_id = $1",
+        )
+        .bind(first_item_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        outline
+            .iter()
+            .map(|episode| (episode.episode_number, episode.has_files))
+            .collect::<Vec<_>>(),
+        vec![(1, false), (2, true)]
+    );
+
+    // The file is back under the same coordinates: same episode, records kept.
+    sync_library_media(&pool, library.id, &[first.clone(), second.clone()])
+        .await
+        .unwrap();
+    let reattached: i64 =
+        sqlx::query_scalar("select media_item_id from media_files where file_path = $1")
+            .bind(&first.file_path)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(reattached, first_item_id);
+    assert_eq!(progress_rows(first_item_id).await, 1);
+
+    // Nothing left: the series, its episodes and the records go together.
+    sync_library_media(&pool, library.id, &[]).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("select count(*) from media_items where library_id = $1")
+            .bind(library.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(progress_rows(first_item_id).await, 0);
+}
+
+/// A scoped reconciliation removes only catalog paths under its directories,
+/// whatever else was not observed, and leaves the storage record alone.
+#[sqlx::test(migrations = "../../migrations")]
+#[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+async fn scoped_reconciliation_leaves_paths_outside_the_scope_alone(pool: sqlx::postgres::PgPool) {
+    let library = create_library(
+        &pool,
+        CreateLibraryParams {
+            name: "Movies".to_string(),
+            description: None,
+            metadata_language: "en-US".to_string(),
+            root_path: "/media/movies".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+    let alpha = build_movie_entry(library.id, "/media/movies/Alpha (2020)/Alpha (2020).mkv");
+    let beta = build_movie_entry(library.id, "/media/movies/Beta (2021)/Beta (2021).mkv");
+    sync_library_media(&pool, library.id, &[alpha.clone(), beta.clone()])
+        .await
+        .unwrap();
+    let scan_job = enqueue_scan_job(
+        &pool,
+        CreateScanJobParams {
+            library_id: library.id,
+            scope_paths: vec!["/media/movies/Alpha (2020)".to_string()],
+        },
+    )
+    .await
+    .unwrap()
+    .scan_job;
+    let claimed_job = claim_background_job(&pool, "scope-test-worker", 60)
+        .await
+        .unwrap()
+        .claimed_job
+        .unwrap();
+    let fence = claimed_job.execution_fence().unwrap();
+    mark_scan_job_running(&pool, scan_job.id, &fence)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Nothing observed anywhere, but only Alpha's directory was looked at.
+    let scope = vec!["/media/movies/Alpha (2020)".to_string()];
+    let outcome = sync_library_media_changes(
+        &pool,
+        library.id,
+        scan_job.id,
+        &[],
+        &[],
+        &[],
+        &[],
+        None,
+        Some(&scope),
+        &[],
+        &fence,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(outcome.removed_count, 1);
+    assert_eq!(
+        sqlx::query_scalar::<_, Vec<String>>(
+            "select array_agg(file_path order by file_path) from media_files where library_id = $1",
+        )
+        .bind(library.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        vec![beta.file_path.clone()]
+    );
+    assert!(crate::list_library_storage_mounts(&pool, library.id)
+        .await
+        .unwrap()
+        .is_empty());
 }

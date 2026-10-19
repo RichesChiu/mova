@@ -869,6 +869,7 @@ mod tests {
                 started_at: Some(OffsetDateTime::UNIX_EPOCH),
                 finished_at: Some(OffsetDateTime::UNIX_EPOCH),
                 error_message: None,
+                scope_paths: None,
             },
             phase: Some("finished".to_string()),
         };

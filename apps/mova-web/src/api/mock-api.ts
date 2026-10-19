@@ -718,7 +718,13 @@ export const requestMockJson = async <T>(
   const mediaItemId = Number(pathname.match(/^\/media-items\/(\d+)/)?.[1] ?? Number.NaN)
   const mediaItem = Number.isFinite(mediaItemId) ? findMediaItem(mediaItemId) : null
   if (mediaItem && pathname === `/media-items/${mediaItemId}`) {
-    return mockResult(mediaItem as MediaItemDetail as T)
+    const detail: MediaItemDetail = {
+      ...(mediaItem as MediaItemDetail),
+      source_status: 'available',
+      missing_media_file_ids: [],
+      rescan_scan_job_id: null,
+    }
+    return mockResult(detail as T)
   }
   if (mediaItem && pathname === `/media-items/${mediaItemId}/cast`) {
     return mockResult(mockCast as T)

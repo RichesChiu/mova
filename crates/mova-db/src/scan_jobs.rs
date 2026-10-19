@@ -14,6 +14,9 @@ use sqlx::{
 #[derive(Debug)]
 pub struct CreateScanJobParams {
     pub library_id: i64,
+    /// Directories to inspect instead of the whole library; empty means a
+    /// full scan. Paths are absolute, inside the library root.
+    pub scope_paths: Vec<String>,
 }
 
 /// 入队扫描任务时返回的结果。
@@ -35,7 +38,7 @@ pub async fn enqueue_scan_job(
         .await
         .context("failed to start scan job enqueue transaction")?;
 
-    let result = enqueue_scan_job_tx(&mut tx, params.library_id).await?;
+    let result = enqueue_scan_job_tx(&mut tx, params.library_id, &params.scope_paths).await?;
 
     tx.commit()
         .await
@@ -47,6 +50,7 @@ pub async fn enqueue_scan_job(
 pub(crate) async fn enqueue_scan_job_tx(
     tx: &mut Transaction<'_, Postgres>,
     library_id: i64,
+    scope_paths: &[String],
 ) -> Result<EnqueueScanJobResult> {
     sqlx::query("select pg_advisory_xact_lock($1)")
         .bind(library_id)
@@ -55,6 +59,12 @@ pub(crate) async fn enqueue_scan_job_tx(
         .context("failed to acquire scan job enqueue lock")?;
 
     if let Some(scan_job) = get_active_scan_job_for_library_tx(tx, library_id).await? {
+        let scan_job = if scan_job.status == "pending" {
+            merge_pending_scan_scope(tx, scan_job.id, scope_paths).await?;
+            get_scan_job_tx(tx, scan_job.id).await?.unwrap_or(scan_job)
+        } else {
+            scan_job
+        };
         return Ok(EnqueueScanJobResult {
             scan_job,
             created: false,
@@ -90,8 +100,8 @@ pub(crate) async fn enqueue_scan_job_tx(
 
     let row = sqlx::query(
         r#"
-        insert into scan_jobs (library_id, status, total_files, scanned_files, progress_percent)
-        values ($1, 'pending', 0, 0, 0)
+        insert into scan_jobs (library_id, status, total_files, scanned_files, progress_percent, scope_paths)
+        values ($1, 'pending', 0, 0, 0, case when cardinality($2::text[]) = 0 then null else $2::text[] end)
         returning
             id,
             library_id,
@@ -106,10 +116,12 @@ pub(crate) async fn enqueue_scan_job_tx(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         "#,
     )
     .bind(library_id)
+    .bind(scope_paths)
     .fetch_one(&mut **tx)
     .await
     .context("failed to create scan job")?;
@@ -193,7 +205,8 @@ pub async fn mark_scan_job_running(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         "#,
     )
     .bind(scan_job_id)
@@ -249,7 +262,8 @@ pub async fn update_scan_job_progress(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         "#,
     )
     .bind(scan_job_id)
@@ -306,7 +320,8 @@ pub async fn update_scan_job_phase(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         "#,
     )
     .bind(scan_job_id)
@@ -365,7 +380,8 @@ pub async fn record_scan_job_attempt_failure(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         "#,
     )
     .bind(scan_job_id)
@@ -436,7 +452,8 @@ pub(crate) async fn mark_scan_job_retry_pending_tx(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         "#,
     )
     .bind(scan_job_id)
@@ -535,7 +552,8 @@ pub(crate) async fn finalize_scan_job_tx(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         "#,
     )
     .bind(scan_job_id)
@@ -658,6 +676,39 @@ fn scan_notification_presentation(
     }
 }
 
+/// A scan that has not started yet can still grow: a full request drops the
+/// scope, a scoped request adds its directories, and a scan that is already
+/// whole-library stays so. A running scan is left as it is; the caller reports
+/// it as in progress. The row lock taken here makes the worker's start
+/// transition wait, so the scope it reads is the merged one.
+async fn merge_pending_scan_scope(
+    tx: &mut Transaction<'_, Postgres>,
+    scan_job_id: i64,
+    scope_paths: &[String],
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        update scan_jobs
+        set scope_paths = case
+                when cardinality($2::text[]) = 0 then null
+                else (
+                    select array_agg(path order by path)
+                    from (select distinct unnest(scope_paths || $2::text[]) as path) merged
+                )
+            end
+        where id = $1
+          and status = 'pending'
+          and scope_paths is not null
+        "#,
+    )
+    .bind(scan_job_id)
+    .bind(scope_paths)
+    .execute(&mut **tx)
+    .await
+    .context("failed to merge pending scan scope")?;
+    Ok(())
+}
+
 /// 读取某个媒体库的扫描历史，最新任务排在最前面。
 pub async fn list_scan_jobs_for_library(pool: &PgPool, library_id: i64) -> Result<Vec<ScanJob>> {
     let rows = sqlx::query(
@@ -676,7 +727,8 @@ pub async fn list_scan_jobs_for_library(pool: &PgPool, library_id: i64) -> Resul
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         from scan_jobs
         where library_id = $1
         order by created_at desc
@@ -711,7 +763,8 @@ pub async fn get_latest_scan_job_for_library(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         from scan_jobs
         where library_id = $1
         order by created_at desc
@@ -744,7 +797,8 @@ pub async fn get_scan_job(pool: &PgPool, scan_job_id: i64) -> Result<Option<Scan
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         from scan_jobs
         where id = $1
         "#,
@@ -777,7 +831,8 @@ pub(crate) async fn get_scan_job_tx(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         from scan_jobs
         where id = $1
         "#,
@@ -810,7 +865,8 @@ pub(crate) async fn get_active_scan_job_for_library_tx(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         from scan_jobs
         where library_id = $1
           and status in ('pending', 'running')
@@ -895,7 +951,8 @@ pub async fn initialize_scan_job_work(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         "#,
     )
     .bind(scan_job_id)
@@ -1000,7 +1057,8 @@ pub async fn mark_scan_group_analyzed(
             created_at,
             started_at,
             finished_at,
-            error_message
+            error_message,
+            scope_paths
         "#,
     )
     .bind(scan_job_id)
@@ -1067,6 +1125,7 @@ fn map_scan_job_row_ref(row: &PgRow) -> ScanJob {
         started_at: row.get("started_at"),
         finished_at: row.get("finished_at"),
         error_message: row.get("error_message"),
+        scope_paths: row.get("scope_paths"),
     }
 }
 
@@ -1113,6 +1172,88 @@ mod tests {
                 scan_notification_summary_has_issues(&summary)
             ),
             ("scan.completed_with_issues", "warning", None)
+        );
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use crate::{create_library, enqueue_scan_job, CreateLibraryParams, CreateScanJobParams};
+
+    async fn library(pool: &sqlx::PgPool) -> i64 {
+        create_library(
+            pool,
+            CreateLibraryParams {
+                name: "Movies".to_string(),
+                description: None,
+                metadata_language: "en-US".to_string(),
+                root_path: "/media/movies".to_string(),
+            },
+        )
+        .await
+        .unwrap()
+        .id
+    }
+
+    async fn enqueue(
+        pool: &sqlx::PgPool,
+        library_id: i64,
+        scope: &[&str],
+    ) -> (bool, Option<Vec<String>>) {
+        let result = enqueue_scan_job(
+            pool,
+            CreateScanJobParams {
+                library_id,
+                scope_paths: scope.iter().map(|path| path.to_string()).collect(),
+            },
+        )
+        .await
+        .unwrap();
+        (result.created, result.scan_job.scope_paths)
+    }
+
+    /// A scan that has not started absorbs later requests: scopes are
+    /// united, a whole-library request widens it, and a whole-library scan
+    /// never narrows.
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn a_pending_scan_absorbs_later_scope_requests(pool: sqlx::PgPool) {
+        let library_id = library(&pool).await;
+        let alpha = "/media/movies/Alpha (2020)";
+        let beta = "/media/movies/Beta (2021)";
+
+        assert_eq!(
+            enqueue(&pool, library_id, &[alpha]).await,
+            (true, Some(vec![alpha.to_string()]))
+        );
+        assert_eq!(
+            enqueue(&pool, library_id, &[beta, alpha]).await,
+            (false, Some(vec![alpha.to_string(), beta.to_string()]))
+        );
+        assert_eq!(enqueue(&pool, library_id, &[]).await, (false, None));
+        assert_eq!(enqueue(&pool, library_id, &[alpha]).await, (false, None));
+    }
+
+    /// A running scan is reused as it is; its scope is not changed under it.
+    #[sqlx::test(migrations = "../../migrations")]
+    #[ignore = "requires DATABASE_URL and a reachable Postgres test database"]
+    async fn a_running_scan_keeps_its_scope(pool: sqlx::PgPool) {
+        let library_id = library(&pool).await;
+        let alpha = "/media/movies/Alpha (2020)";
+        let (_, _) = enqueue(&pool, library_id, &[alpha]).await;
+        sqlx::query("update scan_jobs set status = 'running' where library_id = $1")
+            .bind(library_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            enqueue(&pool, library_id, &["/media/movies/Beta (2021)"]).await,
+            (false, Some(vec![alpha.to_string()]))
+        );
+        assert_eq!(
+            enqueue(&pool, library_id, &[]).await,
+            (false, Some(vec![alpha.to_string()]))
         );
     }
 }

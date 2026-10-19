@@ -50,7 +50,6 @@ pub use media_cast::{
     replace_media_item_cast, MediaItemCastCacheEntry, ReplaceMediaItemCastMember,
     ReplaceMediaItemCastParams,
 };
-pub use media_items::RenamedMediaFile;
 pub use media_items::{
     backfill_media_file_modified_at, cleanup_library_orphan_series_after_scan,
     count_media_items_for_library, delete_library_media_by_file_path,
@@ -85,6 +84,7 @@ pub use media_items::{
     UpdateSeriesEpisodeMetadataParams, UpdateSeriesSeasonMetadataParams,
     UpsertSeriesEpisodeOutlineCacheParams,
 };
+pub use media_items::{path_is_under, RenamedMediaFile};
 pub use notifications::{list_notifications, mark_all_notifications_read, mark_notification_read};
 pub use playback_progress::{
     get_playback_progress_for_media_item, list_continue_watching,
