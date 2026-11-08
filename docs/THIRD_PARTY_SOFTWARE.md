@@ -6,6 +6,8 @@ Mova 的应用源码使用仓库根目录 `LICENSE` 中的 AGPL-3.0-only 许可�
 
 官方镜像的运行时基于 Debian 13（trixie）。FFmpeg 和 FFprobe 从固定的 FFmpeg 官方源码提交构建，源码压缩包使用 SHA-256 校验；构建关闭自动发现的外部库、网络协议和 GPL 组件，仅保留 MOVA 本地媒体探测、重封装、字幕转换与片头音频分析所需的命令行能力。片头分析由 Rust 实现，运行时不包含 Python。
 
+镜像不包含 `util-linux`、`liblastlog2-2`、`libsqlite3-0` 和包维护用的 `perl-base`。Mova 与随附媒体工具不依赖这些组件；存储挂载信息直接读取 procfs，宿主机登录及管理工具不属于容器运行契约。系统包更新通过重建基础镜像完成。
+
 每个 Mova 运行时镜像都保留：
 
 - `/usr/share/doc/<package>/copyright`：Debian 软件包的版权和许可证信息；

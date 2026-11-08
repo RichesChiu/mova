@@ -34,7 +34,7 @@ for platform in "${smoke_platforms[@]}"; do
       ! command -v perl
       ! dpkg-query -W perl-base >/dev/null 2>&1
       ! command -v python3
-      for absent_package in ffmpeg python3 librist4 libcjson1 libssh-4; do
+      for absent_package in ffmpeg python3 librist4 libcjson1 libssh-4 util-linux liblastlog2-2 libsqlite3-0; do
         ! dpkg-query -W "$absent_package" >/dev/null 2>&1
       done
       apt-get check
@@ -45,6 +45,7 @@ for platform in "${smoke_platforms[@]}"; do
       test -s /usr/share/mova/third-party/COPYING.LGPLv2.1
       test -s /usr/share/mova/third-party/COPYING.LGPLv3
       ! grep -q "^perl-base[[:space:]]" /usr/share/mova/third-party/debian-packages.tsv
+      ! grep -Eq "^(util-linux|liblastlog2-2|libsqlite3-0)(:[^[:space:]]+)?[[:space:]]" /usr/share/mova/third-party/debian-packages.tsv
       test ! -e /app/scripts/detect_intro.py
       test ! -e /app/scripts/publish-docker-images.sh
       test ! -e /app/scripts/smoke-test-runtime-image.sh
