@@ -132,6 +132,13 @@ const translations: Record<string, string> = {
   '完整 API.md': 'Complete API.md',
   '完整 STRM.md': 'Complete STRM.md',
   '完整 SSE.md': 'Complete SSE.md',
+  '完整 EMBY_COMPATIBILITY.md': 'Complete EMBY_COMPATIBILITY.md',
+  '实验性 Emby 兼容入口为 /emby，并提供同名根路径别名；覆盖登录、媒体库和季集浏览、图片、本地与 STRM 直播放、播放事件及续播，响应不使用原生 JSON envelope。':
+    'The experimental Emby endpoint is /emby, with matching root-path aliases. It covers login, libraries, seasons and episodes, artwork, local and STRM direct playback, playback events and resume, without the native JSON envelope.',
+  'Emby 设备 token 有效期为 90 天，注销、改密、停用或删除账户会撤销相应会话。Version 4.8.0.0 是兼容标识，MovaVersion 是实际构建版本；爆米花各平台仍需实机验收。':
+    'Emby device tokens last 90 days. Logout, password changes, account disabling or deletion revoke the relevant sessions. Version 4.8.0.0 identifies the compatibility profile; MovaVersion is the actual build. Popcorn clients still require testing on each platform.',
+  'Emby 入口不提供视频转码或 HLS；STRM 沿用现有安全与 Range 策略。进度共用原生记录并取整到秒，已知时长达到 95% 标记完成；会话迁移无需重扫或重建缓存。':
+    'The Emby endpoint does not provide video transcoding or HLS. STRM retains existing security and Range policies. Progress shares native records, rounds down to seconds and marks known durations complete at 95%. The session migration needs no rescan or cache rebuild.',
   'MOVA 项目仓库': 'MOVA repository',
   文档目录: 'Contents',
   通用说明: 'General',

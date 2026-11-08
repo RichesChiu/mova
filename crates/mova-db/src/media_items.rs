@@ -1,5 +1,7 @@
+mod catalog;
 mod file_signatures;
 mod query;
+pub use catalog::{catalog_details, query_catalog, CatalogDetails, CatalogQuery, CatalogResult};
 mod ratings;
 mod series;
 mod sync;

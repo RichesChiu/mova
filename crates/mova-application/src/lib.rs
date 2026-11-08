@@ -1,5 +1,6 @@
 mod access;
 mod cache;
+pub mod client_playback;
 mod error;
 mod home;
 mod intro_detection;

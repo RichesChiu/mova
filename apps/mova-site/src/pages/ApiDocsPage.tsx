@@ -111,6 +111,10 @@ export function ApiDocsPage({ onNavigate }: { onNavigate: (sectionId: string) =>
             {t('完整 SSE.md')}
             <MovaIcon name="arrow-right" />
           </a>
+          <a href={apiSourceLinks.emby} target="_blank" rel="noreferrer">
+            {t('完整 EMBY_COMPATIBILITY.md')}
+            <MovaIcon name="arrow-right" />
+          </a>
           <a href={apiSourceLinks.repository} target="_blank" rel="noreferrer">
             {t('MOVA 项目仓库')}
             <MovaIcon name="arrow-right" />

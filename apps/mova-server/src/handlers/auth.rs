@@ -292,19 +292,19 @@ pub async fn change_password(
     ))
 }
 
-fn account_rate_limit_key(username: &str) -> String {
+pub(crate) fn account_rate_limit_key(username: &str) -> String {
     let normalized = username.trim().to_lowercase();
     format!("account:{:x}", Sha256::digest(normalized.as_bytes()))
 }
 
-fn enforce_auth_rate_limit(state: &AppState, key: &str) -> Result<(), ApiError> {
+pub(crate) fn enforce_auth_rate_limit(state: &AppState, key: &str) -> Result<(), ApiError> {
     state
         .auth_rate_limiter
         .check(key)
         .map_err(auth_rate_limit_error)
 }
 
-fn resolve_auth_attempt<T>(
+pub(crate) fn resolve_auth_attempt<T>(
     state: &AppState,
     key: &str,
     count_validation_failure: bool,

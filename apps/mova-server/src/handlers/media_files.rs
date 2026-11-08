@@ -99,7 +99,7 @@ pub async fn head_media_file(
     .await
 }
 
-async fn build_media_file_stream_response(
+pub(crate) async fn build_media_file_stream_response(
     state: AppState,
     user: &mova_domain::UserProfile,
     media_file_id: i64,

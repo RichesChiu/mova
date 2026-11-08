@@ -44,6 +44,9 @@ export const apiOverviewCards = [
 ]
 
 export const apiCommonNotes = [
+  '实验性 Emby 兼容入口为 /emby，并提供同名根路径别名；覆盖登录、媒体库和季集浏览、图片、本地与 STRM 直播放、播放事件及续播，响应不使用原生 JSON envelope。',
+  'Emby 设备 token 有效期为 90 天，注销、改密、停用或删除账户会撤销相应会话。Version 4.8.0.0 是兼容标识，MovaVersion 是实际构建版本；爆米花各平台仍需实机验收。',
+  'Emby 入口不提供视频转码或 HLS；STRM 沿用现有安全与 Range 策略。进度共用原生记录并取整到秒，已知时长达到 95% 标记完成；会话迁移无需重扫或重建缓存。',
   'health、bootstrap-status、bootstrap-admin、login、token-login、refresh 和 logout 可匿名访问，其余接口都要求登录态。',
   '管理类接口允许 owner 和 admin；用户角色提升等所有者操作只允许 owner。',
   'Web 端使用 session cookie；原生客户端使用 access token，refresh token 仅用于调用 refresh 接口。',
@@ -56,6 +59,7 @@ export const apiCommonNotes = [
 ]
 
 export const apiSourceLinks = {
+  emby: 'https://github.com/RichesChiu/mova/blob/master/docs/EMBY_COMPATIBILITY.md',
   repository: 'https://github.com/RichesChiu/mova',
   api: 'https://github.com/RichesChiu/mova/blob/master/docs/API.md',
   sse: 'https://github.com/RichesChiu/mova/blob/master/docs/SSE.md',
