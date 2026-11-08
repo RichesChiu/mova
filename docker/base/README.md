@@ -54,7 +54,8 @@ archive is SHA-256 verified. The configuration disables network protocols,
 external-library autodetection, and GPL components; Mova uses the tools only for
 local media probing, remuxing, subtitle conversion, and intro-audio extraction.
 Intro analysis is implemented in Rust, so Python is not present. The final image
-installs only the Debian CA certificate package and removes `perl-base` after
+applies available Debian package updates, installs the CA certificate package,
+and removes `perl-base` after
 package maintenance completes. Runtime images are immutable: rebuild the base
 image to apply package updates instead of installing packages in a running
 container.

@@ -52,6 +52,7 @@ FROM debian:trixie-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates \
     && mkdir -p /usr/share/mova/third-party \
     # Package-maintenance scripts are not used after this immutable image is built.
