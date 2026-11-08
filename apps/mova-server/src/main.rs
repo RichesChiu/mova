@@ -5,6 +5,7 @@ mod auth;
 mod auth_rate_limit;
 mod bounded_process;
 mod config;
+mod emby;
 mod error;
 mod handlers;
 mod library_storage_startup;

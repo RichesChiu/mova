@@ -22,6 +22,9 @@ pub fn start_auth_session_housekeeping(pool: PgPool) {
 }
 
 async fn run_cleanup(pool: &PgPool) {
+    if let Err(error) = mova_db::client_playback::cleanup_play_sessions(pool).await {
+        tracing::warn!(error = ?error, "playback session housekeeping failed");
+    }
     let mut totals = mova_db::AuthSessionCleanupOutcome::default();
 
     for _ in 0..MAX_BATCHES_PER_RUN {

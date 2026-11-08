@@ -898,7 +898,7 @@ fn verify_password(password_hash: &str, password: &str) -> ApplicationResult<boo
         .is_ok())
 }
 
-async fn authenticate_login(
+pub(crate) async fn authenticate_login(
     pool: &PgPool,
     username: String,
     password: String,
@@ -1005,13 +1005,13 @@ async fn create_native_session_for_user(
     })
 }
 
-fn generate_native_token() -> String {
+pub(crate) fn generate_native_token() -> String {
     let mut bytes = [0_u8; NATIVE_TOKEN_BYTES];
     OsRng.fill_bytes(&mut bytes);
     hex_encode(&bytes)
 }
 
-fn hash_token(token: &str) -> String {
+pub(crate) fn hash_token(token: &str) -> String {
     let digest = Sha256::digest(token.as_bytes());
     hex_encode(&digest)
 }

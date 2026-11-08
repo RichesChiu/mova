@@ -222,6 +222,18 @@ pub async fn upsert_playback_progress(
         .begin()
         .await
         .context("failed to begin playback progress transaction")?;
+    let progress = upsert_playback_progress_tx(&mut transaction, params).await?;
+    transaction
+        .commit()
+        .await
+        .context("failed to commit playback progress transaction")?;
+    Ok(progress)
+}
+
+pub(crate) async fn upsert_playback_progress_tx(
+    transaction: &mut PgConnection,
+    params: UpsertPlaybackProgressParams,
+) -> Result<PlaybackProgress> {
     let row = sqlx::query(
         r#"
         insert into playback_progress (
@@ -326,11 +338,6 @@ pub async fn upsert_playback_progress(
         .await
         .context("failed to prune continue watching items")?;
     }
-
-    transaction
-        .commit()
-        .await
-        .context("failed to commit playback progress transaction")?;
 
     Ok(map_playback_progress_row(row))
 }

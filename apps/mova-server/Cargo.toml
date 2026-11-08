@@ -30,3 +30,4 @@ mova-application = { path = "../../crates/mova-application" }
 
 [dev-dependencies]
 http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }

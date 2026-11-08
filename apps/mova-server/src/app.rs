@@ -31,7 +31,10 @@ pub fn build_router(state: AppState, web_dist_dir: Option<PathBuf>) -> Router {
         .fallback(api_not_found)
         .layer(middleware::from_fn(normalize_api_error_response));
 
-    let app = Router::new().nest("/api", api_router);
+    let app = Router::new()
+        .nest("/api", api_router)
+        .nest("/emby", crate::emby::router())
+        .merge(crate::emby::router());
 
     let app = if let Some(web_dist_dir) = web_dist_dir {
         let index_file = web_dist_dir.join("index.html");
@@ -40,5 +43,6 @@ pub fn build_router(state: AppState, web_dist_dir: Option<PathBuf>) -> Router {
         app
     };
 
-    app.with_state(state)
+    app.layer(middleware::from_fn(crate::emby::guard_fallback))
+        .with_state(state)
 }

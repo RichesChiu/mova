@@ -2682,7 +2682,7 @@ async fn hydrate_existing_metadata_owner_payloads(
     Ok(())
 }
 
-fn map_media_item_row(row: PgRow) -> MediaItem {
+pub(super) fn map_media_item_row(row: PgRow) -> MediaItem {
     MediaItem {
         id: row.get("id"),
         library_id: row.get("library_id"),
@@ -2861,7 +2861,7 @@ fn map_global_search_result_row(row: PgRow) -> GlobalSearchResult {
     }
 }
 
-fn map_media_file_row(row: PgRow) -> MediaFile {
+pub(super) fn map_media_file_row(row: PgRow) -> MediaFile {
     let source_kind = row
         .get::<String, _>("source_kind")
         .parse::<MediaSourceKind>()
