@@ -52,18 +52,13 @@ FROM debian:trixie-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates \
     && mkdir -p /usr/share/mova/third-party \
-    # Mova reads mount state from procfs and does not use host login utilities.
-    # Remove their lastlog2/SQLite dependency before removing package-script Perl.
-    && apt-get purge -y --allow-remove-essential util-linux liblastlog2-2 libsqlite3-0 \
     # Package-maintenance scripts are not used after this immutable image is built.
     && apt-get purge -y --allow-remove-essential perl-base \
     && ! command -v perl \
     && ! dpkg-query -W perl-base >/dev/null 2>&1 \
-    && ! dpkg-query -W libsqlite3-0 >/dev/null 2>&1 \
-    && ! dpkg-query -W liblastlog2-2 >/dev/null 2>&1 \
-    && ! dpkg-query -W util-linux >/dev/null 2>&1 \
     && apt-get check \
     && test -z "$(dpkg --audit)" \
     && test -s /etc/ssl/certs/ca-certificates.crt \
